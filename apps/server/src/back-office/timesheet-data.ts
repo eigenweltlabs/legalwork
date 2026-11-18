@@ -266,12 +266,16 @@ export function readTimesheet(
   const canSeeReferences = (e: Pick<TimeEntry, "clientId" | "matterId">) =>
     matters.has(e.matterId) && (!e.clientId || clients.has(e.clientId));
   const unresolvedLegacyEntries: string[] = [];
-  const timeObject = store.model(scope).objects.find((object) => object.id === "timeEntries" && !object.archived);
+  const objects = store.model(scope).objects;
+  const timeObject = objects.find((object) => object.id === "timeEntries" && !object.archived);
+  const peopleAvailable = objects.some((object) => object.id === "people" && !object.archived);
   if (timeObject) for (const row of store.db.all("SELECT data FROM bo_records WHERE scope=? AND object_id='timeEntries'", [scope])) {
     const record = BackOfficeRecordSchema.parse(JSON.parse(String(row.data)));
     if (managed.has(record.id) || record.archivedAt) continue;
     const { timekeeper } = record.values;
-    const contact = typeof timekeeper === "string" ? store.raw(scope, timekeeper) : null;
+    const readable = readableBackOfficeRecord(record, timeObject, actor);
+    const contact = peopleAvailable && typeof timekeeper === "string" && readable.values.timekeeper === timekeeper
+      ? store.raw(scope, timekeeper) : null;
     const linkedUser = contact && !contact.archivedAt && contact.values.active !== false && store.canRead(scope, contact, actor)
       ? timeMemberUserId(scope, contact) : undefined;
     const workerId = timekeeper == null || timekeeper === "" ? record.ownerId
@@ -281,7 +285,6 @@ export function readTimesheet(
     // Keep the generic record and its private fields subject to the original owner's permissions.
     if (!store.canRead(scope, record, actor) &&
         !(workerId === actor.userId && (record.access === "org" || record.members.includes(actor.userId)))) continue;
-    const readable = readableBackOfficeRecord(record, timeObject, actor);
     const legacy = legacyEntry(readable, workerId ?? record.ownerId);
     if (!legacy || !canSeeReferences(legacy)) continue;
     if (workerId) entries.push(legacy);

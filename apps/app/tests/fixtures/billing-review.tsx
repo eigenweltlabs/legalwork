@@ -391,10 +391,16 @@ try {
       date: reviewPeriod(day).to,
       workedMinutes: 60,
       billableMinutes: 60,
+      workerId: i === 55 ? "other-lawyer" : row.workerId,
       hourlyRate: i === 55 ? 150 : 270,
     };
   });
-  await draw({ ...actor, entries: threeWeeks });
+  await draw({
+    ...actor,
+    entries: threeWeeks,
+    people: [...actor.people, { id: "other-lawyer", name: "Other lawyer" }],
+    policies: [{ ...policy, hourlyRate: 270, workerRates: { "other-lawyer": 150 } }],
+  });
   assert.match(host.textContent ?? "", /56 positions · €15,000\.00/);
   for (const i of [0, 1, 55])
     await click(field('input[aria-label="Select entry: Review position ' + i + '"]'));
@@ -445,6 +451,13 @@ try {
   await draw({ ...actor, entries: [missingPrice], policies: [unpricedPolicy] });
   await click(match("Pricing"));
   assert.match(host.textContent ?? "", /Set an hourly rate and currency/);
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(match("Approve selection").disabled);
+
+  const stalePrice = { ...row, id: "stale-price", suggestion: undefined };
+  await draw({ ...actor, entries: [stalePrice], policies: [{ ...policy, hourlyRate: 350, currency: "USD" }] });
+  await click(match("Pricing"));
+  assert.match(host.textContent ?? "", /Pricing changed for this service date/);
   await click(field('input[aria-label="Select all eligible positions"]'));
   assert.ok(match("Approve selection").disabled);
 

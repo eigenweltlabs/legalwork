@@ -723,15 +723,21 @@ try {
   };
   const workdayActions: CaptureAction[] = [];
   let workdayProposals = [exact, partial, inlineTimer];
+  let workdaySettings = { calendar: true, tasks: false, intervalMinutes: 0 as const };
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
     privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
       if (action) workdayActions.push(action);
+      if (action?.type === "settings") workdaySettings = { ...workdaySettings, calendar: action.settings.calendar };
       if (action?.type === "reconcile") workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
         ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
         : proposal);
-      return { settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
-        modelReady: false, connections: [], drafts: {}, proposals: workdayProposals.filter(proposal => proposal.date === context.date) };
+      return { settings: workdaySettings,
+        modelReady: false, connections: [],
+        drafts: context.date === partial.date && workdaySettings.calendar ? {
+          [partial.key]: { date: partial.date, proposalDigest: partial.digest, values: { workflow: true, worked: "99" } },
+        } : {},
+        proposals: workdayProposals.filter(proposal => proposal.date === context.date && (workdaySettings.calendar || proposal.source !== "calendar")) };
     },
   };
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
@@ -794,6 +800,7 @@ try {
   await act(async () => correctionForm.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
   for (let i = 0; i < 20 && acceptFor(partial)?.disabled; i++) await settle();
   assert.equal(acceptFor(partial)?.disabled, false, "touching the booking boundary clears the overlap");
+  assert.equal(proposalCell(partial, "billableWork").value, "16", "the corrected suggestion ignores the old draft");
   assert.equal(proposalCell(inlineTimer, "charge").value, "20");
   await input(proposalCell(inlineTimer, "matter"), "Client · M · 26/12 · Nearest");
   assert.equal(proposalCell(inlineTimer, "charge").value, "10");
@@ -807,6 +814,15 @@ try {
   assert.equal(proposalCell(inlineTimer, "charge").value, "40", "an explicit charge survives date and allocation changes");
   await input(proposalCell(inlineTimer, "billableWork"), "0");
   assert.equal(proposalCell(inlineTimer, "charge").value, "0");
+  const thursday = document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")[3];
+  assert.ok(thursday);
+  await act(async () => thursday.click());
+  const calendarSwitch = document.querySelector<HTMLElement>('.bo-workday [role="switch"]');
+  assert.ok(calendarSwitch);
+  await act(async () => calendarSwitch.click());
+  for (let i = 0; i < 20 && suggestionRow(partial); i++) await settle();
+  assert.equal(suggestionRow(partial), null, "a source disabled on Thursday disappears from Wednesday");
+  assert.ok(suggestionRow(inlineTimer), "the stopwatch source stays available");
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

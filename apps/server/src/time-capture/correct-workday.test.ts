@@ -28,6 +28,7 @@ function sample(timed: boolean) {
   const saved = {
     originals: { [parent.digest]: parent },
     days: { [parent.date]: [{ eventKey: "calendar", proposal: parent }] },
+    drafts: { [parent.key]: { date: parent.date, values: { workflow: true, worked: "30" }, proposalDigest: parent.digest } },
   };
   const edit: WorkdayCorrection = {
     type: "correct",
@@ -46,6 +47,7 @@ test("private split moves last 12 minutes, gives distinct stable identities and 
   const { saved, parent, edit } = sample(true);
   edit.split = { matterId: "m2", projectId: null, minutes: 12 };
   correctWorkday(saved, parent.date, edit, "Europe/Vienna");
+  expect(saved.drafts[parent.key]).toBeUndefined();
   const [first, second] = saved.days[parent.date].map((item) => item.proposal);
   expect(first.key).toBe(parent.key);
   expect(second.key).not.toBe(first.key);

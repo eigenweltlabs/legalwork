@@ -27,6 +27,8 @@ type RowProps = {
   recordById?: ReadonlyMap<string, BackOfficeRecord>;
   editable: boolean;
   readOnlyFields?: readonly string[];
+  allowedRelationIds?: (record: BackOfficeRecord, field: string) => readonly string[] | undefined;
+  canTab?: (column: number, backward: boolean) => boolean;
   localOnly?: boolean;
   userId: string;
   selected: boolean;
@@ -41,7 +43,7 @@ type RowProps = {
 
 export const RecordGridRow = memo(function RecordGridRow({
   sheet, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
-  selected, editing, readOnlyFields, onEdit, onError, onSelect, onMove, onOpen, onSave,
+  selected, editing, readOnlyFields, allowedRelationIds, canTab, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
@@ -65,8 +67,8 @@ export const RecordGridRow = memo(function RecordGridRow({
         const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
         const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && (field.type === "datetime" || field.type === "date")));
         const active = canEdit && editing?.field === field.id;
-        const close = () => {
-          if (onEdit(null, editing) !== false && sheet) anchor.current?.focus();
+        const close = (focus = true) => {
+          if (onEdit(null, editing) !== false && sheet && focus) anchor.current?.focus();
         };
         const edit = (cell: HTMLDivElement) => {
           if (!canEdit || active) return;
@@ -93,6 +95,7 @@ export const RecordGridRow = memo(function RecordGridRow({
               <InlineCellEditor preserveOnExit={sheet} commitUnchanged={sheet && record.revision === 0} field={field} value={valueFor(editing.base, field.id)}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={close} onError={onError}
+                canTab={canTab && (backward => canTab(column, backward))}
                 onTab={sheet ? event => onMove(event, index, column) : undefined} />
             ) : field.id === "name" ? (
               <><RecordChip record={record} onOpen={onOpen} />{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}</>
@@ -108,6 +111,8 @@ export const RecordGridRow = memo(function RecordGridRow({
                       style={{ width: field.type === "date" ? "max-content" : field.type === "select" ? 200 : 260 }}>
                       <CellEditor projectScope={sheet ? "time-sheet" : undefined} record={editing.base} field={field}
                         value={valueFor(field.multiple || field.type === "multiselect" ? record : editing.base, field.id)} records={records}
+                        allowedRelationIds={allowedRelationIds?.(editing.base, field.id)}
+                        canTab={canTab && (backward => canTab(column, backward))}
                         onTab={sheet ? event => onMove(event, index, column) : undefined}
                         onCancel={close} onSave={(value, previous) => onSave(previous ? { ...editing.base, values: { ...editing.base.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
                     </DirectoryEditorPopup>

@@ -125,6 +125,8 @@ export function RecordGrid({
 }: {
   sheet?: {
     columns: string[];
+    requiredColumns?: readonly string[];
+    allowedRelationIds?: (record: BackOfficeRecord, field: string) => readonly string[] | undefined;
     widths?: Record<string, number>;
     onFocus?: (record: BackOfficeRecord) => void;
     fieldValue?: (record: BackOfficeRecord, fieldId: string) => BackOfficeValue | undefined;
@@ -250,10 +252,10 @@ export function RecordGrid({
     setViewMenu(false);
     setSavingView(true);
   };
-  const visibleFields = useMemo(() => columns.flatMap((id) => {
+  const visibleFields = useMemo(() => [...new Set([...columns, ...(sheet?.requiredColumns ?? [])])].flatMap((id) => {
     const field = object.fields.find((field) => field.id === id);
     return field && (field.visibility !== "finance" || finance) ? [field] : [];
-  }), [columns, object, finance]);
+  }), [columns, object, finance, sheet?.requiredColumns]);
   const localIds = useMemo(() => {
     if (!localRows?.length) return new Set<string>();
     const shared = new Set(records.map(record => record.id));
@@ -440,11 +442,19 @@ export function RecordGrid({
     column: number,
   ) => {
     if (sheet && event.key === "Tab") {
-      event.preventDefault();
       const position = row * visibleFields.length + column + (event.shiftKey ? -1 : 1);
       const targetRow = Math.floor(position / visibleFields.length), targetColumn = position % visibleFields.length;
-      if (targetRow < 0 || targetRow > rows.length) return;
-
+      if (targetRow < 0 || targetRow >= rows.length) {
+        // The last cell can commit a complete draft and add a new blank row.
+        if (targetRow === rows.length && event.target instanceof HTMLInputElement) {
+          requestAnimationFrame(() => {
+            const next = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`);
+            if (next) { next.focus(); next.click(); }
+          });
+        }
+        return;
+      }
+      event.preventDefault();
       editCell(null);
       if (windowed) rowWindow.scrollToIndex(targetRow);
       requestAnimationFrame(() => {
@@ -506,6 +516,8 @@ export function RecordGrid({
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
+      allowedRelationIds={sheet?.allowedRelationIds}
+      canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length - 1 || column < visibleFields.length - 1 : undefined}
       editing={editing?.record === record.id ? editing : undefined}
       onEdit={editCell} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />

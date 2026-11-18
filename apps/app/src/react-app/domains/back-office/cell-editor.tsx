@@ -37,6 +37,8 @@ export function CellEditor({
   onCancel,
   creationFilters,
   projectScope,
+  canTab,
+  allowedRelationIds,
   onTab,
 }: {
   field: BackOfficeField;
@@ -47,6 +49,8 @@ export function CellEditor({
   onCancel: () => void;
   creationFilters?: ProjectReferenceFilters | null;
   projectScope?: string;
+  canTab?: (backward: boolean) => boolean;
+  allowedRelationIds?: readonly string[];
   onTab?: (event: KeyboardEvent<HTMLElement>) => void;
 }) {
   const locale = useLocale();
@@ -54,7 +58,7 @@ export function CellEditor({
   const [targetType,setTargetType] = useState("");
   const polymorphic = field.target === allRecordsTarget;
   const targetId = polymorphic ? targetType : field.target;
-  const target = field.type === "relation" ? creatableRecordObject(creation?.state, targetId) : undefined;
+  const target = field.type === "relation" && !allowedRelationIds ? creatableRecordObject(creation?.state, targetId) : undefined;
   const [creating, setCreating] = useState(false), [created, setCreated] = useState<{ record: BackOfficeRecord; replica?: string }[]>([]);
   const [text, setText] = useState(() => {
     if (field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))) {
@@ -97,7 +101,7 @@ export function CellEditor({
   let options: { id: string; label: string; subtitle?: string }[];
   if (field.type === "relation") {
     const available = [...new Map([...created.filter(item => item.replica === creation?.state.permissions.replicaId).map(item => item.record), ...records].map(item => [item.id, item])).values()]
-      .filter(item => (polymorphic ? !item.objectId.startsWith("@") && !isInternalBackOfficeObject(item.objectId) && (!targetType || item.objectId === targetType) : item.objectId === field.target) && !item.archivedAt);
+      .filter(item => (polymorphic ? !item.objectId.startsWith("@") && !isInternalBackOfficeObject(item.objectId) && (!targetType || item.objectId === targetType) : item.objectId === field.target) && !item.archivedAt && (!allowedRelationIds || allowedRelationIds.includes(item.id)));
     options = relationPickerOptions(available, query, field.target === "matters" ? projectScope : undefined, creation?.state.records)
       .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle:polymorphic ? creation?.state.model.objects.find(o=>o.id===record.objectId)?.label : subtitle }))
       .sort((a, b) => {
@@ -153,7 +157,7 @@ export function CellEditor({
       className="bo-cell-form"
       aria-label={t("projects.edit_value", { name: field.label })}
       onKeyDown={(event) => {
-        if (event.key === "Tab" && onTab) {
+        if (event.key === "Tab" && onTab && canTab?.(event.shiftKey) !== false) {
           event.preventDefault(); event.stopPropagation();
           try {
             const next = isChoices ? (multiple ? selected : query ? options[0]?.id : selected[0]) : parseCellInput(field.type, text, value);

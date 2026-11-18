@@ -58,18 +58,19 @@ export function TimesheetWorkday({
     if (initialDate) setDate(initialDate);
   }, [initialDate]);
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
-  const context = {
-    date: dates[0],
+  const identity = {
     scope: directory.scope,
     user: directory.permissions.userId,
     principal: directory.permissions.principalKey ?? "",
     ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
   };
-  const key = ["back-office", ...calendarClientScope(client), "workday", context, period];
+  const queryPrefix = ["back-office", ...calendarClientScope(client), "workday"];
+  const scopeKey = [...queryPrefix, identity];
+  const key = [...queryPrefix, { ...identity, date: dates[0] }, period];
   const query = useQuery<CaptureState>({
     queryKey: key,
     queryFn: async () => {
-      const days = await Promise.all(dates.map(date => client.privateWorkday({ ...context, date })));
+      const days = await Promise.all(dates.map(date => client.privateWorkday({ ...identity, date })));
       return { ...days[0], proposals: days.flatMap(day => day.proposals), drafts: days.reduce<CaptureState["drafts"]>((all, day) => ({ ...all, ...day.drafts }), {}) };
     },
     enabled: local,
@@ -95,14 +96,32 @@ export function TimesheetWorkday({
     if (foreground) setRunning(true);
     try {
       const targetDate = action.type === "draft" && action.date ? action.date : "key" in action ? query.data?.proposals.find(proposal => proposal.key === action.key)?.date ?? query.data?.drafts[action.key]?.date ?? date : date;
-      const next = await client.privateWorkday({ ...context, date: targetDate }, action);
-      await cache.cancelQueries({ queryKey: key, exact: true });
+      const next = await client.privateWorkday({ ...identity, date: targetDate }, action);
+      if (action.type === "settings") {
+        await cache.cancelQueries({ queryKey: scopeKey });
+        // Settings apply to every day in this profile. Retire the cached suggestions
+        // until the server returns the eligible sources for each visible date.
+        cache.setQueriesData<CaptureState>({ queryKey: scopeKey }, previous =>
+          previous && { ...previous, settings: next.settings, connections: next.connections, proposals: [] });
+      } else {
+        await cache.cancelQueries({ queryKey: key, exact: true });
+      }
       cache.setQueryData<CaptureState>(key, previous => {
         if (!dates.includes(targetDate)) return previous;
+        if (previous && action.type === "draft") {
+          if (action.proposalDigest && !previous.proposals.some(proposal => proposal.key === action.key && proposal.digest === action.proposalDigest))
+            return previous;
+          const drafts = { ...previous.drafts };
+          const updated = next.drafts[action.key];
+          if (updated) drafts[action.key] = updated;
+          else delete drafts[action.key];
+          return { ...previous, drafts };
+        }
         if (!previous || period === "day") return next;
         return { ...next, proposals: [...previous.proposals.filter(proposal => proposal.date !== targetDate), ...next.proposals],
           drafts: { ...Object.fromEntries(Object.entries(previous.drafts).filter(([, draft]) => draft.date !== targetDate)), ...next.drafts } };
       });
+      if (action.type === "settings") await cache.invalidateQueries({ queryKey: scopeKey });
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
@@ -123,21 +142,25 @@ export function TimesheetWorkday({
               (e.groupId === p.key ||
                 e.proposalDigest === p.digest ||
                 (e.proposalDigest && p.versions?.includes(e.proposalDigest))) &&
-              e.workerId === context.user,
+              e.workerId === identity.user,
           ),
       ) ?? [];
   const selected = shown.find((p) => p.key === editing);
   const bookedEntries = state.entries.filter(
     (e) =>
-      e.workerId === context.user &&
+      e.workerId === identity.user &&
       ["confirmed", "submitted", "approved", "invoiced"].includes(e.status),
   );
   const ownEntries = bookedEntries.filter(entry => entry.date === date);
+  const ownContactIds = new Set(directory.records.filter(person =>
+    person.objectId === "people" && !person.archivedAt && person.values.active !== false &&
+    person.sourceId === "eigenwelt-member:" + identity.user,
+  ).map(person => person.id));
   const ownRecords = directory.records.filter(record => {
     if (record.objectId !== "timeEntries" || record.archivedAt) return false;
-    if (!record.values.timekeeper) return record.ownerId === context.user;
-    const person = directory.records.find(person => person.objectId === "people" && person.id === record.values.timekeeper);
-    return person?.sourceId === "eigenwelt-member:" + context.user && person.values.active !== false;
+    const timekeeper = record.values.timekeeper;
+    if (!timekeeper) return record.ownerId === identity.user;
+    return typeof timekeeper === "string" && ownContactIds.has(timekeeper);
   });
   const recordsOnly = state.service === "records";
   const overlaps = overlappingWorkdayRanges(shown, recordsOnly ? ownRecords.flatMap(({ values }) =>

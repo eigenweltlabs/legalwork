@@ -92,13 +92,12 @@ function requireEntry(state: TimesheetState, ref: { id: string; revision: number
   return e;
 }
 function snapshotRate(state: TimesheetState, e: TimeEntry, p = policyFor(state, e)) {
-  const { nonHourlyAgreement: _basis, ...terms } = p;
   return {
     activityLabel:
       p.activityLabels[e.activity] ??
       (Object.hasOwn(timeActivities, e.activity) ? timeActivities[e.activity] : e.activity),
     ...timeEntryPrice(p, e.workerId),
-    policyDigest: digest(terms),
+    policyDigest: digest(p),
   };
 }
 function issue(

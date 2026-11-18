@@ -115,6 +115,23 @@ test.each(["Flat fee", "Flat fee with included time", "RVG"])("%s time remains a
   expect(() => run(reviewer, { type: "return", entries: [entryRef(approved)], reason: "Review price" })).toThrow(/submitted/);
 });
 
+test("changing the agreement basis after submission requires a fresh review", async () => {
+  const { store, matter, run, read, submit, approve } = await fixture();
+  const agreement = store.saveRecord(scope, reviewer, {
+    objectId: "feeAgreements", revision: 0, values: { name: "Agreement", matter: matter.id, basis: "Hourly" },
+  });
+  const submitted = submit();
+  store.saveRecord(scope, reviewer, { ...agreement, values: { basis: "Flat fee" } });
+  expect(() => approve(submitted)).toThrow(/applicable billing terms changed/);
+
+  run(reviewer, {
+    type: "return", entries: [entryRef(submitted)], reason: "The agreement now uses a flat fee",
+  });
+  const returned = read(worker).entries[0];
+  const resubmitted = run(worker, { type: "submit", entries: [entryRef(returned)] }).entries[0];
+  expect(approve(resubmitted).nonHourlyApproval).toBe(true);
+});
+
 test("a historical unpriced approval is returned and reviewed at a new revision, retaining corrections and history", async () => {
   const { store, run, read, policy, submit, approve, client, matter } = await fixture();
   const line = submit();

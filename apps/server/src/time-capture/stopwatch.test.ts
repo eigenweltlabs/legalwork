@@ -12,6 +12,7 @@ import {
 import { proposedStopwatchCharge, resolveTimePolicy, TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { BackOfficeRecordSchema } from "../back-office/schema.js";
 import { startServer } from "../server.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { originalBillingComparison } from "./original.js";
 import { changeStopwatch, createStopwatchReader, emptyStopwatch } from "./stopwatch.js";
@@ -128,6 +129,17 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
     const running = stopwatchStateSchema.parse(await (await api(endpoint, start)).json());
     expect(running.active?.id).toBe(start.id);
     expect((await api(endpoint, { ...start, id: randomUUID() })).status).toBe(409);
+    expect(stopwatchStateSchema.parse(await (await api(endpoint)).json())).toEqual(running);
+    await writeEigenweltConnection(config, {
+      account: { userId: "second-person", orgId: "fixture", orgName: "Fixture", orgRole: "org:member", userName: "Second", userEmail: null },
+    });
+    expect((await api(endpoint)).status).toBe(409);
+    const other = stopwatchStateSchema.parse(await (await api("stopwatch")).json());
+    expect(other.profileId).not.toBe(profileId);
+    expect(other.active).toBeNull();
+    await writeEigenweltConnection(config, { account: null });
+    expect(stopwatchStateSchema.parse(await (await api(endpoint)).json())).toEqual(running);
+
     expect(stopwatchStateSchema.parse(await (await api(endpoint)).json())).toEqual(running);
     const assign: StopwatchAction = { type: "assign", id: start.id };
     expect((await api(endpoint, assign)).status).toBe(200);

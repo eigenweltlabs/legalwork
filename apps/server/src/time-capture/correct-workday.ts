@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { CaptureProposal, WorkdayCorrection } from "@legalwork/types/time-capture";
+import type { CaptureProposal, CaptureState, WorkdayCorrection } from "@legalwork/types/time-capture";
 import { dayInZone } from "../calendar/dates.js";
 import { ApiError } from "../errors.js";
 import { proposalCommitment } from "./original.js";
 import type { WorkdayEvidence } from "./private-workday.js";
 
-type Day = { days: Record<string, WorkdayEvidence[]>; originals: Record<string, CaptureProposal> };
+type Day = Pick<CaptureState, "drafts"> & {
+  days: Record<string, WorkdayEvidence[]>;
+  originals: Record<string, CaptureProposal>;
+};
 export function correctWorkday(saved: Day, date: string, command: WorkdayCorrection, zone: string) {
   const day = saved.days[date] ?? [];
   const item = day.find((item) => item.proposal.key === command.key);
@@ -60,6 +63,8 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
   saved.originals[parent.digest] = parent;
   saved.originals[remaining.digest] = remaining;
   item.proposal = remaining;
+  if (saved.drafts[parent.key]?.proposalDigest !== remaining.digest)
+    delete saved.drafts[parent.key];
   if (command.split) {
     const segment: CaptureProposal = {
       ...remaining,

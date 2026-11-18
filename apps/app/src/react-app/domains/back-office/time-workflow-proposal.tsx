@@ -66,13 +66,16 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     : edited;
   const conflict = capture.overlaps.has(proposal.key);
   const selectedMatter = matchMatter(matters, values.matter);
+  const selectedWorker = people.find(person => person.label.toLocaleLowerCase() === values.workers.trim().toLocaleLowerCase());
 
   function saveFields() {
-    const fields: Record<string, BackOfficeValue> = { workflow: true, billable: values.billable };
+    const fields: Record<string, BackOfficeValue> = {
+      workflow: true, billable: values.billable,
+      matterId: selectedMatter?.matterId ?? null, workerId: selectedWorker?.id ?? null,
+    };
     if (stopwatch) fields.manualCharge = Boolean(values.manualCharge);
-    if (selectedMatter) fields.matterId = selectedMatter.matterId;
     for (const column of rowColumns) fields[column] = values[column];
-    return capture.act({ type: "draft", key: proposal.key, proposalDigest: proposal.digest, values: fields });
+    return capture.act({ type: "draft", key: proposal.key, date: proposal.date, proposalDigest: proposal.digest, values: fields });
   }
   function privateSave() {
     if (!canEdit || !capture.privateAvailable || inFlight.current) return;
@@ -104,7 +107,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     }
     await run(async () => {
       const entry = parsed.entry;
-      if (entry.date === proposal.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
+      if (entry.date === values.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
         entry.startAt = proposal.startAt;
         entry.endAt = proposal.endAt;
       }
@@ -121,14 +124,14 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     product: productOptions(state, selectedMatter?.matterId).map(product => product.label),
     activity: Object.keys({ ...timeActivities, ...policy.activityLabels }),
   };
-  const linkMatter = selectedMatter?.matterId ?? matter?.id;
+  const linkMatter = selectedMatter?.matterId;
   const entriesById = new Map(state.entries.map(entry => [entry.id, entry]));
-  const matches = linkMatter ? capture.linkableRecords?.filter(record => {
+  const matches = linkMatter && selectedWorker?.id === state.userId ? capture.linkableRecords?.filter(record => {
     const entry = entriesById.get(record.id);
     return entry
       ? entry.workerId === state.userId && entry.status !== "declined" && entry.status !== "pending"
-        && entry.matterId === linkMatter && entry.date === proposal.date
-      : record.values.matter === linkMatter && timeRecordDate(record.values.startedAt, record.values.serviceDate) === proposal.date;
+        && entry.matterId === linkMatter && entry.date === values.date
+      : record.values.matter === linkMatter && timeRecordDate(record.values.startedAt, record.values.serviceDate) === values.date;
   }) ?? [] : [];
   function updateSource(action: CaptureAction) {
     void run(async () => {

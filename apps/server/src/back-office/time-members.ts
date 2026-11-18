@@ -29,6 +29,8 @@ export async function timeMembers(config: ServerConfig, scope: string, actor: Ba
  * source identity (not a name/email guess). Entry authorship remains unchanged. */
 export function timeMemberContact(store: BackOfficeStore, scope: string, actor: BackOfficeActor,
   member: { userId: string; name: string | null; email: string | null }) {
+  const object = store.model(scope).objects.find(object => object.id === "people" && !object.archived);
+  if (!object) throw new ApiError(409, "time_member_model", "The firm has no people directory.");
   const sourceId = memberSource(member.userId);
   const id = timeMemberContactId(scope, member.userId);
   const existing = store.raw(scope, id);
@@ -37,8 +39,6 @@ export function timeMemberContact(store: BackOfficeStore, scope: string, actor: 
       existing.values.active !== false && store.canRead(scope, existing, actor)) return id;
     throw new ApiError(409, "time_member_contact", "The firm member's contact is unavailable. Check it in People.");
   }
-  const object = store.model(scope).objects.find(object => object.id === "people" && !object.archived);
-  if (!object) throw new ApiError(409, "time_member_model", "The firm has no people directory.");
   const values: Record<string, BackOfficeValue> = { name: member.name || member.email || member.userId };
   if (object.fields.some(field => field.id === "email")) values.email = member.email;
   if (object.fields.some(field => field.id === "active")) values.active = true;

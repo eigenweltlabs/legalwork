@@ -43,10 +43,14 @@ const directory: BackOfficeState = {
   records: [workerContact], views: [], permissions: { userId: "worker", principalKey: "principal", edit: true, model: false, finance: true },
   sync: { enabled: true, cursor: 0, pending: 0, error: null },
 };
+const primary = crypto.randomUUID(), secondary = crypto.randomUUID(), unrelated = crypto.randomUUID(), noClients = crypto.randomUUID(), secondMatter = crypto.randomUUID();
+const linkedClients = [primary, secondary, unrelated].map((id, index) => ({ id, name: ["Primary client", "Secondary client", "Unrelated client"][index] }));
+const clientRecords = linkedClients.map(item => BackOfficeRecordSchema.parse({ ...workerContact, id: item.id, objectId: "clients", values: { name: item.name } }));
+const newMatter = BackOfficeRecordSchema.parse({ ...workerContact, id: secondMatter, objectId: "matters", values: { name: "Second matter" } });
 const state = TimesheetStateSchema.parse({
   userId: "worker", scope: "fixture", service: "records", canManage: true, canReview: true,
-  entries: [], matters: [{ id: matter, name: "Research matter", reference: "", clientIds: [] }],
-  clients: [], projects: [], people: [], products: [], policies: [], invoices: [],
+  entries: [], matters: [{ id: matter, name: "Research matter", reference: "", clientIds: [primary, secondary] }, { id: noClients, name: "Unlinked matter", reference: "", clientIds: [] }, { id: secondMatter, name: "Second matter", reference: "", clientIds: [primary, secondary] }],
+  clients: linkedClients, projects: [], people: [], products: [], policies: [], invoices: [],
 });
 const proposal = captureProposalSchema.parse({
   key: crypto.randomUUID(), digest: "b".repeat(64), date: first, source: "calendar", matterId: matter, projectId: null,
@@ -54,7 +58,7 @@ const proposal = captureProposalSchema.parse({
 });
 const savedRow = BackOfficeRecordSchema.parse({
   id: crypto.randomUUID(), objectId: "timeEntries", revision: 1, schemaRevision: 1, ownerId: "worker",
-  values: { name: "Before refresh", billingNarrative: "Before refresh", matter, timekeeper: workerContact.id, serviceDate: first,
+  values: { name: "Before refresh", billingNarrative: "Before refresh", matter, client: primary, timekeeper: workerContact.id, serviceDate: first,
     startedAt: first + "T11:00:00Z", endedAt: first + "T11:15:00Z", recordedMinutes: 15, billableMinutes: 15,
     hourlyRate: { amountMinor: 12000, currency: "EUR" }, invoice, status: "Invoiced" },
   createdAt: first + "T00:00:00Z", updatedAt: first + "T00:00:00Z", archivedAt: null,
@@ -94,7 +98,7 @@ const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
 });
 const render = async (capture: TimeCaptureSheet, records = directory.records) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
-    <TimeRecordSheet client={client} directory={{ ...directory, records }} state={state} capture={capture} />
+    <TimeRecordSheet client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter] }} state={state} capture={capture} />
   </BackOfficeTheme></QueryClientProvider></MemoryRouter>));
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)); });
 };
@@ -138,7 +142,7 @@ try {
   // A refresh that removes the source must not send a private row to the directory.
   const active = capture({ proposals: [proposal], privateAvailable: true });
   await render(active);
-  const privateInput = await enter(row(proposal.key), 3, "Edited privately");
+  const privateInput = await enter(row(proposal.key), 4, "Edited privately");
   await render(capture({ privateAvailable: true }));
   assert.equal(privateInput.isConnected, false);
   assert.equal(visible(proposal.key), false);
@@ -148,7 +152,16 @@ try {
   assert.ok(button(row(proposal.key), t("timesheets.sheet.accept")).disabled);
   await render(active);
   await act(async () => button(row(proposal.key), t("timesheets.sheet.accept")).click());
+  assert.equal(writes.length, 0, "chargeable time needs a linked client");
+  await act(async () => cell(row(proposal.key), 3).click());
+  assert.equal([...document.querySelectorAll('[role="option"]')].some(option => option.textContent?.includes("Unrelated client")), false);
+  const billingClient = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent?.includes("Secondary client"));
+  assert.ok(billingClient);
+  await act(async () => billingClient.click());
+  assert.equal(writes.length, 0, "choosing a client does not accept a suggestion");
+  await act(async () => button(row(proposal.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 1);
+  assert.equal(writes[0].values.client, secondary);
   assert.deepEqual(writes[0].privateProposal, { key: proposal.key, digest: proposal.digest, profileId: directory.captureProfileId });
   assert.equal(writes[0].values.billingNarrative, "Edited privately");
   assert.equal(row(proposal.key).querySelector("button[aria-label='" + t("timesheets.sheet.accept") + "']"), null);
@@ -157,13 +170,13 @@ try {
   await render(capture());
   const draftId = blank().dataset.recordId;
   assert.ok(draftId);
-  await enter(blank(), 3, "Incomplete remote draft");
+  await enter(blank(), 4, "Incomplete remote draft");
   await render(capture({ date: second, dates: [second] }));
   assert.equal(visible(draftId), false);
   await act(async () => root.unmount());
   root = createRoot(host);
   await render(capture());
-  assert.match(cell(row(draftId), 3).textContent ?? "", /Incomplete remote draft/);
+  assert.match(cell(row(draftId), 4).textContent ?? "", /Incomplete remote draft/);
   assert.equal(host.querySelector(".time-sheet-sync")?.textContent, t("timesheets.sheet.edit_unsaved"));
   assert.equal(writes.length, 1);
   const beforeClose = new window.Event("beforeunload", { cancelable: true });
@@ -174,7 +187,7 @@ try {
 
   // Peer changes preserve the open edit baseline and unrelated server fields.
   await render(capture(), [workerContact, savedRow]);
-  const minutesInput = await enter(row(savedRow.id), 4, "25");
+  const minutesInput = await enter(row(savedRow.id), 5, "25");
   current = { ...savedRow, revision: 2, values: { ...savedRow.values, recordedMinutes: 30, billingNarrative: "Colleague's narrative" } };
   rejectUpdate = true;
   await render(capture(), [workerContact, current]);
@@ -213,12 +226,20 @@ try {
   const transfer = new window.DataTransfer();
   transfer.setData("text/plain", JSON.stringify({ legalworkTimeRow: 1, values: savedRow.values }));
   const paste = new window.ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
-  await act(async () => cell(blank(), 3).dispatchEvent(paste));
+  await act(async () => cell(blank(), 4).dispatchEvent(paste));
   assert.ok(paste.defaultPrevented);
   const copied = [...host.querySelectorAll<HTMLElement>("[data-record-id]")].find(element => element !== blank() && /Before refresh/.test(element.textContent ?? ""));
   assert.ok(copied);
-  await act(async () => cell(copied, 3).click());
-  await act(async () => cell(copied, 3).querySelector("input")?.blur());
+  assert.match(copied.textContent ?? "", /Private draft/);
+  const copyId = copied.dataset.recordId;
+  assert.ok(copyId);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await render(capture({ date: second, dates: [first, second] }), [workerContact, current]);
+  assert.notEqual(blank().dataset.recordId, copyId);
+  assert.match(row(copyId).textContent ?? "", /Private draft/);
+  await act(async () => cell(row(copyId), 4).click());
+  await act(async () => cell(row(copyId), 4).querySelector("input")?.blur());
   assert.equal(writes.length, 4);
   assert.notEqual(writes[3].id, savedRow.id);
   assert.equal(writes[3].values.startedAt, second);
@@ -227,6 +248,66 @@ try {
   assert.equal(writes[3].values.invoice, null);
   assert.equal(writes[3].values.status, "Draft");
   assert.deepEqual(writes[3].values.hourlyRate, { amountMinor: 12000, currency: "EUR" });
+  const unlinked = { ...proposal, key: crypto.randomUUID(), matterId: noClients };
+  const uncharged = { ...proposal, key: crypto.randomUUID() };
+  await render(capture({ proposals: [unlinked, uncharged], privateAvailable: true }), [workerContact, current]);
+  await act(async () => button(row(unlinked.key), t("timesheets.sheet.accept")).click());
+  assert.equal(writes.length, 4);
+  assert.match(row(unlinked.key).textContent ?? "", /Add a client to this matter/);
+  const unchargedInput = await enter(row(uncharged.key), 6, "0");
+  await act(async () => unchargedInput.blur());
+  await act(async () => button(row(uncharged.key), t("timesheets.sheet.accept")).click());
+  assert.equal(writes.length, 5);
+  assert.equal(writes[4].values.client, null);
+  assert.equal(writes[4].values.billableMinutes, 0);
+  const firstCell = host.querySelector<HTMLElement>('[role="gridcell"]');
+  assert.ok(firstCell);
+  const reverseTab = () => new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  const fromCell = reverseTab();
+  await act(async () => firstCell.dispatchEvent(fromCell));
+  assert.equal(fromCell.defaultPrevented, false);
+  await act(async () => firstCell.click());
+  const firstInput = firstCell.querySelector("input");
+  assert.ok(firstInput);
+  const fromEditor = reverseTab();
+  await act(async () => firstInput.dispatchEvent(fromEditor));
+  assert.equal(fromEditor.defaultPrevented, false);
+  const lastInput = await enter(blank(), 6, "");
+  const forwardTab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => lastInput.dispatchEvent(forwardTab));
+  assert.equal(forwardTab.defaultPrevented, false);
+  // Editing a booked row must never send a chargeable matter change without its bill-to.
+  await render(capture(), [workerContact, current]);
+  const choose = async (column: number, label: string) => {
+    await act(async () => cell(row(savedRow.id), column).click());
+    const option = [...document.querySelectorAll<HTMLButtonElement>(".bo-choices button")].find(button => button.textContent?.includes(label));
+    assert.ok(option, label);
+    await act(async () => option.click());
+  };
+  const before = current;
+  await choose(2, "Second matter");
+  assert.equal(writes.length, 5);
+  assert.match(row(savedRow.id).textContent ?? "", /Choose a billing client/);
+  const narrative = await enter(row(savedRow.id), 4, "Unrelated queued narrative");
+  await act(async () => narrative.blur());
+  assert.equal(writes.length, 5);
+  current = { ...current, revision: current.revision + 1, values: { ...current.values, privateNote: "Remote update" } };
+  await render(capture(), [workerContact, current]);
+  await choose(3, "Secondary client");
+  assert.equal(writes.length, 7);
+  assert.equal(writes[5].revision, before.revision);
+  assert.deepEqual(writes[5].expectedValues, { matter, client: primary });
+  assert.deepEqual(writes[5].values, { matter: secondMatter, client: secondary });
+  assert.deepEqual(writes[6].values, { billingNarrative: "Unrelated queued narrative", name: "Unrelated queued narrative" });
+  assert.equal(current.values.privateNote, "Remote update");
+
+  await choose(3, t("back_office.no_field_value", { name: t("timesheets.sheet.bill_to") }));
+  assert.equal(writes.length, 7, "clearing a billing client waits while the row has a positive charge");
+  const zeroCharge = await enter(row(savedRow.id), 6, "0");
+  await act(async () => zeroCharge.blur());
+  assert.equal(writes.length, 8);
+  assert.deepEqual(writes[7].expectedValues, { client: secondary, billableMinutes: 15 });
+  assert.deepEqual(writes[7].values, { client: null, billableMinutes: 0 });
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

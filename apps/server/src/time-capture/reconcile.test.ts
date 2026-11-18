@@ -12,6 +12,7 @@ import type { BackOfficeRecord } from "../back-office/schema.js";
 import { ReloadEventStore } from "../events.js";
 import { matchRoute, type Route } from "../routes/registry.js";
 import { TokenService } from "../tokens.js";
+import { validateReconcileTarget } from "./reconcile.js";
 import { proposalCommitment } from "./original.js";
 import { acceptPrivateProposal, captureProfile, registerWorkdayRoutes } from "./routes.js";
 
@@ -39,6 +40,17 @@ test("workday reconciliation requires the current accessible row, worker, servic
       narrative: "Stopwatch", startAt: null, endAt: null, workedMinutes: 20, dismissed: false,
     };
     proposal.digest = proposalCommitment(proposal);
+    const target = { type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: right.id, recordRevision: right.revision } satisfies CaptureAction;
+    saveRecord("projectLinks", { name: "Project", projectId: "linked-project", matter: matter.id });
+    const fromProject = { ...proposal, projectId: "linked-project" };
+    expect(() => validateReconcileTarget(store, scope, actor, target, fromProject, { matter: undefined, values: undefined }, [], "UTC")).not.toThrow();
+    expect(() => validateReconcileTarget(store, scope, actor, target, fromProject, { matter: null, values: undefined }, [], "UTC")).toThrow("Assign an available matter");
+    const inaccessible = store.saveRecord(scope, { ...actor, userId: "other" }, {
+      revision: 0, objectId: "timeEntries", access: "members", values: { name: "Private", startedAt: date, matter: matter.id, recordedMinutes: 20 },
+    });
+    expect(() => validateReconcileTarget(store, scope, actor, { ...target, recordId: inaccessible.id, recordRevision: inaccessible.revision },
+      fromProject, { matter: undefined, values: undefined }, [], "UTC")).toThrow("Choose one of your time entries");
+
     await mkdir(dirname(path));
     await writeFile(path, JSON.stringify({
       settings: { calendar: false, tasks: false, intervalMinutes: 0 }, lastRun: 0,
@@ -64,13 +76,29 @@ test("workday reconciliation requires the current accessible row, worker, servic
     await expect(reconcile(differentDay)).rejects.toMatchObject({ code: "private_reconcile_mismatch" });
     await expect(reconcile(differentMatter)).rejects.toMatchObject({ code: "private_reconcile_mismatch" });
     await expect(reconcile(differentWorker)).rejects.toMatchObject({ code: "private_reconcile" });
-    const changed = store.saveRecord(scope, actor, { id: right.id, objectId: right.objectId, revision: right.revision, values: { billingNarrative: "Reviewed change" } });
+    const draft = (values: BackOfficeRecord["values"]) =>
+      workday({ type: "draft", key: proposal.key, proposalDigest: proposal.digest, values });
+    await draft({ matter: matter.id, timekeeper: "member:other", serviceDate: date });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile" });
+    await draft({ matter: matter.id, timekeeper: "member:local", serviceDate: "2026-11-18" });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile_mismatch" });
+    await draft({ workflow: true, matterId: matter.id, workers: "Unknown worker", date });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile" });
+    await draft({ workflow: true, matterId: matter.id, workerId: "other", date });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile" });
+    await draft({ workflow: true, matterId: matter.id, workerId: "local", date: "2026-11-18" });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile_mismatch" });
+    await draft({ workflow: true, matterId: null, workerId: "local", date });
+    await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile_matter" });
+    await draft({ matter: matter.id, timekeeper: "member:local", serviceDate: "2026-11-18" });
+
+    store.saveRecord(scope, actor, { id: right.id, objectId: right.objectId, revision: right.revision, values: { billingNarrative: "Reviewed change" } });
     await expect(reconcile(right)).rejects.toMatchObject({ code: "private_reconcile_changed" });
     expect((await workday()).proposals.map(({ key }) => key)).toEqual([proposal.key]);
-    const linked = await reconcile(changed);
+    const linked = await reconcile(differentDay);
     expect(linked.proposals).toEqual([]);
     expect(linked.drafts).toEqual({});
-    expect((await reconcile(changed)).proposals).toEqual([]);
+    expect((await reconcile(differentDay)).proposals).toEqual([]);
     await expect(acceptPrivateProposal(config, { user, principal, scope, profileId }, proposal.key, proposal.digest, async () => true, "record")).rejects.toMatchObject({ code: "private_already_booked" });
   } finally {
     await rm(root, { recursive: true, force: true });

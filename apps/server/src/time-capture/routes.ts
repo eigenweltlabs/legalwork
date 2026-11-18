@@ -98,14 +98,15 @@ async function load(path: string): Promise<Saved> {
     throw error;
   }
 }
-async function save(path: string, s: Saved, beforeCommit?: () => void) {
+async function save(path: string, s: Saved, beforeCommit?: () => Promise<() => void>) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = path + "." + randomUUID();
   try {
     await writeFile(temp, JSON.stringify(s), { mode: 0o600 });
     if (beforeCommit) {
       // Directory mutations are synchronous. Keep the target check and profile commit in the same turn.
-      beforeCommit();
+      const validate = await beforeCommit();
+      validate();
       renameSync(temp, path);
     } else await rename(temp, path);
   } catch (error) {
@@ -468,7 +469,11 @@ export function registerWorkdayRoutes(options: {
         else
           await withFileWriteLock(path, async () => {
             const s = await load(path);
-            let beforeCommit: (() => void) | undefined;
+            let beforeCommit: (() => Promise<() => void>) | undefined;
+            async function verifyProfile() {
+              if ((await profile(config)).path !== path)
+                throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+            }
             if (action.type === "settings") {
               workdaysRunning.get(path)?.abort();
               if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
@@ -495,14 +500,18 @@ export function registerWorkdayRoutes(options: {
               const access = await backOfficeAccess(config, scope !== "local"), store = await backOfficeStore(config);
               if (access.scope !== scope || access.actor.userId !== user || (access.actor.principalKey ?? "") !== principal) throw new ApiError(409, "private_workday_changed", "The account changed.");
               const draft = s.drafts[action.key];
-              const draftMatter = draft?.values.workflow === true ? draft.values.matterId : draft?.values.matter;
-              const reviewedMatter = draft?.date === date && draft.proposalDigest === action.digest &&
-                typeof draftMatter === "string" && draftMatter ? draftMatter : undefined;
-              const workspaces = !reviewedMatter && !proposal.matterId && proposal.projectId
+              const draftValues = draft?.date === date && draft.proposalDigest === action.digest ? draft.values : undefined;
+              const draftMatter = draftValues?.workflow === true ? draftValues.matterId : draftValues?.matter;
+              const hasDraftMatter = draftValues && (Object.hasOwn(draftValues, "matter") || Object.hasOwn(draftValues, "matterId"));
+              const reviewedMatter = typeof draftMatter === "string" && draftMatter ? draftMatter : hasDraftMatter ? null : undefined;
+              const workspaces = reviewedMatter === undefined && !proposal.matterId && proposal.projectId
                 ? await timeWorkspaces(config.workspaces.filter((workspace) => workspace.id === proposal.projectId), await backOfficeDirectoryIdentity(config, scope, store))
                 : [];
               const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              beforeCommit = () => validateReconcileTarget(store, scope, access.actor, action, proposal, reviewedMatter, workspaces, zone);
+              beforeCommit = async () => {
+                await verifyProfile();
+                return () => validateReconcileTarget(store, scope, access.actor, action, proposal, { matter: reviewedMatter, values: draftValues }, workspaces, zone);
+              };
               s.accepted[action.key] = action.digest;
               s.bookingTargets[action.key] = "record";
               s.reconciled[action.key] = action.recordId;
@@ -523,12 +532,7 @@ export function registerWorkdayRoutes(options: {
               const p = s.days[date]?.find((row) => row.proposal.key === action.key);
               if (p) p.proposal.dismissed = true;
             }
-            if ((await profile(config)).path !== path)
-              throw new ApiError(
-                409,
-                "private_workday_changed",
-                "The active Back Office account changed.",
-              );
+            if (!beforeCommit) await verifyProfile();
             await save(path, s, beforeCommit);
           });
       }

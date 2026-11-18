@@ -149,6 +149,7 @@ export function BillingReview({
       new Map(
         state.entries.map((entry) => {
           const policy = policyFor(state, entry);
+          const price = timeEntryPrice(policy, entry.workerId);
           return [
             entry.id,
             {
@@ -156,9 +157,9 @@ export function BillingReview({
               overCap: Boolean(timeCapWarning(entry, policy)),
               error: timePolicyError(entry, policy),
               priceIssue: entry.billable && !policy.nonHourlyAgreement
-                ? !hasTimeEntryPrice(timeEntryPrice(policy, entry.workerId))
+                ? !hasTimeEntryPrice(price)
                   ? "back_office.billing.price_missing"
-                  : !hasTimeEntryPrice(entry)
+                  : entry.hourlyRate !== price.hourlyRate || entry.currency !== price.currency
                     ? "back_office.billing.price_changed"
                     : undefined
                 : undefined,

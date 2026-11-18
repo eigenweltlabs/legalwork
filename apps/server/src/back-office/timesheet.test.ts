@@ -935,6 +935,34 @@ test("unresolved imported people cannot silently become the owner's time and can
   expect(store.raw("local", record.id)?.values).toMatchObject({ serviceDate: d.date, startedAt: d.date, endedAt: null });
 });
 
+test("imported work does not transfer through a hidden timekeeper relation", async () => {
+  const { store, d, run, state } = await fixture();
+  const scope = "local";
+  const timekeeper = timeMemberContact(store, scope, owner, { userId: ben.userId, name: "Worker", email: null });
+  const record = store.saveRecord(scope, owner, { objectId: "timeEntries", revision: 0, values: {
+    name: "Imported time", matter: d.matterId, client: d.clientId, timekeeper,
+    startedAt: d.date, recordedMinutes: 10, billableMinutes: 0,
+  } });
+  expect(state(ben).entries.map(({ id }) => id)).toEqual([record.id]);
+  const model = store.model(scope);
+  const writeModel = (objects: typeof model.objects) => store.transaction(() => {
+    store.db.run("UPDATE bo_models SET data=? WHERE scope=?", [JSON.stringify({ ...model, objects }), scope]);
+  }, { action: "test.replicated-model" });
+  writeModel(model.objects.map(object => object.id === "timeEntries" ? {
+    ...object, fields: object.fields.map(field => field.id === "timekeeper" ? { ...field, visibility: "private" } : field),
+  } : object));
+  expect(state(ben).entries).toHaveLength(0);
+  expect(state(owner).entries).toHaveLength(0);
+  expect(() => run(ben, { type: "confirm", entries: [{ id: record.id, revision: record.revision }] })).toThrow(/unavailable/);
+
+  writeModel(model.objects.map(object => object.id === "people" ? { ...object, archived: true } : object));
+  expect(state(ben).entries).toHaveLength(0);
+  expect(state(owner).entries).toHaveLength(0);
+  expect(state(owner).unresolvedLegacyEntries).toEqual([record.id]);
+  expect(() => timeMemberContact(store, scope, owner, { userId: ben.userId, name: "Worker", email: null }))
+    .toThrow(/no people directory/);
+});
+
 test("a new reviewer sees only the parts of an entry history belonging to accessible matters", async () => {
   const { store, d, run, state } = await fixture();
   const restricted = store.saveRecord("local", owner, {

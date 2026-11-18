@@ -14,16 +14,18 @@ export function InlineCellEditor({
   onCancel,
   onError,
   onTab,
+  canTab,
   commitUnchanged = false,
   preserveOnExit = false,
 }: {
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
   onSave: (value: BackOfficeValue) => Promise<void>;
-  onCancel: () => void;
+  onCancel: (focus?: boolean) => void;
   onError: (message: string) => void;
   commitUnchanged?: boolean;
   preserveOnExit?: boolean;
+  canTab?: (backward: boolean) => boolean;
   onTab?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const initial = field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
@@ -51,17 +53,17 @@ export function InlineCellEditor({
       catch (error) { failed(error); }
     };
   }, [preserveOnExit]);
-  const commit = async () => {
+  const commit = async (focus = true) => {
     if (completed.current) return;
     completed.current = true;
     if (text === initial && !commitUnchanged) {
-      onCancel();
+      onCancel(focus);
       return true;
     }
     try {
       onError("");
       await onSave(parseCellInput(field.type, text, value));
-      onCancel();
+      onCancel(focus);
       return true;
     } catch (error) {
       completed.current = false;
@@ -93,8 +95,9 @@ export function InlineCellEditor({
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Tab" && onTab) {
-          event.preventDefault();
-          void commit().then(saved => { if (saved) onTab(event); });
+          const move = canTab?.(event.shiftKey) !== false;
+          if (move) event.preventDefault();
+          void commit(move).then(saved => { if (saved) onTab(event); });
           return;
         }
         if (event.key === "Enter") {
