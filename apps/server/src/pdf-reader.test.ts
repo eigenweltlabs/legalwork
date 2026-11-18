@@ -185,6 +185,20 @@ test("a failed parallel page preserves successful siblings", async () => {
   expect(result.pages[0].text).toBe("Page 1"); expect(result.pages[2].text).toBe("Page 3");
 });
 
+test("pending durable OCR can resume immediately without the ordinary failure cooldown", async () => {
+  let pending = true;
+  const state = fixture(async () => {
+    if (pending) { pending = false; throw new OcrError("pending", "Read this unchanged page again to resume the saved job."); }
+    return "Completed saved job";
+  }, { execution: "remote", concurrentPages: 1 });
+  const bytes = await document();
+  expect((await state.reader.read(bytes, { ocr: true, pages: [1] }, signal())).complete).toBe(false);
+  const resumed = await state.reader.read(bytes, { ocr: true, pages: [1] }, signal());
+  expect(resumed.complete).toBe(true);
+  expect(resumed.pages[0].text).toBe("Completed saved job");
+  expect(state.calls).toEqual([1, 1]);
+});
+
 test("cancelling parallel OCR settles workers and keeps the reader reusable", async () => {
   const started = Promise.withResolvers<void>(), controller = new AbortController();
   let active = 0;

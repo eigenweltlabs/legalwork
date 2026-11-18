@@ -101,9 +101,10 @@ export class OcrService {
         const timeout = AbortSignal.timeout(this.pageTimeoutMs);
         const signal = request.signal ? AbortSignal.any([request.signal, timeout]) : timeout;
         const start = performance.now();
+        let durableJob = false;
         try {
           signal.throwIfAborted();
-          const content = contentSchema.safeParse(await abortable(engine.recognize(page, { languages, signal }), signal));
+          const content = contentSchema.safeParse(await abortable(engine.recognize(page, { languages, signal, onDurableJob: () => { durableJob = true; } }), signal));
           signal.throwIfAborted();
           if (!content.success) throw new OcrError("invalid-response", "The OCR engine returned invalid text or coordinates.");
           const pageWarnings = [...warnings];
@@ -119,7 +120,9 @@ export class OcrService {
           notify("page-completed", result, page.pageNumber);
         } catch (error) {
           if (request.signal?.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
-          if (timeout.aborted) throw new OcrError("timeout", "The OCR page exceeded its time limit.");
+          if (timeout.aborted) throw new OcrError(durableJob ? "pending" : "timeout", durableJob
+            ? "Gateway OCR is still queued or processing. Read this unchanged page again to resume the saved job."
+            : "The OCR page exceeded its time limit.");
           if (error instanceof OcrError) throw error;
           throw new OcrError("invalid-response", "OCR processing failed.");
         }

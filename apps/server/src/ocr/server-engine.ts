@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { setTimeout as delay } from "node:timers/promises";
 import { OCR_MAX_RESPONSE_BYTES, OcrError } from "./types.js";
 import type { OcrContent, OcrEngine, OcrPage } from "./types.js";
 import { serverEngineSchema } from "./settings.js";
@@ -26,6 +27,17 @@ const mcpResponse = z.object({
   structuredContent: z.unknown().optional(),
   content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
 });
+const mcpJob = z.object({ job: z.object({ id: z.uuid(), status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
+  retryAfterMs: z.number().int().min(250).max(10000) }), result: z.unknown().optional() });
+
+function mcpPayload(body: unknown): unknown {
+  const parsed = mcpResponse.safeParse(body);
+  if (!parsed.success || parsed.data.isError) throw invalidResponse();
+  if (parsed.data.structuredContent !== undefined) return parsed.data.structuredContent;
+  const content = parsed.data.content;
+  if (content?.length !== 1 || content[0].type !== "text" || !content[0].text) throw invalidResponse();
+  try { return JSON.parse(content[0].text); } catch { throw invalidResponse(); }
+}
 const paddleGeometry = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -86,15 +98,7 @@ const adapters: Record<ServerEngineSettings["kind"], OcrApiAdapter> = {
       return { server_id, name, arguments: { file: Buffer.from(page.data).toString("base64"), width: page.width, height: page.height } };
     },
     parse(body, page) {
-      const parsed = mcpResponse.safeParse(body);
-      if (!parsed.success || parsed.data.isError) throw invalidResponse();
-      let result: unknown = parsed.data.structuredContent;
-      if (result === undefined) {
-        const content = parsed.data.content;
-        if (content?.length !== 1 || content[0].type !== "text" || !content[0].text) throw invalidResponse();
-        try { result = JSON.parse(content[0].text); } catch { throw invalidResponse(); }
-      }
-      return adapters.paddleocr.parse(result, page);
+      return adapters.paddleocr.parse(mcpPayload(body), page);
     },
   },
   "chat-completions": {
@@ -166,17 +170,49 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
       context.signal.throwIfAborted();
       if (settings.apiKeyRef !== null && !apiKey?.trim()) throw new OcrError("missing-api-key", "Configure an API key for the selected OCR model.");
       try {
-        const response = await request(settings.endpoint, {
-          method: "POST", redirect: "error", signal: context.signal,
-          headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-          body: JSON.stringify(adapter.body(settings, page, context.languages)),
-        });
-        if (!response.ok) {
-          await response.body?.cancel();
-          // Deliberately omit provider bodies, URLs, and keys from errors.
-          throw new OcrError("server-failed", `The OCR server rejected the request (HTTP ${response.status}).`);
+        const call = async (body: unknown, readOnly = false): Promise<unknown> => {
+          let retries = 0;
+          for (;;) {
+            context.signal.throwIfAborted();
+            let response: Response;
+            try {
+              response = await request(settings.endpoint, {
+                method: "POST", redirect: "error", signal: context.signal,
+                headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+                body: JSON.stringify(body),
+              });
+            } catch (error) {
+              if (context.signal.aborted || (!readOnly && (settings.kind !== "mcp-ocr" || retries++ >= 2))) throw error;
+              await delay(2000, undefined, { signal: context.signal }); continue;
+            }
+            if (!response.ok) {
+              await response.body?.cancel();
+              if ([429, 500, 502, 503, 504].includes(response.status) && (readOnly || (settings.kind === "mcp-ocr" && retries++ < 2))) {
+                await delay(2000, undefined, { signal: context.signal }); continue;
+              }
+              // Deliberately omit provider bodies, URLs, and keys from errors.
+              throw new OcrError("server-failed", `The OCR server rejected the request (HTTP ${response.status}).`);
+            }
+            return limitedJson(response);
+          }
+        };
+        const body = await call(adapter.body(settings, page, context.languages));
+        if (settings.kind !== "mcp-ocr") return adapter.parse(body, page);
+        let queued = mcpJob.safeParse(mcpPayload(body));
+        if (!queued.success) return adapter.parse(body, page); // Existing synchronous MCP servers remain supported.
+        context.onDurableJob?.();
+        const id = queued.data.job.id;
+        let polls = 0;
+        for (;;) {
+          if (queued.data.job.id !== id) throw invalidResponse();
+          if (queued.data.job.status === "succeeded") return adapters.paddleocr.parse(queued.data.result, page);
+          if (queued.data.job.status === "failed" || queued.data.job.status === "cancelled")
+            throw new OcrError("server-failed", queued.data.job.status === "cancelled" ? "OCR was cancelled on the server." : "OCR could not finish this page. Completed pages are preserved.");
+          await delay(Math.min(2000, queued.data.job.retryAfterMs * 2 ** Math.min(polls++, 3)), undefined, { signal: context.signal });
+          const [server_id] = settings.model.split("/");
+          queued = mcpJob.safeParse(mcpPayload(await call({ server_id, name: "ocr_page_status", arguments: { job_id: id } }, true)));
+          if (!queued.success) throw invalidResponse();
         }
-        return adapter.parse(await limitedJson(response), page);
       } catch (error) {
         if (error instanceof OcrError) throw error;
         throw new OcrError("server-failed", "The OCR server request failed.");

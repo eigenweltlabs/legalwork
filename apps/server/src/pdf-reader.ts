@@ -3,6 +3,7 @@ import { extractPdfText, openDocument } from "./document-preparation/render.js";
 import { ApiError } from "./errors.js";
 import type { OcrManager } from "./ocr/manager.js";
 import type { OcrService } from "./ocr/service.js";
+import { OcrError } from "./ocr/types.js";
 import { PDF_MAX_BYTES, pdfReadOptions, type PdfTextResult } from "./pdf-read-schema.js";
 import type { z } from "zod";
 
@@ -80,8 +81,10 @@ export class PdfReader {
               } catch (error) {
                 signal.throwIfAborted();
                 page.error = error instanceof Error ? error.message : "Could not recognize this page.";
-                if (this.failures.size >= 1000) this.failures.delete(this.failures.keys().next().value!);
-                this.failures.set(key, { error: page.error, until: Date.now() + 60000 });
+                if (!(error instanceof OcrError && error.code === "pending")) {
+                  if (this.failures.size >= 1000) this.failures.delete(this.failures.keys().next().value!);
+                  this.failures.set(key, { error: page.error, until: Date.now() + 60000 });
+                }
               }
             }
           };

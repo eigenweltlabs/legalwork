@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { PdfReader } from "../src/pdf-reader.js";
 import { OcrService } from "../src/ocr/service.js";
 import { createServerOcrEngine } from "../src/ocr/server-engine.js";
@@ -15,11 +16,28 @@ const expected = z.object({ pages: z.number(), markers: z.array(z.string()) }).p
 const bytes = new Uint8Array(await readFile(file));
 const results: Array<{ concurrency: number; seconds: number; pages: number; markers: number }> = [];
 
+// Fresh PNG metadata preserves pixels but bypasses durable server-side deduplication.
+// Reopening a PdfReader alone only clears its local cache.
+function freshPng(bytes: Uint8Array, nonce: string) {
+  const data = Buffer.from("ocr-benchmark\0" + nonce), payload = Buffer.concat([Buffer.from("tEXt"), data]);
+  let crc = 0xffffffff;
+  for (const byte of payload) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+  }
+  const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+  length.writeUInt32BE(data.length); checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  if (Buffer.from(bytes.subarray(bytes.length - 8, bytes.length - 4)).toString() !== "IEND") throw new Error("Benchmark rendering must produce PNG pages");
+  return new Uint8Array(Buffer.concat([bytes.subarray(0, bytes.length - 12), length, payload, checksum, bytes.subarray(bytes.length - 12)]));
+}
+
 async function run(concurrency: number) {
+  const nonce = randomUUID();
   const engine = createServerOcrEngine({ id: "benchmark", label: "Gateway benchmark", kind: "mcp-ocr", model: config.model,
     endpoint: config.endpoint, apiKeyRef: "benchmark", languages: null, maxTokens: 8192 }, async () => config.apiKey);
   const reader = new PdfReader({ async serviceSnapshot() {
-    return { fingerprint: String(concurrency), service: new OcrService([{ ...engine, info: { ...engine.info, concurrentPages: concurrency } }], "benchmark") };
+    return { fingerprint: String(concurrency), service: new OcrService([{ ...engine, info: { ...engine.info, concurrentPages: concurrency },
+      recognize: (page, context) => engine.recognize({ ...page, data: freshPng(page.data, nonce) }, context) }], "benchmark") };
   } });
   const started = performance.now();
   const result = await reader.read(bytes, { ocr: true, text: false }, AbortSignal.timeout(240_000));
