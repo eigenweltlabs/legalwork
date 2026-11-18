@@ -1,16 +1,18 @@
 import { sourceKeys } from "./timesheet-labels";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, Settings2, Sparkles } from "lucide-react";
+import { CalendarDays, Settings2, Sparkles, ChevronDown } from "lucide-react";
 import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 import { Button } from "@/components/ui/button";
-import { TimeStorageNotice } from "./time-storage-notice";
+import type { TimeCaptureSheet } from "./time-record-sheet";
+import { weekDates } from "./timesheet-row";
 import {
   captureEnabled,
   sameCaptureAccount,
   type CaptureAction,
+  type CaptureState,
   type CaptureProposal,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
@@ -32,7 +34,9 @@ export function TimesheetWorkday({
   ledgerDirty = false,
   initialDate,
   onDateChange,
+  children,
 }: {
+  children?: (capture: TimeCaptureSheet) => ReactNode;
   initialDate?: string;
   onDateChange?: (value: string) => void;
   client: LegalworkServerClient;
@@ -45,6 +49,9 @@ export function TimesheetWorkday({
   const [date, setDate] = useState(() => initialDate ?? calendarDay(new Date())),
     [error, setError] = useState(""),
     [running, setRunning] = useState(false);
+  const [period, setPeriod] = useState<"day" | "week">("day");
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const dates = period === "week" ? weekDates(date) : [date];
   const navigate = useNavigate(),
     cache = useQueryClient();
   useEffect(() => {
@@ -58,10 +65,13 @@ export function TimesheetWorkday({
     principal: directory.permissions.principalKey ?? "",
     ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
   };
-  const key = ["back-office", ...calendarClientScope(client), "workday", context];
-  const query = useQuery({
+  const key = ["back-office", ...calendarClientScope(client), "workday", context, period];
+  const query = useQuery<CaptureState>({
     queryKey: key,
-    queryFn: () => client.privateWorkday(context),
+    queryFn: async () => {
+      const days = await Promise.all(dates.map(date => client.privateWorkday({ ...context, date })));
+      return { ...days[0], proposals: days.flatMap(day => day.proposals), drafts: days.reduce<CaptureState["drafts"]>((all, day) => ({ ...all, ...day.drafts }), {}) };
+    },
     enabled: local,
     retry: false,
     refetchInterval: 60000,
@@ -81,20 +91,27 @@ export function TimesheetWorkday({
   }, [local, profileId, lastStoppedId, refetchWorkday]);
   async function act(action: CaptureAction) {
     setError("");
-    setRunning(true);
+    const foreground = action.type !== "draft";
+    if (foreground) setRunning(true);
     try {
-      const next = await client.privateWorkday(context, action);
+      const targetDate = action.type === "draft" && action.date ? action.date : "key" in action ? query.data?.proposals.find(proposal => proposal.key === action.key)?.date ?? query.data?.drafts[action.key]?.date ?? date : date;
+      const next = await client.privateWorkday({ ...context, date: targetDate }, action);
       await cache.cancelQueries({ queryKey: key, exact: true });
-      cache.setQueryData(key, next);
+      cache.setQueryData<CaptureState>(key, previous => {
+        if (!dates.includes(targetDate)) return previous;
+        if (!previous || period === "day") return next;
+        return { ...next, proposals: [...previous.proposals.filter(proposal => proposal.date !== targetDate), ...next.proposals],
+          drafts: { ...Object.fromEntries(Object.entries(previous.drafts).filter(([, draft]) => draft.date !== targetDate)), ...next.drafts } };
+      });
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
       return false;
     } finally {
-      setRunning(false);
+      if (foreground) setRunning(false);
     }
   }
-  if (!local) return <div className="bo-empty">{t("timesheets.local_only")}</div>;
+
   const data = query.data,
     settings = data?.settings,
     shown =
@@ -119,7 +136,7 @@ export function TimesheetWorkday({
   const overlaps = overlappingWorkdayRanges(shown, ownEntries);
   const recordsOnly = state.service === "records";
   return (
-    <section className="bo-workday">
+    <section className={"bo-workday" + (children ? " time-unified" : "")}>
       <div className="bo-workday-controls">
         <label>
           <CalendarDays size={14} />
@@ -140,7 +157,9 @@ export function TimesheetWorkday({
           setDate(today);
           onDateChange?.(today);
         }}>{t("timesheets.today")}</Button>
+        {children && <div className="time-sheet-period">{(["day", "week"] as const).map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(value === "day" ? "timesheets.ledger.day" : "timesheets.ledger.week")}</Button>)}</div>}
         <span className="bo-workday-toolbar-space" />
+        {children && <Button size="sm" variant="ghost" aria-pressed={showSuggestions} onClick={() => setShowSuggestions(value => !value)}><Sparkles size={14} />{t("timesheets.sheet.suggestions", { count: shown.length })}</Button>}
         <Button
           size="sm"
           disabled={running || !settings || !captureEnabled(settings)}
@@ -159,15 +178,11 @@ export function TimesheetWorkday({
           {t("timesheets.run_local")}
         </Button>
       </div>
-      <p className="bo-workday-intro">{t("timesheets.activity_hint")}</p>
-      <TimeStorageNotice title={t("timesheets.storage_proposals_title")}>
-        <p>{t("timesheets.storage_proposals")}</p>
-        {recordsOnly && <p>{t("timesheets.records_proposals")}</p>}
-      </TimeStorageNotice>
+      <div className="time-sheet-tools">
       {settings && (
-        <details open={!captureEnabled(settings) || undefined}>
+        <details>
           <summary>
-            <Settings2 size={14} />
+            <Settings2 size={14} /><ChevronDown size={12} className="time-detail-chevron" />
             {t("timesheets.sources")}
           </summary>
           <LayoutStack className="mt-3">
@@ -237,11 +252,9 @@ export function TimesheetWorkday({
           {!data?.modelReady && <p>{t("timesheets.no_model")}</p>}
         </details>
       )}
-      {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
-      {running && <p role="status">{t("timesheets.preparing")}</p>}
       {data && (shown.some(p => p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
-        <details className="bo-workday-timeline" open>
-        <summary>{t("timesheets.timeline")}</summary>
+        <details className="bo-workday-timeline">
+        <summary><CalendarDays size={14} /><ChevronDown size={12} className="time-detail-chevron" />{t("timesheets.timeline")}</summary>
         <WorkdayTimeline
           date={date}
           proposals={shown}
@@ -251,6 +264,9 @@ export function TimesheetWorkday({
         />
         </details>
       )}
+      </div>
+      {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
+      {running && <p role="status">{t("timesheets.preparing")}</p>}
       {selected && (
         <WorkdayCorrectionForm
           key={selected.digest}
@@ -261,7 +277,8 @@ export function TimesheetWorkday({
           close={() => setEditing("")}
         />
       )}
-      {data && (
+      {children && (!local || !query.isPending) && children({ proposals: shown, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, dates, act, openSource: proposal => setEditing(proposal.key) })}
+      {data && !children && (
         <div className="bo-workday-list">
           {!shown.length ? (
             <p className="bo-workday-empty">{t("timesheets.activity_empty")}</p>

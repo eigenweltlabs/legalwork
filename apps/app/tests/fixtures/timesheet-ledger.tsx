@@ -517,6 +517,7 @@ try {
       return {
         settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
         proposals: [capture],
+        drafts: {},
         connections: [],
         modelReady: false,
       };
@@ -555,8 +556,8 @@ try {
   const settle = () => act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
-  for (let i = 0; i < 20 && !button("Edit in list"); i++) await settle();
-  const prepare = button("Edit in list");
+  for (let i = 0; i < 20 && !document.querySelector('[aria-label="Accept suggestion"]'); i++) await settle();
+  const prepare = document.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
   assert.ok(prepare, document.body.textContent?.slice(-800));
   assert.equal(document.querySelector('header button[aria-label="Start stopwatch"]'), null);
   const initialReads = workdayReads;
@@ -569,17 +570,21 @@ try {
   assert.equal(sourceSwitch.dataset.size, "default");
   assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
   assert.equal(sourceSwitch.closest<HTMLElement>(".bo-theme")?.style.getPropertyValue("--t-corner-shape"), "round");
+  const proposalRow = document.querySelector('[data-time-proposal]');
+  assert.ok(proposalRow);
+  const proposedText = proposalRow.querySelector<HTMLInputElement>('[data-column="narrative"]');
+  const proposedCharge = proposalRow.querySelector<HTMLInputElement>('[data-column="charge"]');
+  assert.equal(proposedText?.value, capture.narrative);
+  assert.ok(proposedCharge);
+  await input(proposedCharge, "30");
+  assert.equal(writes.length, 0, "editing a proposal does not publish it");
   await act(async () => prepare.click());
-  for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
-  assert.equal(cell("new", "narrative").value, capture.narrative);
-  assert.equal(cell("new", "date").value, capture.date);
-  await input(cell("new", "charge"), "30");
-  await key(cell("new", "charge"), "Enter");
   assert.equal(writes.length, 1);
   await input(cell("new", "narrative"), "First profile's unfinished line");
   captureProfileId = "profile-b";
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   await settle();
+  for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
   assert.equal(cell("new", "narrative").value, "");
   const accepted: TimeEntry = {
     ...base, status: "confirmed", source: "suggestion", groupId: capture.key,

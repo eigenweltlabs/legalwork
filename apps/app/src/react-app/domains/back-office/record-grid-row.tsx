@@ -1,5 +1,5 @@
 import { t } from "@/i18n";
-import { memo, useId, useRef, type KeyboardEvent } from "react";
+import { memo, useId, useRef, type ReactNode, type KeyboardEvent } from "react";
 import type { BackOfficeField, BackOfficeRecord, BackOfficeValue } from "@legalwork/types/back-office";
 import { Checkbox } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
@@ -11,6 +11,11 @@ import { DirectoryEditorPopup } from "./twenty-controls";
 export type EditingCell = { record: string; field: string; base: BackOfficeRecord };
 
 type RowProps = {
+  sheet?: boolean;
+  leading?: ReactNode;
+  details?: ReactNode;
+  trailing?: ReactNode;
+  onFocus?: () => void;
   record: BackOfficeRecord;
   index: number;
   top?: number;
@@ -28,33 +33,35 @@ type RowProps = {
   onEdit: (cell: EditingCell | null) => void;
   onError: (message: string) => void;
   onSelect: (id: string, checked: boolean) => void;
-  onMove: (event: KeyboardEvent<HTMLDivElement>, row: number, column: number) => void;
+  onMove: (event: KeyboardEvent<HTMLElement>, row: number, column: number) => void;
   onOpen: (record: BackOfficeRecord) => void;
   onSave: (record: BackOfficeRecord, values: Record<string, BackOfficeValue>) => Promise<void>;
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
-  record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
+  sheet, leading, details, trailing, onFocus, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
   selected, editing, readOnlyFields, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
   return (
     <div
+      onFocus={onFocus}
       role="row"
+      data-record-id={record.id}
       data-index={index}
       ref={measure}
       aria-rowindex={index + 2}
-      className={`bo-grid-row ${selected ? "bo-row-selected" : ""}`}
+      className={`bo-grid-row ${details ? "bo-grid-row-detail" : ""} ${selected ? "bo-row-selected" : ""}`}
       style={{ gridTemplateColumns: template, transform: top === undefined ? undefined : `translateY(${top}px)` }}
     >
       <div className="bo-check-cell">
-        <Checkbox size="sm" disabled={record.revision === 0} aria-label={t("back_office.select_record", { name: String(record.values.name) })} checked={selected}
-          onCheckedChange={checked => onSelect(record.id, checked)} />
+        {leading ?? <Checkbox size="sm" disabled={record.revision === 0} aria-label={t("back_office.select_record", { name: String(record.values.name) })} checked={selected}
+          onCheckedChange={checked => onSelect(record.id, checked)} />}
       </div>
       {fields.map((field, column) => {
         const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
-        const inline = field.id !== "name" && ["text", "email", "number", "currency"].includes(field.type);
+        const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && field.type === "datetime"));
         const active = canEdit && editing?.field === field.id;
         const edit = (cell: HTMLDivElement) => {
           if (!canEdit || active) return;
@@ -80,7 +87,8 @@ export const RecordGridRow = memo(function RecordGridRow({
             {inline && active && editing ? (
               <InlineCellEditor field={field} value={editing.base.values[field.id]}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
-                onCancel={() => onEdit(null)} onError={onError} />
+                onCancel={() => { onEdit(null); if (sheet) anchor.current?.focus(); }} onError={onError}
+                onTab={sheet ? event => onMove(event, index, column) : undefined} />
             ) : field.id === "name" ? (
               <><RecordChip record={record} onOpen={onOpen} />{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}</>
             ) : (
@@ -91,11 +99,12 @@ export const RecordGridRow = memo(function RecordGridRow({
               <Popover.Root open onOpenChange={open => { if (!open) onEdit(null); }}>
                 <Popover.Portal>
                   <Popover.Positioner anchor={anchor} align="start" side="bottom" sideOffset={-32}>
-                    <DirectoryEditorPopup id={popupId} finalFocus={anchor}
+                    <DirectoryEditorPopup id={popupId} finalFocus={sheet ? false : anchor}
                       style={{ width: field.type === "date" ? "max-content" : field.type === "select" ? 200 : 260 }}>
-                      <CellEditor record={editing.base} field={field}
+                      <CellEditor projectScope={sheet ? "time-sheet" : undefined} record={editing.base} field={field}
                         value={field.multiple || field.type === "multiselect" ? record.values[field.id] : editing.base.values[field.id]} records={records}
-                        onCancel={() => onEdit(null)} onSave={(value, previous) => onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
+                        onTab={sheet ? event => onMove(event, index, column) : undefined}
+                        onCancel={() => { onEdit(null); if (sheet) anchor.current?.focus(); }} onSave={(value, previous) => onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
                     </DirectoryEditorPopup>
                   </Popover.Positioner>
                 </Popover.Portal>
@@ -104,7 +113,8 @@ export const RecordGridRow = memo(function RecordGridRow({
           </div>
         );
       })}
-      <div className="bo-grid-fill" />
+      <div className="bo-grid-fill">{trailing}</div>
+      {details && <div className="bo-grid-row-details">{details}</div>}
     </div>
   );
 });

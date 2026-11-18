@@ -228,7 +228,8 @@ bridge.onState((value) => {
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
-  document.getElementById("start").disabled = !value.enabled || !value.registered;
+  document.getElementById("start").disabled = false;
+  document.getElementById("microphone-menu").setAttribute("aria-label", value.locale === "de" ? "Mikrofon auswählen" : "Choose microphone");
   const detected = value.state === "idle" ? value.meeting?.detected : null;
   document.getElementById("meeting-prompt").hidden = !detected;
   document.getElementById("meeting-title").textContent = detected ? `${labels.meetingDetected} · ${detected.app}` : "";
@@ -244,9 +245,9 @@ bridge.onState((value) => {
     const button = document.getElementById(action);
     const actionLabel = action === "stop" && value.state === "starting" ? labels.cancel : labels[action];
     button.setAttribute("aria-label", actionLabel);
-    button.title = action === "start" ? "" : actionLabel + (action === "cancel" ? " · Esc" : "");
+    button.title = action === "start" ? (value.enabled ? "" : value.locale === "de" ? "Diktieren einrichten" : "Set up dictation") : actionLabel + (action === "cancel" ? " · Esc" : "");
   }
-  startLabel.textContent = labels.dictate;
+  startLabel.textContent = value.enabled ? labels.dictate : value.locale === "de" ? "Diktieren einrichten" : "Set up dictation";
   label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? (value.dock !== "bottom" && value.message) || labels.error : value.message || labels[value.state] || "";
   const copyInstructions = labels.copyInstructions.replace("{paste}", value.platform === "darwin" ? "⌘V" : "Ctrl+V");
   document.getElementById("copy-instructions").textContent = copyInstructions;
@@ -370,4 +371,5 @@ document.getElementById("start").addEventListener("contextmenu", event => {
   event.preventDefault();
   if (currentState === "idle") bridge.action("microphone-menu");
 });
+document.getElementById("microphone-menu").addEventListener("click", () => bridge.action("microphone-menu"));
 bridge.action("ready");

@@ -1,3 +1,5 @@
+import { TimeWorkflowProposal } from "./time-workflow-proposal";
+import type { TimeCaptureSheet } from "./time-record-sheet";
 import {
   labelForCode,
   ledgerColumnKeys,
@@ -69,6 +71,7 @@ export type InitialTimesheetDraft = {
 type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" | "workedMinutes" | "digest">;
 
 type Props = {
+  capture?: TimeCaptureSheet;
   state: TimesheetState;
   onCommand: (command: TimesheetCommand) => Promise<unknown>;
   initialDraft?: InitialTimesheetDraft;
@@ -184,6 +187,7 @@ function PrivateOriginal({
 }
 
 export function TimesheetLedger({
+  capture,
   state,
   onCommand,
   initialDraft,
@@ -196,6 +200,8 @@ export function TimesheetLedger({
   onOriginal,
 }: Props) {
   const locale = useLocale();
+  const currentState = useRef(state);
+  currentState.current = state;
   const uid = useId();
   const {
     columns,
@@ -226,9 +232,20 @@ export function TimesheetLedger({
     return entry.billableMinutes > maximum ? maximum : null;
   }
   const own = person(state.userId);
-  const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
+  const restored = Object.entries(capture?.drafts ?? {}).find(([, item]) => item.values.workflow && !item.proposalDigest);
+  const [draft, setDraft] = useState(() => {
+    const initial = fromDraft(initialDraft?.entry ?? {}, own, date, state, matters);
+    if (!restored || initialDraft) return initial;
+    const fields = restored[1].values;
+    for (const column of rowColumns) if (typeof fields[column] === "string") initial[column] = fields[column];
+    if (typeof fields.billable === "boolean") initial.billable = fields.billable;
+    if (typeof fields.productId === "string") initial.productId = fields.productId;
+    if (typeof fields.createProduct === "boolean") initial.createProduct = fields.createProduct;
+    return initial;
+  });
   const [draftChanged, setDraftChanged] = useState(false);
-  const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => initialDraft?.key ?? restored?.[0] ?? crypto.randomUUID());
+  const privateQueue = useRef(Promise.resolve());
   const [provenance, setProvenance] = useState(initialDraft?.source);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [selected, setSelected] = useState("");
@@ -240,13 +257,18 @@ export function TimesheetLedger({
   const [shareRevisions, setShareRevisions] = useState(new Map<string, number>());
   const editing = Boolean(edit || draftChanged || provenance);
   useEffect(() => onEditingChange?.(editing), [editing, onEditingChange]);
+  useEffect(() => {
+    if (initialDate && initialDate !== date && !editing) {
+      setDate(initialDate); setDraft(current => ({ ...current, date: initialDate }));
+    }
+  }, [initialDate, editing]);
   const week = weekDates(date);
   const rows = state.entries
     .filter(
       (e) =>
         e.workerId === state.userId &&
         e.status !== "declined" &&
-        (period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6]),
+        (capture ? capture.dates.includes(e.date) : period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6]),
     )
     .sort(
       (a, b) =>
@@ -266,7 +288,7 @@ export function TimesheetLedger({
       { worked: 0, billable: 0, charge: 0 },
     );
   const delegated = (state.delegatedEntries ?? []).filter((e) =>
-    period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6],
+    capture ? capture.dates.includes(e.date) : period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6],
   );
   const ready = rows.filter((e) => e.status === "confirmed");
   const shareable = ready.filter(
@@ -496,6 +518,7 @@ export function TimesheetLedger({
         ...(provenance ? { source: provenance, proposalDigest: initialDraft?.proposalDigest } : {}),
       };
       if (!(await run(command))) return false;
+      await clearPrivateDraft();
       setRequestId(crypto.randomUUID());
       setProvenance(undefined);
       setDraftChanged(false);
@@ -578,7 +601,22 @@ export function TimesheetLedger({
     focus("new", "narrative");
     setNotice(t("timesheets.ledger.pasted"));
   }
+  function savePrivateDraft() {
+    if (!capture?.privateAvailable || provenance || !draftChanged) return;
+    const fields: Record<string, string | boolean> = { workflow: true, billable: draft.billable, createProduct: Boolean(draft.createProduct) };
+    for (const column of rowColumns) fields[column] = draft[column];
+    if (draft.productId) fields.productId = draft.productId;
+    privateQueue.current = privateQueue.current.then(async () => {
+      if (!await capture.act({ type: "draft", key: requestId, date: draft.date, values: fields })) setError(t("back_office.save_failed"));
+    });
+  }
+  async function clearPrivateDraft() {
+    if (!capture?.privateAvailable) return;
+    await privateQueue.current;
+    await capture.act({ type: "draft", key: requestId, date: draft.date, values: null });
+  }
   function resetComposer() {
+    void clearPrivateDraft();
     if (provenance) onDiscardProposal?.();
     setDraftChanged(false);
     setParticipants([]);
@@ -625,6 +663,20 @@ export function TimesheetLedger({
         setEdit(null);
         focus(row, column);
       }
+    } else if (event.key === "Tab" && (event.shiftKey || column !== columns[columns.length - 1])) {
+      const available = row === "new" ? columns : columns.filter(value => value !== "workers");
+      const target = available[available.indexOf(column) + (event.shiftKey ? -1 : 1)];
+      if (!target) return;
+      event.preventDefault();
+      if (row === "new") { savePrivateDraft(); focus(row, target); }
+      else void save(row, false).then(saved => {
+        if (!saved) return;
+        requestAnimationFrame(() => {
+          const latest = currentState.current.entries.find(entry => entry.id === row);
+          if (latest) openEditor(latest);
+          focus(row, target);
+        });
+      });
     } else if (
       event.key === "Enter" ||
       (event.key === "Tab" && !event.shiftKey && column === columns[columns.length - 1])
@@ -681,6 +733,12 @@ export function TimesheetLedger({
             }
             onChange={(e) => field(row, column, e.currentTarget.value)}
             onBlur={(e) => {
+              if (row === "new") savePrivateDraft();
+              const destination = e.relatedTarget;
+              if (column === columns[columns.length - 1] && !(destination instanceof Element && (destination.closest("[data-time-row]")?.getAttribute("data-time-row") === row || destination.closest(".bo-time-participants")))) {
+                const parsed = parseRow(values, state);
+                if (!("error" in parsed)) void save(row, false);
+              }
               const query = e.currentTarget.value.trim().toLocaleLowerCase();
               if (!query || !list || list.some((item) => item === e.currentTarget.value)) return;
               const matches = list.filter((choice) => choice.toLocaleLowerCase().includes(query));
@@ -764,7 +822,7 @@ export function TimesheetLedger({
       onPaste={clipboardPaste}
     >
       <div className="bo-view-toolbar bo-time-toolbar">
-        <div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
+        {!capture && <><div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
           {(["day", "week"] as const).map((value) => (
             <button
               type="button"
@@ -810,6 +868,7 @@ export function TimesheetLedger({
         <button type="button" onClick={() => chooseDate(localDate(new Date()))}>
           {t("timesheets.ledger.today")}
         </button>
+        </>}
         <div className="bo-view-actions">
           {columnChooser}
           {copied && (
@@ -1019,9 +1078,7 @@ export function TimesheetLedger({
                   )}
                   {editing ? (
                     <>
-                      <button aria-label={t("timesheets.ledger.save")} onClick={() => void save(entry.id)}>
-                        <Check size={14} />
-                      </button>
+                      <span>{busy ? t("projects.saving") : t("timesheets.ledger.editing")}</span>
                       <button
                         aria-label={t("timesheets.ledger.cancel")}
                         onClick={() => {
@@ -1097,6 +1154,7 @@ export function TimesheetLedger({
             </div>
           );
         })}
+        {capture?.showSuggestions && capture.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={onCommand} canEdit={canEdit} />)}
         {canEdit && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
             <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
@@ -1110,9 +1168,7 @@ export function TimesheetLedger({
             </div>
             {editors("new", draft)}
             <div role="gridcell" className="bo-grid-cell">
-              <button type="button" disabled={busy} onClick={() => void save("new")}>
-                {t("timesheets.ledger.book")}
-              </button>
+              {busy && <span>{t("projects.saving")}</span>}
               {(draftChanged || draft.activity || draft.narrative || draft.worked || provenance) && (
                 <button
                   type="button"

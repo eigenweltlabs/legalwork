@@ -1,3 +1,4 @@
+import { timeMembers, timeMemberContact } from "./time-members.js";
 import { acceptPrivateProposal, captureProfile } from "../time-capture/routes.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
@@ -363,14 +364,25 @@ export function registerBackOfficeRoutes(options: {
       });
     },
   );
+  route("GET", "/time-members", async (_ctx, _store, { scope, actor }) => ({ members: await timeMembers(options.config, scope, actor) }));
   route("POST", "/records", async (ctx, store, { scope, actor }) => {
-    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, ...body } = await input(ctx);
+    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, timekeeperUserId, ...body } = await input(ctx);
     if ((expectedUserId !== undefined && actor.userId !== expectedUserId) ||
         (expectedPrincipalKey !== undefined && actor.principalKey !== expectedPrincipalKey) ||
         (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store)))
       throw new ApiError(409, "back_office_directory_changed", "These changes could not be saved with the current account.");
     if (expectedReplicaId !== undefined && actor.replicaId !== expectedReplicaId)
       throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
+    const memberId = timekeeperUserId === undefined ? undefined : z.string().min(1).max(200).parse(timekeeperUserId);
+    const member = memberId ? (await timeMembers(options.config, scope, actor)).find(member => member.userId === memberId) : undefined;
+    if (memberId && (!member || body.objectId !== "timeEntries" || !actor.edit || ctx.agentAccess || actor.agentId))
+      throw new ApiError(403, "time_member", "Choose an available firm member.");
+    const save = (record: unknown) => {
+      if (!member) return store.saveRecord(scope, actor, record);
+      const value = z.object({ values: z.record(z.string(), BackOfficeValueSchema) }).passthrough().parse(record);
+      return store.transaction(() => store.saveRecord(scope, actor, { ...value,
+        values: { ...value.values, timekeeper: timeMemberContact(store, scope, actor, member) } }));
+    };
     if (privateProposal !== undefined) {
       if (ctx.actor?.type !== "host" || ctx.agentAccess || actor.agentId)
         throw new ApiError(403, "private_workday", "Confirm the proposal on its local device.");
@@ -381,7 +393,7 @@ export function registerBackOfficeRoutes(options: {
       // record fields and stable row ID are shared; the original and digest stay private.
       return acceptPrivateProposal(options.config, { user: actor.userId, scope, principal: actor.principalKey ?? "",
         profileId: proposal.profileId }, proposal.key, proposal.digest,
-      async () => ({ record: store.saveRecord(scope, actor, record) }), "record");
+      async () => ({ record: save(record) }), "record");
     }
     if (body.localSource !== undefined) {
       const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);
@@ -391,7 +403,7 @@ export function registerBackOfficeRoutes(options: {
       id: z.string().uuid(), objectId: z.string(), revision: z.number().int().positive(),
       values: z.record(z.string(), BackOfficeValueSchema), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(), archived: z.boolean().optional(),
     }).parse(body));
-    return { record: store.saveRecord(scope, actor, body) };
+    return { record: save(body) };
   });
   route("POST", "/records/batch", async (ctx, store, { scope, actor }) => {
     const { directoryId, records } = BackOfficeCreateBatchSchema.parse(await input(ctx));

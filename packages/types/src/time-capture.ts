@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BackOfficeValueSchema, type BackOfficeValue } from "@legalwork/types/back-office";
 
 export const captureProviders = ["gmail", "outlook", "google-calendar", "outlook-calendar"] as const;
 export const captureAccountSchema = z.object({
@@ -44,10 +45,12 @@ export const captureProposalSchema = z.object({
   dismissed: z.boolean(),
   versions: z.array(z.string()).optional(),
 });
+export const privateEntryDraftSchema = z.object({ date: z.iso.date(), values: z.record(z.string(), BackOfficeValueSchema), proposalDigest: z.string().length(64).optional() });
 export const captureStateSchema = z.object({
   settings: captureSettingsSchema,
   modelReady: z.boolean(),
   proposals: z.array(captureProposalSchema),
+  drafts: z.record(z.string(), privateEntryDraftSchema).default({}),
   connections: z.array(captureAccountSchema).default([]),
 });
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
@@ -66,7 +69,9 @@ export type CaptureAction =
   | WorkdayCorrection
   | { type: "settings"; settings: CaptureSettings }
   | { type: "run" | "calendar" }
-  | { type: "dismiss"; key: string };
+  | { type: "dismiss"; key: string }
+  | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }
+  | { type: "reconcile"; key: string; digest: string; recordId: string };
 
 export const workdayCorrectionSchema = z.strictObject({
   type: z.literal("correct"),

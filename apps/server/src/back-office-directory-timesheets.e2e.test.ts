@@ -25,6 +25,7 @@ test("a firm without a workflow service uses existing records; private evidence 
   const files = new Map<string, Uint8Array>();
   const platform = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/api/intake/members") return Response.json([{ userId: "worker", name: "Worker", email: null, role: "org:member" }, { userId: "colleague", name: "Colleague", email: null, role: "org:member" }]);
     if (path === "/api/desktop/policy") return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Test firm", revision: 1, role: "member", updatedAt: null,
       entries: { "backOffice.sync": { mode: "enforced", value: { enabled: true, modelEditors: ["worker"], directoryEditors: ["worker"], billingMembers: ["worker"] } } } });
     if (path === "/api/desktop/policy/secrets") return Response.json({ schemaVersion: 1, revision: 1, secrets: {} });
@@ -99,11 +100,21 @@ test("a firm without a workflow service uses existing records; private evidence 
       days: { [proposal.date]: [{ eventKey: "PRIVATE-event-id", proposal }] }, originals: { [proposal.digest]: proposal }, accepted: {} }));
     const context = new URLSearchParams({ date: proposal.date, profileId: profile.profileId, user: profile.user, scope: profile.scope, principal: profile.principal });
     expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).proposals).toHaveLength(1);
-    const booking = { id: proposal.key, create: true, revision: 0, objectId: "timeEntries", values: { name: "Confirmed research", billingNarrative: "Confirmed research", status: "Draft",
+    const roster = z.object({ members: z.array(z.object({ userId: z.string() })) }).parse(await (await api("/back-office/time-members")).json());
+    expect(roster.members.map(member => member.userId)).toEqual(["worker", "colleague"]);
+    expect(store.records("firm", access.actor, "people")).toHaveLength(0);
+    const draftAction = { type: "draft", key: proposal.key, proposalDigest: proposal.digest, values: { billingNarrative: "PRIVATE edited wording", recordedMinutes: 13 } };
+    expect((await api("/private-timesheet/workday?" + context, draftAction, false)).status).toBe(401);
+    expect((await api("/private-timesheet/workday?" + context, draftAction)).status).toBe(200);
+    expect(store.records("firm", access.actor, "timeEntries")).toHaveLength(0);
+    expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).drafts[proposal.key].values.billingNarrative).toBe("PRIVATE edited wording");
+    expect((await api("/private-timesheet/workday?" + context, { ...draftAction, proposalDigest: "f".repeat(64) })).status).toBe(409);
+    const booking = { timekeeperUserId: "worker", id: proposal.key, create: true, revision: 0, objectId: "timeEntries", values: { name: "Confirmed research", billingNarrative: "Confirmed research", status: "Draft",
       matter: matter.id, client: client.id, startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: 13, billableMinutes: 20 },
       privateProposal: { key: proposal.key, digest: proposal.digest, profileId: profile.profileId } };
     expect((await api("/back-office/records", booking, false)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, privateProposal: { ...booking.privateProposal, profileId: "another" } })).status).toBe(409);
+    expect((await api("/back-office/records", { ...booking, timekeeperUserId: "outside-contact" })).status).toBe(403);
     const saved = await api("/back-office/records", booking);
     expect(saved.status).toBe(200);
     expect((await api("/back-office/records", booking)).status).toBe(200);
@@ -111,6 +122,25 @@ test("a firm without a workflow service uses existing records; private evidence 
       async () => "must not book twice", "workflow")).rejects.toMatchObject({ status: 409 });
     await syncBackOffice(config);
     const created = records.get(proposal.key);
+    const people = store.records("firm", access.actor, "people");
+    expect(people).toHaveLength(1);
+    expect(people[0].sourceId).toBe("eigenwelt-member:worker");
+    expect(created?.values.timekeeper).toBe(people[0].id);
+    expect((await api("/private-timesheet/workday?" + context, draftAction)).status).toBe(409);
+    expect((await api("/private-timesheet/workday?" + context, { type: "draft", key: proposal.key, values: null })).status).toBe(200);
+    expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).drafts[proposal.key]).toBeUndefined();
+    const another = captureProposalSchema.parse({ ...proposal, key: crypto.randomUUID(), narrative: "PRIVATE second source" });
+    another.digest = proposalCommitment(another);
+    const privateState = JSON.parse(await readFile(profile.path, "utf8"));
+    privateState.days[proposal.date].push({ eventKey: "PRIVATE-another-event", proposal: another });
+    privateState.originals[another.digest] = another;
+    await writeFile(profile.path, JSON.stringify(privateState));
+    const reconcile = { type: "reconcile", key: another.key, digest: another.digest, recordId: proposal.key };
+    expect((await api("/private-timesheet/workday?" + context, reconcile)).status).toBe(200);
+    expect((await api("/private-timesheet/workday?" + context, reconcile)).status).toBe(200);
+    expect(store.records("firm", access.actor, "timeEntries")).toHaveLength(1);
+    expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).proposals.some(item => item.key === another.key)).toBe(false);
+    await expect(acceptPrivateProposal(config, profile, another.key, another.digest, async () => "duplicate", "record")).rejects.toMatchObject({ status: 409 });
     expect(created?.values.recordedMinutes).toBe(13);
     expect(created?.values.billableMinutes).toBe(20);
     expect(created?.access).toBe("org");

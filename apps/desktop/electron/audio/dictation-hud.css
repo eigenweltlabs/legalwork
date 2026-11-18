@@ -641,3 +641,10 @@ body[data-dock=right] #stopwatch-panel { right:44px; top:6px }
 #stopwatch-panel-error { margin:0; font-size:11px; line-height:1.4; color:var(--muted) }
 #stopwatch-panel-error:empty { display:none }
 body:has(#stopwatch-panel:not([hidden])) :is(#notice,.action-hint,#meeting-prompt) { visibility:hidden }
+
+/* Keep microphone selection beside dictation, including before shortcut setup. */
+#microphone-menu { display:none }
+body[data-state=idle] #bar[data-hovered=true] #microphone-menu {
+  display:flex; position:absolute; left:6px; bottom:calc(100% - 2px);
+  width:24px; height:22px; border:1px solid var(--border); border-radius:6px; background:var(--surface);
+}

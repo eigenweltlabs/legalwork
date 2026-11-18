@@ -13,6 +13,11 @@ export function cellInputText(value: BackOfficeValue | undefined) {
 
 export function parseCellInput(type: BackOfficeField["type"], text: string, previous: BackOfficeValue | undefined): BackOfficeValue {
   if (!text) return null;
+  if (type === "datetime") {
+    const date = new Date(text);
+    if (!Number.isFinite(date.getTime())) throw new Error(t("back_office.invalid_value"));
+    return date.toISOString();
+  }
   if (type === "boolean") return text === "true";
   if (type === "multiselect") return text.split(",").map(item => item.trim()).filter(Boolean);
   if (type !== "number" && type !== "currency") return text;

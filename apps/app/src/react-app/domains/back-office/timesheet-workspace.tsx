@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
+import { ArrowUpRight, List, ListChecks, Settings2, Timer } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
 import { Button as AppButton } from "@/components/ui/button";
 
@@ -27,8 +27,7 @@ import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
-import { TimesheetRecordDraft } from "./timesheet-record-draft";
-import { TimeStorageNotice } from "./time-storage-notice";
+import { TimeRecordSheet } from "./time-record-sheet";
 import { TimeSetting, TimeSettingsGroup } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 
@@ -105,7 +104,6 @@ export function TimesheetWorkspace({
     refetchInterval: 30000,
   });
   const [proposal, setProposal] = useState<SelectedProposal>();
-  const [recordProposal, setRecordProposal] = useState<CaptureProposal>();
   const [ledgerDirty, setLedgerDirty] = useState(false);
   const state = query.isError ? undefined : query.data;
   const recordsOnly = state?.service === "records";
@@ -123,7 +121,7 @@ export function TimesheetWorkspace({
   }
   const draft = (p: CaptureProposal) => {
     if (!state) return;
-    if (recordsOnly) { setRecordProposal(p); return; }
+    if (recordsOnly) return;
     const project = state.projects.find((x) => x.id === p.projectId);
     const matter = p.matterId
       ? state.matters.find((x) => x.id === p.matterId)
@@ -157,7 +155,6 @@ export function TimesheetWorkspace({
   };
   const tabs = [
     { id: "timesheets", label: t(recordsOnly ? "back_office.timeEntries.plural" : "timesheets.mine"), Icon: List },
-    { id: "timesheet-workday", label: t("timesheets.ai_tab"), Icon: Sparkles },
     { id: "billing-review", label: t(recordsOnly ? "back_office.invoices.plural" : "timesheets.review"), Icon: ListChecks },
     { id: "billing-settings", label: t("timesheets.settings"), Icon: Settings2 },
   ] as const;
@@ -175,29 +172,18 @@ export function TimesheetWorkspace({
               <Button
                 key={id}
                 size="sm"
-                variant={page === id ? "soft" : "ghost"}
+                variant={page === id || (page === "timesheet-workday" && id === "timesheets") ? "soft" : "ghost"}
                 nativeButton={false}
                 role="link"
                 render={<Link to={timeRoutes[id] + (initialDate ? "?date=" + initialDate : "")} />}
                 startIcon={<Icon size={15} />}
-                aria-current={page === id ? "page" : undefined}
+                aria-current={page === id || (page === "timesheet-workday" && id === "timesheets") ? "page" : undefined}
               >
                 {label}
               </Button>
             ))}
         </nav>
       </header>
-      {recordsOnly && (
-        <TimeStorageNotice title={t("timesheets.records_shared")}>
-          <p>{t("timesheets.records_visibility")}</p>
-          <p>{t("timesheets.records_notice")}</p>
-        </TimeStorageNotice>
-      )}
-      {state && page === "timesheets" && !recordsOnly && (
-        <TimeStorageNotice title={t(team ? "timesheets.storage_firm_title" : "timesheets.storage_host_title")}>
-          <p>{t(team ? "timesheets.storage_firm" : "timesheets.storage_host")}</p>
-        </TimeStorageNotice>
-      )}
       {query.isError && (
         <div className="bo-empty" role="alert">
           {query.error.message}{" "}
@@ -207,9 +193,11 @@ export function TimesheetWorkspace({
         </div>
       )}
       {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
-      {state && !recordsOnly && (page === "timesheets" || ledgerDirty) && (
-        <div className="time-ledger-pane" hidden={page !== "timesheets"}>
-          <TimesheetLedger
+      {state && !recordsOnly && (page === "timesheets" || page === "timesheet-workday" || ledgerDirty) && (
+        <div className="time-ledger-pane" hidden={page !== "timesheets" && page !== "timesheet-workday"}>
+          <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+          {capture => <TimesheetLedger
+            capture={capture}
             onOriginal={
               isLoopbackLegalworkServerUrl(client.baseUrl)
                 ? (digest) =>
@@ -236,19 +224,16 @@ export function TimesheetWorkspace({
             initialDate={initialDate}
             onDiscardProposal={() => setProposal(undefined)}
             initialDraft={proposal}
-          />
+          />}
+          </TimesheetWorkday>
         </div>
       )}
-      {recordsOnly && page === "timesheets" && (recordProposal && state ?
-        <TimesheetRecordDraft key={recordProposal.key} client={client} directory={directory}
-          state={state} proposal={recordProposal} onClose={() => setRecordProposal(undefined)} />
-        : renderRecords("timeEntries"))}
-      {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
-        <TimeStorageNotice title={t("timesheets.records_invoices_title")}>
-          <p>{t("timesheets.records_invoices")}</p>
-        </TimeStorageNotice>
-        {renderRecords("invoices")}
-      </>}
+      {state && recordsOnly && (page === "timesheets" || page === "timesheet-workday") && (
+        <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+          {capture => <TimeRecordSheet key={capture.dates.join(":")} client={client} directory={directory} state={state} capture={capture} />}
+        </TimesheetWorkday>
+      )}
+      {recordsOnly && page === "billing-review" && directory.permissions.finance && renderRecords("invoices")}
       {recordsOnly && page === "billing-settings" && (
         <section className="time-record-settings" aria-label={t("timesheets.settings")}>
           <LayoutStack>
@@ -293,17 +278,7 @@ export function TimesheetWorkspace({
           }
         />
       )}
-      {state && page === "timesheet-workday" && (
-        <TimesheetWorkday
-          initialDate={initialDate}
-          onDateChange={selectDate}
-          client={client}
-          directory={directory}
-          state={state}
-          ledgerDirty={ledgerDirty}
-          onDraft={draft}
-        />
-      )}
+
     </>
   );
 }

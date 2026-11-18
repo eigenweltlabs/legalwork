@@ -10,7 +10,7 @@ const CHANNEL = "legalwork:dictation-hud";
 
 /** A non-activating control bar: clicking it must preserve the paste target. */
 export class DictationHud {
-  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string) => Promise<unknown> }} actions */
+  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string) => Promise<unknown> }} actions */
   constructor(actions) {
     this.actions = actions;
     /** @type {BrowserWindow | null} */
@@ -69,7 +69,10 @@ export class DictationHud {
       if (action === "meeting-open") this.actions.onMeetingOpen?.();
       if (this.meeting && this.meeting.state !== "idle") return;
       if (action === "microphone-menu" && this.state === "idle") this.actions.onMicrophoneMenu?.();
-      if (action === "start" && this.state === "idle" && this.status.enabled && this.status.registered) this.actions.onStart();
+      if (action === "start" && this.state === "idle") {
+        if (this.status.enabled) this.actions.onStart();
+        else this.actions.onSetup?.();
+      }
       if (action === "stop" && this.state === "listening") this.actions.onStop();
       if (action === "stop" && this.state === "starting") this.actions.onCancel();
       if (action === "cancel" && ["starting", "listening", "transcribing", "inserting"].includes(this.state)) this.actions.onCancel();

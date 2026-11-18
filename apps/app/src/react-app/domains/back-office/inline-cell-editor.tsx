@@ -1,6 +1,6 @@
 import { t } from "@/i18n";
 import { cellInputText, parseCellInput } from "./cell-input";
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { Input } from "twenty-ui/primitives/input";
 import type {
   BackOfficeField,
@@ -13,14 +13,18 @@ export function InlineCellEditor({
   onSave,
   onCancel,
   onError,
+  onTab,
 }: {
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
   onSave: (value: BackOfficeValue) => Promise<void>;
   onCancel: () => void;
   onError: (message: string) => void;
+  onTab?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
-  const initial = cellInputText(value);
+  const initial = field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
+    ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    : cellInputText(value);
   const [text, setText] = useState(initial);
   const completed = useRef(false);
   const commit = async () => {
@@ -28,12 +32,13 @@ export function InlineCellEditor({
     completed.current = true;
     if (text === initial) {
       onCancel();
-      return;
+      return true;
     }
     try {
       onError("");
       await onSave(parseCellInput(field.type, text, value));
       onCancel();
+      return true;
     } catch (error) {
       completed.current = false;
       onError(
@@ -50,7 +55,7 @@ export function InlineCellEditor({
       aria-label={field.label}
       value={text}
       type={
-        field.type === "number" || field.type === "currency"
+        field.type === "datetime" ? "datetime-local" : field.type === "number" || field.type === "currency"
           ? "number"
           : field.type === "email"
             ? "email"
@@ -63,6 +68,11 @@ export function InlineCellEditor({
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
+        if (event.key === "Tab" && onTab) {
+          event.preventDefault();
+          void commit().then(saved => { if (saved) onTab(event); });
+          return;
+        }
         if (event.key === "Enter") {
           event.preventDefault();
           event.currentTarget.blur();

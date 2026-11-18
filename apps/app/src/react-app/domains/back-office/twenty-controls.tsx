@@ -45,7 +45,7 @@ export function DirectoryEditorPopup({ children, className = "", style, finalFoc
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
-  finalFocus?: RefObject<HTMLElement | null>;
+  finalFocus?: RefObject<HTMLElement | null> | false;
   id?: string;
 }) {
   const popup = useRef<HTMLDivElement>(null);

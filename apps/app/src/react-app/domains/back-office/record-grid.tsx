@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import {
   ArrowDown,
@@ -119,8 +120,18 @@ export function RecordGrid({
   onCreate,
   onSaveView,
   archived,
+  sheet,
   onArchivedChange, lockedSchema = false, readOnlyFields,
 }: {
+  sheet?: {
+    columns: string[];
+    widths?: Record<string, number>;
+    onFocus?: (record: BackOfficeRecord) => void;
+    trailing?: (record: BackOfficeRecord) => ReactNode;
+    blankId: string;
+    leading?: (record: BackOfficeRecord) => ReactNode;
+    details?: (record: BackOfficeRecord) => ReactNode;
+  };
   lockedSchema?: boolean;
   readOnlyFields?: readonly string[];
   object: BackOfficeObject;
@@ -159,11 +170,12 @@ export function RecordGrid({
   });
   const [columns, setColumns] = useState(
     initialView?.columns ??
+      sheet?.columns ??
       defaults[object.id] ??
       object.fields.slice(0, 7).map((field) => field.id),
   );
   const [widths, setWidths] = useState<Record<string, number>>(
-    initialView?.widths ?? defaultWidths,
+    initialView?.widths ?? { ...defaultWidths, ...sheet?.widths },
   );
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
@@ -267,16 +279,21 @@ export function RecordGrid({
   const searchRows = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
     if (!term) return own;
-    return own.filter(record => object.fields.some(field =>
+    return own.filter(record => record.id === sheet?.blankId || object.fields.some(field =>
       String(display(record, field.id)).toLocaleLowerCase().includes(term)));
-  }, [own, query, object, display]);
+  }, [own, query, object, display, sheet?.blankId]);
   const collator = useMemo(() => new Intl.Collator(undefined, { numeric: true }), []);
-  const rows = useMemo(() => searchRows.filter(compileBackOfficeFilters(object, filters)).sort((a, b) => {
+  const rows = useMemo(() => searchRows.filter(record => record.id === sheet?.blankId || compileBackOfficeFilters(object, filters)(record)).sort((a, b) => {
+    if (sheet) {
+      if (a.id === sheet.blankId) return 1;
+      if (b.id === sheet.blankId) return -1;
+      return records.indexOf(a) - records.indexOf(b);
+    }
     const left = display(a, sort.field), right = display(b, sort.field);
     const order = typeof left === "number" && typeof right === "number"
       ? left - right : collator.compare(String(left), String(right));
     return sort.direction === "asc" ? order : -order;
-  }), [searchRows, object, filters, sort, collator, display]);
+  }), [searchRows, object, filters, sort, collator, display, sheet, records]);
   const selectedIds = useMemo(() => new Set(selected), [selected]);
   const selectable = useMemo(() => rows.filter(record => record.revision > 0), [rows]);
   const selectedCount = useMemo(() => selectable.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [selectable, selectedIds]);
@@ -356,10 +373,11 @@ export function RecordGrid({
   const applyView = (view?: BackOfficeView, updateUrl = true) => {
     setColumns(
       view?.columns ??
+        sheet?.columns ??
         defaults[object.id] ??
         object.fields.slice(0, 7).map((field) => field.id),
     );
-    setWidths(view?.widths ?? defaultWidths);
+    setWidths(view?.widths ?? { ...defaultWidths, ...sheet?.widths });
     setQuery(view?.query ?? "");
     setSort({
       field: view?.sortField ?? "name",
@@ -378,7 +396,7 @@ export function RecordGrid({
       );
     setActiveViewId(view?.id ?? null);
     setViewBase(view ?? null);
-    setLayout(view?.type ?? "table");
+    setLayout(sheet ? "table" : view?.type ?? "table");
     setGroupField(view?.groupField ?? null);
     setDateField(view?.dateField ?? null);
     setCalendarMode(view?.calendarMode ?? "month");
@@ -408,10 +426,24 @@ export function RecordGrid({
     setSelected(current => checked ? [...current, id] : current.filter(value => value !== id));
   }, []);
   const moveCell = useCallback((
-    event: KeyboardEvent<HTMLDivElement>,
+    event: KeyboardEvent<HTMLElement>,
     row: number,
     column: number,
   ) => {
+    if (sheet && event.key === "Tab") {
+      event.preventDefault();
+      const position = row * visibleFields.length + column + (event.shiftKey ? -1 : 1);
+      const targetRow = Math.floor(position / visibleFields.length), targetColumn = position % visibleFields.length;
+      if (targetRow < 0 || targetRow > rows.length) return;
+
+      setEditing(null);
+      if (windowed) rowWindow.scrollToIndex(targetRow);
+      requestAnimationFrame(() => {
+        const cell = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`);
+        cell?.focus(); cell?.click();
+      });
+      return;
+    }
     const shift =
       event.key === "ArrowDown"
         ? [1, 0]
@@ -434,7 +466,7 @@ export function RecordGrid({
         requestAnimationFrame(() => scroll.current?.querySelector<HTMLElement>(selector)?.focus());
       }
     }
-  }, [rows.length, visibleFields.length, rowWindow]);
+  }, [rows, visibleFields, rowWindow, sheet, windowed]);
   const summaryCells = useMemo(() => layout !== "table" ? null : visibleFields.map((field) => {
     const amounts = field.type !== "currency" ? [] : rows.flatMap((record) => {
       const value = record.values[field.id];
@@ -466,7 +498,7 @@ export function RecordGrid({
     );
   }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
-    <RecordGridRow key={record.id} record={record} index={index} top={top}
+    <RecordGridRow key={record.id} sheet={Boolean(sheet)} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
@@ -496,7 +528,7 @@ export function RecordGrid({
             >
               {activeView?.name ||
                 t("back_office.all_records", { name: object.plural })}
-              <span className="bo-view-count">· {rows.length}</span>
+              <span className="bo-view-count">· {rows.filter(row => row.id !== sheet?.blankId).length}</span>
             </Button>
           }
         >
@@ -579,7 +611,7 @@ export function RecordGrid({
           </DirectoryMenu>
           <DirectoryMenu
             trigger={
-              <Button size="sm" variant="ghost">
+              <Button size="sm" variant="ghost" disabled={Boolean(sheet)}>
                 {t("back_office.sort")}
               </Button>
             }
@@ -781,6 +813,7 @@ export function RecordGrid({
                 }}
               >
                 <button
+                  disabled={Boolean(sheet)}
                   onClick={() =>
                     setSort((current) => ({
                       field: field.id,
@@ -794,7 +827,7 @@ export function RecordGrid({
                 >
                   <FieldIcon field={field} />
                   <span>{field.label}</span>
-                  {sort.field === field.id && (
+                  {!sheet && sort.field === field.id && (
                     <ArrowDown
                       size={11}
                       style={{
@@ -853,7 +886,7 @@ export function RecordGrid({
               ? rowWindow.getVirtualItems().map(item => renderRow(rows[item.index], item.index, item.start - 32))
               : rows.map((record, index) => renderRow(record, index))}
           </div>
-          {!rows.length && (
+          {!sheet && !rows.length && (
             <div className="bo-empty">
               <Columns3 size={26} />
               <strong>
@@ -879,7 +912,7 @@ export function RecordGrid({
               )}
             </div>
           )}
-          {editable && !archived && (
+          {editable && !archived && !sheet && (
             <button className="bo-add-row" onClick={() => onCreate()}>
               <Plus size={15} />
               {t("back_office.add_new")}
@@ -979,7 +1012,7 @@ export function RecordGrid({
                       </Button>
                     }
                   >
-                    {viewTypes.map((type) => {
+                    {(sheet ? viewTypes.filter(type => type === "table") : viewTypes).map((type) => {
                       const Icon = viewIcons[type];
                       return (
                         <Dropdown.ActionItem

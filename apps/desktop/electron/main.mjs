@@ -815,6 +815,12 @@ const dictationHud = new DictationHud({
     return { ...state, suggestedProjectId: stopwatchProjectFromUrl(window?.webContents.getURL(), state.projects ?? []) };
   },
   onStart: () => systemDictation.toggleHandsFree(),
+  onSetup: () => {
+    void createMainWindow().then(window => {
+      window.show(); window.focus();
+      return window.webContents.executeJavaScript("window.location.hash = '/settings/recorder?tab=dictation'");
+    }).catch(error => console.warn("[dictation-setup]", error.message));
+  },
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
   onCancel: () => systemDictation.cancel(),
   onMeetingStart: () => {

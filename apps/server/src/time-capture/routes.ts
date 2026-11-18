@@ -1,3 +1,7 @@
+import { privateEntryDraftSchema } from "../back-office/timesheet-schema.js";
+import { BackOfficeValueSchema } from "../back-office/schema.js";
+import { backOfficeStore } from "../back-office/store.js";
+import { memberSource } from "../back-office/time-members.js";
 import { changeStopwatch, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
@@ -39,6 +43,8 @@ const savedSchema = z.object({
   documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)).default({}),
   originals: z.record(z.string(), captureProposalSchema).default({}),
   accepted: z.record(z.string(), z.string()).default({}),
+  drafts: z.record(z.uuid(), privateEntryDraftSchema).default({}),
+  reconciled: z.record(z.uuid(), z.uuid()).default({}),
   bookingTargets: z.record(z.string(), z.enum(["workflow", "record"])).default({}),
 });
 type Saved = z.infer<typeof savedSchema>;
@@ -50,6 +56,8 @@ const defaults = (): Saved => ({
   originals: {},
   accepted: {},
   bookingTargets: {},
+  drafts: {},
+  reconciled: {},
   documentSaves: {},
   documentEpoch: 0,
 });
@@ -192,6 +200,7 @@ export async function acceptPrivateProposal<T>(
     const original = saved.originals[hash];
     const candidate =
       original && saved.days[original.date]?.find((item) => item.proposal.key === key)?.proposal;
+    if (saved.reconciled[key]) throw new ApiError(409, "private_already_booked", "This suggestion is already linked to an entry.");
     const accounts = await connectedWorkdayAccounts(config);
     if (
       !candidate ||
@@ -285,7 +294,7 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
         const previous = old.find((prev) => prev.eventKey === next.eventKey);
         if (previous) {
           current.originals[previous.proposal.digest] = previous.proposal;
-          if (previous.proposal.parentDigest || current.accepted[previous.proposal.key]) return previous;
+          if (previous.proposal.parentDigest || current.drafts[previous.proposal.key] || current.reconciled[previous.proposal.key] || current.accepted[previous.proposal.key]) return previous;
           next.proposal.key = previous.proposal.key;
           next.proposal.dismissed = previous.proposal.dismissed;
         }
@@ -299,6 +308,8 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
           (previous.proposal.source === "stopwatch" ||
             previous.proposal.dismissed ||
             previous.proposal.parentDigest ||
+            current.drafts[previous.proposal.key] ||
+            current.reconciled[previous.proposal.key] ||
             current.accepted[previous.proposal.key])
         )
           current.days[date].push(previous);
@@ -432,6 +443,8 @@ export function registerWorkdayRoutes(options: {
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             z.strictObject({ type: z.enum(["run", "calendar"]) }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid() }),
+            z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
+            z.strictObject({ type: z.literal("reconcile"), key: z.uuid(), digest: z.string().length(64), recordId: z.uuid() }),
             workdayCorrectionSchema,
           ])
           .parse(await options.readJsonBodyLimited(ctx.request, 8192));
@@ -445,6 +458,28 @@ export function registerWorkdayRoutes(options: {
               if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
                 s.documentEpoch++;
               s.settings = action.settings;
+            } else if (action.type === "draft") {
+              if (action.date && action.date !== date) throw new ApiError(409, "private_workday_changed", "The draft date changed.");
+              if (s.accepted[action.key] && action.values !== null) throw new ApiError(409, "private_already_booked", "This entry is already saved.");
+              if (action.proposalDigest) {
+                const proposal = s.days[date]?.find(item => item.proposal.key === action.key)?.proposal;
+                if (!proposal || proposal.dismissed || proposal.digest !== action.proposalDigest) throw new ApiError(409, "private_workday_changed", "The suggestion changed.");
+              }
+              if (action.values === null) delete s.drafts[action.key];
+              else s.drafts[action.key] = { date, values: action.values, proposalDigest: action.proposalDigest };
+            } else if (action.type === "reconcile") {
+              const proposal = s.days[date]?.find(item => item.proposal.key === action.key)?.proposal;
+              if (!proposal || proposal.dismissed || proposal.digest !== action.digest || (s.accepted[action.key] && s.reconciled[action.key] !== action.recordId)) throw new ApiError(409, "private_workday_changed", "The suggestion changed or was already booked.");
+              if (!sourceAvailable(proposal, await connectedWorkdayAccounts(config), s.settings)) throw new ApiError(409, "private_workday_changed", "The source is unavailable.");
+              const access = await backOfficeAccess(config, scope !== "local"), store = await backOfficeStore(config);
+              if (access.scope !== scope || access.actor.userId !== user || (access.actor.principalKey ?? "") !== principal) throw new ApiError(409, "private_workday_changed", "The account changed.");
+              const record = store.records(scope, access.actor, "timeEntries").find(record => record.id === action.recordId);
+              const contact = record && typeof record.values.timekeeper === "string" ? store.records(scope, access.actor, "people").find(person => person.id === record.values.timekeeper) : undefined;
+              if (!record || (contact ? contact.sourceId !== memberSource(user) : record.ownerId !== user)) throw new ApiError(403, "private_reconcile", "Choose one of your time entries.");
+              s.accepted[action.key] = action.digest;
+              s.bookingTargets[action.key] = "record";
+              s.reconciled[action.key] = action.recordId;
+              delete s.drafts[action.key];
             } else if (action.type === "correct") {
               const current = s.days[date]?.find((item) => item.proposal.key === action.key);
               const accounts = await connectedWorkdayAccounts(config);
@@ -477,6 +512,7 @@ export function registerWorkdayRoutes(options: {
       }));
       const result = options.jsonResponse({
         settings: s.settings,
+        drafts: Object.fromEntries(Object.entries(s.drafts).filter(([, draft]) => draft.date === date)),
         connections,
         modelReady: Boolean(await localModel()),
         proposals: (s.days[date] ?? [])
@@ -486,7 +522,7 @@ export function registerWorkdayRoutes(options: {
               .filter((p) => p.key === row.proposal.key)
               .map((p) => p.digest),
           }))
-          .filter((p) => sourceAvailable(p, connections, s.settings) && !p.dismissed),
+          .filter((p) => sourceAvailable(p, connections, s.settings) && !p.dismissed && !s.reconciled[p.key]),
       });
       if ((await profile(config)).path !== path)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");

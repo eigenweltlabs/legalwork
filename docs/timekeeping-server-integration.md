@@ -38,3 +38,12 @@ bun test src/back-office-directory-timesheets.e2e.test.ts src/back-office-timesh
 ```
 
 The directory integration test runs a synthetic HTTP firm service exposing only the existing directory protocol. It covers capability selection, error handling, identity guards, private-source access, idempotent confirmation, synchronization payloads and the prohibition on duplicate cross-workflow booking. No customer data or screenshots are included.
+
+
+### Unified table and member identity (18 November 2026)
+
+`GET /back-office/time-members` reads the existing authenticated `/api/intake/members` roster, rechecking the principal after the request. It does not create records. A normal record write may provide `timekeeperUserId`; the local server validates current membership and atomically resolves/creates an ordinary `people` relation using `sourceId = eigenwelt-member:<userId>`. The stable contact UUID includes the organization scope. These are regular records with existing audit/outbox semantics, not a new remote model. The contact link is descriptive, not another user's signature. Other time-entry writes still use their existing permission and concurrency rules.
+
+Host-only private workday actions persist incomplete cell values and AI edits in the account-specific device file. Drafts never enter record sync. Accepting a suggestion still uses the existing booking reservation and confirmed record API. The `reconcile` action verifies an accessible entry belonging to the worker, preserves the private source and reserves the proposal as already recorded. It publishes no extra entry. Hiding a suggestion is only a display preference; editing does not accept. This storage uses device filesystem permissions and is not independently witnessed audit evidence.
+
+The ordinary record view keeps existing model limits: no duration-only service date, no native grouped participant allocation or work-product relation. The full timesheet service remains the authority for approvals and invoice issuance. No access to the connected mock backend's code was assumed or required.
