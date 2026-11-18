@@ -19,16 +19,6 @@ const require = createRequire(path.join(desktop, "package.json"));
 const pin = JSON.parse(await readFile(path.join(desktop, "build/windows-arm64-speech.json"), "utf8"));
 const installed = require("sherpa-onnx-node/package.json");
 if (installed.version !== pin.version) throw new Error("Update Windows ARM64 speech pins alongside sherpa-onnx-node.");
-// Keep the original pinned notice bytes local: upstream source hosting is not
-// needed to build the already-pinned native libraries. Verify before cache use.
-const onnxNotices = await Promise.all([
-  ["onnxruntime-LICENSE", pin.onnxruntimeLicenseSha256],
-  ["onnxruntime-ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256],
-].map(async ([name, expected]) => {
-  const bytes = await readFile(path.join(desktop, "build/windows-arm64-speech-notices", name));
-  if (createHash("sha256").update(bytes).digest("hex") !== expected) throw new Error(`Bundled speech notice checksum mismatch: ${name}`);
-  return [name, bytes];
-}));
 const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
 const cache = process.env.LEGALWORK_SPEECH_CACHE_DIRECTORY;
 const cacheKey = cache ? currentSpeechCacheKey() : undefined;
@@ -75,6 +65,17 @@ try {
     `${sourceName}/sherpa-onnx/c-api/c-api.h`, `${sourceName}/LICENSE`,
   ]);
   await extract(`https://github.com/k2-fsa/sherpa-onnx/releases/download/v${pin.version}/${nativeName}.tar.bz2`, "native.tar.bz2", pin.nativeSha256);
+  const onnxPackage = `microsoft.ml.onnxruntime.managed.${pin.onnxruntimeVersion}.nupkg`;
+  await extract(`https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/${pin.onnxruntimeVersion}/${onnxPackage}`,
+    "onnxruntime-notices.nupkg", pin.onnxruntimeNoticesArchiveSha256, ["LICENSE.txt", "ThirdPartyNotices.txt"]);
+  const onnxNotices = await Promise.all([
+    ["LICENSE.txt", "onnxruntime-LICENSE", pin.onnxruntimeLicenseSha256],
+    ["ThirdPartyNotices.txt", "onnxruntime-ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256],
+  ].map(async ([source, name, expected]) => {
+    const bytes = Buffer.from((await readFile(path.join(temporary, source), "utf8")).replace(/\r\n/g, "\n"));
+    if (createHash("sha256").update(bytes).digest("hex") !== expected) throw new Error(`Speech notice checksum mismatch: ${name}`);
+    return [name, bytes];
+  }));
   const source = path.join(temporary, sourceName);
   const addon = path.join(source, "scripts/node-addon-api");
   const native = path.join(temporary, nativeName);
