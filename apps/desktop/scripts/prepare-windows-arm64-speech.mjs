@@ -19,6 +19,16 @@ const require = createRequire(path.join(desktop, "package.json"));
 const pin = JSON.parse(await readFile(path.join(desktop, "build/windows-arm64-speech.json"), "utf8"));
 const installed = require("sherpa-onnx-node/package.json");
 if (installed.version !== pin.version) throw new Error("Update Windows ARM64 speech pins alongside sherpa-onnx-node.");
+// Keep the original pinned notice bytes local: upstream source hosting is not
+// needed to build the already-pinned native libraries. Verify before cache use.
+const onnxNotices = await Promise.all([
+  ["onnxruntime-LICENSE", pin.onnxruntimeLicenseSha256],
+  ["onnxruntime-ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256],
+].map(async ([name, expected]) => {
+  const bytes = await readFile(path.join(desktop, "build/windows-arm64-speech-notices", name));
+  if (createHash("sha256").update(bytes).digest("hex") !== expected) throw new Error(`Bundled speech notice checksum mismatch: ${name}`);
+  return [name, bytes];
+}));
 const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
 const cache = process.env.LEGALWORK_SPEECH_CACHE_DIRECTORY;
 const cacheKey = cache ? currentSpeechCacheKey() : undefined;
@@ -90,9 +100,7 @@ try {
   const notices = path.join(destination, "arm64-notices");
   await mkdir(notices, { recursive: true });
   await copyFile(path.join(source, "LICENSE"), path.join(notices, "sherpa-onnx-LICENSE"));
-  const onnxSource = `https://raw.githubusercontent.com/microsoft/onnxruntime/v${pin.onnxruntimeVersion}`;
-  await writeFile(path.join(notices, "onnxruntime-LICENSE"), await download(`${onnxSource}/LICENSE`, pin.onnxruntimeLicenseSha256));
-  await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await download(`${onnxSource}/ThirdPartyNotices.txt`, pin.onnxruntimeNoticesSha256));
+  for (const [name, bytes] of onnxNotices) await writeFile(path.join(notices, name), bytes);
   // Prove that the generated adapter can load its native DLLs before packaging.
   run(process.execPath, ["-e", "const s=require('sherpa-onnx-node');console.log('ARM64 speech:',s.version)"] , { cwd: desktop });
   if (cache) sealSpeechCache(cache, destination, cacheKey);

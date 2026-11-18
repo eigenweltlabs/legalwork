@@ -15,3 +15,6 @@ docs/patches/opencode-2.1.4-project-tool-output.receipt.json text eol=lf
 
 # The browser generator reads the same reviewed source bytes on every host.
 apps/desktop/electron/browser-native/** text eol=lf
+
+# Speech builds verify these vendored notices against the existing source hashes.
+apps/desktop/build/windows-arm64-speech-notices/** text eol=lf linguist-vendored
