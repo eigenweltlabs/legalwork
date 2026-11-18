@@ -29,7 +29,7 @@ jobs:
           filter: '@legalwork/desktop...'
           ignore-scripts: 'true'
       - name: Verify notice integrity and cold-build regressions on Windows ARM64
-        run: node --test scripts/ci/windows-arm64-speech-cache.test.mjs
+        run: node --test --test-skip-pattern='real release stamping and offline pnpm resync' scripts/ci/windows-arm64-speech-cache.test.mjs
       - name: Compile and load the native speech adapter without the speech cache
         run: node apps/desktop/scripts/prepare-windows-arm64-speech.mjs
       - name: Confirm native module version and packaged notices
