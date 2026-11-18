@@ -3,15 +3,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, X, Plus, Sparkles, Info, Copy, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { z, BackOfficeRecordSchema, BackOfficeViewSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
-import { captureChargeMinutes, type CaptureAction, type CaptureProposal, type CaptureState } from "@legalwork/types/time-capture";
-import { proposedCharge, proposedStopwatchCharge, resolveTimePolicy, type TimesheetState } from "@legalwork/types/timesheet";
+import type { CaptureAction, CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
+import type { TimesheetState } from "@legalwork/types/timesheet";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { applySavedRecord, writeBackOfficeRecord, type BackOfficeState } from "./api";
 import { displayBackOfficeObject } from "./labels";
 import { RecordGrid } from "./record-grid";
 import { sourceKeys } from "./timesheet-labels";
-import { calendarDay } from "../calendar/calendar-format";
+import { proposalValues, timeRecordDate } from "./time-record-values";
 import { useNavigate } from "react-router-dom";
 
 const memberPrefix = "member:";
@@ -21,25 +21,13 @@ type Values = Record<string, BackOfficeValue>;
 export type TimeCaptureSheet = {
   proposals: CaptureProposal[];
   drafts: CaptureState["drafts"];
+  date: string;
   dates: string[];
   showSuggestions: boolean;
   privateAvailable: boolean;
   act: (action: CaptureAction) => Promise<boolean>;
   openSource: (proposal: CaptureProposal) => void;
 };
-
-function proposalValues(proposal: CaptureProposal, state: TimesheetState): Values {
-  const project = state.projects.find(project => project.id === proposal.projectId);
-  const matter = state.matters.find(matter => matter.id === proposal.matterId)
-    ?? (project?.matterIds.length === 1 ? state.matters.find(matter => matter.id === project.matterIds[0]) : undefined);
-  const clientId = matter?.clientIds.length === 1 ? matter.clientIds[0] : "";
-  const policy = resolveTimePolicy(state.policies, clientId, matter?.id ?? "", proposal.date, project?.id);
-  const duration = captureChargeMinutes(proposal);
-  const narrative = proposal.source === "stopwatch" && !proposal.parentDigest ? "" : proposal.narrative;
-  return { name: narrative.slice(0, 240), billingNarrative: narrative, status: "Draft", matter: matter?.id ?? null, client: clientId || null,
-    startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: proposal.workedMinutes,
-    billableMinutes: duration === null ? null : proposal.source === "stopwatch" ? proposedStopwatchCharge(duration, policy) : proposedCharge(duration, policy) };
-}
 
 /** One editable directory grid. Private candidate rows never enter the shared
  * record API until accepted; ordinary rows use the normal revision/outbox path. */
@@ -67,7 +55,11 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
   const [blankId, setBlankId] = useState(() => Object.entries(capture.drafts).find(([, draft]) => !draft.proposalDigest && !draft.values.workflow)?.[0] ?? crypto.randomUUID());
   const raw = directory.model.objects.find(object => object.id === "timeEntries" && !object.archived);
   if (!raw) return <p role="alert">{t("timesheets.unavailable")}</p>;
-  const object = { ...displayBackOfficeObject(raw), fields: displayBackOfficeObject(raw).fields.map(field => field.id === "timekeeper" ? { ...field, target: "@time-member" } : field) };
+  const object = { ...displayBackOfficeObject(raw), fields: displayBackOfficeObject(raw).fields.map(field => {
+    if (field.id === "timekeeper") return { ...field, target: "@time-member" };
+    if (field.id === "startedAt") return { ...field, type: "date", label: t("timesheets.ledger.date") };
+    return field;
+  }) } satisfies typeof raw;
   const fieldIds = new Set(raw.fields.map(field => field.id));
   function row(id: string, values: Values): BackOfficeRecord {
     const now = new Date().toISOString();
@@ -81,7 +73,7 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
   }
   const stored = directory.records.filter(record => record.objectId === "timeEntries" && !record.archivedAt);
   for (const record of stored) if (!bases.current.has(record.id) || (!pending.current.has(record.id) && (bases.current.get(record.id)?.revision ?? 0) < record.revision)) bases.current.set(record.id, record);
-  const visible = stored.filter(record => typeof record.values.startedAt === "string" && capture.dates.includes(calendarDay(new Date(record.values.startedAt))) && (!person || display(record).values.timekeeper === person || (person === self && !record.values.timekeeper && record.ownerId === directory.permissions.userId)));
+  const visible = stored.filter(record => typeof record.values.startedAt === "string" && capture.dates.includes(timeRecordDate(record.values.startedAt)) && (!person || display(record).values.timekeeper === person || (person === self && !record.values.timekeeper && record.ownerId === directory.permissions.userId)));
   const booked = new Set(stored.map(record => record.id));
   const proposals = capture.proposals.filter(proposal => !booked.has(proposal.key) && !hiddenProposals.has(proposal.key));
   const proposalMap = new Map(proposals.map(proposal => [proposal.key, proposal]));
@@ -91,8 +83,8 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
     digests.current.set(proposal.key, proposal.digest);
   }
   const candidates = (capture.showSuggestions ? proposals : []).map(proposal => row(proposal.key, { ...proposalValues(proposal, state), timekeeper: self, ...(capture.drafts[proposal.key]?.proposalDigest === proposal.digest ? capture.drafts[proposal.key].values : {}) }));
-  const privateRows = Object.entries(capture.drafts).filter(([id, draft]) => !draft.proposalDigest && !draft.values.workflow && id !== blankId && !booked.has(id)).map(([id, draft]) => row(id, { timekeeper: self, ...draft.values }));
-  const blank = row(blankId, { name: "", billingNarrative: "", status: "Draft", timekeeper: self, recordedMinutes: null, billableMinutes: null, ...capture.drafts[blankId]?.values });
+  const privateRows = Object.entries(capture.drafts).filter(([id, draft]) => !draft.proposalDigest && !draft.values.workflow && id !== blankId && !booked.has(id)).map(([id, draft]) => row(id, { timekeeper: self, ...draft.values, startedAt: draft.values.startedAt ?? draft.date }));
+  const blank = row(blankId, { name: "", billingNarrative: "", status: "Draft", timekeeper: self, recordedMinutes: null, billableMinutes: null, ...capture.drafts[blankId]?.values, startedAt: capture.drafts[blankId]?.values.startedAt ?? capture.date });
   const merged = new Map([...visible.map(display), ...privateRows, ...candidates, blank].map(record => [record.id, record]));
   for (const [id, record] of pending.current) if (!proposalMap.has(id) || capture.showSuggestions) merged.set(id, record);
   const entries = [...merged.values()].filter(record => record.id !== blankId && (!hiddenProposals.has(record.id) || bases.current.has(record.id)));
@@ -100,11 +92,11 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
   entries.sort((a, b) => order.current.get(a.id)! - order.current.get(b.id)!);
   entries.push(pending.current.get(blankId) ?? blank);
   const choices = members.map(member => ({ ...row(memberPrefix + member.userId, { name: member.userId === directory.permissions.userId ? t("timesheets.ledger.me") : member.name || member.email || member.userId }), objectId: "@time-member" }));
-  const records = [...directory.records.filter(record => record.objectId !== "timeEntries"), ...choices, ...entries];
+  const records = [...directory.records.filter(record => record.objectId !== "timeEntries"), ...choices, ...entries.map(record => ({ ...record, values: { ...record.values, startedAt: timeRecordDate(record.values.startedAt) } }))];
   const update = () => render(value => value + 1);
   function fail(id: string, error: unknown) { setErrors(previous => ({ ...previous, [id]: error instanceof Error ? error.message : String(error) })); }
-  function valid(values: Values) {
-    return Boolean(String(values.name ?? "").trim() && values.matter && values.timekeeper && typeof values.recordedMinutes === "number" && values.recordedMinutes > 0
+  function valid(values: Values, id: string) {
+    return Boolean(String(values.name ?? "").trim() && values.matter && values.timekeeper && typeof values.recordedMinutes === "number" && (values.recordedMinutes > 0 || (values.recordedMinutes === 0 && values.billableMinutes === 0 && (proposalMap.get(id)?.source === "stopwatch" || bases.current.get(id)?.values.recordedMinutes === 0)))
       && typeof values.billableMinutes === "number" && values.billableMinutes >= 0 && typeof values.startedAt === "string" && Number.isFinite(Date.parse(values.startedAt)));
   }
   function enqueue(id: string, task: () => Promise<void>) {
@@ -116,13 +108,13 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
   async function privateDraft(record: BackOfficeRecord) {
     if (!capture.privateAvailable) return;
     const proposal = proposalMap.get(record.id);
-    if (!await capture.act({ type: "draft", key: record.id, date: proposal?.date ?? (typeof record.values.startedAt === "string" && Number.isFinite(Date.parse(record.values.startedAt)) ? calendarDay(new Date(record.values.startedAt)) : capture.dates[0]), values: record.values, ...(proposal ? { proposalDigest: proposal.digest } : {}) })) throw new Error(t("back_office.save_failed"));
+    if (!await capture.act({ type: "draft", key: record.id, date: proposal?.date ?? (typeof record.values.startedAt === "string" && Number.isFinite(Date.parse(record.values.startedAt)) ? timeRecordDate(record.values.startedAt) : capture.date), values: record.values, ...(proposal ? { proposalDigest: proposal.digest } : {}) })) throw new Error(t("back_office.save_failed"));
   }
   async function persist(id: string, accepting = false) {
     const record = pending.current.get(id) ?? merged.get(id);
     if (!record) return;
     const proposal = bases.current.has(id) ? undefined : proposalMap.get(id);
-    if ((proposal && !accepting) || !valid(record.values)) {
+    if ((proposal && !accepting) || !valid(record.values, id)) {
       await privateDraft(record);
       if (accepting) throw new Error(t("timesheets.sheet.complete"));
       return;
@@ -150,15 +142,20 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
     } finally { setSaving(previous => { const next = new Set(previous); next.delete(id); return next; }); }
   }
   async function edit(record: BackOfficeRecord, patch: Values) {
-    const latest = pending.current.get(record.id) ?? display(bases.current.get(record.id) ?? record);
+    const latest = pending.current.get(record.id) ?? display(bases.current.get(record.id) ?? merged.get(record.id) ?? record);
     const values = { ...latest.values, ...patch };
+    if ("startedAt" in patch) {
+      const date = timeRecordDate(patch.startedAt) || capture.date;
+      values.startedAt = date === timeRecordDate(latest.values.startedAt) ? latest.values.startedAt : date;
+      if (date !== timeRecordDate(latest.values.startedAt)) values.endedAt = null;
+    }
     if (typeof patch.billingNarrative === "string") values.name = patch.billingNarrative.slice(0, 240);
     if (typeof patch.matter === "string") {
       const matter = state.matters.find(matter => matter.id === patch.matter);
       values.client = matter?.clientIds.length === 1 ? matter.clientIds[0] : null;
     }
     pending.current.set(record.id, { ...latest, values });
-    if (record.id === blankId && valid(values)) setBlankId(crypto.randomUUID());
+    if (record.id === blankId && valid(values, record.id)) setBlankId(crypto.randomUUID());
     update();
     void enqueue(record.id, () => persist(record.id));
   }
@@ -193,7 +190,7 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
         const saved = z.object({ view: BackOfficeViewSchema }).parse(await client.backOffice("/views", { method: "POST", body: { ...view, expected } })).view;
         void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }); return saved;
       }}
-      sheet={{ columns, blankId, widths: { startedAt: 176, timekeeper: 140, matter: 200, billingNarrative: 340, recordedMinutes: 120, billableMinutes: 120 },
+      sheet={{ columns, blankId, widths: { startedAt: 130, timekeeper: 140, matter: 200, billingNarrative: 340, recordedMinutes: 120, billableMinutes: 120 },
         onFocus: record => { if (record.id !== blankId && !proposalMap.has(record.id)) setCopied(record.values); },
         trailing: record => record.revision > 0 ? <button title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => navigate("/back-office/timeEntries?record=" + record.id)}><History size={13} /></button> : null,
         leading: record => {
@@ -204,7 +201,7 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
         details: record => {
           const proposal = proposalMap.get(record.id), error = errors[record.id];
           if (!proposal && !error) return null;
-          const matches = proposal ? visible.filter(entry => (display(entry).values.timekeeper === self || (!entry.values.timekeeper && entry.ownerId === directory.permissions.userId)) && typeof entry.values.startedAt === "string" && calendarDay(new Date(entry.values.startedAt)) === proposal.date && entry.values.matter === record.values.matter && entry.id !== record.id) : [];
+          const matches = proposal ? visible.filter(entry => (display(entry).values.timekeeper === self || (!entry.values.timekeeper && entry.ownerId === directory.permissions.userId)) && typeof entry.values.startedAt === "string" && timeRecordDate(entry.values.startedAt) === proposal.date && entry.values.matter === record.values.matter && entry.id !== record.id) : [];
           return <div className="time-proposal-details">
             {proposal && <><button className="time-proposal-source" onClick={() => setSource(source === record.id ? undefined : record.id)}><Sparkles size={13} />{t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}{proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{proposal.projectId && " · " + (state.projects.find(project => project.id === proposal.projectId)?.name ?? "")}</button>
               {matches.length > 0 && <select aria-label={t("timesheets.sheet.reconcile")} value="" onChange={event => { if (event.target.value) void capture.act({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: event.target.value }).then(ok => { if (ok) hideProposal(previous => new Set(previous).add(record.id)); }); }}><option value="">{t("timesheets.sheet.reconcile")}</option>{matches.map(match => <option key={match.id} value={match.id}>{String(match.values.billingNarrative || match.values.name)} · {String(match.values.recordedMinutes)} min</option>)}</select>}

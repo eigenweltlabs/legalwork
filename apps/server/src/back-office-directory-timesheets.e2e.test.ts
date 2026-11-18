@@ -160,6 +160,13 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(records.get(invoice.id)?.values.invoiceFile).toEqual([file]);
     const downloaded = await api(`/back-office/records/${invoice.id}/files/invoiceFile/${file.id}`);
     expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(pdf);
+    const dateOnlyId = crypto.randomUUID();
+    const dateOnly = await api("/back-office/records", { id: dateOnlyId, create: true, revision: 0, objectId: "timeEntries", timekeeperUserId: "worker",
+      values: { ...booking.values, name: "Date-only service", billingNarrative: "Date-only service", startedAt: "2026-11-18", endedAt: null } });
+    expect(dateOnly.status).toBe(200);
+    await syncBackOffice(config);
+    expect(records.get(dateOnlyId)?.values.startedAt).toBe("2026-11-18");
+    expect(records.get(dateOnlyId)?.values.endedAt).toBeNull();
     expect(store.checkIntegrity().locallyVerified).toBe(true);
   } finally {
     await server.stop();

@@ -337,3 +337,12 @@ This addendum supersedes the separate AI tab and proposal-create-form interactio
 - The mini bar's Dictate action is independent of shortcut registration. Disabled dictation leads to setup. A visible microphone arrow provides the same selection as the context menu. Permission and transcription readiness checks remain in force.
 
 Acceptance checks: keyboard-only creation and revision edits; reverse Tab; copied draft recovery; private AI edits across hiding/reload; explicit acceptance; reconciliation without double time; member validation and account scoping; no source text/digest in generic record sync; mini-bar setup, click recording and microphone access without a registered shortcut.
+
+
+### 18 November follow-up — date-only entry and stopwatch quantities
+
+This supersedes the earlier implementation note requiring an actual service timestamp: the existing generic Back Office validator already accepts a date-only `startedAt`. The table now shows **Date** without a clock time, defaults to today (or an explicitly selected work date), and stores manual dates as `YYYY-MM-DD`. Opening a timed entry or changing unrelated cells must preserve its original timestamps; choosing another date clears the obsolete end timestamp.
+
+In the ordinary firm-record table, stopwatch proposals now fill **Recorded minutes** as well as **Chargeable minutes** using the exact elapsed interval and effective stopwatch rounding rule. Default is up; disabled round-up uses nearest with ties up. This changes the proposed recorded quantity; original source measurements and previously saved entries stay unchanged. A short interval can round to zero without being forced up to one unit. The full workflow retains separate actual worked time and charge quantities. Existing backend limitations on project preferences remain unchanged.
+
+The stopwatch project panel must fit inside the overlay at every dock position, including with no suggested project and a long project list. Project options scroll within the panel while the heading and start/stop action stay reachable.

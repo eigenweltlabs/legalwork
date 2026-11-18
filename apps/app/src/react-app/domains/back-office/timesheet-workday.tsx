@@ -277,7 +277,7 @@ export function TimesheetWorkday({
           close={() => setEditing("")}
         />
       )}
-      {children && (!local || !query.isPending) && children({ proposals: shown, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, dates, act, openSource: proposal => setEditing(proposal.key) })}
+      {children && (!local || !query.isPending) && children({ proposals: shown, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, act, openSource: proposal => setEditing(proposal.key) })}
       {data && !children && (
         <div className="bo-workday-list">
           {!shown.length ? (

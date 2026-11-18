@@ -57,7 +57,7 @@ export function InlineCellEditor({
       aria-label={field.label}
       value={text}
       type={
-        field.type === "datetime" ? "datetime-local" : field.type === "number" || field.type === "currency"
+        field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : field.type === "number" || field.type === "currency"
           ? "number"
           : field.type === "email"
             ? "email"

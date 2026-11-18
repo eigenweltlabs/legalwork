@@ -61,7 +61,7 @@ export const RecordGridRow = memo(function RecordGridRow({
       </div>
       {fields.map((field, column) => {
         const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
-        const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && field.type === "datetime"));
+        const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && (field.type === "datetime" || field.type === "date")));
         const active = canEdit && editing?.field === field.id;
         const edit = (cell: HTMLDivElement) => {
           if (!canEdit || active) return;

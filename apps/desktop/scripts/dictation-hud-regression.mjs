@@ -192,6 +192,12 @@ app.whenReady().then(async () => {
         assert.deepEqual(running, { visible: true, hit: "stopwatch", meeting: "meeting-stop", label: dock === "bottom" ? "Stop stopwatch and save time" : "Stoppuhr stoppen und Zeit speichern" });
         await click(await center("stopwatch"));
         await click(await center("stopwatch-project"));
+        assert.ok(await read(`(() => {
+          return ["stopwatch-panel", "stopwatch-heading", "stopwatch-confirm"].every(id => {
+            const r = document.getElementById(id).getBoundingClientRect();
+            return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+          });
+        })()`), dock + " expanded project list keeps its heading and start/stop action inside the overlay");
         const alternate = await read(`(() => {
           const r = document.querySelectorAll("#stopwatch-projects button")[1].getBoundingClientRect();
           return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};
@@ -201,7 +207,7 @@ app.whenReady().then(async () => {
         await click(await center("stopwatch-confirm"));
         assert.equal(timerState.active, null);
         assert.equal(hud.meeting.state, "recording");
-        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /Workday|Arbeitstag/);
+        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /AI suggestions|KI-Vorschläge/);
         await hud.setMeeting(idleMeeting);
       }
       timerState.suggestedProjectId = null;

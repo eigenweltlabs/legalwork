@@ -617,15 +617,15 @@ body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch):not(:disa
   background:var(--hover); color:var(--ink); box-shadow:none;
 }
 #stopwatch-panel {
-  position:absolute; z-index:3; width:296px; max-height:208px; padding:10px;
+  position:absolute; z-index:3; width:296px; max-width:calc(100% - 56px); max-height:calc(100% - 12px); overflow:auto; padding:10px;
   border:1px solid var(--border); border-radius:12px; background:var(--surface);
   box-shadow:0 4px 12px rgba(16,24,40,.12); display:flex; flex-direction:column; gap:8px;
 }
 #stopwatch-panel[hidden], #stopwatch-projects[hidden] { display:none }
-body[data-dock=bottom] #stopwatch-panel { bottom:42px; left:50%; transform:translateX(-50%) }
+body[data-dock=bottom] #stopwatch-panel { max-width:calc(100% - 16px); max-height:calc(100% - 48px); bottom:42px; left:50%; transform:translateX(-50%) }
 body[data-dock=left] #stopwatch-panel { left:44px; top:6px }
 body[data-dock=right] #stopwatch-panel { right:44px; top:6px }
-#stopwatch-panel header { display:flex; align-items:center; gap:8px }
+#stopwatch-panel header { flex:none; display:flex; align-items:center; gap:8px }
 #stopwatch-heading { flex:1; font-weight:600 }
 #stopwatch-panel-time { font-variant-numeric:tabular-nums; color:var(--muted) }
 #stopwatch-project, #stopwatch-confirm, #stopwatch-projects button {
