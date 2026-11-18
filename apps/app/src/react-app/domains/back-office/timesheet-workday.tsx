@@ -252,12 +252,12 @@ export function TimesheetWorkday({
           {!data?.modelReady && <p>{t("timesheets.no_model")}</p>}
         </details>
       )}
-      {data && (shown.some(p => p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
+      {data && (shown.some(p => p.date === date && p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
         <details className="bo-workday-timeline">
         <summary><CalendarDays size={14} /><ChevronDown size={12} className="time-detail-chevron" />{t("timesheets.timeline")}</summary>
         <WorkdayTimeline
           date={date}
-          proposals={shown}
+          proposals={shown.filter(proposal => proposal.date === date)}
           state={state}
           confirmed={ownEntries}
           onOpen={(p) => setEditing(p.key)}

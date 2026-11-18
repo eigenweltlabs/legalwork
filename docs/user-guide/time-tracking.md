@@ -2,7 +2,7 @@
 
 ## Which features does my firm support?
 
-Open the clock below **Back Office**. **Time entries** (or **My time**) combines saved entries and private AI suggestions in one editable table. Choose the date and **Day** or **Week**. **Suggestions · n** hides or shows suggestions without accepting or deleting them. Expand **Activity sources** to choose inputs, or **Day timeline** to inspect their clock ranges. **Invoices** (or **Billing review**) and **Billing settings** remain separate tabs.
+Open the clock below **Back Office**. **Time entries** (or **My time**) combines saved entries and private AI suggestions in one editable table. Choose the date and **Day** or **Week**. **Suggestions · n** hides or shows suggestions without accepting or deleting them. Expand **Activity sources** to choose inputs, or **Day timeline** to inspect clock ranges for the selected date, including when the table shows a week. **Invoices** (or **Billing review**) and **Billing settings** remain separate tabs.
 
 In a firm using ordinary Back Office records, type into the bottom row or click its **+**. Choose a real start date/time, a timekeeper, a matter, a description, actual minutes and chargeable minutes. **Tab** commits the cell and moves right; **Shift+Tab** commits and moves left. A complete valid row saves automatically and a new empty row appears below it. There is no Save button or duplicate Create action. Incomplete rows stay in private device storage when the local server is available. Saved-cell changes use the normal Back Office revision history and synchronization. A failed save stays visible beside its row with **Try again**; do not assume it has reached the firm.
 
