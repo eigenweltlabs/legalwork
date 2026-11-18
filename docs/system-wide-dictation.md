@@ -283,7 +283,12 @@ Run `pnpm --filter @legalwork/app test:dictation` for startup, cancellation,
 single insertion, and error recovery regressions. Run
 `pnpm --filter @legalwork/desktop test:dictation-hud` for all visual states in
 both themes/languages, focus preservation, controls, input level and delayed
-feedback. Set `LEGALWORK_HUD_SCREENSHOTS` to a directory to save state previews.
+feedback. Use `pnpm --filter @legalwork/desktop test:stopwatch-hud` for the
+floating stopwatch. On macOS these visual tests need a process with access to
+a display. If the launcher reports no accessible display, run the command
+from Terminal in the logged-in desktop session. The PR checks also run the
+stopwatch fixture on macOS when its HUD implementation or test changes.
+Set `LEGALWORK_HUD_SCREENSHOTS` to a directory to save state previews.
 Run `pnpm --filter @legalwork/desktop test:dictation-capture` to verify real
 PCM/WebM capture, final-sample preservation, startup during microphone-name
 lookup, and microphone cleanup with a silent output sink, using a

@@ -431,7 +431,7 @@ jobs:
       needs.changes.outputs.electron != '[]' && (needs.pr-renderer.result == 'success' ||
       (needs.pr-renderer.result == 'skipped' && needs.changes.outputs.renderer == 'false'))
     # Native window lifecycle and hidden WebContents capture require a Mac session.
-    runs-on: ${{ (needs.changes.outputs.renderer == 'true' || contains(fromJSON(needs.changes.outputs.electron), 'browser')) && 'macos-15' || 'ubuntu-latest' }}
+    runs-on: ${{ (needs.changes.outputs.renderer == 'true' || contains(fromJSON(needs.changes.outputs.electron), 'browser') || contains(fromJSON(needs.changes.outputs.electron), 'stopwatch')) && 'macos-15' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -472,6 +472,9 @@ jobs:
           fs.unlinkSync(helper);
           fs.symlinkSync(process.argv[2], helper);
           NODE
+      - name: Exercise the floating stopwatch on macOS
+        if: contains(fromJSON(needs.changes.outputs.electron), 'stopwatch')
+        run: pnpm --filter @legalwork/desktop test:stopwatch-hud
       - name: Run selected Chromium fixtures
         if: needs.changes.outputs.electron != '["renderer"]'
         env:
