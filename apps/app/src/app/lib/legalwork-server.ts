@@ -11,6 +11,7 @@ import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
+import type { SessionCostSummary } from "@legalwork/types/session-cost";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
@@ -2267,6 +2268,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       ).then(result=>({item:projectSession(result.item)})),
+    getSessionCosts: (workspaceId: string, sessionId: string, signal?: AbortSignal) =>
+      requestJson<SessionCostSummary>(baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/costs`,
+        { token, hostToken, signal, timeoutMs: timeouts.sessionRead }),
     getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
       if (options?.fileReferences) query.set("files", "references");

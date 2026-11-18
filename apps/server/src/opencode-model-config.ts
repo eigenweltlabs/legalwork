@@ -4,7 +4,12 @@ import { Schema } from "effect";
 
 // Eigenwelt's external model-manifest contract. This is business metadata,
 // distinct from the native configuration LegalWork stores and sends to OpenCode.
+const gatewayCostSchema = z.object({
+  input: z.number().finite().nonnegative(), output: z.number().finite().nonnegative(),
+  cache_read: z.number().finite().nonnegative(), cache_write: z.number().finite().nonnegative(),
+});
 export const OpenCodeModelConfigSchema = z.object({
+  cost: gatewayCostSchema.extend({ context_over_200k: gatewayCostSchema.optional() }).optional(),
   options: z.record(z.string(), z.unknown()).optional(),
   variants: z.record(z.string(), z.object({ disabled: z.boolean().optional() }).catchall(z.unknown())).optional(),
   interleaved: z.union([z.boolean(), z.string(), z.object({ field: z.string() })]).optional(),
@@ -35,6 +40,8 @@ function gatewayOptions(value: Record<string, unknown> = {}) {
 }
 
 export function nativeGatewayModelControls(model: OpenCodeModelConfig) {
+  const pricing = OpenCodeModelConfigSchema.shape.cost.safeParse(model.cost);
+  const cost = pricing.success ? pricing.data : undefined;
   const field = typeof model.interleaved === "string" ? model.interleaved
     : model.interleaved && typeof model.interleaved === "object" ? model.interleaved.field : undefined;
   const { setCacheKey, ...options } = model.options ?? {};
@@ -53,6 +60,11 @@ export function nativeGatewayModelControls(model: OpenCodeModelConfig) {
     ...(disableThinkingBlockBinding ? { supportsThinkingBlockBinding: false } : {}),
   };
   return {
+    ...(cost ? { cost: [
+      { input: cost.input, output: cost.output, cache: { read: cost.cache_read, write: cost.cache_write } },
+      ...(cost.context_over_200k ? [{ tier: { type: "context", size: 200_000 }, input: cost.context_over_200k.input,
+        output: cost.context_over_200k.output, cache: { read: cost.context_over_200k.cache_read, write: cost.context_over_200k.cache_write } }] : []),
+    ] } : {}),
     ...gatewayOptions(options),
     ...(Object.keys(compatibility).length ? { compatibility } : {}),
     ...(model.variants === undefined ? {} : { variants: Object.entries(model.variants)

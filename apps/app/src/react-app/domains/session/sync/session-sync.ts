@@ -1072,6 +1072,13 @@ function applyEvent(
   };
   if(["server.connected","model.updated","provider.updated","integration.updated","credential.updated","credential.switched","models-dev.refreshed","config.updated"].includes(event.type))invalidateNativeCatalogReady();
   switch (event.type) {
+    case "session.usage.updated":
+      cache.setQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId, sessionId), current => current ? {
+        ...current, session: { ...current.session, cost: event.data.cost, tokens: event.data.tokens },
+      } : current);
+      // A child session can contribute to its parent's displayed total.
+      void cache.invalidateQueries({ queryKey: ["session-costs", workspaceId] });
+      return;
     case "session.renamed": {
       cache.setQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId,sessionId),current=>current ? {...current,session:{...current.session,title:event.data.title,time:{...current.session.time,updated:event.created}}}:current);
       for(const listener of entry.sessionUpdatedListeners)listener({sessionId,info:{title:event.data.title,time:{updated:event.created}}});

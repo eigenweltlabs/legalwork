@@ -556,6 +556,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const published = { path, workspaces, shared: sharedConfiguration, systemOne: systemOneSettings, commonPlugins };
     if (previous) { publishedSettings.set(config, published); return; }
     const mandatoryPlugins = [
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-costs"), config), options: { settingsPath, directory: join(runtimeStorageDir(config), "gateway-costs") } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
       await bundledPluginSpec(legalworkPluginPath("legalwork-product-scope"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-digest-tools"), config),

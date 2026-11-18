@@ -41,6 +41,11 @@
   ],
   "panels": [
     {
+      "id": "session-costs",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/components/chat/cost-indicator.tsx"
+    },
+    {
       "id": "timesheet-workspace",
       "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/timesheet-workspace.tsx"
