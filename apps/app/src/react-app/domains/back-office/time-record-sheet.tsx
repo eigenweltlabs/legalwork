@@ -160,7 +160,7 @@ export function TimeRecordSheet({ client, directory, state, capture }: {
     void enqueue(record.id, () => persist(record.id));
   }
   function duplicate(input: Values) {
-    const values: Values = { ...input, timekeeper: self, status: "Draft" };
+    const values: Values = { ...input, timekeeper: self, status: "Draft", endedAt: null };
     delete values.invoice;
     const id = crypto.randomUUID(), copy = row(id, values);
     pending.current.set(id, copy); update();
