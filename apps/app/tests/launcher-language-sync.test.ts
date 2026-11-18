@@ -1,5 +1,20 @@
 import { expect, test } from "bun:test";
-import { currentLanguagePreference, currentLocale, initLocale, setLanguagePreference, subscribeLocale } from "../src/i18n";
+import { currentLanguagePreference, currentLocale, initLocale, setLanguagePreference, subscribeLocale, t } from "../src/i18n";
+
+test("translation requests fill every occurrence of the selected language in English and German", () => {
+  expect(t("launcher.flow.translate_prompt", "en", { language: "English", fallback: "German" })).toBe(
+    "Translate the selected passage into English. If it is already in English, translate it into German. Return only the translation.",
+  );
+  expect(t("launcher.flow.translate_prompt", { lng: "de", language: "German", fallback: "English" })).toBe(
+    "Übersetzen Sie den ausgewählten Abschnitt in German. Falls er bereits in German ist, übersetzen Sie ihn in English. Geben Sie nur die Übersetzung zurück.",
+  );
+});
+
+test("translation parameters keep dollar signs literal", () => {
+  expect(t("launcher.flow.translate_prompt", "en", { language: "$&", fallback: "$'" })).toBe(
+    "Translate the selected passage into $&. If it is already in $&, translate it into $'. Return only the translation.",
+  );
+});
 
 test("refreshing language from another window or the system repaints subscribers without rewriting settings", () => {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");

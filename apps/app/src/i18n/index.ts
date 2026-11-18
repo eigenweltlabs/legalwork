@@ -266,7 +266,7 @@ export const t = (
   let out = result;
   for (const [k, v] of Object.entries(params)) {
     if (k === "lng") continue;
-    out = out.replace(`{${k}}`, String(v));
+    out = out.replaceAll(`{${k}}`, () => String(v));
   }
   return out;
 };

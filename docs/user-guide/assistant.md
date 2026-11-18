@@ -290,6 +290,10 @@ a question and press **Command+Enter** (**Ctrl+Enter** on Windows). In Raycast,
 **Ask LegalWork with Selection** opens the same question composer. Opening the
 mini-bar with a selection starts with that passage and keeps existing chats separate.
 
+**Translate** uses the language selected beside the action, initially your
+interface language. If the passage is already in that language, it translates
+into English, or into German when English is selected.
+
 From another app, an eligible AI plan starts a fresh general Assistant chat.
 Without that plan, type a project name, use the arrow keys and press **Enter**.
 The mini-bar sends your question and selection together using the project's
