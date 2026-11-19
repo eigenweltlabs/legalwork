@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,23 @@ import { verifiedTestEngine } from "./opencode-candidate.test-support.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
+
+// Synthetic engine startup must not depend on the live public model catalog.
+beforeEach(() => {
+  const previous = process.env.OPENCODE_MODELS_URL;
+  let requests = 0;
+  const catalog = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+    requests++;
+    return new Response("Startup fixtures must use the bundled model list", { status: 503 });
+  } });
+  process.env.OPENCODE_MODELS_URL = `http://127.0.0.1:${catalog.port}`;
+  cleanup.push(async () => {
+    catalog.stop(true);
+    if (previous === undefined) delete process.env.OPENCODE_MODELS_URL;
+    else process.env.OPENCODE_MODELS_URL = previous;
+    expect(requests).toBe(0);
+  });
+});
 
 // The child calls back using only the credentials and address it actually
 // inherited, rather than test code supplying the server's correct address.
@@ -55,6 +72,7 @@ console.log(process.argv.includes("--stdio") ? JSON.stringify({url:"http://127.0
 
 test.each(["first", "last", "only"])("an unavailable cloud project does not block startup (%s), stays registered and recovers on retry", async (position) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "embedded-cloud-project-")));
+  await writeFile(join(root, "model-catalog-settings.json"), JSON.stringify({ onlineUpdatesEnabled: false }));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const previous = { ...process.env };
   cleanup.push(async () => {
@@ -115,6 +133,7 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
 
 test("managed agent authenticates wiki and storage tools after the preferred server port is occupied", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "embedded-agent-port-")));
+  await writeFile(join(root, "model-catalog-settings.json"), JSON.stringify({ onlineUpdatesEnabled: false }));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const previous = { ...process.env };
   cleanup.push(async () => {
@@ -197,6 +216,7 @@ test("LegalWork routes remain available during managed initialization and the li
 
 test("an explicit missing desktop SDK prevents engine spawn and package downloads", async () => {
   const root = await mkdtemp(join(tmpdir(), "embedded-missing-sdk-"));
+  await writeFile(join(root, "model-catalog-settings.json"), JSON.stringify({ onlineUpdatesEnabled: false }));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const previous = { ...process.env };
   cleanup.push(async () => {
