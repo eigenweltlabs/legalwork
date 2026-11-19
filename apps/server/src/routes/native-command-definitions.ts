@@ -1,7 +1,7 @@
 import { ApiError } from "../errors.js";
 import { createEngineClient, workspaceEngineLocation } from "../engine-client.js";
 import { assertNativeProxyDirectory } from "../native-proxy-policy.js";
-import { buildLegalworkRuntimeSettings } from "../legalwork-runtime-config.js";
+import { readRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { encodeCommandDefinitions, resolveNativeCommandDefinitions } from "../native-command-definitions.js";
 import { resolveNativeAgentDefinitions } from "../native-agent-definitions.js";
 import { agentDefinitionsSchema } from "../native-agent-schema.js";
@@ -40,12 +40,15 @@ export function registerNativeCommandDefinitionRoutes(options: {
     const client = createEngineClient(options.config, workspace);
     // Do not prime model.list here. The native command plugin calls this read
     // while model.list is activating plugins; waiting for it would deadlock.
-    const [entries, managed] = await Promise.all([
+    // Command refreshes need local declarations only. Rebuilding the whole
+    // runtime here checks cloud model availability once per project/event.
+    const [entries, runtime] = await Promise.all([
       client.config.get({ location }),
-      buildLegalworkRuntimeSettings(options.config, workspace.id),
+      readRuntimeOpencodeConfig(options.config, workspace.id),
     ]);
-    const result = encodeCommandDefinitions(await resolveNativeCommandDefinitions(entries, managed.configuration.commands,
-      { root: managedCoreLibraryRoot(options.config), commands: managedCoreConfiguration().config.commands ?? {} }));
+    const coreCommands = managedCoreConfiguration().config.commands ?? {};
+    const result = encodeCommandDefinitions(await resolveNativeCommandDefinitions(entries, { ...coreCommands, ...runtime.commands },
+      { root: managedCoreLibraryRoot(options.config), commands: coreCommands }));
     const response = options.jsonResponse(result);
     response.headers.set("Cache-Control", "no-store");
     return response;
