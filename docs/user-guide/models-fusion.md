@@ -104,9 +104,11 @@ To use your firm's Gateway OCR tool, open **Settings > AI Providers > Document r
 
 For PDF reading, Gateway OCR can recognize up to eight pages at once when the server supports it. Other server providers use a lower limit. Local OCR reads one page at a time to limit memory use. Results retain the PDF's page order, and a failed page does not discard successful pages. Select fewer pages when you only need part of a long scan.
 
-On an Eigenwelt Gateway with queued OCR, LegalWork waits for each saved page job and checks its progress automatically. Work is shared fairly between customers. If a connection drops or a read reports that a page is still queued or processing, ask the agent to read the same unchanged pages again. The Gateway resumes their saved jobs, and LegalWork keeps pages already read successfully. Stopping a read stops waiting; an accepted server job can continue so it is available when you resume.
+Eigenwelt Gateway OCR processes page images in memory and returns text directly. The OCR service does not save input images, recognized text or completed results to a database, object bucket, file or result cache. Request and response content logging is disabled. Its bounded RAM queue shares available page slots between customers; page parallelism and GPU batching remain enabled.
 
-Queued Gateway OCR uses temporary encrypted working storage for page images and results. Queued jobs expire after one hour, and completed results remain available for 15 minutes for reconnecting clients. Working images are cleaned up after processing or expiry. Gateway request logs contain no page images or recognized text. A custom OCR server can have its own storage and retention policy.
+If a read is interrupted or the OCR service restarts, ask the agent to read the unfinished pages again. LegalWork can reuse completed pages in its local memory cache. There are no saved OCR server jobs to reconnect to. Stopping a read cancels pages still waiting; a page already being processed can finish before its memory is released, and its undelivered result is discarded.
+
+This zero data retention policy covers the OCR service. Documents you add to LegalWork and text returned into your local chat follow LegalWork's normal storage behavior. A chat model receiving the text has its own provider policy. Custom OCR servers can have different retention policies.
 
 The Windows desktop app includes the runtime dependencies for its fast local OCR engine. You do not need to install Python, Visual Studio, or a separate Visual C++ runtime package. Download the recognition model from this settings page before using local OCR.
 
