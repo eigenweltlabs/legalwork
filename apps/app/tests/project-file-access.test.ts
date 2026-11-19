@@ -21,6 +21,16 @@ test("source resolution uses registered project endpoints and rejects mismatched
   expect(access.identify(local, "b", { path: "same.md", name: "same.md" })).toEqual({ ...source, projectId: "b", workspaceId: "b" });
 });
 
+test("only files in the receiving project and server can stay linked to their originals", () => {
+  const local = createLegalworkServerClient({ baseUrl: "http://localhost:4000", token: "local-token" });
+  const access = createProjectFileAccess(groups, local, () => "draft");
+  expect(access.canReference(source, local, "a")).toBe(true);
+  expect(access.canReference(source, local, "b")).toBe(false);
+  expect(access.canReference({ ...source, connectionId: "cloud" }, local, "a")).toBe(false);
+  expect(access.canReference(source, createLegalworkServerClient({ baseUrl: "http://other-server:4000", token: "local-token" }), "a")).toBe(false);
+  expect(access.canReference(source, createLegalworkServerClient({ baseUrl: local.baseUrl, token: "another-account" }), "a")).toBe(false);
+});
+
 test("saved snapshots read only from the origin and detect source changes during transfer", async () => {
   const calls: string[] = [];
   let version = 1;
