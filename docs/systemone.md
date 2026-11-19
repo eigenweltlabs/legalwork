@@ -19,8 +19,10 @@ Unavailable or disabled models never fall back across providers or regions.
 
 This client change does not activate Microsoft inference or establish ZDR approval.
 Model-api's `docs/microsoft-decision.md` records the regional deployment, retention,
-quality and billing checks required before activation. Existing customer prices
-remain unchanged; the upstream Microsoft per-million tariff is a separate cost.
+quality and billing checks required before activation. Microsoft Decision costs
+**€0.05 per million input tokens** in both EU and US; output tokens are free.
+Usage consumes the existing subscription allowance. The original JEV backends
+and standalone EigenJev API keep their per-billion tariff below.
 
 EigenJev uses the **existing subscription gateway key** saved at sign-in. No API
 key creation or additional credential is required. A firm admin enables EigenJev
@@ -30,7 +32,8 @@ the server checks `/api/desktop/systemone`; an outage never grants access. Sign-
 disabled access and removed membership prevent execution. Platform model choices
 control both the `EigenJev` and legacy `jev-latest` gateway aliases together.
 
-Eigenwelt Europe EigenJev costs **€0.05 per billion input tokens; output tokens are free**.
+With the original backend, Eigenwelt Europe EigenJev costs
+**€0.05 per billion input tokens; output tokens are free**.
 Usage consumes the existing subscription allowance through that same key.
 The gateway retains fractional-cent spend and the platform rounds cumulative
 spend, so small requests are not individually rounded up or discarded.
