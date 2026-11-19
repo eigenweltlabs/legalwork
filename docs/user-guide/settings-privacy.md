@@ -109,6 +109,22 @@ The Memory section can contain cleanup controls for legacy local memories. The a
 
 Change the display language in **Customization**. Use the appearance selector to choose light, dark or system appearance. Task suggestions controls starter suggestions; showing model reasoning changes what is displayed, not the model's reasoning budget.
 
+### Show prompt and conversation costs
+
+1. Open **Settings > Customization**.
+2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
+3. Open a chat. The amount next to the answer timestamp shares the copy, branch and undo row.
+4. Click an answer amount to see **This answer** and **This conversation**. Click it again to collapse the card. Amounts use cents; positive costs below one cent show **<€0.01** or **<$0.01** rather than zero. A **~** marks an estimate.
+5. Click the **This answer** or **This conversation** row to see its models, detailed amounts, call counts and token counts directly beneath that row. Answer details appear before the conversation row. Both start closed, and only one opens at a time. The arrow points down for the open row; click it again to hide the details. Model names match the model picker.
+
+Eigenwelt gateway models use **EUR**; direct providers use **USD** estimates. A conversation using both shows separate amounts without conversion. Amounts are labelled **Estimated AI cost**. Gateway estimates use the retail EUR cost reported in the model response; token counts come from OpenCode. Detailed amounts show up to four decimal places. Recent costs update automatically. While the agent is working, **so far** means the reported usage is still accumulating.
+
+Conversation totals include background work such as titles and context compaction and linked delegated agents. Undoing a message does not refund usage; branching does not charge again for copied history. External service charges are excluded.
+
+In the usage details, **Input tokens** is **New input** plus **Reused input**. New input includes freshly processed input that may be cached for later reuse. Input includes instructions, tools and conversation context as well as your message. **Output** excludes separately listed **Reasoning** tokens. Counts are added across calls for the selected answer or conversation.
+
+**Cost unavailable** means usage or pricing is missing. **Partial** marks a known subtotal when some costs are unavailable. Older gateway calls without a saved response cost can remain unavailable. Cost reporting uses existing model responses and local usage records, with no separate billing lookup. Estimates can differ from your invoice or subscription allowance. Turning off **Show costs** hides the display and does not change usage or anonymous usage-sharing preferences.
+
 **Projects** offers defaults for matter fields and a new-window preference to ask, open empty or copy the current context. Project defaults apply when creating a project; they do not overwrite every existing matter.
 
 ## App updates

@@ -16,7 +16,7 @@ describe("Home message submission", () => {
       pending: { sessionId: null, uploads: new Map() },
       client: { writeWorkspaceBinaryFile: async (target, payload) => {
         expect(target).toBe(createdProjectId);
-        return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0 };
+        return { ok: true, path: payload.path, bytes: "size" in payload.data ? payload.data.size : payload.data.byteLength, updatedAt: 0 };
       } },
       createSession: async () => ({ id: "first-session" }),
       sendPrompt: async (target, text) => {
@@ -44,7 +44,7 @@ describe("Home message submission", () => {
       client: { writeWorkspaceBinaryFile: async (workspaceId, payload) => {
         steps.push("copy");
         expect(workspaceId).toBe("target-project");
-        expect(new Uint8Array(payload.data)).toEqual(bytes);
+        expect(new Uint8Array("arrayBuffer" in payload.data ? await payload.data.arrayBuffer() : payload.data)).toEqual(bytes);
         return { ok: true, path: payload.path, bytes: bytes.length, updatedAt: 0 };
       } },
       createSession: async () => { steps.push("create"); return { id: "new-session" }; },
@@ -67,9 +67,9 @@ describe("Home message submission", () => {
     const pending: PendingHomeMessage = { sessionId: null, uploads: new Map() };
     const input = {
       workspaceId: "project", text: "Review", files: [new File(["sample"], "sample.txt")], pending,
-      client: { writeWorkspaceBinaryFile: async (_workspaceId: string, payload: { path: string; data: ArrayBuffer }) => {
+      client: { writeWorkspaceBinaryFile: async (_workspaceId: string, payload: { path: string; data: ArrayBuffer | Blob }) => {
         copies++;
-        return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0 };
+        return { ok: true, path: payload.path, bytes: "size" in payload.data ? payload.data.size : payload.data.byteLength, updatedAt: 0 };
       } },
       createSession: async () => { sessions++; return { id: "session" }; },
       sendPrompt: async () => { if (++attempts === 1) throw new Error("Send unavailable"); },
@@ -88,11 +88,11 @@ describe("Home message submission", () => {
     const pending: PendingHomeMessage = { sessionId: null, uploads: new Map() };
     const input = {
       workspaceId: "project", text: "", files: [first, second], pending,
-      client: { writeWorkspaceBinaryFile: async (_workspaceId: string, payload: { path: string; data: ArrayBuffer }) => {
+      client: { writeWorkspaceBinaryFile: async (_workspaceId: string, payload: { path: string; data: ArrayBuffer | Blob }) => {
         const name = payload.path.endsWith("first.txt") ? "first" : "second";
         calls.push(name);
         if (name === "second" && fail) throw new Error("Copy failed");
-        return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0 };
+        return { ok: true, path: payload.path, bytes: "size" in payload.data ? payload.data.size : payload.data.byteLength, updatedAt: 0 };
       } },
       createSession: async () => { calls.push("create"); return { id: "session" }; },
       sendPrompt: async (_sessionId: string, text: string) => { calls.push("send"); expect(text).toContain("second.txt"); },

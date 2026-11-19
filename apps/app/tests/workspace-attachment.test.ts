@@ -6,12 +6,37 @@ import {
   parseWorkspaceAttachmentLink,
   WORKSPACE_ATTACHMENT_LINK_SOURCE,
   uploadWorkspaceAttachment,
+  referenceWorkspaceFile,
   workspaceAttachmentDisplayText,
   workspaceAttachmentInstruction,
 } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
 
 describe("workspace attachments", () => {
+  test("file mentions reference the original project file without copying its bytes", async () => {
+    const path = "Contracts/Prüfung (final).pdf";
+    const reference = await referenceWorkspaceFile({
+      statWorkspaceFile: async (workspace, requestedPath) => {
+        expect(workspace).toBe("ws-test"); expect(requestedPath).toBe(path);
+        return { ok: true, path, exists: true, kind: "file", size: 1024 * 1024 * 1024, updatedAt: 1 };
+      },
+    }, "ws-test", path);
+    expect(parseWorkspaceAttachmentMention(reference)).toEqual({ name: "Prüfung (final).pdf", path });
+    const draft = buildComposerDraft(`Read @${encodeComposerMentionValue(reference)} `, [], { [reference]: "upload" }, []);
+    expect(draft.parts.every(part => part.type === "text")).toBe(true);
+    expect(draft.attachments).toEqual([]);
+    expect(draft.modelContext).toBe(workspaceAttachmentInstruction(reference));
+    expect(draft.modelContext).toContain("The original project file is");
+    expect(draft.modelContext).toContain("Read this file with tools appropriate for its format");
+  });
+
+  test("missing files and directories cannot become project file references", async () => {
+    for (const exists of [false, true]) {
+      await expect(referenceWorkspaceFile({ statWorkspaceFile: async (_workspace, path) => ({ path, exists, kind: "dir" }) }, "ws-test", "unavailable")).rejects.toThrow("no longer available");
+    }
+  });
+
   test("local project references preserve original paths with spaces, Unicode and parentheses", () => {
     const path = "Notes/Prüfung [A] (final) #1.md";
     const mention = createWorkspaceAttachmentMention("Prüfung [A]", path);
@@ -36,8 +61,10 @@ describe("workspace attachments", () => {
       const mention = await uploadWorkspaceAttachment({
         writeWorkspaceBinaryFile: async (workspace, payload) => {
           expect(workspace).toBe("ws-test");
-          expect(new Uint8Array(payload.data)).toEqual(bytes);
-          return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0 };
+          expect(payload.data).toBe(file);
+          if (!("arrayBuffer" in payload.data)) throw new Error("Expected streamed file");
+          expect(new Uint8Array(await payload.data.arrayBuffer())).toEqual(bytes);
+          return { ok: true, path: payload.path, bytes: payload.data.size, updatedAt: 0 };
         },
       }, "ws-test", file);
       const attachment = parseWorkspaceAttachmentMention(mention);
@@ -56,8 +83,8 @@ describe("workspace attachments", () => {
 
   test("same-named uploads have distinct paths; special filenames remain one safe badge", async () => {
     const file = new File(["content"], "Anlage [A] @50% #1 (Müller).docx");
-    const client = { writeWorkspaceBinaryFile: async (_workspace: string, payload: { path: string; data: ArrayBuffer }) => ({
-      ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0,
+    const client = { writeWorkspaceBinaryFile: async (_workspace: string, payload: { path: string; data: ArrayBuffer | Blob }) => ({
+      ok: true, path: payload.path, bytes: "size" in payload.data ? payload.data.size : payload.data.byteLength, updatedAt: 0,
     }) };
     const first = await uploadWorkspaceAttachment(client, "ws-test", file);
     const second = await uploadWorkspaceAttachment(client, "ws-test", file);
@@ -69,6 +96,16 @@ describe("workspace attachments", () => {
     expect(tokens).toHaveLength(1);
     expect(tokens[0]?.type).toBe("link");
     if (tokens[0]?.type === "link") expect(tokens[0].href).toBe(parseWorkspaceAttachmentMention(first)?.path);
+  });
+
+  test("drop uploads pass the file without materializing a full ArrayBuffer", async () => {
+    const file = new File(["source bytes"], "large.pdf");
+    file.arrayBuffer = async () => { throw new Error("Must stream the file instead"); };
+    const mention = await uploadWorkspaceAttachment({ writeWorkspaceBinaryFile: async (_workspace, payload) => {
+      expect(payload.data).toBe(file);
+      return { ok: true, path: payload.path, bytes: file.size, updatedAt: 0 };
+    } }, "ws-test", file);
+    expect(parseWorkspaceAttachmentMention(mention)?.name).toBe("large.pdf");
   });
 
   test("upload failures never produce a usable reference", async () => {

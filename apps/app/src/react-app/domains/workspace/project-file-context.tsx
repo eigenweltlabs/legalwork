@@ -45,6 +45,10 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
     };
   return {
     projects, project, sourceProject, attach, identify,
+    canReference(source: ProjectFileSource, client: LegalworkServerClient, workspaceId: string) {
+      const owner = sourceProject(source);
+      return !source.connectionId && owner.workspaceId === workspaceId && owner.client.baseUrl === client.baseUrl && owner.client.token === client.token;
+    },
     drag(data: DataTransfer, client: LegalworkServerClient, workspaceId: string, file: { name: string; path: string; connectionId?: string }) {
       const source = identify(client, workspaceId, file);
       if (source) writeProjectFileDrag(data, source);

@@ -2,15 +2,16 @@ import { z } from "zod";
 import type { Plugin } from "@opencode/plugin";
 import type { Result } from "@opencode/plugin/promise/tool";
 import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { open, realpath, type FileHandle } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { ApiError } from "../errors.js";
 import { nativeToolContext } from "./native-tool.js";
-import { pdfReadOptions, pdfTextResult, PDF_MAX_BYTES, PDF_ATTACHMENT_MAX_BYTES, PDF_READING_RECOVERY } from "../pdf-read-schema.js";
+import { pdfReadOptions, pdfFileResult, PDF_MAX_BYTES, PDF_IN_MEMORY_MAX_BYTES, PDF_ATTACHMENT_MAX_BYTES, PDF_READING_RECOVERY } from "../pdf-read-schema.js";
 import { resolveWorkspaceId, sessionFileWorkspace, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 type Attachment = { type: "file"; mime: string; url: string; filename?: string };
+type FileSource = { handle: FileHandle; filename: string };
 type PdfResult = { title: string; output: string; metadata: Record<string, unknown>; attachments?: Attachment[] };
 export class PdfToolResult { constructor(readonly result: Result) {} }
 
@@ -60,39 +61,74 @@ async function attachPdf(file: Attachment, pages: number[] | undefined, signal: 
 
 export function pdfReading() {
   const models = new Map<string, boolean>();
-  const description = " Read PDFs with this tool; no PDF skill or shell is needed. Three combinable modes are available: text=true extracts embedded text only; ocr=true explicitly recognizes selected pages and returns recognized text; attach=true sends selected PDF pages directly to a PDF-capable model for visual inspection (maximum 2 MB including base64 overhead). When no mode is specified, text defaults to true and ocr/attach to false. pages selects 1-based source pages for all requested modes; omitted means all pages. Source PDFs can be at most 64 MiB and 1000 pages; OCR can process at most 100 pages per call; text extraction is limited to 2 million characters. pages_without_embedded_text and page_sources report text-layer and extraction coverage. Pages without embedded text may contain scans, images or be blank. complete describes extraction coverage of selected pages, not whether all text was returned or visual content inspected. offset and limit only paginate returned embedded/OCR text, never PDF pages, processing work or attachment bytes. offset is a 0-based character position; limit defaults to 16000 characters (maximum 80000). When truncated=true, next_offset is the continuation position with the same path, pages and modes. Other files retain native line offsets and limits. Errors include recovery information. Missing extracted text is not evidence of absent content.";
+  const description = " Read PDFs with this tool; no PDF skill or shell is needed. Three combinable modes are available: text=true extracts embedded text only; ocr=true explicitly recognizes selected pages and returns recognized text; attach=true sends selected PDF pages directly to a PDF-capable model for visual inspection (maximum 2 MB including base64 overhead). When no mode is specified, text defaults to true and ocr/attach to false. pages selects 1-based source pages for all requested modes; omitted means all pages. Source PDFs can be at most 1 GiB and 1000 pages; files of 64 MiB or more are read from disk without buffering the full source; OCR can process at most 100 pages per call; text extraction is limited to 2 million characters. pages_without_embedded_text and page_sources report text-layer and extraction coverage. Pages without embedded text may contain scans, images or be blank. complete describes extraction coverage of selected pages, not whether all text was returned or visual content inspected. offset and limit only paginate returned embedded/OCR text, never PDF pages, processing work or attachment bytes. offset is a 0-based character position; limit defaults to 16000 characters (maximum 80000). When truncated=true, next_offset is the continuation position with the same path, pages and modes. Other files retain native line offsets and limits. Errors include recovery information. Missing extracted text is not evidence of absent content.";
 
-  const read = async (file: Attachment, options: z.infer<typeof pdfReadOptions> & { offset?: number; limit?: number }, context: OpenCodeContext): Promise<PdfResult> => {
+  const read = async (file: Attachment | FileSource, options: z.infer<typeof pdfReadOptions> & { offset?: number; limit?: number }, context: OpenCodeContext): Promise<PdfResult> => {
     try {
       const prefix = "data:application/pdf;base64,";
-      if (!file.url.startsWith(prefix) || file.url.length - prefix.length > Math.ceil(PDF_MAX_BYTES / 3) * 4)
-        throw new ApiError(400, "pdf_input", "PDF reading requires a local PDF file of at most 64 MiB. Split an oversized source into smaller PDFs; pages and offset/limit do not reduce the source file size.");
+      if ("url" in file && (!file.url.startsWith(prefix) || file.url.length - prefix.length >= Math.ceil(PDF_IN_MEMORY_MAX_BYTES / 3) * 4))
+        throw new ApiError(400, "pdf_input", "Inline PDFs must be smaller than 64 MiB. Read PDFs of 64 MiB or more from a file with the streamed reader (maximum 1 GiB).");
       const text = options.text ?? (!options.attach && options.ocr !== true);
       let attached: PdfResult | undefined;
       if (options.attach) {
         const supportsPdf = context.sessionID ? models.get(context.sessionID) : undefined;
         if (supportsPdf === undefined) throw new ApiError(400, "pdf_model_unknown", "Cannot determine the model's PDF capability. Select a PDF-capable model, or use attach=false with text=true and/or ocr=true.");
         if (!supportsPdf) throw new ApiError(400, "pdf_model_unsupported", "The selected model does not accept PDF attachments. Use attach=false with text=true, ocr=true, or both.");
-        attached = await attachPdf(file, options.pages, context.abort);
-        if (!attached.attachments || !text && !options.ocr) return attached;
+        if ("url" in file) {
+          attached = await attachPdf(file, options.pages, context.abort);
+          if (!attached.attachments || !text && !options.ocr) return attached;
+        }
       }
-      if (!text && !options.ocr) throw new ApiError(400, "pdf_read_mode", "No PDF read mode was selected. Choose text=true for embedded text, ocr=true for recognition, attach=true for visual inspection, or combine these modes.");
+      if (!text && !options.ocr && !options.attach) throw new ApiError(400, "pdf_read_mode", "No PDF read mode was selected. Choose text=true for embedded text, ocr=true for recognition, attach=true for visual inspection, or combine these modes.");
       const current = await sessionFileWorkspace(context);
       const workspace = current ? current.workspaceId : await resolveWorkspaceId(context, { requireDirectory: true });
       if (!workspace) throw new ApiError(403, "workspace_not_found", "This chat has no registered workspace.");
-      const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/pdf/read`, {
-        method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
-        body: JSON.stringify({ dataBase64: file.url.slice(prefix.length), text, ocr: options.ocr === true, pages: options.pages }),
+      const modes = { text, ocr: options.ocr === true, pages: options.pages, attach: options.attach };
+      const before = "handle" in file ? await file.handle.stat() : undefined;
+      let position = 0, cancelled = false;
+      const body = "handle" in file ? new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          context.abort?.throwIfAborted();
+          const buffer = Buffer.alloc(64 * 1024), read = await file.handle.read(buffer, 0, buffer.length, position);
+          if (cancelled) return;
+          if (!read.bytesRead) { controller.close(); return; }
+          position += read.bytesRead; controller.enqueue(buffer.subarray(0, read.bytesRead));
+        },
+        cancel() { cancelled = true; },
+      }) : JSON.stringify({ dataBase64: file.url.slice(prefix.length), ...modes });
+      const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/pdf/read${"handle" in file ? `?options=${encodeURIComponent(JSON.stringify(modes))}` : ""}`, Object.assign({
+        method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "handle" in file ? "application/pdf" : "application/json" },
+        body,
         signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
-      });
+      }, { duplex: "half" }));
       if (!response.ok) {
         const error = z.object({ code: z.string().optional(), message: z.string() }).safeParse(await response.json().catch(() => null));
         throw new ApiError(response.status, error.success ? error.data.code ?? "pdf_read_failed" : "pdf_read_failed",
           error.success ? error.data.message : `PDF reading failed (HTTP ${response.status}). Check the server and OCR settings; use pages to select fewer pages before retrying.`);
       }
-      const parsed = pdfTextResult.safeParse(await response.json().catch(() => null));
+      const parsed = pdfFileResult.safeParse(await response.json().catch(() => null));
       if (!parsed.success) throw new ApiError(502, "pdf_read_response", "The PDF reader returned an invalid response. Check that the LegalWork server and PDF tools use the same version before retrying.");
       const result = parsed.data;
+      if (before && "handle" in file) {
+        const after = await file.handle.stat();
+        if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs)
+          throw new ApiError(409, "pdf_changed", "The PDF changed while it was being read. Wait for the save to finish, then read it again.");
+      }
+      if (result.visual) {
+        const visual = result.visual;
+        const attachment = visual.dataBase64 ? { type: "file", mime: "application/pdf", filename: file.filename, url: `${prefix}${visual.dataBase64}` } satisfies Attachment : undefined;
+        const attachmentBytes = attachment ? Buffer.byteLength(JSON.stringify({ type: "file", uri: attachment.url, mime: attachment.mime, name: attachment.filename })) : PDF_ATTACHMENT_MAX_BYTES + 1;
+        const metadata = { extraction: "pdf", page_count: result.page_count, pages: visual.pages, pdf_bytes: visual.pdf_bytes,
+          attachment_bytes: attachmentBytes, max_attachment_bytes: PDF_ATTACHMENT_MAX_BYTES };
+        if (!attachment || visual.too_large || attachmentBytes > PDF_ATTACHMENT_MAX_BYTES) {
+          const output = { ...metadata, ok: false, attached: false, code: "pdf_attachment_too_large",
+            message: "The selected PDF attachment is too large (maximum 2 MB including base64 overhead). Nothing was attached. Pick fewer pages with attach=true, or use text=true and/or ocr=true without attach. Do not repeat the unchanged attachment request." };
+          return { title: file.filename ?? "PDF", output: JSON.stringify(output), metadata: output };
+        }
+        const output = { ...metadata, attached: true, truncated: false, message: "PDF supplied directly. Read its text and page images. Attached pages follow the source page numbers in pages." };
+        attached = { title: file.filename ?? "PDF", output: JSON.stringify(output), metadata: output, attachments: [attachment] };
+        if (!text && !options.ocr) return attached;
+      }
       const full = result.pages.map(page => page.native_text === undefined
         ? `[Page ${page.page}]\n${page.text}`
         : `[Page ${page.page} - embedded text]\n${page.native_text}\n\n[Page ${page.page} - OCR]\n${page.text}`).join("\n\n");
@@ -153,7 +189,8 @@ export function pdfReading() {
               const limit = nativeMediaLimit.safeParse(error);
               if (!limit.success) throw error;
               // Only this native error occurs after native directory/read authorization.
-              // Keep LegalWork's existing 64 MiB PDF reader instead of inheriting v2's 20 MiB media cap.
+              // The engine checks size before materializing the file. Stream
+              // authorized large PDFs instead of constructing a full data URL.
               const context = await nativeToolContext(ctx, call);
               const resource = limit.data.error.resource;
               const path = resolve(context.directory!, resource), target = await realpath(path);
@@ -163,11 +200,12 @@ export function pdfReading() {
               const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
               try {
                 const stat = await handle.stat();
-                if (!stat.isFile() || stat.size > PDF_MAX_BYTES) throw error;
-                const bytes = await handle.readFile({ signal: call.signal });
+                if (!stat.isFile()) throw error;
+                if (stat.size > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "PDFs must be at most 1 GiB.");
+                const header = Buffer.alloc(1024), start = await handle.read(header, 0, header.length, 0);
                 call.signal.throwIfAborted();
-                if (bytes.length > PDF_MAX_BYTES || !bytes.subarray(0, 1024).includes(Buffer.from("%PDF-"))) throw error;
-                const pdf = await read({ type: "file", mime: "application/pdf", url: `data:application/pdf;base64,${bytes.toString("base64")}`, filename: resource }, args, context);
+                if (!header.subarray(0, start.bytesRead).includes(Buffer.from("%PDF-"))) throw error;
+                const pdf = await read({ handle, filename: resource }, args, context);
                 call.signal.throwIfAborted();
                 return nativePdfResult(pdf);
               } finally { await handle.close(); }

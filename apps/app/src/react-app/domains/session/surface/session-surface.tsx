@@ -19,6 +19,7 @@ import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoin
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
+import { SessionCostProvider } from "./session-costs";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
@@ -109,7 +110,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment } from "./composer/workspace-attachment";
+import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment, referenceWorkspaceFile } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PendingStatus } from "@/components/chat/pending-status";
@@ -1110,11 +1111,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (!attachment?.source) continue;
       if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
       const source = attachment.source;
-      const saved = await projectFiles.readSaved(source);
-      const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, new File([saved.data], saved.filename, { type: saved.contentType ?? "application/octet-stream" }), `${saved.filename} · ${saved.projectName}`);
-      const versioned = `${reference}&${new URLSearchParams({ origin: saved.projectName, version: saved.version, originProject: source.projectId, originPath: source.path })}`;
-      resolved = resolved.replaceAll(token, `@${encodeComposerMentionValue(versioned)}`);
-      delete prepared[value]; prepared[versioned] = "upload";
+      let reference: string;
+      if (projectFiles.canReference(source, props.client, props.workspaceId)) {
+        reference = await referenceWorkspaceFile(props.client, props.workspaceId, source.path);
+      } else {
+        const saved = await projectFiles.readSaved(source);
+        const copy = await uploadWorkspaceAttachment(props.client, props.workspaceId, new File([saved.data], saved.filename, { type: saved.contentType ?? "application/octet-stream" }), `${saved.filename} · ${saved.projectName}`);
+        reference = `${copy}&${new URLSearchParams({ origin: saved.projectName, version: saved.version, originProject: source.projectId, originPath: source.path })}`;
+      }
+      resolved = resolved.replaceAll(token, `@${encodeComposerMentionValue(reference)}`);
+      delete prepared[value]; prepared[reference] = "upload";
     }
     const result = { signature, draft: buildDraft(resolved, nextAttachments, prepared), mentions: prepared };
     preparedProjectDraft.current = result;
@@ -1412,7 +1418,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState(0);
 
-  const handleAttachFiles = async (files: File[]) => {
+  const handleAttachFiles = async (files: (File | { path: string; name: string })[]) => {
     if (!props.attachmentsEnabled) {
       toast.warning(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
@@ -1421,7 +1427,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const file of files) {
       const notification = toast.info(`Attaching ${file.name}…`, { duration: Infinity });
       try {
-        const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, file);
+        const reference = "arrayBuffer" in file
+          ? await uploadWorkspaceAttachment(props.client, props.workspaceId, file)
+          : await referenceWorkspaceFile(props.client, props.workspaceId, file.path);
         const state = useComposerStateStore.getState();
         const currentDraft = getComposerDraft(state, props.sessionId);
         const currentMentions = getComposerMentions(state, props.sessionId);
@@ -1450,6 +1458,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handleInsertMention = (kind: ComposerMentionKind, value: string) => {
+    if (kind === "file") {
+      if (props.attachmentsEnabled) setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, ""));
+      void handleAttachFiles([{ path: value, name: value.split(/[\\/]/).pop() || value }]);
+      return;
+    }
     // @agent mentions switch the session agent instead of inserting an agent
     // part. Agent parts are treated as *subagent* (task tool) calls by the
     // engine, which silently fails for primary agents and left every reply
@@ -1966,6 +1979,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
+    <SessionCostProvider client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} busy={chatStreaming}>
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
@@ -2290,6 +2304,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       {/* Error display moved inline into the session conversation area */}
       {props.developerMode ? <SessionDebugPanel model={model} snapshot={snapshot} /> : null}
     </div>
+    </SessionCostProvider>
     </DevProfiler>
   );
 }

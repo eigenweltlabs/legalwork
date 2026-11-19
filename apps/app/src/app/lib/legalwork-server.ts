@@ -11,6 +11,7 @@ import type { ResearchDatabaseSetup } from "@legalwork/types/legal-research";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
+import type { SessionCostSummary } from "@legalwork/types/session-cost";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import type { CalculationPresentation } from "@legalwork/types/calculation";
@@ -1513,20 +1514,20 @@ async function readJsonText(response: Response, progress: () => void): Promise<s
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; binaryBody?: Blob; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
   const readOnly = method === "GET" || options.readOnly === true;
   const workspaceId = /^\/workspace\/([^/?]+)/.exec(path)?.[1];
-  const body = options.body === undefined ? undefined : JSON.stringify(options.body);
+  const body = options.binaryBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
   const timeoutMs = options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS;
-  const fetchImpl = method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
+  const fetchImpl = options.binaryBody ? globalThis.fetch.bind(globalThis) : method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
   const read = async (): Promise<JsonReply> => {
     if (readOnly && workspaceId) await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
     try {
       const response = await fetchWithTimeout(fetchImpl, url, {
-        method, headers: buildHeaders(options.token, options.hostToken),
+        method, headers: { ...buildHeaders(options.token, options.hostToken), ...(options.binaryBody ? { "Content-Type": "application/octet-stream" } : {}) },
         body, signal: options.signal,
       }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
       if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
@@ -2253,6 +2254,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       ).then(result=>({item:projectSession(result.item)})),
+    getSessionCosts: (workspaceId: string, sessionId: string, signal?: AbortSignal) =>
+      requestJson<SessionCostSummary>(baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/costs`,
+        { token, hostToken, signal, timeoutMs: timeouts.sessionRead }),
     getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
       if (options?.fileReferences) query.set("files", "references");
@@ -3362,6 +3367,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       ),
 
+    searchWorkspaceFilenames: async (workspaceId: string, query: string) => {
+      if (!query.trim()) return [];
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await requestJson<StorageFilenameSearchPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/filename-search`, {
+          token, hostToken, method: "POST", body: { query: query.trim(), path: "", match: "path", cursor },
+        });
+        paths.push(...page.entries.map(entry => entry.path)); cursor = page.nextCursor;
+      } while (cursor && paths.length < 50);
+      return paths.slice(0, 50);
+    },
+
     listWorkspaceDirectory: (workspaceId: string, path: string) =>
       requestJson<LegalworkWorkspaceDirectoryList>(
         baseUrl,
@@ -3417,8 +3435,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceBinaryFile: (
       workspaceId: string,
-      payload: { path: string; data: ArrayBuffer; baseUpdatedAt?: number | null; force?: boolean; createOnly?: boolean },
+      payload: { path: string; data: ArrayBuffer | Blob; baseUpdatedAt?: number | null; force?: boolean; createOnly?: boolean },
     ) =>
+      "stream" in payload.data ? requestJson<LegalworkWorkspaceFileWriteResult>(baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/raw?${new URLSearchParams({ path: payload.path,
+          ...(payload.baseUpdatedAt != null ? { baseUpdatedAt: String(payload.baseUpdatedAt) } : {}),
+          ...(payload.force ? { force: "true" } : {}), ...(payload.createOnly ? { createOnly: "true" } : {}) })}`,
+        { token, hostToken, method: "POST", binaryBody: payload.data, timeoutMs: 900_000 }) :
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/raw`,
