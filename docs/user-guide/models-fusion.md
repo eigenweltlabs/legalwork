@@ -110,4 +110,6 @@ The separate local layout model identifies page regions and reading order where 
 
 Newer AI Providers pages also expose JEV/SystemOne models for structured review questions. They are separate from chat providers. Managed Eigenwelt models depend on firm subscription, region permission and model enablement. A custom JEV-compatible provider uses its own endpoint/key and available model IDs. Test the intended model and check its status. Review defaults belong under **Settings > Tabular Review**; saved reviews retain their own selection.
 
+When your firm enables Microsoft Decision 1.1 through Eigenwelt, its EU or US model appears under SystemOne with the region shown. It uses your existing subscription sign-in; you do not need an Azure API key. Existing review selections remain valid after the backend changes. Check the model's current name and status before starting a review. An unavailable model does not automatically switch to another region or provider. The TypeSafe preset continues to connect directly to TypeSafe.
+
 Related: [Evaluations](evaluations.md), [Integrations](integrations.md), [Troubleshooting](troubleshooting.md).

@@ -1,10 +1,26 @@
 # SystemOne
 
 SystemOne is a separate typed-question API, not a chat provider. Settings → AI
-lists the managed Eigenwelt Europe EigenJev and Eigenwelt US Jev models and lets users configure JEV-compatible providers.
+lists the platform's managed EU/US models and lets users configure JEV-compatible providers.
 Tabular Review consumes this contract through agent tools; document search and OCR remain separate.
 
 ## Subscription and providers
+
+The managed backend can be Microsoft Decision 1.1 after a qualified platform
+rollout. The platform catalog supplies its current display name, region and
+availability. Disconnected settings use neutral `SystemOne (EU)` / `SystemOne (US)`
+labels rather than guessing the current backend. The request IDs remain `EigenJev`
+(EU) and `TypeSafeJev` (US), preserving selections, firm policies and review defaults.
+The gateway owns Azure credentials and deployment names; LegalWork continues using
+the existing subscription key and never needs a direct Azure key. Its three typed
+question types and fractional scores work through the existing contract. Review
+provenance preserves Microsoft's returned model, distinct from the requested ID.
+Unavailable or disabled models never fall back across providers or regions.
+
+This client change does not activate Microsoft inference or establish ZDR approval.
+Model-api's `docs/microsoft-decision.md` records the regional deployment, retention,
+quality and billing checks required before activation. Existing customer prices
+remain unchanged; the upstream Microsoft per-million tariff is a separate cost.
 
 EigenJev uses the **existing subscription gateway key** saved at sign-in. No API
 key creation or additional credential is required. A firm admin enables EigenJev
@@ -21,8 +37,9 @@ spend, so small requests are not individually rounded up or discarded.
 
 A provider is one connection (name, endpoint, API key, enablement), serving many models.
 Models belong to its `models[]` collection and carry their own ID, display name,
-description, release date and question types. The Eigenwelt provider currently serves
-**Eigenwelt Europe EigenJev** and **Eigenwelt US Jev** through the existing subscription key.
+description, release date and question types. Before a Microsoft rollout, the
+Eigenwelt provider serves **Eigenwelt Europe EigenJev** and **Eigenwelt US Jev**
+through the existing subscription key.
 TypeSafe JEV requires explicit US region permission and its own model opt-in. Both
 models cost €0.05 per billion input tokens with free output. TypeSafe credentials
 stay on the paid gateway; standalone API keys cannot call this model.
@@ -34,8 +51,8 @@ clients. Settings expose each managed model's `region` and `status`; review mode
 discovery excludes disabled/unavailable models even when another model from the
 provider is ready. A saved selection never falls back to another region.
 
-The managed request ID **`TypeSafeJev`** maps to TypeSafe's original `jev-latest`
-upstream. Its versioned response model is preserved for review provenance. The
+With the original backend, managed request ID **`TypeSafeJev`** maps to TypeSafe's
+`jev-latest` upstream. Its versioned response model is preserved for review provenance. The
 existing EigenJev `jev-latest` compatibility alias continues to mean the EU model.
 See model-api's `gateway/dev/README.md` for server-side credentials and rollout.
 
