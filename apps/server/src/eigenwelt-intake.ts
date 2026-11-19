@@ -181,7 +181,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // Entitlement + client
 // ---------------------------------------------------------------------------
 
-export type IntakeClient = { platformURL: string; platformToken: string };
+export type IntakeClient = { platformURL: string; platformToken: string; signal?: AbortSignal };
 
 /**
  * Build a platform client from a stored connection, or fail with a clear 403.
@@ -240,6 +240,7 @@ export async function intakeFetch(
         ...(init.contentType === undefined ? {} : { "Content-Type": init.contentType }),
       },
       body: init.body,
+      signal: client.signal,
     });
   } catch {
     throw new ApiError(502, "intake_unreachable", "Could not reach the Eigenwelt intake service.");

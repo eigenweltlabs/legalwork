@@ -1,4 +1,5 @@
 import { scheduleNativeLinkSync } from "./native-links.js";
+import { isSigningOut, syncDownloadSignal, syncUploadSignal } from "../signout-sync.js";
 import { SyncInbox } from "./sync-inbox.js";
 import { scheduleOrgPolicySync } from "../org-policy.js";
 import { pullDirectory } from "./paged-sync.js";
@@ -53,12 +54,16 @@ export async function backOfficePlatform(
   await requireBackOfficePrincipal(config, principal);
   return {...snapshot, nativeLinks: !!response && typeof response === "object" && "nativeLinks" in response && response.nativeLinks === true};
 }
-export async function syncBackOffice(config: ServerConfig): Promise<void> {
+export async function syncBackOffice(config: ServerConfig, options: { uploadOnly?: boolean } = {}): Promise<void> {
+  if (isSigningOut(config) && !options.uploadOnly) return;
   const connection = await readEigenweltConnection(config);
   if (!connection.account || !connection.platformURL || !connection.platformToken) return;
   const initialPrincipal = backOfficePrincipalKey(connection.platformURL, connection.account.orgId, connection.account.userId);
   const key = `${config.configPath}:${initialPrincipal}`;
+  if (options.uploadOnly) await rounds.wait(key);
+  const signal = options.uploadOnly ? syncUploadSignal(config) : syncDownloadSignal(config);
   return rounds.run(key, async () => {
+    if (!options.uploadOnly && signal?.aborted) return;
     let scope: string;
     let actor: BackOfficeActor;
     try {
@@ -99,6 +104,22 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             "Share the linked project before sending this matter link to the team.",
           );
       }
+      if (options.uploadOnly) {
+        // Send only queued writes; never page through or apply the directory on exit.
+        while (batch.length) {
+          const modelIndex = batch.findIndex(change => change.kind === "model");
+          const chunk = batch.splice(0, modelIndex === 0 ? 1 : modelIndex > 0 ? modelIndex : batch.length);
+          await syncRecordFiles(config, chunk, actor.principalKey, signal);
+          const position = store.directoryPosition(scope, actor);
+          const client = { ...requireIntakeClient(await requireBackOfficePrincipal(config, initialPrincipal)), signal };
+          const response = BackOfficeSnapshotSchema.pick({ accepted: true, conflicts: true }).parse(await intakeRequest(client, "POST", "/api/back-office", {
+            protocol: 1, changes: chunk, cursor: position?.cursor ?? 0, page: { access: position?.access ?? null },
+          }));
+          store.acknowledgeUploads(scope, actor, response.accepted);
+          if (response.conflicts.length || response.accepted.length < chunk.length) break;
+        }
+        return;
+      }
       let accepted = false, conflicted = false, supportsNativeLinks = false;
       do {
         // A file field must exist on the platform before its bytes are prepared.
@@ -109,7 +130,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           modelIndex === 0 ? 1 : modelIndex > 0 ? modelIndex : batch.length,
         );
         store.requireAccount(scope, actor);
-        await syncRecordFiles(config, chunk, actor.principalKey);
+        await syncRecordFiles(config, chunk, actor.principalKey, signal);
         store.requireAccount(scope, actor);
         const position=store.directoryPosition(scope,actor);
         const inbox=await SyncInbox.open();
@@ -123,7 +144,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             store.requireAccount(scope,actor);
             store.suspendTeam(scope,"Directory permissions changed while reconnecting.");
             announceSyncChange(config,"backOffice");
-          });
+          }, signal);
           const snapshot=result.snapshot;
           supportsNativeLinks = result.nativeLinks;
           if (result.more) scheduleBackOfficeSync(config);
@@ -150,6 +171,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           before.enabled !== after.enabled || before.error !== after.error || replicaBefore !== store.replicaId(scope))
         announceSyncChange(config, "backOffice");
     } catch (error) {
+      if (signal?.aborted) return;
       if (await connectedBackOfficePrincipal(config) !== initialPrincipal) return;
       if (actor.replicaId && actor.replicaId !== store.replicaId(scope)) return;
       if (error instanceof ApiError && ["back_office_replica_changed", "back_office_snapshot_stale"].includes(error.code)) return;
@@ -224,7 +246,7 @@ export async function publishBackOffice(config: ServerConfig, planId: string) {
 
 export async function signOutBackOffice(
   config: ServerConfig,
-  options: { force: boolean; apply: boolean },
+  options: { force: boolean; apply: boolean; skipSync?: boolean },
 ) {
   const connection = await readEigenweltConnection(config),
     scope = connection?.account?.orgId;
@@ -243,7 +265,7 @@ export async function signOutBackOffice(
   }
   const replicaId = store.replicaId(scope);
   const principalKey = backOfficePrincipalKey(connection.platformURL, scope, account.userId);
-  await syncBackOffice(config);
+  if (!options.skipSync) await syncBackOffice(config, { uploadOnly: true });
   if (await connectedBackOfficePrincipal(config) !== principalKey) return 0;
   if (store.replicaId(scope) !== replicaId) return 0;
   const actor: BackOfficeActor = { userId: account.userId, principalKey, edit: false, model: false, finance: false };

@@ -109,6 +109,27 @@ test("sign-out prunes managed data without requiring another sync or touching lo
   expect(store.checkIntegrity().locallyVerified).toBe(true);
 });
 
+test("sign-out uploads directory edits without paging or applying incoming records", async () => {
+  const { store, config, alice, original, backend, snapshot } = await fixture();
+  store.saveRecord("firm", alice, { objectId: "people", revision: 0, values: { name: "Local draft" } });
+  const operation = store.pending("firm", 100, alice)[0].change.id;
+  let calls = 0;
+  backend.respond = async init => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    expect(body.changes.map((change: { id: string }) => change.id)).toEqual([operation]);
+    return Response.json({ ...snapshot([], [operation]), page: { access: "a".repeat(64), reset: false, next: crypto.randomUUID(), latest: 10 } });
+  };
+  expect(await signOutBackOffice(config, { force: false, apply: false })).toBe(0);
+  expect(calls).toBe(1);
+  expect(store.raw("firm", original.id)).not.toBeNull();
+  expect(store.accountPendingCount("firm", alice)).toBe(0);
+  expect(await signOutBackOffice(config, { force: true, apply: true, skipSync: true })).toBe(0);
+  expect(calls).toBe(1);
+  expect(store.raw("firm", original.id)).toBeNull();
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
+
 test("ordinary token refresh and a stale conditional refresh cannot erase another account's current cache", async () => {
   const { store, config, signIn, original, oldHead } = await fixture();
   await writeEigenweltConnection(config, { platformToken: "renewed-alice", accessTokenExpiresAt: Date.now() + 3_600_000 });

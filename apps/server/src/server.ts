@@ -1,5 +1,6 @@
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { signOutBackOffice } from "./back-office/sync.js";
+import { withSignOutSync } from "./signout-sync.js";
 import { scheduleBackOfficeSync, cancelScheduledBackOfficeSync } from "./back-office/sync.js";
 import { prepareFormLinks } from "./back-office/native-links.js";
 import { registerBackOfficeRoutes } from "./back-office/routes.js";
@@ -3031,29 +3032,31 @@ function createRoutes(
     // tasks leave this machine first (a last push, then the wipe); changes
     // that could not be pushed stop the sign-out until `force` says otherwise.
     if (body.disconnect === true) {
-      const force = body.force === true;
-      // Every check first, then anything leaves: synced project copies go
-      // only once the tasks may go too.
-      const directoryPending = await signOutBackOffice(config, { force, apply: false });
-      const projects = await signOutOfFirmProjects(config, { force, apply: false });
-      const tasks = await signOutOfFirmTasks(config, { force });
-      const pending = directoryPending + (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
-      if (pending > 0) {
-        throw new ApiError(
-          409,
-          "tasks_pending",
-          `${pending} change(s) made on this computer have not reached the firm yet.`,
-          { pending },
-        );
-      }
-      await signOutBackOffice(config, { force: true, apply: true });
-      await signOutOfFirmProjects(config, { force: true });
-      await revokeEigenweltConnection(config);
-      // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
-      await scheduleOrgPolicySync(config, { force: true });
-      await scheduleFirmHubSync(config, { force: true });
-      await rebuildEngineConfigFile(workspace);
-      return jsonResponse(await readEigenweltEntitlementsView(config));
+      return withSignOutSync(config, async () => {
+        const force = body.force === true;
+        // Every check first, then anything leaves: synced project copies go
+        // only once the tasks may go too.
+        const directoryPending = await signOutBackOffice(config, { force, apply: false });
+        const projects = await signOutOfFirmProjects(config, { force, apply: false });
+        const tasks = await signOutOfFirmTasks(config, { force });
+        const pending = directoryPending + (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+        if (pending > 0) {
+          throw new ApiError(
+            409,
+            "tasks_pending",
+            `${pending} change(s) made on this computer have not reached the firm yet.`,
+            { pending },
+          );
+        }
+        await signOutBackOffice(config, { force: true, apply: true, skipSync: true });
+        await signOutOfFirmProjects(config, { force: true, skipSync: true });
+        await revokeEigenweltConnection(config);
+        // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
+        await scheduleOrgPolicySync(config, { force: true });
+        await scheduleFirmHubSync(config, { force: true });
+        await rebuildEngineConfigFile(workspace);
+        return jsonResponse(await readEigenweltEntitlementsView(config));
+      });
     }
 
     const refreshToken =

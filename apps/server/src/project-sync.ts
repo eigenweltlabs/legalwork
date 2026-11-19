@@ -1,4 +1,5 @@
 import { canonicalFilePath } from "./file-write-lock.js";
+import { isSigningOut, syncDownloadSignal, syncUploadSignal } from "./signout-sync.js";
 import { retainDownloadedCopyOwnership } from "./project-sync-ownership.js";
 import { workspaceContentPath, projectHome } from "./project-storage.js";
 import { syncProjectCalendar } from "./calendar/sync.js";
@@ -143,7 +144,7 @@ const contentRevisions = new Map<string, Map<string, number>>();
 /** Projects sync took off this computer: the app forgets them in its own list too. */
 const removedWorkspaces = new Map<string, Set<string>>();
 const roundStates = new Map<string, RoundState>();
-const rounds = new Map<string, Promise<ProjectSyncResult>>();
+const rounds = new Map<string, { promise: Promise<ProjectSyncResult>; controller: AbortController; uploadOnly: boolean }>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
 const watchers = new Map<string, Map<string, FSWatcher>>();
 
@@ -248,6 +249,7 @@ async function pushOutbox(
   let pushed = 0;
   const blocked = new Set<string>();
   for (const entry of store.outbox()) {
+    client.signal?.throwIfAborted();
     if (blocked.has(entry.projectId)) continue;
     const link = store.linkByProject(entry.projectId);
     try {
@@ -582,7 +584,7 @@ async function keepAsLocal(config: ServerConfig, store: ProjectSyncStore, link: 
  * tasks. A folder the member brought themselves is never deleted: it stays,
  * as their own local project.
  */
-async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink): Promise<void> {
+async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, preserveUnowned = false): Promise<void> {
   if (link.origin === "local") {
     await keepAsLocal(config, store, link);
     return;
@@ -599,16 +601,18 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
     if (owned && (owned.projectId !== link.projectId || owned.contentPath !== content)) throw new ApiError(409, "project_copy_ownership", "The downloaded content folder no longer matches its saved ownership. Its files were preserved.");
     const local = home.startsWith(root + sep);
     const separate = content !== home && !content.startsWith(home + sep);
+    // Sign-out may detach a legacy copy, but missing evidence never grants deletion.
+    const preserve = preserveUnowned && separate && !owned;
     if (local && separate) {
-      if (!owned) throw new ApiError(409, "project_copy_ownership", "The original downloaded folder's ownership could not be verified. Its files and project were preserved.");
-      if (!owned.contentRemoved) {
+      if (!owned && !preserve) throw new ApiError(409, "project_copy_ownership", "The original downloaded folder's ownership could not be verified. Its files and project were preserved.");
+      if (owned && !owned.contentRemoved) {
         const actual = await realpath(content).catch(() => undefined);
         if (actual !== content || !(await stat(content).catch(() => null))?.isDirectory()) throw new ApiError(503, "project_copy_unavailable", "Reconnect the downloaded project folder before removing its local copy. Cleanup remains pending.");
         await rm(content, { recursive: true, force: true });
         store.markCopyContentRemoved(workspace.id);
       }
     }
-    if (local) {
+    if (local && !preserve) {
       await rm(home, { recursive: true, force: true });
     }
     await unregisterWorkspace(config, workspace);
@@ -716,6 +720,7 @@ async function syncDocuments(
   store: ProjectSyncStore,
   link: ProjectLink,
   runner: { userId: string; name: string | null },
+  uploadOnly = false,
 ): Promise<void> {
   const label = runner.name ?? "LegalWork";
   // A project leaves sync only when it is removed from the list (noteProjectRemoved),
@@ -728,7 +733,7 @@ async function syncDocuments(
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
   }
-  const reconcile = link.filesReconciledAt === null || link.filesReconciledAt !== link.remoteUpdatedAt;
+  const reconcile = !uploadOnly && (link.filesReconciledAt === null || link.filesReconciledAt !== link.remoteUpdatedAt);
   if (scope.recordings) await exportRecordings(config, store, link, workspaceContentPath(workspace));
   if (!scope.reviews) store.clearReviewBase(link.projectId);
   const index = store.remoteIndex(link.projectId);
@@ -742,6 +747,7 @@ async function syncDocuments(
           remote,
           base: store.reviewBase(link.projectId),
           reconcile,
+          signal: client.signal,
           runningHere: (id) => reviewRunActive(workspace.path, id),
           runner,
         })
@@ -757,6 +763,7 @@ async function syncDocuments(
       base: store.fileBase(link.projectId),
       includes: (path) => scopeIncludes(scope, path, reviewed, attached),
       reconcile,
+      signal: client.signal,
       allowDeletions: link.allowDeletions,
       label,
       maxFileBytes: PROJECT_MAX_FILE_BYTES,
@@ -802,23 +809,32 @@ async function syncDocuments(
 /** One full round, now. Concurrent callers share the round in flight. */
 export function runProjectSync(
   config: ServerConfig,
-  options: { platform?: ProjectSyncPlatform } = {},
+  options: { platform?: ProjectSyncPlatform; uploadOnly?: boolean } = {},
 ): Promise<ProjectSyncResult> {
   const key = keyOf(config);
   const inFlight = rounds.get(key);
-  if (inFlight) return inFlight;
+  if (isSigningOut(config) && !options.uploadOnly) return inFlight?.promise ?? Promise.resolve({ ran: false, pushed: 0, pulled: 0, arrived: 0, removed: 0, error: null });
+  if (inFlight) {
+    if (options.uploadOnly && !inFlight.uploadOnly) {
+      inFlight.controller.abort();
+      return inFlight.promise.then(() => runProjectSync(config, options));
+    }
+    return inFlight.promise;
+  }
   // This round handles the pending changes; its old timer must not start another round later.
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   pendingRounds.delete(key);
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
-    if (rounds.get(key) === round) rounds.delete(key);
+  const controller = new AbortController(), uploadOnly = options.uploadOnly === true;
+  const signal = AbortSignal.any([controller.signal, uploadOnly ? syncUploadSignal(config) : syncDownloadSignal(config)]);
+  const round = runRound(config, options.platform ?? REAL_PLATFORM, uploadOnly, signal).finally(() => {
+    if (rounds.get(key)?.promise === round) rounds.delete(key);
   });
-  rounds.set(key, round);
+  rounds.set(key, { promise: round, controller, uploadOnly });
   return round;
 }
 
-async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Promise<ProjectSyncResult> {
+async function runRound(config: ServerConfig, platform: ProjectSyncPlatform, uploadOnly: boolean, signal: AbortSignal): Promise<ProjectSyncResult> {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -828,43 +844,48 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
   const key = keyOf(config);
   const store = await projectSyncStore(config);
   try {
-    const client = requireIntakeClient(connection);
+    const client = { ...requireIntakeClient(connection), signal };
+    signal.throwIfAborted();
     result.pushed = await pushOutbox(config, platform, client, store);
-    const pull = await pullChanges(config, platform, client, store, orgId);
-    result.pulled = pull.pulled;
-    result.arrived = pull.arrived;
-    result.removed = pull.removed;
+    if (!uploadOnly) {
+      const pull = await pullChanges(config, platform, client, store, orgId);
+      result.pulled = pull.pulled;
+      result.arrived = pull.arrived;
+      result.removed = pull.removed;
+    }
     const runner = {
       userId: connection.account?.userId ?? "",
       name: connection.account?.userName?.trim() || connection.account?.userEmail?.trim() || null,
     };
     for (const link of store.links(orgId)) {
+      signal.throwIfAborted();
       if (link.state !== "active" || !link.confirmed) continue;
       if (platform === REAL_PLATFORM) {
-        try { await syncProjectCalendar(config, client, link); }
+        try { await syncProjectCalendar(config, client, link, uploadOnly); }
         catch (error) { if (!(error instanceof ApiError && error.status === 404)) throw error; /* An older platform may not have the calendar API yet. Keep the outbox and continue document sync. */ }
       }
-      await syncDocuments(config, platform, client, store, link, runner);
+      await syncDocuments(config, platform, client, store, link, runner, uploadOnly);
       if (platform === REAL_PLATFORM) {
         const pendingCalendar = (await calendarStore(config)).pending(link.workspaceId).length;
         const report = store.linkByWorkspace(link.workspaceId)?.report;
         if (pendingCalendar > 0) store.updateLink(link.workspaceId, { report: { pending: (report?.pending ?? 0) + pendingCalendar, skipped: report?.skipped ?? [], heldDeletions: report?.heldDeletions ?? 0 } });
       }
     }
+    signal.throwIfAborted();
     roundStates.set(key, { offline: false, error: null, at: Date.now() });
     // Tasks published this round go up with the task sync (which waits for a
     // project's first upload before sending its tasks); a project that
     // arrived brings its tasks down with it.
-    if (result.arrived > 0 || (await taskStore(config)).outboxSize() > 0) scheduleTaskSync(config);
+    if (!uploadOnly && (result.arrived > 0 || (await taskStore(config)).outboxSize() > 0)) scheduleTaskSync(config);
   } catch (error) {
     result.error = messageOf(error);
     roundStates.set(key, { offline: unreachable(error), error: result.error, at: Date.now() });
   }
-  if (platform === REAL_PLATFORM) {
+  if (platform === REAL_PLATFORM && !uploadOnly && !signal.aborted) {
     try { await syncCalendarSubscriptions(config); }
     catch (error) { result.error ??= messageOf(error); }
   }
-  refreshWatchers(config, store.links(orgId));
+  if (!uploadOnly && !signal.aborted) refreshWatchers(config, store.links(orgId));
   // What the round changed (states, files, conflicts) shows in the app now.
   announceSyncChange(config, "projects");
   return result;
@@ -1311,11 +1332,11 @@ export type ProjectSignOutResult = { ok: true; removed: number } | { ok: false; 
  */
 export async function signOutOfFirmProjects(
   config: ServerConfig,
-  options: { force?: boolean; platform?: ProjectSyncPlatform; apply?: boolean } = {},
+  options: { force?: boolean; platform?: ProjectSyncPlatform; apply?: boolean; skipSync?: boolean } = {},
 ): Promise<ProjectSignOutResult> {
   const { orgId } = await connectedOrg(config);
   if (orgId === null) return { ok: true, removed: 0 };
-  await runProjectSync(config, { platform: options.platform }).catch(() => undefined);
+  if (!options.skipSync) await runProjectSync(config, { platform: options.platform, uploadOnly: true }).catch(() => undefined);
   const store = await projectSyncStore(config);
   const copies = store.links(orgId).filter((link) => link.origin === "remote");
   let pending = 0;
@@ -1329,7 +1350,7 @@ export async function signOutOfFirmProjects(
   if (pending > 0 && !options.force) return { ok: false, pending };
   // Checked only: the caller has more to check before anything leaves.
   if (options.apply === false) return { ok: true, removed: 0 };
-  for (const link of copies) await removeCopy(config, store, link);
+  for (const link of copies) await removeCopy(config, store, link, true);
   store.forgetOrg(orgId);
   workspacesChanged(config);
   return { ok: true, removed: copies.length };
