@@ -52,6 +52,7 @@ export type FileBaseStore = {
 };
 
 export type FileSyncOptions = {
+  signal?: AbortSignal;
   root: string;
   stateRoot?: string;
   remote: StorageAdapter;
@@ -435,6 +436,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   };
 
   for (const { key, action, localSha } of plan) {
+    options.signal?.throwIfAborted();
     const file = local.get(key) ?? null;
     const remoteFile = remoteFiles.get(key) ?? null;
     const known = bases.get(key) ?? null;
@@ -502,6 +504,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
           break;
       }
     } catch (error) {
+      options.signal?.throwIfAborted();
       if (!fileLevel(error)) throw error;
       if (isStale(error)) result.stale = true;
       else result.skipped.push({ path, reason: error instanceof ApiError && error.status === 413 ? "too_large" : "failed", detail: messageOf(error) });
@@ -511,6 +514,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
 
   // This computer's side of each conflict, as a new file under its own name.
   for (const copyPath of extraUploads) {
+    options.signal?.throwIfAborted();
     const abs = join(root, ...copyPath.split("/"));
     try {
       const info = await stat(abs);

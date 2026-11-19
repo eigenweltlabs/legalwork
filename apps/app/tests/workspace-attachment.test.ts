@@ -6,7 +6,7 @@ import {
   parseWorkspaceAttachmentLink,
   WORKSPACE_ATTACHMENT_LINK_SOURCE,
   uploadWorkspaceAttachment,
-  uploadWorkspaceFileAttachment,
+  referenceWorkspaceFile,
   workspaceAttachmentDisplayText,
   workspaceAttachmentInstruction,
 } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
@@ -14,30 +14,27 @@ import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/r
 import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
 
 describe("workspace attachments", () => {
-  test("file mentions save a server-side snapshot and send only its reading reference", async () => {
+  test("file mentions reference the original project file without copying its bytes", async () => {
     const path = "Contracts/Prüfung (final).pdf";
-    let uploads = 0;
-    const reference = await uploadWorkspaceFileAttachment({
-      copyWorkspaceFile: async (workspace, requestedPath, targetPath) => {
+    const reference = await referenceWorkspaceFile({
+      statWorkspaceFile: async (workspace, requestedPath) => {
         expect(workspace).toBe("ws-test"); expect(requestedPath).toBe(path);
-        uploads++;
-        expect(targetPath).toStartWith(".legalwork/attachments/"); expect(targetPath).not.toBe(path);
-        return { ok: true, path: targetPath };
+        return { ok: true, path, exists: true, kind: "file", size: 1024 * 1024 * 1024, updatedAt: 1 };
       },
     }, "ws-test", path);
-    expect(uploads).toBe(1);
-    expect(parseWorkspaceAttachmentMention(reference)?.name).toBe("Prüfung (final).pdf");
+    expect(parseWorkspaceAttachmentMention(reference)).toEqual({ name: "Prüfung (final).pdf", path });
     const draft = buildComposerDraft(`Read @${encodeComposerMentionValue(reference)} `, [], { [reference]: "upload" }, []);
     expect(draft.parts.every(part => part.type === "text")).toBe(true);
     expect(draft.attachments).toEqual([]);
     expect(draft.modelContext).toBe(workspaceAttachmentInstruction(reference));
+    expect(draft.modelContext).toContain("The original project file is");
     expect(draft.modelContext).toContain("Read this file with tools appropriate for its format");
   });
 
-  test("failed mention copies do not produce an attachment or upload unreadable sources", async () => {
-    await expect(uploadWorkspaceFileAttachment({
-      copyWorkspaceFile: async () => { throw new Error("Source unavailable"); },
-    }, "ws-test", "missing.pdf")).rejects.toThrow("Source unavailable");
+  test("missing files and directories cannot become project file references", async () => {
+    for (const exists of [false, true]) {
+      await expect(referenceWorkspaceFile({ statWorkspaceFile: async (_workspace, path) => ({ path, exists, kind: "dir" }) }, "ws-test", "unavailable")).rejects.toThrow("no longer available");
+    }
   });
 
   test("local project references preserve original paths with spaces, Unicode and parentheses", () => {

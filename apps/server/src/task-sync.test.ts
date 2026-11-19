@@ -500,7 +500,7 @@ describe("task-sync: signing out", () => {
 
     expect(result).toEqual({ ok: true, removed: 2 });
     // The last round went out first: the status change and the filing.
-    expect(calls.map((call) => call.method)).toEqual(["patch", "create", "pull", "members"]);
+    expect(calls.map((call) => call.method)).toEqual(["patch", "create"]);
     expect(store.getTask(pulled.id)).toBeNull();
     // Filed here and pushed in that round — synced with the firm, so it went too.
     expect(store.getTask(filed.id)).toBeNull();

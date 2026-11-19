@@ -4,7 +4,7 @@
 
 Use **Memory Drive** to browse workspace files and configured storage roots. Open a file into the side panel, or attach it to the composer so the assistant has a concrete target. File links in chat also open supported artifacts. Tabs allow documents to stay beside the conversation. Available context-menu actions depend on the file and runtime, including opening externally, revealing the file, downloading or saving a copy.
 
-In a project chat, type **@** followed by part of a filename or folder path to find a file in the project's document folder, including its subfolders. Selecting a file saves a separate copy for the chat, just like dropping a file into the message box. Wait for the file badge to appear, then send your request. The assistant receives the saved file's location and uses the appropriate document-reading tools. The source document stays in its original folder.
+In a project chat, type **@** followed by part of a filename or folder path to find a file in the project's document folder, including its subfolders. Select it, or drag it from the project's file sidebar into the message box. Wait for the file badge, then send your request. Both methods link to the original project file without making an attachment copy. Later reads use its current saved contents, and edits apply to that file. Keep the file in place so the chat can reopen it. Files uploaded from your computer or brought in from another project are saved as separate chat copies.
 
 Give an exact filename or attach the document when several copies exist. "This document" should mean the document actually open beside the chat. Check that the assistant is working on that version. Save pending edits before switching to a conflicting copy or accepting a discard prompt.
 
@@ -12,7 +12,7 @@ File cards in chat show the filename without its folder path. Select a card to o
 
 When preparing an email draft, the assistant can attach a document from the connected project folder or an attachment already retained locally. The draft and its saved attachment bytes remain in the project's local support folder; saving a draft does not move the original document.
 
-When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
+When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork checks the file or saves an attachment copy when needed. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
 
 ## Supported work
 

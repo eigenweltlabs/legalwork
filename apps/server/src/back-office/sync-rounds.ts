@@ -5,6 +5,10 @@ export class BackOfficeSyncRounds {
     { again: boolean; promise: Promise<void> }
   >();
 
+  wait(key: string): Promise<void> {
+    return this.running.get(key)?.promise ?? Promise.resolve();
+  }
+
   run(key: string, action: () => Promise<void>): Promise<void> {
     const current = this.running.get(key);
     if (current) {

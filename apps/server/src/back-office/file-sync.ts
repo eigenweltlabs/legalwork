@@ -16,11 +16,11 @@ import type { BackOfficeActor } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
 
-async function fileRequest(config: ServerConfig, body: unknown, expectedPrincipal?: string) {
+async function fileRequest(config: ServerConfig, body: unknown, expectedPrincipal?: string, signal?: AbortSignal) {
   const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
   if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team attachments.");
   await ensureFreshPlatformToken(config);
-  const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
+  const client = { ...requireIntakeClient(await requireBackOfficePrincipal(config, principal)), signal };
   const result = await intakeRequest(client, "POST", "/api/back-office/files", body);
   await requireBackOfficePrincipal(config, principal);
   return result;
@@ -29,6 +29,7 @@ export async function syncRecordFiles(
   config: ServerConfig,
   changes: BackOfficeChange[],
   expectedPrincipal?: string,
+  signal?: AbortSignal,
 ) {
   const { scope, actor } = await backOfficeAccess(config, true), store = await backOfficeStore(config);
   if (expectedPrincipal && actor.principalKey !== expectedPrincipal)
@@ -50,7 +51,7 @@ export async function syncRecordFiles(
               action: "prepare",
               objectId: record.objectId,
               file,
-            }, expectedPrincipal),
+            }, expectedPrincipal, signal),
           );
         if (prepared.uploaded) continue;
         const bytes = await cachedFile(config, file, store, scope, actor) ?? await cachedFile(config, file, store, "local", { userId: "local", edit: true, model: true, finance: true });
@@ -68,7 +69,7 @@ export async function syncRecordFiles(
             "Content-Length": String(bytes.byteLength),
           },
           body: new Uint8Array(bytes),
-          signal: AbortSignal.timeout(120_000),
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
         });
         await uploaded.body?.cancel();
         if (!uploaded.ok)
@@ -77,7 +78,7 @@ export async function syncRecordFiles(
             "back_office_file",
             "The attachment upload failed. It will be retried.",
           );
-        await fileRequest(config, { action: "commit", id: file.id }, expectedPrincipal);
+        await fileRequest(config, { action: "commit", id: file.id }, expectedPrincipal, signal);
       }
     }
   }
