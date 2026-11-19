@@ -172,6 +172,22 @@ describe("project documents over signed links", () => {
     expect(calls.filter((call) => call.url.startsWith("https://storage.test/")).map((call) => call.authorization)).toEqual([null, null]);
   });
 
+  test("cancellation interrupts a document chunk whose response body is still streaming", async () => {
+    const controller = new AbortController();
+    let started = () => {};
+    const streaming = new Promise<void>(resolve => { started = resolve; });
+    const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      if (new URL(request.url).pathname.endsWith("/files/content")) return json({ sha256: "a".repeat(64), size: 2, chunks: [new URL("/chunk", request.url).href] });
+      return new Response(new ReadableStream<Uint8Array>({ start(stream) { stream.enqueue(new Uint8Array([1])); started(); } }));
+    } });
+    try {
+      const download = downloadRemoteProjectFile({ ...client, platformURL: `http://127.0.0.1:${endpoint.port}`, signal: controller.signal }, PROJECT, "contract.pdf", join(dir, "interrupted.pdf"));
+      await streaming;
+      controller.abort();
+      await expect(download).rejects.toThrow();
+    } finally { endpoint.stop(true); }
+  });
+
   test("a review tells the firm which documents it reviews; a document or an earlier run does not", async () => {
     const commits: unknown[] = [];
     stubFetch((call) => {

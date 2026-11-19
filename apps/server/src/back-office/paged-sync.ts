@@ -1,4 +1,5 @@
 import type { SyncInbox } from "./sync-inbox.js";
+import { setTimeout as wait } from "node:timers/promises";
 import {
   BackOfficeSnapshotSchema,
   BackOfficeSyncPageSchema,
@@ -29,6 +30,7 @@ export async function pullDirectory(
   inbox: SyncInbox,
   translate: (record: BackOfficeRecord) => void,
   onIncompleteReset: () => void,
+  signal?: AbortSignal,
 ): Promise<PageResult> {
   let access = position?.access ?? null,
     since = position?.cursor ?? 0,
@@ -45,9 +47,9 @@ export async function pullDirectory(
       let raw: unknown;
       for (let attempts = 0; ; attempts++) {
         await ensureFreshPlatformToken(config);
-        const client = requireIntakeClient(
+        const client = { ...requireIntakeClient(
           await requireBackOfficePrincipal(config, principal),
-        );
+        ), signal };
         try {
           raw = await intakeRequest(client, "POST", "/api/back-office", {
             protocol: 1,
@@ -63,7 +65,7 @@ export async function pullDirectory(
             attempts >= 2
           )
             throw error;
-          await new Promise((resolve) => setTimeout(resolve, 60_000));
+          await wait(60_000, undefined, { signal });
         }
       }
       await requireBackOfficePrincipal(config, principal);
