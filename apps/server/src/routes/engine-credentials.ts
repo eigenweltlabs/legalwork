@@ -30,6 +30,8 @@ export function registerEngineCredentialRoutes(options: {
     const client = createEngineClient(options.config, workspace);
     const providerID = ctx.params.providerId;
     const provider = await client.provider.get({ providerID, location: workspaceEngineLocation(workspace) }).catch(error => { if (findApiError(error)?.status === 404) return null; throw error; });
+    // Local providers such as Ollama can be available without an auth integration.
+    if (provider && !provider.data.integrationID) return { client, integrationID: null };
     const integrationID = provider?.data.integrationID ?? providerID;
     // Disabled providers are absent from provider.list but keep their integration.
     await client.integration.get({ integrationID, location: workspaceEngineLocation(workspace) });
@@ -37,13 +39,14 @@ export function registerEngineCredentialRoutes(options: {
   };
   addRoute(options.routes, "GET", "/workspace/:id/providers/:providerId/credentials", "client", async ctx => {
     const { client, integrationID } = await target(ctx);
-    const response = options.jsonResponse({ items: await engineCredentialMetadata(client, integrationID) });
+    const response = options.jsonResponse({ items: integrationID ? await engineCredentialMetadata(client, integrationID) : [] });
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
   addRoute(options.routes, "DELETE", "/workspace/:id/providers/:providerId/credentials/:credentialId", "client", async ctx => {
     options.ensureWritable(options.config);
     const { client, integrationID } = await target(ctx);
+    if (!integrationID) throw new ApiError(404, "credential_not_found", "This provider has no saved connection.");
     await disconnectEngineCredential(client, integrationID, ctx.params.credentialId);
     return options.jsonResponse({ ok: true });
   });

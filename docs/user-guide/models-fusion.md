@@ -60,6 +60,12 @@ Older Azure Cognitive Services and Google Vertex Anthropic settings move to **Az
 
 Keys can originate from a settings connection, environment variables or managed configuration. The AI Providers page identifies their source. An environment-managed connection may not be removable through the ordinary disconnect button; change it at the source instead. Store service secrets under **Settings > Secrets** when the relevant integration needs environment variables. Never paste a secret into a prompt as a setup shortcut.
 
+Local providers such as Ollama can appear as **Config** without a saved login.
+Under **Settings > AI Providers**, open the provider's actions and choose
+**Disconnect** to disable it for the current project. Ollama and its downloaded
+models stay installed. Adding the provider again through **Custom provider**
+enables it for that project.
+
 ## Model behavior
 
 Reasoning and other model behavior controls depend on the selected model. Only use the options the picker actually exposes. Increasing reasoning can increase latency and usage. Changing the selected model does not install a missing connector, authorize a folder or enable a native capability.
