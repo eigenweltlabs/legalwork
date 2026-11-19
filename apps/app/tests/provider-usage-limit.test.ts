@@ -42,15 +42,16 @@ describe("provider quota recovery", () => {
   });
   test("Free offers only AI plans; paid plans also offer top-ups", () => {
     expect(usageLimitOptions(null)).toEqual({
-      plans: ["plus", "pro"],
+      plans: ["plus", "pro", "max"],
       topUp: false,
     });
     expect(usageLimitOptions("sync")).toEqual({
-      plans: ["plus", "pro"],
+      plans: ["plus", "pro", "max"],
       topUp: true,
     });
-    expect(usageLimitOptions("plus")).toEqual({ plans: ["pro"], topUp: true });
-    expect(usageLimitOptions("pro")).toEqual({ plans: [], topUp: true });
+    expect(usageLimitOptions("plus")).toEqual({ plans: ["pro", "max"], topUp: true });
+    expect(usageLimitOptions("pro")).toEqual({ plans: ["max"], topUp: true });
+    expect(usageLimitOptions("max")).toEqual({ plans: [], topUp: true });
   });
   test("the stopped turn retains provider identity after its generic abort event", () => {
     const text = providerUsageLimitErrorText("openai");

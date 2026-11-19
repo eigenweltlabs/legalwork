@@ -1617,7 +1617,7 @@ export function SessionRoute() {
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
       },
-      onChooseAiPlan: async (plan: "plus" | "pro") => {
+      onChooseAiPlan: async (plan: "plus" | "pro" | "max") => {
         const started = await sessionProviderAuthStore.startEigenweltSignIn({ plan });
         await openDesktopUrl(started.authorizeUrl);
         const result = await sessionProviderAuthStore.completeEigenweltSignIn(started.sessionId);
@@ -1813,18 +1813,7 @@ export function SessionRoute() {
       onSelectAgent: (agent: string | null) => setSelectedAgent(agent),
       listCommands: listSlashCommands,
       recentFiles: [],
-      searchFiles: async (query: string) => {
-        const trimmed = query.trim();
-        if (!trimmed) return [];
-        const result = unwrap(
-          await opencodeClient.file.find({
-            query: trimmed,
-            limit: 50,
-            location: selectedWorkspaceRoot ? {directory:selectedWorkspaceRoot}:undefined,
-          }),
-        );
-        return result.data.map(file=>file.path);
-      },
+      searchFiles: (query: string) => client.searchWorkspaceFilenames(selectedWorkspaceId, query),
       isRemoteWorkspace: false,
       isSandboxWorkspace: false,
       onRevertToMessage: async (messageId: string, sessionId: string) => {

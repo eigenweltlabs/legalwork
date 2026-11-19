@@ -4,13 +4,15 @@
 
 Use **Memory Drive** to browse workspace files and configured storage roots. Open a file into the side panel, or attach it to the composer so the assistant has a concrete target. File links in chat also open supported artifacts. Tabs allow documents to stay beside the conversation. Available context-menu actions depend on the file and runtime, including opening externally, revealing the file, downloading or saving a copy.
 
+In a project chat, type **@** followed by part of a filename or folder path to find a file in the project's document folder, including its subfolders. Select it, or drag it from the project's file sidebar into the message box. Wait for the file badge, then send your request. Both methods link to the original project file without making an attachment copy. Later reads use its current saved contents, and edits apply to that file. Keep the file in place so the chat can reopen it. Files uploaded from your computer or brought in from another project are saved as separate chat copies.
+
 Give an exact filename or attach the document when several copies exist. "This document" should mean the document actually open beside the chat. Check that the assistant is working on that version. Save pending edits before switching to a conflicting copy or accepting a discard prompt.
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.
 
 When preparing an email draft, the assistant can attach a document from the connected project folder or an attachment already retained locally. The draft and its saved attachment bytes remain in the project's local support folder; saving a draft does not move the original document.
 
-When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
+When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork checks the file or saves an attachment copy when needed. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
 
 ## Supported work
 
@@ -54,7 +56,7 @@ Ask the assistant to read a PDF, optionally specifying pages, such as "Read page
 
 Long text results are read in portions, normally 16,000 characters and at most 80,000 per portion. The assistant can continue from the returned position. These text positions and character limits apply to extracted and recognized text only; they do not select PDF pages or reduce recognition work. Extraction is limited to 2 million characters per request; selecting fewer pages reduces the work. A result can have successful extraction across the requested pages while returning only a portion of the text. The assistant must continue reading before claiming to have reviewed all of it.
 
-For visual inspection, you can ask the assistant to attach the PDF or selected pages to a model that accepts PDFs. Only the requested pages are included. Each PDF attachment must fit **2 MB including its encoded size**; a larger attachment returns an explanation without sending the PDF to the model. The assistant can select fewer pages or use text extraction, OCR, or both. OCR and ordinary text reads do not attach the PDF automatically. Reading and selecting pages leave the original file unchanged. Source PDFs can be at most 64 MiB; a recognition request can process at most 100 OCR pages at a time.
+For visual inspection, you can ask the assistant to attach the PDF or selected pages to a model that accepts PDFs. Only the requested pages are included. Each PDF attachment must fit **2 MB including its encoded size**; a larger attachment returns an explanation without sending the PDF to the model. The assistant can select fewer pages or use text extraction, OCR, or both. OCR and ordinary text reads do not attach the PDF automatically. Reading and selecting pages leave the original file unchanged. Source PDFs can be at most **1 GiB (1,024 MiB)** and contain at most 1,000 pages. Files of 64 MiB or more are processed from disk rather than keeping the whole source in memory. Selected content that needs more than the processing budget returns an explanation: select fewer pages or optimize an unusually large page. A recognition request can process at most 100 OCR pages at a time.
 
 The assistant chooses a built-in PDF reading option suited to the task: embedded text, direct PDF reading or OCR. If the first chosen option fails or leaves a specific uncertainty relevant to the answer, such as missing page content or garbled, implausible or inconsistent information, the assistant uses another applicable built-in option to resolve the affected content. It uses shell commands only if the applicable built-in options fail, are unavailable, or leave the relevant uncertainty unresolved. It stops once the information is clear and sufficient to answer.
 
@@ -63,6 +65,8 @@ Ask to annotate, fill a form or stamp a signature to use the bundled `pdf-tools`
 ## Saving and source files
 
 Memory Drive’s project files come from the connected document folder, or the local `files` folder for a project created without a chosen folder. Saved chat attachments and connected-storage working copies live in the project’s local `.legalwork` folder. File links and editors select the corresponding location automatically. Saving a working copy does not move your source documents.
+
+OpenCode retains large tool results as internal project working files, with a bounded preview in the conversation. The assistant can read or search the saved result when it needs more detail without repeating the original operation. These working files preserve the original output, are organized by chat, follow the project's file permissions, and stay outside the document list. OpenCode removes retained outputs older than seven days; save lasting deliverables as ordinary project documents.
 
 Check the returned output path and open the saved file. Local editor saves update workspace files or working copies. A connected-storage working copy requires **Save to [connection]** to publish changes back; automatic local saving does not publish it. See [Connected storage](connected-storage.md). Files created for a task can also be attached back to that task so they are discoverable from the work list.
 

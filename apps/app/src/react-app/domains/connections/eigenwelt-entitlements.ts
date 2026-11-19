@@ -1,3 +1,4 @@
+import { EIGENWELT_BOOTSTRAP_PLATFORM_URL } from "@legalwork/types/eigenwelt-deployment";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import type {
@@ -52,7 +53,7 @@ export function hasEigenweltFeature(
 
 /** Billing/upgrade URL for the connected platform (falls back to the prod host). */
 export function eigenweltBillingUrl(platformURL: string | null | undefined): string {
-  const base = (platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "");
+  const base = (platformURL ?? EIGENWELT_BOOTSTRAP_PLATFORM_URL).replace(/\/+$/, "");
   return `${base}/billing`;
 }
 

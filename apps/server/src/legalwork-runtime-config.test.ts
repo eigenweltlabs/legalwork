@@ -283,25 +283,14 @@ test.each([false, true])("the built-in review worker is registered with sandboxi
   expect(worker?.system).not.toBe("Stored override");
 });
 
-test("saved-output access is enabled before user rules and bundled with the runtime", async () => {
+test("saved outputs use the project file tools without dedicated permission grants", async () => {
   const { config } = await setup();
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: "read", resource: "*", effect: "deny" }] }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const denied = (await readSettings(config)).configuration;
-  expect(denied.permissions).toEqual(expect.arrayContaining([
-    { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
-    { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
-    { action: "*", resource: "*", effect: "deny" },
-    { action: "read", resource: "*", effect: "deny" },
-  ]));
-  const rules = denied.permissions ?? [];
-  expect(rules.findIndex(rule => rule.action === "legalwork_tool_output_read")).toBeLessThan(rules.findIndex(rule => rule.action === "*"));
-  await expectBundle(await bundledSources(denied.plugins), "legalwork-tool-output");
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "legalwork_tool_output_read", resource: "*", effect: "deny" }] }));
-  await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const explicit = (await readSettings(config)).configuration.permissions ?? [];
-  expect(explicit).toContainEqual({ action: "legalwork_tool_output_read", resource: "*", effect: "deny" });
-  expect(permissionAction(explicit, "legalwork_tool_output_read", "*")).toBe("deny");
+  const settings = (await readSettings(config)).configuration;
+  expect(settings.permissions).toContainEqual({ action: "read", resource: "*", effect: "deny" });
+  expect(settings.permissions?.some(rule => rule.action.startsWith("legalwork_tool_output_"))).toBe(false);
+  await expectBundle(await bundledSources(settings.plugins), "legalwork-tool-output");
 });
 
 describe("legalwork runtime config files", () => {

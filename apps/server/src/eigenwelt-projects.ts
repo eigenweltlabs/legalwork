@@ -214,7 +214,7 @@ async function storageFetch(url: string, init: RequestInit): Promise<Response> {
 }
 
 /** The objects behind these links, one after another, as one stream. */
-function joinedChunks(links: string[]): ReadableStream<Uint8Array> {
+function joinedChunks(links: string[], signal?: AbortSignal): ReadableStream<Uint8Array> {
   let next = 0;
   let current: ReadableStreamDefaultReader<Uint8Array> | null = null;
   return new ReadableStream<Uint8Array>({
@@ -226,7 +226,7 @@ function joinedChunks(links: string[]): ReadableStream<Uint8Array> {
             controller.close();
             return;
           }
-          const body = (await storageFetch(link, { method: "GET" })).body;
+          const body = (await storageFetch(link, { method: "GET", signal })).body;
           if (!body) throw new ApiError(502, "project_storage_failed", "A document chunk arrived without content.");
           current = body.getReader();
         }
@@ -259,7 +259,7 @@ export async function downloadRemoteProjectFile(
     z.object({ sha256: z.string(), size: z.number(), chunks: z.array(z.string()) }),
     await intakeRequest(client, "GET", `${base(projectId)}/files/content?path=${encodeURIComponent(path)}`),
   );
-  return receiveFile(joinedChunks(content.chunks), destination);
+  return receiveFile(joinedChunks(content.chunks, client.signal), destination);
 }
 
 /** The sha256 and size of a file on disk or in memory, read as a stream. */
@@ -323,7 +323,7 @@ async function uploadChunks(
     }
     for (const { index, url } of uploads) {
       const bytes = await readRange(source, index * PROJECT_CHUNK_BYTES, PROJECT_CHUNK_BYTES);
-      await storageFetch(url, { method: "PUT", body: bytes });
+      await storageFetch(url, { method: "PUT", body: bytes, signal: client.signal });
       await intakeRequest(client, "POST", `${base(projectId)}/blobs/${sha256}/${index}`, { size });
     }
   }

@@ -13,7 +13,7 @@ export function hasAssistantReplyAfter(messages: UIMessage[], messageId: string)
 }
 
 /** Only the refreshed member allowance can resolve a confirmed plan change. */
-export function planChangeRecovery(view: UsageControlView | null, plan: "plus" | "pro", limit?: UsageLimitDetails | null) {
+export function planChangeRecovery(view: UsageControlView | null, plan: "plus" | "pro" | "max", limit?: UsageLimitDetails | null) {
   if (!view?.enabled || view.me.plan !== plan) return "checking";
   return usageIsAvailable(view, limit) ? "ready" : "blocked";
 }

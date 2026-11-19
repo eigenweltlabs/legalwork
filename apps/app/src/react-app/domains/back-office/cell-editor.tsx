@@ -19,9 +19,10 @@ import { DirectorySelect } from "./twenty-controls";
 import { LocalCreationScope, useRecordCreation } from "./record-creation-context";
 import { creatableRecordObject, relationPickerOptions } from "./record-creation-values";
 import { RecordCreateForm } from "./record-create-form";
-import { displayBackOfficeObject } from "./labels";
+import { displayBackOfficeObject, backOfficeOptionLabel } from "./labels";
 import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 function focusEditorInput(input: HTMLInputElement | null) {
   input?.focus({ preventScroll: true });
@@ -46,6 +47,7 @@ export function CellEditor({
   creationFilters?: ProjectReferenceFilters | null;
   projectScope?: string;
 }) {
+  const locale = useLocale();
   const creation = useRecordCreation();
   const [targetType,setTargetType] = useState("");
   const polymorphic = field.target === allRecordsTarget;
@@ -75,7 +77,7 @@ export function CellEditor({
       await onSave(next, previous);
       onCancel();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not save.";
+      const message = error instanceof Error ? error.message : t("back_office.save_failed");
       setError(`${newlyCreated || created.length ? t("back_office.create.not_linked") + " " : ""}${message}`);
     } finally {
       setSaving(false);
@@ -94,7 +96,7 @@ export function CellEditor({
         return (left < 0 ? selected.length : left) - (right < 0 ? selected.length : right);
       });
   } else {
-    options = field.options.filter(matchesName).map(option => ({ id: option, label: option }));
+    options = field.options.map(option => ({ id: option, label: backOfficeOptionLabel(field, option) })).filter(option => matchesName(option.label));
   }
   const multiple = field.multiple || field.type === "multiselect";
   const isChoices =
@@ -140,7 +142,7 @@ export function CellEditor({
   return (
     <div
       className="bo-cell-form"
-      aria-label={`Edit ${field.label}`}
+      aria-label={t("projects.edit_value", { name: field.label })}
       onKeyDown={(event) => {
         if (event.key === "Escape") onCancel();
         if (projectScope && multiple && event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
@@ -170,7 +172,7 @@ export function CellEditor({
           try {
             void save(parseCellInput(field.type, text, value));
           } catch (error) {
-            setError(error instanceof Error ? error.message : "Invalid value.");
+            setError(error instanceof Error ? error.message : t("back_office.invalid_value"));
           }
         }}
       >
@@ -182,11 +184,11 @@ export function CellEditor({
             viewedMonth={month}
             onViewedMonthChange={setMonth}
             weekStart={1}
-            locale={navigator.language}
-            previousMonthLabel="Previous month"
-            nextMonthLabel="Next month"
-            monthLabel="Month"
-            yearLabel="Year"
+            locale={locale}
+            previousMonthLabel={t("calendar.previous")}
+            nextMonthLabel={t("calendar.next")}
+            monthLabel={t("calendar.month")}
+            yearLabel={t("back_office.year")}
           />
         ) : isChoices ? (
           <>
@@ -196,8 +198,8 @@ export function CellEditor({
                 ref={focusEditorInput}
                 size="sm"
                 variant="plain"
-                aria-label={projectScope ? t("back_office.create.search", { name: field.label }) : `Search ${field.label}`}
-                placeholder="Search…"
+                aria-label={projectScope ? t("back_office.create.search", { name: field.label }) : t("back_office.search_field_value", { name: field.label })}
+                placeholder={t("back_office.search")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={event => {
@@ -217,7 +219,7 @@ export function CellEditor({
                   indicator="check"
                   onClick={async () => { await queue.current; await save(multiple ? [] : null, false, multiple ? selected : undefined); }}
                 >
-                  No {field.label}
+                  {t("back_office.no_field_value", { name: field.label })}
                 </ListItem>
               )}
 
@@ -263,9 +265,9 @@ export function CellEditor({
                 value={text}
                 onChange={setText}
                 options={[
-                  { value: "", label: "Empty" },
-                  { value: "true", label: "Yes" },
-                  { value: "false", label: "No" },
+                  { value: "", label: t("back_office.history.empty_value") },
+                  { value: "true", label: t("projects.reference.filter_true") },
+                  { value: "false", label: t("projects.reference.filter_false") },
                 ]}
               />
             ) : (
@@ -293,7 +295,7 @@ export function CellEditor({
               disabled={saving}
               fullWidth
             >
-              Save
+              {t("scheduled.save")}
             </Button>
           </>
         )}
@@ -311,13 +313,13 @@ export function CellEditor({
               disabled={saving}
               onClick={() => void save(null)}
             >
-              Clear value
+              {t("back_office.clear_value")}
             </Button>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              aria-label="Close editor"
+              aria-label={t("settings.environment.close_editor")}
               onClick={onCancel}
               startIcon={<X size={14} />}
             />

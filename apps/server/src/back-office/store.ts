@@ -1012,6 +1012,15 @@ export class BackOfficeStore {
     const binding = ReplicaBindingSchema.parse(JSON.parse(String(row.data)));
     return binding.principalKey === backOfficeAuthorKey(actor) && binding.replicaId === actor.replicaId ? binding.position ?? null : null;
   }
+  acknowledgeUploads(scope: string, actor: BackOfficeActor, accepted: string[]) {
+    this.transaction(() => {
+      this.requireAccount(scope, actor);
+      for (const id of accepted) {
+        this.db.run("UPDATE bo_first_sync SET confirmed=1,operation=NULL WHERE operation=? AND principal=?", [id, backOfficeAuthorKey(actor)]);
+        this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [scope, id, backOfficeAuthorKey(actor)]);
+      }
+    });
+  }
   receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor, position?: DirectoryPosition, incremental = false, inbox?: SyncInbox) {
     const before = this.restrictionState(scope, actor);
     const localized = incremental && before.signature === this.lastRestricted?.signature;
@@ -1028,14 +1037,7 @@ export class BackOfficeStore {
           [scope,id,backOfficeAuthorKey(actor)]);
         if (entry?.record) settledIds.add(String(entry.record));
       }
-      for (const id of snapshot.accepted) {
-        this.db.run("UPDATE bo_first_sync SET confirmed=1,operation=NULL WHERE operation=? AND principal=?", [id, backOfficeAuthorKey(actor)]);
-        this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
-          scope,
-          id,
-          backOfficeAuthorKey(actor),
-        ]);
-      }
+      this.acknowledgeUploads(scope, actor, snapshot.accepted);
       for (const conflict of snapshot.conflicts) {
         const params = [scope, conflict.id, backOfficeAuthorKey(actor)];
         const where = " WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?";

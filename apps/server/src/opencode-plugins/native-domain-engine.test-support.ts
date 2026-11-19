@@ -57,7 +57,9 @@ export async function nativeDomainEngine(options: {
     const probe = join(root, "plugins", "probe"); await mkdir(probe);
     await writeFile(join(probe, "index.js"), `import {Plugin} from "@opencode/plugin";export default Plugin.define({id:"legalwork.domain-fixture",async setup(ctx){if(${options.directTools !== false})await ctx.tool.transform(editor=>{for(const item of editor.list())editor.update(item.id,tool=>{tool.options={...tool.options,codemode:false}})});await ctx.rpc.register({id:"legalwork.domain-fixture",methods:{tools:{input:{type:"object"},output:{type:"array",items:{type:"string"}}}},events:{}},{async tools(){return (await ctx.tool.list()).map(tool=>tool.id)}})}});`);
     plugins.push(probe);
-    engine = await createManagedOpencodeServer({ bin: options.binary, cwd: directory, timeoutMs: 30_000, env: {
+    // Let the engine bind its own ephemeral port atomically. Probing and
+    // releasing a port lets another parallel fixture claim it before startup.
+    engine = await createManagedOpencodeServer({ bin: options.binary, cwd: directory, port: 0, timeoutMs: 30_000, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
       OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
       LEGALWORK_SERVER_URL: `http://127.0.0.1:${server.port}`, LEGALWORK_SERVER_TOKEN: config.token,

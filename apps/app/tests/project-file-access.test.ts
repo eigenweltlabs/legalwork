@@ -21,6 +21,16 @@ test("source resolution uses registered project endpoints and rejects mismatched
   expect(access.identify(local, "b", { path: "same.md", name: "same.md" })).toEqual({ ...source, projectId: "b", workspaceId: "b" });
 });
 
+test("only files in the receiving project and server can stay linked to their originals", () => {
+  const local = createLegalworkServerClient({ baseUrl: "http://localhost:4000", token: "local-token" });
+  const access = createProjectFileAccess(groups, local, () => "draft");
+  expect(access.canReference(source, local, "a")).toBe(true);
+  expect(access.canReference(source, local, "b")).toBe(false);
+  expect(access.canReference({ ...source, connectionId: "cloud" }, local, "a")).toBe(false);
+  expect(access.canReference(source, createLegalworkServerClient({ baseUrl: "http://other-server:4000", token: "local-token" }), "a")).toBe(false);
+  expect(access.canReference(source, createLegalworkServerClient({ baseUrl: local.baseUrl, token: "another-account" }), "a")).toBe(false);
+});
+
 test("saved snapshots read only from the origin and detect source changes during transfer", async () => {
   const calls: string[] = [];
   let version = 1;
@@ -61,9 +71,9 @@ test("cloud project attachments keep the checked-out filename while storage call
   const saved = await access.readSaved({ ...source, connectionId: "connector:google-drive:account", path: remotePath, name: "Rechnung (Signatur).pdf" });
   expect(saved.filename).toBe("Rechnung (Signatur).pdf");
   const mention = await uploadWorkspaceAttachment({ writeWorkspaceBinaryFile: async (_workspace, input) => {
-    expect(new Uint8Array(input.data)).toEqual(bytes);
+    expect(new Uint8Array("arrayBuffer" in input.data ? await input.data.arrayBuffer() : input.data)).toEqual(bytes);
     expect(input.path).not.toContain("~lw~"); expect(input.path).not.toContain("_lw_");
-    return { ok: true, path: input.path, bytes: input.data.byteLength, updatedAt: 1 };
+    return { ok: true, path: input.path, bytes: "size" in input.data ? input.data.size : input.data.byteLength, updatedAt: 1 };
   } }, "b", new File([saved.data], saved.filename, { type: saved.contentType }));
   expect(parseWorkspaceAttachmentMention(mention)?.name).toBe("Rechnung (Signatur).pdf");
   expect(workspaceAttachmentDisplayText(mention)).toStartWith("[Rechnung (Signatur).pdf](");

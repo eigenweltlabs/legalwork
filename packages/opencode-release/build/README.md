@@ -1,9 +1,9 @@
 # Reviewed OpenCode source preparation
 
 The migration target is frozen at **OpenCode 2.1.4**, with LegalWork derivative
-**`2.1.4-legalwork.http-policy.6`**. The recipe pins the upstream commit, original
+**`2.1.4-legalwork.http-policy.7`**. The recipe pins the upstream commit, original
 frozen Bun dependency graph, official Bun 1.4.4 compiler per host and reviewed
-MCP-readiness/Code Mode HTTP, migration timestamp and passive project relocation and display-history file reference patches. The SDK/client/plugin
+MCP-readiness/Code Mode HTTP, migration timestamp and passive project relocation and display-history file reference and native project output destination patches. The SDK/client/plugin
 ABI stays at 2.1.4. The additive `session.relocate` HTTP endpoint is used explicitly by the stopped migration; ordinary session moves are unchanged.
 OpenCode 2.2.0 is deferred by the user's decision. See the [current acceptance
 status](../../../docs/opencode-v2-capability-status.md) for actual platform gates.
@@ -61,7 +61,7 @@ engine release nor changes application auto-update delivery.
 
 The source-build and actual app acceptance are separate gates. No complete
 six-platform verdict is implied by cross-compilation, cache validation or these
-documentation changes. The [combined patch receipt](../../../docs/patches/opencode-2.1.4-history-file-references.receipt.json)
+documentation changes. The [combined patch receipt](../../../docs/patches/opencode-2.1.4-project-tool-output.receipt.json)
 and the [historical evidence archive](../../../docs/opencode-v2-historical-evidence.md) preserve earlier exact evidence.
 
 ## Verification and low-level preparation
@@ -96,3 +96,10 @@ node packages/opencode-release/build/distribution.mjs \
 Candidate validation remains available through `verifyOpencodeCandidate` and the
 explicit `build/validation-preload.mjs` test entry. Normal application startup uses
 the prepared selection and does not read candidate-validation environment variables.
+
+Managed LegalWork engines opt into `OPENCODE_PROJECT_TOOL_OUTPUT=1`. OpenCode's
+native saver then places text and binary outputs under each project's
+`.legalwork/tool-output/<chat-id>/`, keeping native filenames, contents, preview
+limits and seven-day cleanup. Without the flag, upstream global storage remains
+unchanged. The LegalWork plugin supplies usage guidance only; it does not save or
+truncate results. Historical global outputs are left to the native global cleanup.

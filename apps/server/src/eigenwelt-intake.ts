@@ -1,5 +1,5 @@
 import { ApiError } from "./errors.js";
-import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 
 /**
  * Client for the Eigenwelt platform "Intake" — the firm's shared inbox, where
@@ -181,7 +181,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // Entitlement + client
 // ---------------------------------------------------------------------------
 
-export type IntakeClient = { platformURL: string; platformToken: string };
+export type IntakeClient = { platformURL: string; platformToken: string; signal?: AbortSignal };
 
 /**
  * Build a platform client from a stored connection, or fail with a clear 403.
@@ -196,10 +196,7 @@ export function requireIntakeClient(connection: {
   platformURL: string | null;
   platformToken: string | null;
 }): IntakeClient {
-  // Platform traffic always targets the configured trusted platform. The stored
-  // URL is display metadata from OAuth and must never become a server-side
-  // fetch destination.
-  const platformURL = eigenweltPlatformUrl();
+  const platformURL = eigenweltConnectionPlatformUrl(connection);
   const platformToken = connection.platformToken ?? "";
   if (!platformURL || !platformToken) {
     throw new ApiError(
@@ -243,6 +240,7 @@ export async function intakeFetch(
         ...(init.contentType === undefined ? {} : { "Content-Type": init.contentType }),
       },
       body: init.body,
+      signal: client.signal,
     });
   } catch {
     throw new ApiError(502, "intake_unreachable", "Could not reach the Eigenwelt intake service.");

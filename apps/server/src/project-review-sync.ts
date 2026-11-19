@@ -82,6 +82,7 @@ export type ReviewBaseStore = {
 };
 
 export type ReviewSyncOptions = {
+  signal?: AbortSignal;
   /** The project folder. */
   root: string;
   remote: StorageAdapter;
@@ -386,6 +387,7 @@ export async function syncProjectReviews(options: ReviewSyncOptions): Promise<Re
   const trashDir = join(options.root, ".legalwork", "sync-trash", now().toISOString().replace(/[:.]/g, "-"), ".opencode", "legalwork", "reviews");
 
   for (const key of new Set([...local.keys(), ...remoteFiles.keys(), ...bases.keys()])) {
+    options.signal?.throwIfAborted();
     if (unreadable.has(key)) continue;
     const localSha = localVersion.get(key) ?? null;
     const remoteSha = remoteFiles.get(key) ?? null;
@@ -470,6 +472,7 @@ export async function syncProjectReviews(options: ReviewSyncOptions): Promise<Re
         }
       }
     } catch (error) {
+      options.signal?.throwIfAborted();
       if (!fileLevel(error)) throw error;
       if (error instanceof ApiError && (error.status === 409 || error.status === 404)) result.stale = true;
       if (action === "upload" || action === "delete-remote" || action === "conflict") result.pending += 1;

@@ -1,3 +1,4 @@
+import { EIGENWELT_BOOTSTRAP_PLATFORM_URL } from "@legalwork/types/eigenwelt-deployment";
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -136,8 +137,8 @@ export function EigenweltAccountView({
   });
   const memberUsage = usageQuery.data?.enabled ? usageQuery.data.me : null;
   const billingUrl = eigenweltBillingUrl(platformURL);
-  const membersUrl = `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/members`;
-  const learnMoreUrl = `${(platformURL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "")}/pricing`;
+  const membersUrl = `${(platformURL ?? EIGENWELT_BOOTSTRAP_PLATFORM_URL).replace(/\/+$/, "")}/members`;
+  const learnMoreUrl = `${(platformURL ?? EIGENWELT_BOOTSTRAP_PLATFORM_URL).replace(/\/+$/, "")}/pricing`;
 
   const orgManagement = hasEigenweltFeature(entitlements, "org_management");
 

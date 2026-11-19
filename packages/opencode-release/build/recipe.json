@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.6",
+  "version": "2.1.4-legalwork.http-policy.7",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,8 +72,8 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
-      "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2"
+      "path": "docs/patches/opencode-2.1.4-project-tool-output.patch",
+      "sha256": "1329400f9522720df0364d03bd0ac2ea996b6599764c7fac69affdda2e7e49ad"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,15 +84,15 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
-      "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
+      "path": "docs/patches/opencode-2.1.4-project-tool-output.receipt.json",
+      "sha256": "fe1e43a7f6ad1b4c108c4c520e0d4c04e42d70ce49a1a14df48b0d15c9bdc689"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d",
+    "receiptSha256": "fe1e43a7f6ad1b4c108c4c520e0d4c04e42d70ce49a1a14df48b0d15c9bdc689",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
+    "patchSha256": "1329400f9522720df0364d03bd0ac2ea996b6599764c7fac69affdda2e7e49ad",
     "bun": "1.4.4",
     "migrationTestsPassed": 38,
     "migrationTestsFailed": 0,
@@ -102,6 +102,8 @@
     "relocationSourceTestsFailed": 0,
     "serverTypecheckPassed": true,
     "historySourceTestsPassed": 218,
-    "historySourceTestsFailed": 0
+    "historySourceTestsFailed": 0,
+    "toolOutputSourceTestsPassed": 146,
+    "toolOutputSourceTestsFailed": 0
   }
 }

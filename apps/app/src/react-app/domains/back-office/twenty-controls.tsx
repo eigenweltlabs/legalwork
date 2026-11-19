@@ -173,7 +173,7 @@ export function DirectoryDialog({
                 <Button
                   size="sm"
                   variant="ghost"
-                  aria-label="Close dialog"
+                  aria-label={t("markdown.dialog.close")}
                   startIcon={<X size={16} />}
                 />
               }

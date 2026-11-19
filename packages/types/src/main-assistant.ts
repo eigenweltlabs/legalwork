@@ -145,6 +145,6 @@ export function hasAssistantSubscription(view: {
   entitlements?: { plan: string | null; subscriptionStatus: string | null } | null;
 } | null | undefined): boolean {
   const plan = view?.entitlements;
-  return Boolean(view?.connected && plan && (plan.plan === "plus" || plan.plan === "pro")
+  return Boolean(view?.connected && plan && (plan.plan === "plus" || plan.plan === "pro" || plan.plan === "max")
     && ["active", "trialing", "past_due"].includes(plan.subscriptionStatus ?? ""));
 }

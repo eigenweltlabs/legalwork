@@ -12,7 +12,13 @@ export const tokenBindings = new WeakMap<StorageInput, AccessToken>();
 export class StorageOAuth {
   readonly vault: OAuthVault;
   private flows = new Map<string, { close: () => void; error?: string }>();
-  constructor(path: string) { this.vault = new OAuthVault(path); }
+  constructor(path: string, private platform?: () => Promise<string>) { this.vault = new OAuthVault(path); }
+  private async provider(id: string) {
+    const provider = oauthProvider(id);
+    if (id !== "box" || process.env.LEGALWORK_STORAGE_BOX_OAUTH_URL || !this.platform) return provider;
+    const platform = await this.platform();
+    return { ...provider, authorizeUrl: `${platform}/api/storage-oauth/box/authorize`, tokenUrl: `${platform}/api/storage-oauth/box/token` };
+  }
   key(workspaceId: string, id: string, input: StorageInput) {
     // Root/access changes invalidate a grant instead of silently widening its use.
     return JSON.stringify([workspaceId, id, input.config, input.readOnly]);
@@ -20,8 +26,8 @@ export class StorageOAuth {
   bind(workspaceId: string, id: string, input: StorageInput) {
     if (input.config.kind !== "oauth" || input.config.accountId) return;
     const key = this.key(workspaceId, id, input);
-    const provider = oauthProvider(input.config.provider);
-    tokenBindings.set(input, () => this.access(key, provider));
+    const providerId = input.config.provider;
+    tokenBindings.set(input, async () => this.access(key, await this.provider(providerId)));
   }
   private async exchange(provider: OAuthApplication, fields: Record<string, string>, previous?: Credential) {
     let response: Response;
@@ -63,7 +69,7 @@ export class StorageOAuth {
   cancel(key: string) { this.flows.get(key)?.close(); this.flows.delete(key); }
   async start(key: string, input: StorageInput, stillAllowed: () => Promise<boolean>) {
     if (input.config.kind !== "oauth") throw signinRequired();
-    return this.startProvider(key, oauthProvider(input.config.provider), input.readOnly, stillAllowed);
+    return this.startProvider(key, await this.provider(input.config.provider), input.readOnly, stillAllowed);
   }
   async startProvider(key: string, provider: OAuthApplication, readOnly: boolean, stillAllowed: () => Promise<boolean>) {
     this.cancel(key);

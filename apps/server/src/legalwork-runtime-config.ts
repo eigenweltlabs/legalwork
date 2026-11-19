@@ -291,8 +291,6 @@ export async function buildLegalworkRuntimeSettings(
   const registered = config?.workspaces.find((item) => item.id === workspaceId);
   const workspace = registered ? await localProjectReferenceRoots(registered) : undefined;
   const permission = [
-    { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
-    { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
     { action: "external_directory", resource: "*", effect: "ask" },
     { action: "legalwork_jev_corpus_question", resource: "*", effect: jevSearchEnabled ? "allow" : "deny" },
     ...(workspace ? primaryContentFolderRules(workspace) : []),
@@ -558,6 +556,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const published = { path, workspaces, shared: sharedConfiguration, systemOne: systemOneSettings, commonPlugins };
     if (previous) { publishedSettings.set(config, published); return; }
     const mandatoryPlugins = [
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-costs"), config), options: { settingsPath, directory: join(runtimeStorageDir(config), "gateway-costs") } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
       await bundledPluginSpec(legalworkPluginPath("legalwork-product-scope"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-digest-tools"), config),

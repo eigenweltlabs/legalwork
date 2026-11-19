@@ -193,9 +193,9 @@ describe("the remembered account", () => {
 describe("the plan catalog", () => {
   test("mirrors the platform's prices and included usage", () => {
     expect(EIGENWELT_PLANS.map((plan) => [plan.id, plan.yearlyPerMonthCents, plan.monthlyCents, plan.includedMonthlyUsageCents])).toEqual([
-      ["sync", 1500, 2000, 0],
-      ["plus", 2900, 3900, 3000],
-      ["pro", 6900, 8900, 7000],
+      ["plus", 3000, 4000, 3000],
+      ["pro", 9000, 10000, 10000],
+      ["max", 19000, 20000, 21000],
     ]);
     expect(isEigenweltPlanId("plus")).toBe(true);
     expect(isEigenweltPlanId("hub")).toBe(false);

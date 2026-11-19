@@ -23,7 +23,7 @@ export function AiPlanUpgradeDialog({ client, workspaceId, platformURL, onClose 
   useLocale();
   const transport = useDesktopUsageTransport(client, workspaceId);
   const [view, setView] = useState<UsageControlView | null>(null);
-  const [confirmedPlan, setConfirmedPlan] = useState<"plus" | "pro" | null>(null);
+  const [confirmedPlan, setConfirmedPlan] = useState<"plus" | "pro" | "max" | null>(null);
   const [requested, setRequested] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -44,7 +44,7 @@ export function AiPlanUpgradeDialog({ client, workspaceId, platformURL, onClose 
       <DialogHeader>
         <DialogTitle>{t(confirmedPlan ? "provider_limit.plan_updated" : "provider_limit.plans_title")}</DialogTitle>
         <DialogDescription>{confirmedPlan
-          ? t("provider_limit.plan_now", { plan: confirmedPlan === "plus" ? "Plus" : "Pro" })
+          ? t("provider_limit.plan_now", { plan: confirmedPlan === "plus" ? "Plus" : confirmedPlan === "pro" ? "Pro" : "Max" })
           : t("provider_limit.plans_body")}</DialogDescription>
       </DialogHeader>
       {confirmedPlan ? <div className="space-y-4">
@@ -64,7 +64,7 @@ export function AiPlanUpgradeDialog({ client, workspaceId, platformURL, onClose 
           : <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("limits.loading")}</p>
         : !view.enabled ? <Button onClick={() => void openDesktopUrl(eigenweltBillingUrl(platformURL))}>{t("firm_hub.billing")}</Button>
         : view.isAdmin ? <SeatPlanUpgrade transport={transport} refresh={refresh} t={t}
-          userId={view.me.userId} initialPlan="plus" allowedPlans={["plus", "pro"]}
+          userId={view.me.userId} initialPlan="plus" allowedPlans={["plus", "pro", "max"]}
           pendingChange={pendingSeatUpgrade(view)}
           onBusyChange={setBusy} onComplete={plan => {
             setView(null);

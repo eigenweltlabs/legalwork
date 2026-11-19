@@ -2,16 +2,16 @@
 /**
  * The premium upsell "challenge" modal. Three phases, driven by
  * PremiumUpsellProvider:
- *   pitch   → the Plus/Pro benefits (7-day trial, from €29/seat) + the CTA (reuses the app's
+ *   pitch   → the Plus/Pro/Max benefits and paid trial + the CTA (reuses the app's
  *             feature-announcement shell so it matches the what's-new modals).
  *   waiting → checkout is open in the browser; a spinner + "Continue in your
  *             browser" while the provider polls for the subscription.
  *   success → a checkmark confirmation before the provider auto-closes.
  *   timeout → the poll gave up; it still unlocks on its own once active.
  *
- * The three benefits are what both plans (Plus €29, Pro €69, 7-day trial)
- * unlock: premium audio transcription models, included EU/ZDR AI usage (€30 or
- * €70 per seat and month), and firm-wide sharing of workflows & integrations.
+ * The three benefits are premium audio transcription models, included EU/ZDR
+ * AI usage, and firm-wide sharing of workflows and integrations. Usage depends
+ * on the purchased offer; legacy firms retain their existing allowances.
  */
 import { useState } from "react";
 import { Check, CheckCircle2, Copy, ExternalLink, Loader2 } from "lucide-react";

@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { responseUrl, type UsageTransport, type Text } from "./transport";
 
-type AiPlan = "plus" | "pro";
+type AiPlan = "plus" | "pro" | "max";
 type PendingUpgrade = { quoteId: string; plan: AiPlan; url?: string };
 export function pendingSeatUpgrade(view: UsageControlView) {
   for (const op of view.pendingMemberChanges ?? []) {
     if (op.hostedPayment && op.target.kind === "plan" && op.target.userId === view.me.userId &&
-        (op.target.plan === "plus" || op.target.plan === "pro")) return { quoteId: op.quoteId, plan: op.target.plan };
+        (op.target.plan === "plus" || op.target.plan === "pro" || op.target.plan === "max")) return { quoteId: op.quoteId, plan: op.target.plan };
   }
 }
 const money = (cents: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(cents / 100);
@@ -128,12 +128,12 @@ export function SeatPlanUpgrade({ transport, refresh, t, userId, initialPlan, al
   }}>
     <fieldset disabled={busy} className="flex flex-wrap items-end gap-3">
       <label className="grid gap-1 text-sm">{t("limits.seat")}
-        <Select value={plan} disabled={busy} items={allowedPlans.map(value => ({ value, label: value === "plus" ? "Plus" : "Pro" }))} onValueChange={value => {
-          if (value !== "plus" && value !== "pro") return;
+        <Select value={plan} disabled={busy} items={allowedPlans.map(value => ({ value, label: value === "plus" ? "Plus" : value === "pro" ? "Pro" : "Max" }))} onValueChange={value => {
+          if (value !== "plus" && value !== "pro" && value !== "max") return;
           setPlan(value); reset();
         }}>
           <SelectTrigger className="min-w-32"><SelectValue /></SelectTrigger>
-          <SelectContent>{allowedPlans.map(value => <SelectItem key={value} value={value}>{value === "plus" ? "Plus" : "Pro"}</SelectItem>)}</SelectContent>
+          <SelectContent>{allowedPlans.map(value => <SelectItem key={value} value={value}>{value === "plus" ? "Plus" : value === "pro" ? "Pro" : "Max"}</SelectItem>)}</SelectContent>
         </Select>
       </label>
       <Button type="submit" disabled={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t(quote?.paymentMethodRequired ? "limits.continue_checkout" : quote ? "limits.confirm_change" : "limits.preview_purchase")}</Button>

@@ -13,7 +13,11 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 
 Opening a project does not require a separate setup approval. LegalWork loads the project's settings and available tools automatically. Firm policies, allowed folders and permissions for individual actions still apply. Install skills, workflows and connectors through LegalWork, and manage access in Settings.
 
-In **Settings > Account**, sign-in finishes after the browser connection has been saved in the app. Signing out can take longer while LegalWork checks for unsent firm changes and updates saved projects. Wait for the account screen to finish; refreshing the app or starting sign-in again does not cancel an account change already in progress.
+In **Settings > Account**, sign-in finishes after the browser connection has been saved in the app. Select **Sign out** to leave your Eigenwelt account. LegalWork stops background downloads and uploads pending firm changes once, without downloading new projects or documents. If changes cannot be uploaded, sign-out stops so you can retry without losing them. Downloaded project copies are removed when LegalWork can verify that it created their folders. Older copies without that record disappear from the app, but their document folders and saved local project data are preserved. Projects you created or connected yourself stay on your computer. Wait for the account screen to finish; refreshing the app or starting sign-in again does not cancel an account change already in progress.
+
+When your firm is offered an infrastructure-region choice during Eigenwelt onboarding, an administrator chooses **European Union** (Scaleway) or **United States** (Google Cloud) once for the whole firm. Invited members use the firm's existing choice. Existing firms are assigned by the Eigenwelt team. A region change needs a coordinated migration; choosing another model does not move your firm's data.
+
+After browser sign-in, LegalWork saves the firm's deployment with the account and uses it for firm features, storage, account refresh and model access. Sign in with the intended firm when switching accounts. Model inference regions are configured separately on the Eigenwelt platform. Clerk remains the shared sign-in service. External model and connector providers have their own hosting arrangements.
 
 ## Set up meeting recording
 

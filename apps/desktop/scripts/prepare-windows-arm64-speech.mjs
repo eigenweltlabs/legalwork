@@ -65,6 +65,17 @@ try {
     `${sourceName}/sherpa-onnx/c-api/c-api.h`, `${sourceName}/LICENSE`,
   ]);
   await extract(`https://github.com/k2-fsa/sherpa-onnx/releases/download/v${pin.version}/${nativeName}.tar.bz2`, "native.tar.bz2", pin.nativeSha256);
+  const onnxPackage = `microsoft.ml.onnxruntime.managed.${pin.onnxruntimeVersion}.nupkg`;
+  await extract(`https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/${pin.onnxruntimeVersion}/${onnxPackage}`,
+    "onnxruntime-notices.nupkg", pin.onnxruntimeNoticesArchiveSha256, ["LICENSE.txt", "ThirdPartyNotices.txt"]);
+  const onnxNotices = await Promise.all([
+    ["LICENSE.txt", "onnxruntime-LICENSE", pin.onnxruntimeLicenseSha256],
+    ["ThirdPartyNotices.txt", "onnxruntime-ThirdPartyNotices.txt", pin.onnxruntimeNoticesSha256],
+  ].map(async ([source, name, expected]) => {
+    const bytes = Buffer.from((await readFile(path.join(temporary, source), "utf8")).replace(/\r\n/g, "\n"));
+    if (createHash("sha256").update(bytes).digest("hex") !== expected) throw new Error(`Speech notice checksum mismatch: ${name}`);
+    return [name, bytes];
+  }));
   const source = path.join(temporary, sourceName);
   const addon = path.join(source, "scripts/node-addon-api");
   const native = path.join(temporary, nativeName);
@@ -90,9 +101,7 @@ try {
   const notices = path.join(destination, "arm64-notices");
   await mkdir(notices, { recursive: true });
   await copyFile(path.join(source, "LICENSE"), path.join(notices, "sherpa-onnx-LICENSE"));
-  const onnxSource = `https://raw.githubusercontent.com/microsoft/onnxruntime/v${pin.onnxruntimeVersion}`;
-  await writeFile(path.join(notices, "onnxruntime-LICENSE"), await download(`${onnxSource}/LICENSE`, pin.onnxruntimeLicenseSha256));
-  await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await download(`${onnxSource}/ThirdPartyNotices.txt`, pin.onnxruntimeNoticesSha256));
+  for (const [name, bytes] of onnxNotices) await writeFile(path.join(notices, name), bytes);
   // Prove that the generated adapter can load its native DLLs before packaging.
   run(process.execPath, ["-e", "const s=require('sherpa-onnx-node');console.log('ARM64 speech:',s.version)"] , { cwd: desktop });
   if (cache) sealSpeechCache(cache, destination, cacheKey);

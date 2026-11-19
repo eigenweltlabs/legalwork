@@ -50,6 +50,7 @@ fs.writeFileSync(counter, String(n));
 fs.writeFileSync(counter + ".pid", String(process.pid));
 fs.writeFileSync(counter + ".fff", process.env.OPENCODE_DISABLE_FFF || "");
 fs.writeFileSync(counter + ".system-ca", process.env.NODE_USE_SYSTEM_CA || "");
+fs.writeFileSync(counter + ".project-output", process.env.OPENCODE_PROJECT_TOOL_OUTPUT || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -99,7 +100,7 @@ test("the default engine resolves the effective child PATH once and spawns that 
   const server = await createManagedOpencodeServer({ cwd, candidateBuild,
     env: { PATH: [dirname(bin), dirname(process.execPath)].join(delimiter), FAKE_OPENCODE_COUNTER: counter },
   });
-  try { expect(server.execution.command).toBe(await realpath(bin)); expect(server.running()).toBe(true); }
+  try { expect(server.execution.command).toBe(await realpath(bin)); expect(server.running()).toBe(true); expect(readFileSync(counter + ".project-output", "utf8")).toBe("1"); }
   finally { await server.close(); }
 });
 

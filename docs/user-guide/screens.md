@@ -12,6 +12,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Shield icon in the top-right of a chat | Choose the chat's sandbox and network settings, restore inheritance or retry a status check | [Sandboxing](settings-privacy.md#sandboxing) |
+| Cost amount in the top-right of a chat or below a response | Inspect estimated prompt and conversation costs, model usage and token details; enable in Settings > Customization > Show costs | [Costs](settings-privacy.md#show-prompt-and-conversation-costs) |
 | Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |
@@ -57,7 +58,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |
 | Notifications | Which task events produce notifications or badges? | [Tasks](tasks-intake.md) |
 | Tool Permissions | What can the assistant do automatically? | [Settings](settings-privacy.md) |
-| Customization | How do I change language, appearance and project defaults? | [Settings](settings-privacy.md), [Localization](localization.md) |
+| Customization | How do I change language, appearance, project defaults and Show costs? | [Settings](settings-privacy.md), [Localization](localization.md) |
 | Secrets | How do I save browser passwords, use automatic filling and apply environment changes? | [Settings](settings-privacy.md) |
 | Privacy | How do usage analytics and online catalog updates work? | [Settings](settings-privacy.md) |
 | Unsaved changes before closing or restarting | Save or discard pending workflow and file edits, or open an affected file | [Unsaved changes](settings-privacy.md#unsaved-changes-when-closing-or-restarting) |

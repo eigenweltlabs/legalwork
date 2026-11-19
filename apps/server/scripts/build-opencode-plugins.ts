@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const server = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const pluginNames = [
-  "legalwork-managed-config", "legalwork-model-catalog", "legalwork-legalmemory", "legalwork-commands", "legalwork-project-admission", "legalwork-product-scope", "legalwork-sandbox", "legalwork-extensions-preview",
+  "legalwork-costs", "legalwork-managed-config", "legalwork-model-catalog", "legalwork-legalmemory", "legalwork-commands", "legalwork-project-admission", "legalwork-product-scope", "legalwork-sandbox", "legalwork-extensions-preview",
   "legalwork-capabilities-knowledge", "legalwork-legalmemory-knowledge", "legalwork-digest-tools", "legalwork-history-image-tools", "legalwork-tool-image-original-capture", "legalwork-tool-image-originals",
   "legalwork-anthropic-adaptive-thinking", "legalwork-anthropic-tool-schema", "legalwork-openai-tool-call-ids",
   "legalwork-word-tools", "legalwork-excel-tools", "legalwork-powerpoint-tools", "legalwork-benchmark-tools",

@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { cellInputText, parseCellInput } from "./cell-input";
 import { useRef, useState } from "react";
 import { Input } from "twenty-ui/primitives/input";
@@ -36,7 +37,7 @@ export function InlineCellEditor({
     } catch (error) {
       completed.current = false;
       onError(
-        error instanceof Error ? error.message : "Could not save the value.",
+        error instanceof Error ? error.message : t("back_office.value_failed"),
       );
     }
   };

@@ -39,3 +39,6 @@ export {
   isLauncherInternalPath,
   launcherResultActions,
 } from "@legalwork/types/launcher";
+
+export { EIGENWELT_BOOTSTRAP_PLATFORM_URL, EIGENWELT_DEPLOYMENTS, EIGENWELT_LEGACY_GATEWAY_URL } from "@legalwork/types/eigenwelt-deployment";
+export type { EigenweltDeploymentRegion } from "@legalwork/types/eigenwelt-deployment";

@@ -41,6 +41,11 @@
   ],
   "panels": [
     {
+      "id": "session-costs",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/components/chat/cost-indicator.tsx"
+    },
+    {
       "id": "project-field-editor",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"

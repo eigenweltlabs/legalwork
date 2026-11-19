@@ -34,6 +34,8 @@ export type LocalUIState = {
 export type HideAppMode = "never" | "recording" | "always";
 
 export type LocalPreferences = {
+  /** Display estimated model costs for prompts and whole conversations. */
+  showCosts: boolean;
   /** Show the model's reasoning in the chat. Off unless the user turns it on. */
   showThinking: boolean;
   /**
@@ -120,6 +122,7 @@ export const SHOW_THINKING_DEFAULT_VERSION = 2;
 
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
+  showCosts: false,
   showThinking: DEFAULT_SHOW_THINKING,
   showThinkingChosen: false,
   // 0, not the current version: readPersisted fills missing fields from here,
