@@ -29,7 +29,7 @@ import { currentAssistantQuery, resolveAssistantChat, savedAssistantQuery, seedS
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
-import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
+import { sessionMainPage, workdayProjectForRoute, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import { useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
@@ -856,9 +856,6 @@ export function SessionRoute() {
       return running ? [{projectId, stream:session.id}] : [];
     });
   }), [workspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId, hiddenTemplateWorkspaceIds]);
-  const observedWorkspace = !mainPage && !backOfficePage && selectedWorkspace && selectedWorkspace.preset !== "main-assistant" &&
-    !hiddenTemplateWorkspaceIds.includes(selectedWorkspace.id) ? workspaceServerId(selectedWorkspace) : null;
-  useWorkdayActivity(hostToken ? client : null, observedWorkspace, observedAgents);
   const sidebarWorkspaces = useMemo(
     () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
@@ -2467,6 +2464,13 @@ export function SessionRoute() {
     ?? sidebarWorkspaces[0]?.id ?? null;
   const homeInitialProjectId = homeEntryProjectId ?? (new URLSearchParams(location.search).get("assistant") === "1" ? null : homeDefaultProjectId);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeInitialProjectId);
+  const visibleWorkdayProject = workdayProjectForRoute(location.pathname, {
+    homeProjectId: homePage ? homeProjectId : undefined,
+    routeWorkspaceId,
+    chatOwnerId: selectedSessionInfo ? selectedWorkspaceId : undefined,
+  });
+  const observedWorkspace = sidebarWorkspaces.find(workspace => workspace.id === visibleWorkdayProject);
+  useWorkdayActivity(hostToken ? client : null, workspaceServerId(observedWorkspace) || null, observedAgents);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });

@@ -207,6 +207,9 @@ export function registerTimesheetRoutes(
                 "The connected firm has not enabled invoice drafts, partner approval and document output.",
                 501,
               );
+            if (command.type === "prepareInvoice" && command.draft.pricing.mode === "hourly" &&
+              command.draft.pricing.currency && !capabilities.supportsHourlyInvoiceCurrency)
+              timeError("The connected firm has not enabled currency-specific hourly invoices.", 501);
             await assertIdentity(ctx, store, access);
           }
           const otherWorkers =
@@ -400,6 +403,7 @@ export function registerTimesheetRoutes(
         await assertFinance(ctx, store, access);
         if (!access.actor.finance)
           timeError("Billing access is required.", 403);
+        const revision = z.string().regex(/^[a-f\d]{64}$/).optional().parse(ctx.url.searchParams.get("revision") ?? undefined);
         const id = z.uuid().parse(ctx.params.id),
           format = z
             .enum(["docx", "pdf"])
@@ -438,6 +442,8 @@ export function registerTimesheetRoutes(
           );
           if (!stored || stored.id !== id)
             timeError("The invoice draft is unavailable.", 404);
+          if (revision && stored.revision !== revision)
+            timeError("The invoice draft changed. Open its preview again.", 409);
           return currentInvoiceDraft(
             store,
             readTimesheet(

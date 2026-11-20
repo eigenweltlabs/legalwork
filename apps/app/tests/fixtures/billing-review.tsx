@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ReactNode } from "react";
+import type { LegalworkServerClient } from "../../src/app/lib/legalwork-server";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
+Object.defineProperty(window.navigator, "pdfViewerEnabled", { value: true, configurable: true });
 for (const [key, value] of Object.entries({
   window,
   document: window.document,
@@ -81,6 +83,7 @@ const actor: TimesheetState = {
   canManage: true,
   canReview: true,
   supportsInvoiceDrafts: true,
+  supportsHourlyInvoiceCurrency: true,
   entries: [row, { ...row, id: "own", workerId: "partner" }],
   matters: [{ id: "m", name: "Alpha", reference: "A", clientIds: ["c"] }],
   clients: [{ id: "c", name: "Acme", billingAddress: "Fixture Lane 1" }],
@@ -100,10 +103,18 @@ const calls: TimesheetCommand[] = [];
 const command = async (c: TimesheetCommand) => {
   calls.push(c);
 };
+type PreviewFile = Awaited<ReturnType<LegalworkServerClient["downloadTimesheetDraft"]>>;
+const requests: Array<{
+  id: string; format: string; revision?: string; signal?: AbortSignal;
+  resolve: (value: PreviewFile) => void; reject: (error: Error) => void;
+}> = [];
+function pdf(text: string, contentType = "application/pdf"): PreviewFile {
+  return { data: new TextEncoder().encode("%PDF-1.7\n" + text).buffer, contentType, filename: "Fixture.pdf", updatedAt: null };
+}
+const downloadTimesheetDraft: LegalworkServerClient["downloadTimesheetDraft"] = (id, _scope, format, options) =>
+  new Promise((resolve, reject) => requests.push({ id, format, ...options, resolve, reject }));
 const client = {
-  downloadTimesheetDraft: async () => {
-    throw new Error("Unused");
-  },
+  downloadTimesheetDraft,
   downloadTimesheetAdjustment: async () => {
     throw new Error("Unused");
   },
@@ -216,6 +227,7 @@ try {
   assert.ok(!host.textContent?.includes("Create Invoice"));
   assert.match(host.textContent ?? "", /require support from the connected firm server/);
   const open: TimesheetState = { ...actor, entries: [prior, { ...row, status: "approved" },
+    { ...row, id: "usd", status: "approved", currency: "USD", narrative: "USD briefing" },
     { ...row, id: "queued", narrative: "Waiting for review", status: "submitted" },
     { ...row, id: "own-open", workerId: actor.userId, narrative: "Booked this morning", status: "confirmed" },
   ] };
@@ -227,10 +239,24 @@ try {
   assert.match(host.textContent ?? "", /Booked this morning/);
   assert.match(host.textContent ?? "", /Open submitted entries/);
   assert.ok(!host.textContent?.includes(prior.narrative));
+  assert.match(host.textContent ?? "", /Choose the currency for this hourly invoice/);
+  await select("Currency", "EUR");
+  assert.ok(field('input[aria-label="Select entry: USD briefing"]').disabled);
+  assert.match(host.textContent ?? "", /Stays open in USD/);
   const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector("input");
   assert.ok(allOpen);
   await click(allOpen);
   assert.ok(host.textContent?.includes(prior.narrative));
+  await draw({ ...open, supportsHourlyInvoiceCurrency: undefined });
+  assert.ok(match("Preview invoice").disabled);
+  assert.match(host.textContent ?? "", /Choose a service period to invoice selected entries/);
+  await draw(open);
+  await click(match("Preview invoice"));
+  const cutoff = calls.at(-1);
+  assert.ok(cutoff?.type === "prepareInvoice");
+  assert.equal(cutoff.draft.pricing.currency, "EUR");
+  assert.equal(cutoff.draft.period.from, undefined);
+  assert.deepEqual(cutoff.draft.entries.map(({ id }) => id), [prior.id, row.id]);
   await click(allOpen);
   await click(match("Preview invoice"));
   assert.ok(!host.textContent?.includes("Issue numbered invoice"));
@@ -244,10 +270,35 @@ try {
     lines: [{ entry: { ...row, status: "approved" }, originalNarrative: row.narrative, currentNarrative: row.narrative,
       rules: [], amountMinor: 20000, baseAmountMinor: 20000, actualAmountMinor: 20000 }],
   };
-  await draw({ ...open, invoiceDraft: draft });
+  // A previously prepared hourly invoice omitted the currency from its input.
+  const legacy = { ...draft, input: { ...draft.input, pricing: { mode: "hourly" as const } } };
+  await draw({ ...open, invoiceDraft: legacy });
+  assert.equal(requests[0].revision, legacy.revision);
+  assert.equal(requests[0].format, "pdf");
+  assert.ok(match("Approve this invoice").disabled);
+  assert.match(host.textContent ?? "", /Rendering the invoice PDF/);
+  await act(async () => requests[0].resolve(pdf("unexpected payload", "text/html")));
+  assert.match(host.querySelector('[role="alert"]')?.textContent ?? "", /did not return a valid invoice PDF/);
+  assert.ok(match("Approve this invoice").disabled);
+  await click(match("Retry PDF preview"));
+  assert.equal(requests.length, 2);
+  const revisedDraft = { ...draft, id: crypto.randomUUID(), revision: "b".repeat(64) };
+  await draw({ ...open, invoiceDraft: revisedDraft });
+  assert.ok(requests[1].signal?.aborted);
+  assert.equal(requests[2].revision, revisedDraft.revision);
+  await act(async () => requests[1].resolve(pdf("Stale invoice")));
+  assert.equal(host.querySelector('iframe[title="Invoice PDF preview"]'), null);
+  await act(async () => requests[2].resolve(pdf("Fixture custom letterhead")));
+  const frame = host.querySelector<HTMLIFrameElement>('iframe[title="Invoice PDF preview"]');
+  assert.ok(frame);
+  assert.ok(!frame.hasAttribute("srcdoc"));
+  const openPdf = host.querySelector<HTMLAnchorElement>('a[target="_blank"]');
+  assert.ok(openPdf?.href.startsWith("blob:"));
+  assert.match(await (await fetch(openPdf.href)).text(), /Fixture custom letterhead/);
+  assert.ok(!match("Approve this invoice").disabled);
   await click(match("Approve this invoice"));
-  assert.deepEqual(calls.at(-1), { type: "approveInvoice", id: draft.id, revision: draft.revision });
-  await draw({ ...open, invoiceDraft: { ...draft, approval: { actorId: actor.userId, at: new Date().toISOString(), revision: draft.revision } } });
+  assert.deepEqual(calls.at(-1), { type: "approveInvoice", id: revisedDraft.id, revision: revisedDraft.revision });
+  await draw({ ...open, invoiceDraft: { ...revisedDraft, approval: { actorId: actor.userId, at: new Date().toISOString(), revision: revisedDraft.revision } } });
   await click(match("Issue numbered invoice"));
   assert.equal(calls.at(-1)?.type, "issueInvoice");
   await draw({

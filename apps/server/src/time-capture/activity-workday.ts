@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import type { ServerConfig } from "../types.js";
-import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { addDays, zonedInstant } from "../calendar/dates.js";
 import { captureProfile, readCaptureSettings } from "./routes.js";
 import { backOfficeAccess } from "../back-office/access.js";
 import { digest, type WorkdayEvidence } from "./private-workday.js";
-import { eligibleDocumentReference } from "./document-workday.js";
 import { workdayWorkspaces } from "./workday-context.js";
 import { ApiError } from "../errors.js";
 
@@ -227,30 +226,27 @@ export async function readActivityEvidence(
   });
 }
 
-/** Atomic editor saves may replace the inode. Renames retain it. A newly created file at a reused path starts a new history. */
+export type CaptureFileIdentity = Pick<Stats, "dev" | "ino" | "birthtimeMs">;
+
+/** Bridge only the before and after identities observed in the same atomic editor write. */
 export async function localCaptureDocumentId(
   config: ServerConfig,
+  profile: Profile,
   projectId: string,
-  reference: string,
-  created = false,
-  expectedProfileId?: string,
+  before: CaptureFileIdentity | null,
+  after: CaptureFileIdentity,
 ) {
-  const workspace = config.workspaces.find((row) => row.id === projectId);
-  if (!workspace || !eligibleDocumentReference(reference)) return;
-  const file = await lstat(resolveWorkspaceFile(workspace, reference).path);
-  if (!file.isFile()) return;
-  const profile = await currentActivityProfile(config);
-  if (expectedProfileId && expectedProfileId !== profile.profileId) return;
   const path = profile.path + ".documents.json";
-  const location = digest([projectId, reference]),
-    inode = digest([projectId, file.dev, file.ino, file.birthtimeMs]);
+  const identity = (file: CaptureFileIdentity) => digest([projectId, file.dev, file.ino, file.birthtimeMs]);
+  const replaced = before ? identity(before) : undefined;
+  const persisted = identity(after);
   return withFileWriteLock(path, async () => {
     const map = await readJson<Record<string, string>>(path, {});
-    const id =
-      map[inode] ?? (!created ? map[location] : undefined) ?? randomUUID();
-    map[location] = map[inode] = id;
     if ((await currentActivityProfile(config)).profileId !== profile.profileId)
       return;
+    const id = (replaced ? map[replaced] : undefined) ?? map[persisted] ?? randomUUID();
+    if (replaced) map[replaced] = id;
+    map[persisted] = id;
     await privateWrite(path, map);
     return id;
   });

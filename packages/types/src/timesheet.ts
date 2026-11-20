@@ -317,6 +317,9 @@ export function hasTimeEntryPrice(entry: Pick<TimeEntry, "hourlyRate" | "currenc
 } {
   return entry.hourlyRate !== undefined && Boolean(entry.currency);
 }
+export function isHourlyInvoiceLine(entry: TimeEntry): entry is TimeEntry & { currency: string; hourlyRate: number } {
+  return !entry.nonHourlyApproval && hasTimeEntryPrice(entry);
+}
 export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
   if (
     Boolean(draft.startAt) !== Boolean(draft.endAt) ||
@@ -489,7 +492,7 @@ export const InvoiceDraftInputSchema = z.strictObject({
   expectedSuggestions: z.array(z.strictObject({ id, narrative: text })).max(1000).optional(),
   edits: z.array(z.strictObject({ id, narrative: text })).max(1000).optional(),
   pricing: z.discriminatedUnion("mode", [
-    z.strictObject({ mode: z.literal("hourly") }),
+    z.strictObject({ mode: z.literal("hourly"), currency: currency.optional() }),
     z.strictObject({ mode: z.literal("fixed"), currency, amountMinor: invoiceAmountSchema, showHours: z.boolean() }),
   ]),
   reduction: z.strictObject({ scope: invoiceAdjustmentScope, adjustment: invoiceAdjustment }).optional(),
@@ -684,6 +687,7 @@ export const TimesheetStateSchema = z.object({
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
   supportsInvoiceDrafts: z.boolean().optional(),
+  supportsHourlyInvoiceCurrency: z.boolean().optional(),
   supportsInvoiceWordingReview: z.boolean().optional(),
   invoiceDraft: TimeInvoiceDraftSchema.optional(),
   unresolvedLegacyEntries: z.array(id).optional(),

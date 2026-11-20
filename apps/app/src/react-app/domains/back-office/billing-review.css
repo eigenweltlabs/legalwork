@@ -303,6 +303,12 @@
 .bo-invoice-draft-preview {
   padding: 0 12px 12px;
 }
+.bo-invoice-pdf-frame {
+  width: 100%;
+  height: clamp(18rem, 68dvh, 52rem);
+  border: 1px solid var(--border);
+  background: white;
+}
 .bo-invoice-table textarea {
   width: 100%;
   min-width: 120px;

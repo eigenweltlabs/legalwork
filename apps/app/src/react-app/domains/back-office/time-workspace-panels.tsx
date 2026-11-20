@@ -10,6 +10,8 @@ import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   Columns2,
   List,
   MessageSquare,
@@ -176,6 +178,7 @@ export function TimeWorkspacePanels({
   const [preferences, setPreferences] = useState(() => readPreferences(key));
   const [narrow, setNarrow] = useState(false);
   const [dropPane, setDropPane] = useState<Pane>();
+  const [dockNotice, setDockNotice] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const group = useGroupRef();
   const targets = useRef<Record<Pane, HTMLDivElement | null>>({
@@ -248,6 +251,15 @@ export function TimeWorkspacePanels({
     if (focus) focusNext.current = tab;
     update({ dock: next });
   }
+  function reorder(pane: Pane, tab: Tab, direction: -1 | 1) {
+    const items = dock[pane].tabs;
+    const next = items.indexOf(tab) + direction;
+    if (next < 0 || next >= items.length) return;
+    move(tab, pane, items[next + (direction === 1 ? 1 : 0)], true);
+    setDockNotice(t("timeWorkspace.tabPosition", {
+      tab: t(tabLabels[tab]), position: next + 1, total: items.length,
+    }));
+  }
   function internalDrag(event: DragEvent) {
     return dragging.current && event.dataTransfer.types.includes(tabMime);
   }
@@ -263,6 +275,7 @@ export function TimeWorkspacePanels({
 
   function renderPane(pane: Pane) {
     const { tabs, active } = dock[pane];
+    const activeIndex = active ? tabs.indexOf(active) : -1;
     const other = pane === "left" ? "right" : "left";
     const Arrow = pane === "left" ? ArrowRight : ArrowLeft;
     const moveLabel =
@@ -311,11 +324,17 @@ export function TimeWorkspacePanels({
                     variant={active === tab ? "secondary" : "ghost"}
                     size="xs"
                     aria-selected={active === tab}
+                    aria-keyshortcuts={tabs.length > 1 ? "Shift+ArrowLeft Shift+ArrowRight" : undefined}
                     tabIndex={active === tab ? 0 : -1}
                     aria-controls={id + "-content-" + tab}
                     draggable
                     onClick={() => activate(pane, tab)}
                     onKeyDown={(event) => {
+                      if (event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+                        event.preventDefault();
+                        reorder(pane, tab, event.key === "ArrowLeft" ? -1 : 1);
+                        return;
+                      }
                       const next =
                         event.key === "ArrowLeft"
                           ? tabs[(index - 1 + tabs.length) % tabs.length]
@@ -351,16 +370,22 @@ export function TimeWorkspacePanels({
               </span>
             )}
             {active && (
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                aria-label={moveLabel || undefined}
-                title={moveLabel || undefined}
-                onClick={() => move(active, other, undefined, true)}
-              >
-                <Arrow size={13} />
-              </Button>
+              <div className="time-workspace-dock-actions">
+                {tabs.length > 1 && ([-1, 1] as const).map(direction => {
+                  const label = t(direction === -1 ? "timeWorkspace.moveEarlier" : "timeWorkspace.moveLater", { tab: t(tabLabels[active]) });
+                  const Chevron = direction === -1 ? ChevronLeft : ChevronRight;
+                  return <Button key={direction} type="button" size="icon-xs" variant="ghost"
+                    aria-label={label} title={label} disabled={activeIndex + direction < 0 || activeIndex + direction >= tabs.length}
+                    onClick={() => reorder(pane, active, direction)}>
+                    <Chevron size={13} />
+                  </Button>;
+                })}
+                <Button type="button" size="icon-xs" variant="ghost"
+                  aria-label={moveLabel || undefined} title={moveLabel || undefined}
+                  onClick={() => move(active, other, undefined, true)}>
+                  <Arrow size={13} />
+                </Button>
+              </div>
             )}
           </div>
         )}
@@ -376,6 +401,7 @@ export function TimeWorkspacePanels({
 
   return (
     <div className="time-workspace-panels" ref={root}>
+      <span className="sr-only" role="status">{dockNotice}</span>
       <div
         className="time-workspace-views"
         role="group"

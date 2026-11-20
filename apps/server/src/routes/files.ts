@@ -1400,7 +1400,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         summary: `Wrote ${relativePath}`,
         timestamp: Date.now(),
       });
-      await captureDocument?.(!before);
+      await captureDocument?.(before, after);
       return jsonResponse({ ok: true, path: relativePath, bytes: after.size, updatedAt: after.mtimeMs, revision });
     });
   });
@@ -1492,7 +1492,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         timestamp: Date.now(),
       });
 
-      await captureDocument?.(!before);
+      await captureDocument?.(before, after);
       return jsonResponse({
         ok: true,
         path: relativePath,

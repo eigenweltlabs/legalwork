@@ -1284,3 +1284,44 @@ test("invoice wording uses the reviewing profile's authorized service-date guide
   expect(reviewer(prepared, changed).invoiceDraft?.approval).toBeUndefined();
   expect(state(owner).entries.every((entry) => entry.narrative === "Drafing a memo")).toBe(true);
 });
+
+test("hourly cutoff invoices require every eligible line in the chosen currency only", async () => {
+  const { d, run, state } = await fixture();
+  const reviewer = (command: TimesheetCommand) => run(eva, command);
+  const eurPolicy = state(eva).policies.find(({ scope }) => scope === "firm")!;
+  run(owner, { type: "policy", policy: { ...eurPolicy, effectiveFrom: "2026-10-01", revision: 0, currency: "USD" } });
+  const book = (date: string, narrative: string) => {
+    const created = run(owner, {
+      type: "create", requestId: randomUUID(), entry: { ...d, date, narrative },
+    }).entries.find((entry) => entry.narrative === narrative)!;
+    const submitted = run(owner, { type: "submit", entries: sel(created) }).entries.find(({ id }) => id === created.id)!;
+    return reviewer({ type: "approve", entries: sel(submitted) }).entries.find(({ id }) => id === created.id)!;
+  };
+  const eur = book("2026-08-18", "EUR service"), usd = book("2026-11-03", "USD service");
+  expect(state(eva).supportsHourlyInvoiceCurrency).toBe(true);
+  const cutoff = { to: "2026-11-12" };
+  expect(() => reviewer(prepareInvoice([eur, usd], [], { period: cutoff }))).toThrow(/one currency/);
+  const euroCutoff = (entries: TimeEntry[]) => prepareInvoice(entries, [], {
+    period: cutoff,
+    pricing: { mode: "hourly", currency: "EUR" },
+  });
+  expect(() => reviewer(euroCutoff([usd]))).toThrow(/invoice currency/);
+  expect(() => reviewer(prepareInvoice([eur, usd], [], { pricing: { mode: "hourly", currency: "EUR" } }))).toThrow(/invoice currency/);
+  const oldDraft = reviewer(euroCutoff([eur]));
+  expect(oldDraft.invoiceDraft).toMatchObject({ currency: "EUR", totalMinor: 10000 });
+  const tryIssue = approveInvoice(reviewer, oldDraft);
+  const late = book("2026-07-15", "Late EUR service");
+  expect(() => reviewer(tryIssue)).toThrow(/open entries.*changed/);
+  expect(() => reviewer(euroCutoff([eur]))).toThrow(/open entries.*changed/);
+  expect(state(eva).invoices).toHaveLength(0);
+  const prepared = reviewer(euroCutoff([late, eur]));
+  const europe = reviewer(approveInvoice(reviewer, prepared));
+  expect(europe.invoices[0]).toMatchObject({ currency: "EUR", totalMinor: 20000 });
+  expect(europe.invoices[0].entries.map(({ id }) => id)).toEqual([late.id, eur.id]);
+  expect(europe.entries.find(({ id }) => id === usd.id)?.status).toBe("approved");
+
+  // An older client can still prepare and issue an hourly invoice without the explicit currency field.
+  const legacyDraft = reviewer(prepareInvoice([usd], [], { period: cutoff }));
+  expect(legacyDraft.invoiceDraft).toMatchObject({ currency: "USD", totalMinor: 10000 });
+  expect(reviewer(approveInvoice(reviewer, legacyDraft)).invoices.map(({ number }) => number).sort()).toEqual([1, 2]);
+});

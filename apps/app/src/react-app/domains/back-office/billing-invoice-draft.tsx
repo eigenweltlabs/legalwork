@@ -10,12 +10,12 @@ import {
   currencyScale,
   formatInvoiceHours,
   formatInvoiceMinor,
-  renderInvoice,
 } from "@legalwork/types/invoice-template";
 import {
   InvoiceDraftInputSchema,
   adjustedTimeEntry,
   appliesTimeAdjustment,
+  isHourlyInvoiceLine,
   resolveTimePolicy,
   type TimeInvoiceDraft,
 } from "@legalwork/types/timesheet";
@@ -28,6 +28,7 @@ import {
   type BillingProps,
 } from "./billing-components";
 import { reviewPeriod } from "./billing-amounts";
+import { BillingInvoicePdf } from "./billing-invoice-pdf";
 import { entryStatusKeys } from "./timesheet-labels";
 import { timeRoutes } from "./time-routes";
 
@@ -40,26 +41,6 @@ type DraftProps = BillingProps & {
   onReviewSubmitted: () => void;
   onIssued: () => void;
 };
-
-export function saveInvoiceDownload(
-  file: {
-    data: ArrayBuffer;
-    contentType: string | null;
-    filename: string | null;
-  },
-  fallback: string,
-) {
-  const url = URL.createObjectURL(
-    new Blob([file.data], {
-      type: file.contentType ?? "application/octet-stream",
-    }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = file.filename ?? fallback;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 function minorUnits(value: string, scale: number) {
   const match = /^(\d+)(?:[.,](\d+))?$/.exec(value.trim());
@@ -148,6 +129,9 @@ export function BillingInvoiceDraft({
       JSON.stringify([workspaceId, providerID, modelID]) === model,
   );
   const [fixed, setFixed] = useState(saved?.pricing.mode === "fixed");
+  const [chosenHourlyCurrency, setHourlyCurrency] = useState(
+    saved?.pricing.mode === "hourly" ? saved.pricing.currency ?? state.invoiceDraft?.currency ?? "" : "",
+  );
   const [currency, setCurrency] = useState(
     saved?.pricing.mode === "fixed" ? saved.pricing.currency : "",
   );
@@ -185,7 +169,6 @@ export function BillingInvoiceDraft({
       );
     return "";
   });
-  const [downloadError, setDownloadError] = useState("");
   const { send, error, pending } = useBillingAction(onCommand);
   const request = useRef<{ revision: string; id: string } | undefined>(
     undefined,
@@ -208,8 +191,7 @@ export function BillingInvoiceDraft({
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const draft = state.invoiceDraft;
   const adjustments = state.adjustments ?? [];
-  const checks = rows.map((entry) => {
-    const line = adjustedTimeEntry(entry, adjustments);
+  const authorizedRows = rows.map((entry) => {
     const policy = resolveTimePolicy(
       state.policies,
       clientId,
@@ -221,12 +203,25 @@ export function BillingInvoiceDraft({
     const reviewer =
       (policy.reviewerId === state.userId || (solo && !policy.reviewerId)) &&
       (entry.workerId !== state.userId || solo);
-    const eligible =
+    const authorized =
       entry.status === "approved" &&
       !entry.legacy &&
       entry.billable &&
       entry.clientId === clientId &&
       reviewer;
+    return { entry, policy, authorized };
+  });
+  const hourlyCurrencies = [...new Set(authorizedRows.flatMap(({ entry, authorized }) =>
+    authorized && isHourlyInvoiceLine(entry) ? [entry.currency] : [],
+  ))].sort();
+  const hourlyCurrency = hourlyCurrencies.includes(chosenHourlyCurrency) ? chosenHourlyCurrency :
+    hourlyCurrencies.length === 1 ? hourlyCurrencies[0] : undefined;
+  const currencySupported = state.supportsHourlyInvoiceCurrency === true;
+  const legacyCutoffUnavailable = !fixed && allOpen && !currencySupported && Boolean(hourlyCurrency) &&
+    authorizedRows.some(({ entry, authorized }) => authorized && (!isHourlyInvoiceLine(entry) || entry.currency !== hourlyCurrency));
+  const checks = authorizedRows.map(({ entry, policy, authorized }) => {
+    const line = adjustedTimeEntry(entry, adjustments);
+    const eligible = authorized && (fixed || (isHourlyInvoiceLine(entry) && entry.currency === hourlyCurrency));
     const picked = eligible && (allOpen || !excluded.has(entry.id));
     const preparedLine = draft?.lines.find(
       (item) =>
@@ -247,7 +242,7 @@ export function BillingInvoiceDraft({
       ? preparedLine.actionFirst
       : check?.actionFirst;
     if (actionFirst) rules.push(t("back_office.billing.action_first"));
-    return { entry, line, preparedLine, rules, suggested, eligible, picked };
+    return { entry, line, preparedLine, rules, suggested, authorized, eligible, picked };
   });
   const included = checks
     .filter(({ picked }) => picked)
@@ -261,7 +256,7 @@ export function BillingInvoiceDraft({
   const approvedAdjustments = linkedAdjustments.filter(
     ({ status }) => status === "approved",
   );
-  const invoiceCurrency = fixed ? currency : included[0]?.currency;
+  const invoiceCurrency = fixed ? currency : hourlyCurrency;
   const scale =
     invoiceCurrency && /^[A-Z]{3}$/.test(invoiceCurrency)
       ? currencyScale(invoiceCurrency)
@@ -299,7 +294,7 @@ export function BillingInvoiceDraft({
           amountMinor: minorUnits(fixedPrice, scale),
           showHours,
         }
-      : { mode: "hourly" },
+      : { mode: "hourly", currency: currencySupported ? hourlyCurrency : undefined },
     reduction:
       (reduction && {
         scope:
@@ -318,10 +313,16 @@ export function BillingInvoiceDraft({
       undefined,
   });
   const currentClient = clients.find(({ id }) => id === clientId);
+  // The last revision of an older draft may have its hourly currency only in the result.
+  const matchingInput = input.success && draft?.input.pricing.mode === "hourly" &&
+      draft.input.pricing.currency === undefined && input.data.pricing.mode === "hourly" &&
+      input.data.pricing.currency === draft.currency
+    ? { ...input.data, pricing: { mode: "hourly" } }
+    : input.data;
   const visibleDraft =
-    input.success &&
     draft &&
-    JSON.stringify(input.data) === JSON.stringify(draft.input) &&
+    JSON.stringify(matchingInput) === JSON.stringify(draft.input) &&
+    !legacyCutoffUnavailable &&
     !pendingAdjustments &&
     (!state.template ||
       state.template.revision === draft.snapshot.template.revision) &&
@@ -335,6 +336,7 @@ export function BillingInvoiceDraft({
   function changeMatter(id: string) {
     setMatter(id);
     setClient("");
+    setHourlyCurrency("");
     resetSelection();
   }
   function resetSelection() {
@@ -356,21 +358,6 @@ export function BillingInvoiceDraft({
     });
     if (narrative !== undefined)
       setWording((previous) => updateCheck(previous, id, false));
-  }
-  async function download(draft: TimeInvoiceDraft, format: "docx" | "pdf") {
-    setDownloadError("");
-    try {
-      saveInvoiceDownload(
-        await client.downloadTimesheetDraft(draft.id, state.scope, format),
-        "Invoice-preview." + format,
-      );
-    } catch (error) {
-      setDownloadError(
-        error instanceof Error
-          ? error.message
-          : t("back_office.billing.download_failed"),
-      );
-    }
   }
   async function issue(draft: TimeInvoiceDraft) {
     if (request.current?.revision !== draft.revision)
@@ -418,6 +405,7 @@ export function BillingInvoiceDraft({
                   value={clientId}
                   onChange={(event) => {
                     setClient(event.target.value);
+                    setHourlyCurrency("");
                     resetSelection();
                   }}
                 >
@@ -466,13 +454,25 @@ export function BillingInvoiceDraft({
                   value={fixed ? "fixed" : "hourly"}
                   onChange={(event) => {
                     setFixed(event.target.value === "fixed");
-                    if (!currency) setCurrency(included[0]?.currency ?? "EUR");
+                    if (!currency) setCurrency(hourlyCurrency ?? "EUR");
                   }}
                 >
                   <option value="hourly">{t("invoiceReview.hourly")}</option>
                   <option value="fixed">{t("invoiceReview.fixed")}</option>
                 </select>
               </label>
+              {!fixed && hourlyCurrencies.length > 0 && (
+                <label>
+                  {t("invoiceReview.currency")}
+                  <select value={hourlyCurrency ?? ""} onChange={(event) => {
+                    setHourlyCurrency(event.target.value);
+                    if (reduction === "target") setAdjustmentValue("");
+                  }}>
+                    {hourlyCurrencies.length > 1 && <option value="">{t("invoiceReview.choose_currency")}</option>}
+                    {hourlyCurrencies.map((code) => <option key={code} value={code}>{code}</option>)}
+                  </select>
+                </label>
+              )}
               {fixed && (
                 <>
                   <label>
@@ -505,6 +505,12 @@ export function BillingInvoiceDraft({
                 </>
               )}
             </div>
+            {!fixed && !hourlyCurrency && hourlyCurrencies.length > 1 && (
+              <p role="status" className="bo-billing-subrow">{t("invoiceReview.hourly_currency_help")}</p>
+            )}
+            {legacyCutoffUnavailable && (
+              <p role="status" className="bo-billing-subrow">{t("invoiceReview.legacy_currency_cutoff")}</p>
+            )}
             {!rows.length && (
               <p className="bo-billing-notice">
                 {t("invoiceReview.no_entries")}
@@ -565,6 +571,7 @@ export function BillingInvoiceDraft({
                           preparedLine,
                           rules,
                           suggested,
+                          authorized,
                           eligible,
                           picked,
                         }) => {
@@ -627,7 +634,9 @@ export function BillingInvoiceDraft({
                                 )}
                                 {entry.status === "approved" && !eligible && (
                                   <small>
-                                    {t("invoiceReview.unavailable_line")}
+                                    {!fixed && authorized && isHourlyInvoiceLine(entry)
+                                      ? t("invoiceReview.open_currency_line", { currency: entry.currency })
+                                      : t("invoiceReview.unavailable_line")}
                                   </small>
                                 )}
                               </td>
@@ -880,7 +889,7 @@ export function BillingInvoiceDraft({
           <Button
             size="sm"
             variant="outline"
-            disabled={!input.success || pending || pendingAdjustments}
+            disabled={!input.success || pending || pendingAdjustments || legacyCutoffUnavailable}
             onClick={() =>
               input.success &&
               void send({ type: "prepareInvoice", draft: input.data }).catch(
@@ -929,21 +938,6 @@ export function BillingInvoiceDraft({
               })}
             </span>
           </div>
-          <iframe
-            className="bo-invoice-preview"
-            title={t("timesheets.template_preview")}
-            sandbox=""
-            srcDoc={renderInvoice(visibleDraft.snapshot.template, {
-              ...visibleDraft.snapshot,
-              currency: visibleDraft.currency,
-              billingMode: visibleDraft.input.pricing.mode,
-              showHours: visibleDraft.showHours,
-              entries: visibleDraft.lines.map(({ entry, amountMinor }) => ({
-                ...entry,
-                amountMinor,
-              })),
-            })}
-          />
           {state.supportsInvoiceWordingReview &&
             models.length > 0 &&
             !visibleDraft.approval &&
@@ -1001,27 +995,20 @@ export function BillingInvoiceDraft({
                 )}
               </div>
             )}
-          <div className="bo-billing-subrow">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void download(visibleDraft, "docx")}
-            >
-              {t("invoiceReview.preview_docx")}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void download(visibleDraft, "pdf")}
-            >
-              {t("invoiceReview.preview_pdf")}
-            </Button>
+          <BillingInvoicePdf
+            key={JSON.stringify([state.scope, visibleDraft.id, visibleDraft.revision])}
+            client={client}
+            scope={state.scope}
+            id={visibleDraft.id}
+            revision={visibleDraft.revision}
+          >
+            {(pdfReady) => <div className="bo-billing-subrow">
             {visibleDraft.approval ? (
               <>
                 <span role="status">{t("invoiceReview.approved")}</span>
                 <Button
                   size="sm"
-                  disabled={pending}
+                  disabled={pending || !pdfReady}
                   onClick={() => void issue(visibleDraft)}
                 >
                   {t("back_office.billing.issue")}
@@ -1030,7 +1017,7 @@ export function BillingInvoiceDraft({
             ) : (
               <Button
                 size="sm"
-                disabled={pending || !visibleDraft.snapshot.clientAddress}
+                disabled={pending || !pdfReady || !visibleDraft.snapshot.clientAddress}
                 onClick={() =>
                   void send({
                     type: "approveInvoice",
@@ -1045,12 +1032,13 @@ export function BillingInvoiceDraft({
             {!visibleDraft.snapshot.clientAddress && (
               <span>{t("invoiceReview.address_required")}</span>
             )}
-          </div>
+            </div>}
+          </BillingInvoicePdf>
         </div>
       )}
-      {(error || downloadError) && (
+      {error && (
         <p role="alert" className="bo-billing-error">
-          {error || downloadError}
+          {error}
         </p>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { timeActivities } from "../back-office/timesheet-schema.js";
 import { generateConnectedTimeText } from "./connected-model.js";
-import { localCaptureDocumentId, readActivityEvidence } from "./activity-workday.js";
+import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
 import { localWorkdayModel, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
   savedWorkdayInstructionSchema, workdayChatSchema, workdayChatActionSchema, workdayInstructionActionSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
@@ -164,21 +164,20 @@ export async function beginDocumentCapture(
   )
     return;
   try {
-    const { path, profileId } = await profile(config);
-    const before = await load(path);
-    if (!before.settings.documents) return;
-    // Recognize the moved file before an atomic editor save replaces its inode.
-    const priorDocumentId = await localCaptureDocumentId(config, projectId, reference, false, profileId).catch(() => undefined);
-    return async (created: boolean) => {
+    const owner = await profile(config);
+    const { path } = owner;
+    const snapshot = await load(path);
+    if (!snapshot.settings.documents) return;
+    return async (before: CaptureFileIdentity | null, after: CaptureFileIdentity) => {
       try {
-        if ((await profile(config)).path !== path) return;
-        const documentId = await localCaptureDocumentId(config, projectId, reference, created, profileId).catch(() => undefined) ?? priorDocumentId;
-        const evidence = documentEvidence(projectId, reference, created, new Date(), documentId);
-        if (!evidence) return;
         await withFileWriteLock(path, async () => {
           if ((await profile(config)).path !== path) return;
           const current = await load(path);
-          if (!current.settings.documents || current.documentEpoch !== before.documentEpoch) return;
+          if (!current.settings.documents || current.documentEpoch !== snapshot.documentEpoch) return;
+          const documentId = await localCaptureDocumentId(config, owner, projectId, before, after);
+          if (!documentId || (await profile(config)).path !== path) return;
+          const evidence = documentEvidence(projectId, reference, !before, new Date(), documentId);
+          if (!evidence) return;
           const records = (current.documentSaves[evidence.proposal.date] ??= {});
           if (Object.hasOwn(records, evidence.eventKey)) return;
           records[evidence.eventKey] = evidence.proposal;
@@ -295,6 +294,12 @@ function requireUnbooked(saved: Saved, item: WorkdayEvidence) {
 
 type Profile = Awaited<ReturnType<typeof profile>>;
 type ResolveWorkspace = (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+type PreparationOptions = {
+  signal?: AbortSignal;
+  resolveWorkspace?: ResolveWorkspace;
+  now?: () => number;
+  readConnected?: typeof readConnectedWorkday;
+};
 const workdaysRunning = new Map<string, Map<string, { controller: AbortController; done: Promise<void> }>>();
 type Preparation = { type: "refresh" | "suggest" | "run" | "calendar"; model?: WorkdayModel } | z.infer<typeof workdayChatActionSchema>;
 
@@ -347,7 +352,7 @@ function localChoice(choice: WorkdayModel) {
 }
 
 async function prepare(config: ServerConfig, owner: Profile, date: string, action: Preparation,
-  requestSignal?: AbortSignal, resolveWorkspace?: ResolveWorkspace) {
+  { signal: requestSignal, resolveWorkspace, now = Date.now, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
   const { path } = owner;
   let days = workdaysRunning.get(path);
   if (!days) { days = new Map(); workdaysRunning.set(path, days); }
@@ -421,7 +426,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       ? await globalCalendarOccurrences(config, addDays(date, -1), addDays(date, 2), workspaces, { calendar: true, tasks: false })
       : [];
     let sourceFailure = false;
-    const imported = await readConnectedWorkday(config, settings, date, signal).catch(error => {
+    const imported = await readConnected(config, settings, date, signal).catch(error => {
       if (!withModel || signal.aborted) throw error;
       sourceFailure = true;
       return [];
@@ -459,7 +464,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         await verifyProfile();
         if (inputs(current) !== revision) return;
         if (proposals) applyProposals(current, date, proposals);
-        current.lastRun = Date.now();
+        current.lastRun = now();
         current.reconstruction[date] = { key, status };
         if (key && withModel) {
           const { [key]: previous, ...cache } = current.reconstructionCache[date] ?? {};
@@ -492,8 +497,8 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
       if (cached && (cached.status.type === "ready" || action.type === "refresh")) {
-        if (action.type === "chat" || initial.reconstruction[date]?.key !== key)
-          await commit(cached.status, cached.proposals);
+        // Identical sources reuse proposals, but the schedule still completed a source check.
+        await commit(cached.status, initial.reconstruction[date]?.key === key ? undefined : cached.proposals);
         return;
       }
       if (localChoice(choice) && !runtime) {
@@ -545,6 +550,17 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
   }
 }
 
+export async function checkScheduledWorkday(config: ServerConfig, options: Omit<PreparationOptions, "resolveWorkspace">) {
+  if (options.signal?.aborted) return;
+  const owner = await profile(config);
+  const { settings, lastRun } = await load(owner.path);
+  const now = (options.now ?? Date.now)();
+  if (settings.intervalMinutes && settings.aiSuggestions && now - lastRun >= settings.intervalMinutes * 60_000) {
+    const date = dayInZone(new Date(now).toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+    await prepare(config, owner, date, { type: "refresh" }, options);
+  }
+}
+
 export function startWorkdaySchedule(config: ServerConfig) {
   if (config.readOnly || !loopback(config)) return () => {};
   let busy = false;
@@ -553,12 +569,7 @@ export function startWorkdaySchedule(config: ServerConfig) {
     if (busy || controller.signal.aborted) return;
     busy = true;
     try {
-      const owner = await profile(config);
-      const { settings, lastRun } = await load(owner.path);
-      if (settings.intervalMinutes && settings.aiSuggestions && Date.now() - lastRun >= settings.intervalMinutes * 60_000) {
-        const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
-        await prepare(config, owner, date, { type: "refresh" }, controller.signal);
-      }
+      await checkScheduledWorkday(config, { signal: controller.signal });
     } catch {
       // Model inputs, source errors and results stay in the private workday.
     } finally {
@@ -680,7 +691,7 @@ export function registerWorkdayRoutes(options: {
         const action = parsed.data;
         if (action.type === "suggest" || action.type === "refresh" || action.type === "run" ||
             action.type === "calendar" || action.type === "chat")
-          await prepare(config, owner, date, action, ctx.request.signal, options.resolveWorkspace);
+          await prepare(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
         else
           await withFileWriteLock(path, async () => {
             const s = await load(path);

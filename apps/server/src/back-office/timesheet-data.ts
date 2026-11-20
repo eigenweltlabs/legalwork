@@ -329,6 +329,7 @@ export function readTimesheet(
     supportsBillingComparisons: false,
     supportsTimeAllocations: true,
     supportsInvoiceDrafts: scope === "local",
+    supportsHourlyInvoiceCurrency: scope === "local",
     supportsInvoiceWordingReview: scope === "local" && actor.model && actor.finance && actor.edit,
     invoiceDraft,
     canManage: actor.model && actor.finance && actor.edit,

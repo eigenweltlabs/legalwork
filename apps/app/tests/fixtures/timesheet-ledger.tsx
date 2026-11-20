@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
-import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState } from "@legalwork/types/time-capture";
+import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 
 const window = new Window({ url: "http://localhost" });
 let workspaceWidth = 1100;
@@ -587,21 +587,45 @@ try {
   const confirmedEntries: TimeEntry[] = [];
   let captureProfileId = "profile-a";
   const overlayRunId = crypto.randomUUID();
-  let stopped = false;
+  let activeStopwatch: StopwatchState["active"] = null;
+  let lastStopped: StopwatchState["lastStopped"] = null;
+  const stopwatchActions: StopwatchAction[] = [];
+  let responseLost = false;
+  const recordedTimer: CaptureProposal = {
+    ...capture, key: crypto.randomUUID(), digest: "0".repeat(64), source: "stopwatch",
+    startAt: base.date + "T12:00:00Z", endAt: base.date + "T12:10:00Z",
+    activity: "", narrative: "Stopwatch", workedMinutes: 10, projectId: null,
+  };
   let workdayReads = 0;
   const client = {
     ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
-    privateStopwatch: async () => ({
-      profileId: captureProfileId,
-      active: null,
-      lastStopped: stopped ? { id: overlayRunId, date: base.date, stoppedAt: base.date + "T12:00:00Z" } : null,
-    }),
+    privateStopwatch: async (action?: StopwatchAction, profile?: string): Promise<StopwatchState> => {
+      assert.equal(profile, captureProfileId);
+      if (action) {
+        stopwatchActions.push(action);
+        if (action.type === "start") {
+          assert.equal(activeStopwatch, null);
+          activeStopwatch = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId ?? null };
+        } else {
+          assert.equal(activeStopwatch?.id, action.id);
+          if (action.type === "assign" && activeStopwatch) activeStopwatch = { ...activeStopwatch, projectId: action.projectId ?? null };
+          if (action.type === "stop") {
+            lastStopped = { id: action.id, date: base.date, stoppedAt: base.date + "T12:10:00Z" };
+            activeStopwatch = null;
+            if (responseLost) throw new Error("Response lost");
+          }
+        }
+      }
+      return { profileId: captureProfileId, active: activeStopwatch, lastStopped, projects: [{ id: "p1", name: "Project" }] };
+    },
     privateWorkday: async (context: { profileId?: string; date: string }, action?: CaptureAction): Promise<CaptureState> => {
       workdayReads++;
       if (action) privateWrites.push(action);
       return {
         settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
-        proposals: context.profileId === "profile-a" && context.date === base.date ? [capture, unknown] : [],
+        proposals: context.profileId === "profile-a" && context.date === base.date
+          ? [capture, unknown, ...(lastStopped && lastStopped.id !== overlayRunId ? [recordedTimer] : [])]
+          : [],
         drafts: {}, connections: [], modelReady: false, chat: [], instructions: [], guidelines: [],
         status: { type: "ready", message: "Synthetic internal status" },
       };
@@ -677,12 +701,52 @@ try {
   assert.equal(separator().getAttribute("aria-valuenow"), "62", "the split can be adjusted with the keyboard");
   await press("Reset workspace layout");
   assert.equal(separator().getAttribute("aria-valuenow"), "67");
-  assert.equal(document.querySelector('header button[aria-label="Start stopwatch"]'), null);
   const initialReads = workdayReads;
-  stopped = true;
+  lastStopped = { id: overlayRunId, date: base.date, stoppedAt: base.date + "T12:00:00Z" };
   await act(async () => cache.invalidateQueries({ queryKey: ["private-stopwatch"] }));
   for (let i = 0; i < 20 && workdayReads === initialReads; i++) await settle();
   assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
+  const stopwatchTrigger = document.querySelector<HTMLButtonElement>('button[aria-label="Stopwatch"]');
+  assert.ok(stopwatchTrigger);
+  const stopwatchProject = () => document.querySelector<HTMLSelectElement>('[data-slot="popover-content"] select');
+  const chooseStopwatchProject = async (value: string) => {
+    const picker = stopwatchProject();
+    assert.ok(picker);
+    await act(async () => {
+      picker.value = value;
+      picker.dispatchEvent(new window.Event("change", { bubbles: true }));
+    });
+  };
+  await act(async () => { stopwatchTrigger.focus(); stopwatchTrigger.click(); });
+  for (let i = 0; i < 20 && document.activeElement !== stopwatchProject(); i++) await settle();
+  assert.equal(document.activeElement, stopwatchProject());
+  assert.deepEqual([...stopwatchProject()!.options].map((option) => option.textContent), ["No project", "Project"]);
+  assert.equal(stopwatchProject()?.value, "");
+  await chooseStopwatchProject("p1");
+  await press("Start stopwatch");
+  for (let i = 0; i < 20 && document.activeElement !== stopwatchTrigger; i++) await settle();
+  assert.equal(document.activeElement, stopwatchTrigger);
+  const started = stopwatchActions.at(-1);
+  assert.ok(started?.type === "start");
+  assert.equal(started.projectId, "p1", "app start updates the same profile snapshot read by the HUD");
+
+  await press("Stopwatch");
+  assert.equal(stopwatchProject()?.value, "p1");
+  await chooseStopwatchProject("");
+  assert.deepEqual(stopwatchActions.at(-1), { type: "assign", id: started.id });
+  for (let i = 0; i < 20 && document.activeElement !== stopwatchProject(); i++) await settle();
+  assert.equal(document.activeElement, stopwatchProject());
+  responseLost = true;
+  await press("Stop stopwatch");
+  for (let i = 0; i < 20 && (!block(recordedTimer) || document.activeElement !== stopwatchTrigger); i++) await settle();
+  assert.equal(document.activeElement, stopwatchTrigger);
+  assert.ok(block(recordedTimer), "stopping refreshes the selected day's private timeline immediately");
+  assert.deepEqual(stopwatchActions.filter(action => action.type === "stop"), [{ type: "stop", id: started.id }]);
+  assert.equal(writes.length, 0, "starting or stopping the stopwatch does not book time");
+
+  await press("Stopwatch");
+  await press("Start stopwatch");
+  assert.equal(stopwatchActions.at(-1)?.projectId, undefined, "the user can start with No project");
   await press("AI suggestion settings");
   const sourceSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
   assert.ok(sourceSwitch);
@@ -875,6 +939,7 @@ try {
       ? { text: "", textlessPages: [1] } : { text: "Use approved concise descriptions.", textlessPages: [2] },
     privateWorkday: async (context: { date: string }, action?: CaptureAction): Promise<CaptureState> => {
       if (action) workdayActions.push(action);
+      if (action?.type === "suggest") modelStatus = "ready";
       if (action?.type === "settings") workdaySettings = action.settings;
       if (action?.type === "reconcile" || action?.type === "dismiss")
         workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
@@ -993,10 +1058,14 @@ try {
   assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
   await press("AI suggestion settings");
   modelStatus = "failed";
-  await press("Refresh day draft");
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(inlineTimer)));
   assert.ok(block(inlineTimer), "a failed model leaves the manual timer accessible");
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
+  await press(t("timesheets.retry"));
+  await until(() => !block(inlineTimer));
+  assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest", model: selectedModel });
+  assert.equal(block(inlineTimer), null, "retry uses the recovered model for the same day");
 
   await press("Week");
   const weekDays = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")];
@@ -1100,6 +1169,14 @@ try {
   assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Day timeline", "Private chat"]);
   const defaultCalendar = activeTab("right");
   assert.ok(defaultCalendar);
+  await act(async () => defaultCalendar.dispatchEvent(new window.KeyboardEvent("keydown", {
+    key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true,
+  })));
+  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Private chat", "Day timeline"]);
+  assert.equal(document.activeElement, activeTab("right"));
+  assert.match(document.querySelector(".time-workspace-panels > [role='status']")?.textContent ?? "", /position 2 of 2/);
+  await press("Move Day timeline earlier in this pane");
+  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Day timeline", "Private chat"]);
   await act(async () => defaultCalendar.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   assert.equal(activeTab("right")?.textContent, "Private chat");
   const dockedMessage = pane("right").querySelector<HTMLTextAreaElement>('[data-workspace-tab="chat"] textarea');

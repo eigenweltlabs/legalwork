@@ -65,6 +65,7 @@
   border-bottom: 1px solid var(--border);
 }
 .time-workspace-dock-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; }
+.time-workspace-dock-actions { display: flex; flex: none; gap: 2px; }
 .time-workspace-dock-tabs [role="tab"][draggable="true"] { cursor: grab; }
 .time-workspace-dock-empty { color: var(--muted-foreground); font-size: 12px; }
 .time-workspace-dock[data-drop-target] { outline: 2px solid var(--ring); outline-offset: -2px; }

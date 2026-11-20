@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
@@ -11,6 +11,7 @@ import {
   recordCompletedTask,
   recordWorkspaceObservations,
 } from "./activity-workday.js";
+import { digest } from "./private-workday.js";
 
 test("new foreground wins across overlapping windows; a background run remains separate", () => {
   const a = {
@@ -72,45 +73,29 @@ test("task completion date, stable identity through editor replacement and renam
         observations: [],
       }),
     ).rejects.toThrow();
-    await writeFile(join(folder, "first.docx"), "example");
-    const first = await localCaptureDocumentId(
-      config,
-      "project",
-      "first.docx",
-      true,
-      profile.profileId,
-    );
-    await writeFile(join(folder, "replacement.docx"), "revised");
-    await rename(join(folder, "replacement.docx"), join(folder, "first.docx"));
-    expect(
-      await localCaptureDocumentId(
-        config,
-        "project",
-        "first.docx",
-        false,
-        profile.profileId,
-      ),
-    ).toBe(first);
-    await rename(join(folder, "first.docx"), join(folder, "appeal.docx"));
-    expect(
-      await localCaptureDocumentId(
-        config,
-        "project",
-        "appeal.docx",
-        false,
-        profile.profileId,
-      ),
-    ).toBe(first);
-    expect(
-      await localCaptureDocumentId(
-        config,
-        "project",
-        "appeal.docx",
-        false,
-        "wrong-account",
-      ),
-    ).toBeUndefined();
+    const firstPath = join(folder, "first.docx"), replacement = join(folder, "replacement.docx"), moved = join(folder, "appeal.docx");
+    await writeFile(firstPath, "example");
+    const before = await stat(firstPath);
+    const first = await localCaptureDocumentId(config, profile, "project", null, before);
+    await writeFile(replacement, "revised");
+    await rename(replacement, firstPath);
+    expect(await localCaptureDocumentId(config, profile, "project", before, await stat(firstPath))).toBe(first);
+    await rename(firstPath, moved);
+    expect(await localCaptureDocumentId(config, profile, "project", null, await stat(moved))).toBe(first);
+    expect(await localCaptureDocumentId(config, { ...profile, profileId: "wrong-account" }, "project", null, await stat(moved))).toBeUndefined();
     expect(first).toBeTruthy();
+    // Older profiles may still have a cached UUID for the old path. The new file is independent.
+    const registry = profile.path + ".documents.json";
+    const legacy = JSON.parse(await readFile(registry, "utf8"));
+    await writeFile(registry, JSON.stringify({ ...legacy, [digest(["project", "first.docx"])]: first }));
+    await writeFile(firstPath, "different file created outside the editor");
+    const independent = await stat(firstPath);
+    await writeFile(replacement, "edited version of the independent file");
+    await rename(replacement, firstPath);
+    const second = await localCaptureDocumentId(config, profile, "project", independent, await stat(firstPath));
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
+    expect(await localCaptureDocumentId(config, profile, "project", null, await stat(moved))).toBe(first);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

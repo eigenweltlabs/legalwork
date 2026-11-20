@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
@@ -10,12 +10,13 @@ import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-supp
 import { startServer } from "../server.js";
 import { beginDocumentCapture, captureProfile } from "./routes.js";
 
-test.skipIf(!nativeMcpBinary)("opening and correcting a workday persists private drafts, deduplicates model calls, and keeps evidence out of engine history", async () => {
+test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a workday keeps private drafts and deduplicates successful calls", async () => {
   const narrative = "Drafting Example";
   const prompts: string[] = [];
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let hold = false;
+  let invalidResponse = true;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = z.object({ model: z.literal("fixture"), messages: z.array(z.object({ role: z.string(), content: z.string() })) }).parse(await request.json());
     const prompt = body.messages.find(item => item.role === "user")?.content;
@@ -26,7 +27,7 @@ test.skipIf(!nativeMcpBinary)("opening and correcting a workday persists private
       z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string(), projectId: z.string() })) }),
       z.object({ stage: z.literal("wording"), entries: z.array(z.object({ index: z.number() })) }),
     ]).parse(JSON.parse(prompt.trim().split("\n").at(-1) ?? ""));
-    const content = input.stage === "grouping"
+    const content = invalidResponse ? "Invalid structured output" : input.stage === "grouping"
       ? JSON.stringify({ proposals: input.evidence.map(item => ({
           evidenceIds: [item.id], activity: "DFT", documentId: item.documentId,
           projectId: item.projectId, matterId: null, startAt: null, endAt: null, workedMinutes: null,
@@ -63,25 +64,34 @@ test.skipIf(!nativeMcpBinary)("opening and correcting a workday persists private
     };
     await request({ type: "settings", settings: { documents: true, calendar: false, tasks: false, intervalMinutes: 0 } });
     const capture = await beginDocumentCapture(config, { actor: { type: "host" } }, "example", "Folder/Example.docx");
-    await capture?.(true);
+    await mkdir(join(engine.directory, "Folder"));
+    const file = join(engine.directory, "Folder", "Example.docx");
+    await writeFile(file, "Synthetic document");
+    await capture?.(null, await stat(file));
     const refresh: CaptureAction = { type: "refresh", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
     const initial = await request(refresh);
     expect(initial.proposals).toHaveLength(1);
     expect(initial.wording).toBeUndefined();
     expect(prompts).toHaveLength(0);
     await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: true } });
-    const result = await request(refresh);
+    expect((await request(refresh)).status?.type).toBe("failed");
+    expect(prompts).toHaveLength(1);
+    invalidResponse = false;
+    expect((await request(refresh)).status?.type).toBe("failed");
+    expect(prompts).toHaveLength(1);
+    const result = await request({ ...refresh, type: "suggest" });
+    expect(result.status?.type).toBe("ready");
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
-    expect(prompts).toHaveLength(2);
+    expect(prompts).toHaveLength(3);
     expect(prompts[0]).toContain("Example.docx");
     expect(prompts[0]).not.toContain("Folder/");
     expect(proposal.narrative).toBe(narrative);
     expect(proposal.suggested).toBe(true);
-    const [reopened, secondWindow] = await Promise.all([request(refresh), request(refresh)]);
+    const [reopened, secondWindow] = await Promise.all([request(refresh), request({ ...refresh, type: "suggest" })]);
     expect(reopened.proposals[0]).toEqual(proposal);
     expect(secondWindow.proposals[0]).toEqual(proposal);
-    expect(prompts).toHaveLength(2);
+    expect(prompts).toHaveLength(3);
     expect(await readFile(profile.path, "utf8")).toContain(narrative);
 
     const correction: CaptureAction = { type: "chat", id: randomUUID(), text: "Example → Rekurs",
@@ -93,7 +103,7 @@ test.skipIf(!nativeMcpBinary)("opening and correcting a workday persists private
     expect(changed.chat.map(turn => turn.role)).toEqual(["user", "assistant"]);
     expect(changed.instructions[0]).toMatchObject({ text: correction.text, documentId: proposal.documentId });
     expect((await request(correction)).chat).toEqual(changed.chat);
-    expect(prompts).toHaveLength(4);
+    expect(prompts).toHaveLength(5);
     expect((await engine.client().session.list({ directory: engine.directory })).data).toHaveLength(0);
     for (const file of ["engine.db", "engine.db-wal"]) {
       const bytes = file === "engine.db" ? await readFile(join(engine.root, file))

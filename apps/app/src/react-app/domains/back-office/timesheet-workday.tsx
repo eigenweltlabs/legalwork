@@ -20,6 +20,7 @@ import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-s
 import { TimeWorkspacePanels } from "./time-workspace-panels";
 import { TimeWorkspaceChat } from "./time-workspace-chat";
 import { TimeWorkspaceGuidelines } from "./time-workspace-guidelines";
+import { TimeWorkspaceStopwatch, useTimeWorkspaceStopwatch } from "./time-workspace-stopwatch";
 import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
 import { sourceKeys } from "./timesheet-labels";
@@ -49,9 +50,8 @@ export function TimesheetWorkday({
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshRequest, requestRefresh] = useState(0);
   const editor = useRef<HTMLDivElement>(null);
-  const chatRequest = useRef<AbortController | undefined>(undefined);
+  const modelRequest = useRef<AbortController | undefined>(undefined);
   const inFlight = useRef(false);
   const cache = useQueryClient();
   const dates = periodDates(date, period);
@@ -90,17 +90,14 @@ export function TimesheetWorkday({
       return drafts;
     },
   });
-  const { data: lastStopped } = useQuery({
-    queryKey: ["private-stopwatch", ...calendarClientScope(client), profileId],
-    queryFn: () => client.privateStopwatch(undefined, profileId),
-    select: status => status.lastStopped,
-    enabled: local && visible && Boolean(profileId), retry: false, refetchInterval: 5000,
-  });
+  const stopwatch = useTimeWorkspaceStopwatch(client, profileId, local && visible);
+  const lastStopped = stopwatch.data?.lastStopped;
   const stoppedId = lastStopped?.date === date ? lastStopped.id : undefined;
+  const lastStoppedId = lastStopped?.id;
   const refetchWorkday = workday.refetch;
   useEffect(() => {
-    if (visible && local && stoppedId) void refetchWorkday();
-  }, [visible, local, stoppedId, refetchWorkday]);
+    if (visible && local && lastStoppedId) void refetchWorkday();
+  }, [visible, local, lastStoppedId, refetchWorkday]);
 
   const data = workday.data;
   const settings = data?.settings;
@@ -118,7 +115,7 @@ export function TimesheetWorkday({
   const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
   const modelSelection = JSON.stringify([preferred, model]);
   useEffect(() => {
-    return () => { chatRequest.current?.abort(); };
+    return () => { modelRequest.current?.abort(); };
   }, [date, modelSelection, visible, aiEnabled]);
 
   async function act(action: CaptureAction, signal?: AbortSignal) {
@@ -168,7 +165,7 @@ export function TimesheetWorkday({
   }
 
   const refreshKey = visible && local && aiEnabled && settings
-    ? JSON.stringify([date, settings, model, data?.modelReady, stoppedId, refreshRequest])
+    ? JSON.stringify([date, settings, model, data?.modelReady, stoppedId])
     : null;
   const prepareView = useEffectEvent(async (signal: AbortSignal) => {
     setRefreshing(true);
@@ -183,13 +180,13 @@ export function TimesheetWorkday({
     return () => controller.abort();
   }, [refreshKey]);
 
-  async function chat(action: Extract<CaptureAction, { type: "chat" | "instruction" }>) {
-    if (action.type !== "chat" || action.instruction) return act(action);
+  async function requestModel(action: Extract<CaptureAction, { type: "chat" | "instruction" }> | { type: "suggest" }) {
+    if (action.type === "instruction" || (action.type === "chat" && action.instruction)) return act(action);
     if (inFlight.current) return false;
     const controller = new AbortController();
-    chatRequest.current = controller;
+    modelRequest.current = controller;
     try { return await act({ ...action, model }, controller.signal); }
-    finally { if (chatRequest.current === controller) chatRequest.current = undefined; }
+    finally { if (modelRequest.current === controller) modelRequest.current = undefined; }
   }
   const shown = data?.proposals.filter(p =>
     p.date === date && !p.dismissed && (aiEnabled || (p.source === "stopwatch" && !p.suggested)) &&
@@ -243,7 +240,7 @@ export function TimesheetWorkday({
     <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
       chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={shown}
-        pending={running} aiEnabled={aiEnabled} onAction={chat} />}
+        pending={running} aiEnabled={aiEnabled} onAction={requestModel} />}
       timeline={(view, choose) => (
         <>
           <div className="time-workspace-private-toolbar">
@@ -308,6 +305,7 @@ export function TimesheetWorkday({
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
         <TimesheetPeriodSwitch period={period} onChange={setPeriod} />
         <span className="bo-workday-toolbar-space" />
+        {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} />}
         <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
           aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
           onClick={() => settings && void act({ type: "settings", settings: { ...settings, aiSuggestions: !aiEnabled } })}>
@@ -417,14 +415,12 @@ export function TimesheetWorkday({
       {refreshing ? <p className="time-workspace-status" role="status">{t("timesheets.preparing")}</p> : aiEnabled && status && (
         <p className="time-workspace-status" role="status">
           {t(status.type === "ready" ? "timeWorkspace.ready" : status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
-          <Button variant="ghost" size="xs" disabled={running}
-            onClick={() => requestRefresh(previous => previous + 1)}>
-            {t(status.type === "ready" ? "timeWorkspace.refresh" : "timesheets.retry")}
-          </Button>
+          {status.type !== "ready" && <Button variant="ghost" size="xs" disabled={running}
+            onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>}
         </p>
       )}
       {aiEnabled && !refreshing && !status && error && <Button variant="ghost" size="xs" className="time-workspace-status"
-        onClick={() => requestRefresh(previous => previous + 1)}>{t("timesheets.retry")}</Button>}
+        disabled={running} onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>}
       {children(capture, renderWorkspace)}
     </section>
   );

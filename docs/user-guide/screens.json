@@ -71,6 +71,16 @@
       "source": "apps/app/src/react-app/domains/back-office/timesheet-workday.tsx"
     },
     {
+      "id": "workday-stopwatch",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workspace-stopwatch.tsx"
+    },
+    {
+      "id": "invoice-draft-preview",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-invoice-pdf.tsx"
+    },
+    {
       "id": "billing-review",
       "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/billing-review.tsx"

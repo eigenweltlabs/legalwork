@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CaptureAction } from "@legalwork/types/time-capture";
@@ -201,7 +201,9 @@ test("only successful opted-in local editor saves yield a private workday sugges
     expect(disabled.proposals).toEqual([]);
     expect(await write("After.md", "OFF")).toBe(200);
     await settings(true);
-    await interrupted?.(false);
+    const interruptedFile = join(workspace, "Interrupted.md");
+    await writeFile(interruptedFile, "Synthetic interrupted save");
+    await interrupted?.(null, await stat(interruptedFile));
     const resumed = await workday({ type: "calendar" });
     expect(resumed.proposals).toHaveLength(2);
     const folder = join(root, "private-timesheets"),
@@ -262,7 +264,9 @@ test("only successful opted-in local editor saves yield a private workday sugges
         userEmail: "second@example.test",
       },
     });
-    await crossAccount?.(false);
+    const switchedFile = join(workspace, "Switched.md");
+    await writeFile(switchedFile, "Synthetic new account");
+    await crossAccount?.(null, await stat(switchedFile));
     const stale = await dispatch(
       new Request(endpoint + "&profileId=" + profileId, {
         method: "POST",
@@ -286,7 +290,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
   }
 }, 30000);
 
-test("a moved document retains its private identity across an atomic save without binding the same name in another project", async () => {
+test("a moved document survives an atomic edit without lending its private identity to the old name", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-document-identity-"));
   try {
     const first = join(root, "one"), second = join(root, "two");
@@ -300,26 +304,37 @@ test("a moved document retains its private identity across an atomic save withou
     });
     const actor = { actor: { type: "host" } };
     const created = await beginDocumentCapture(config, actor, "one", "Revision.md");
-    await writeFile(join(first, "Revision.md"), "Synthetic");
-    await created?.(true);
-    await rename(join(first, "Revision.md"), join(first, "Moved.md"));
+    const originalPath = join(first, "Revision.md"), movedPath = join(first, "Moved.md");
+    await writeFile(originalPath, "Synthetic");
+    await created?.(null, await stat(originalPath));
+    await rename(originalPath, movedPath);
     const moved = await beginDocumentCapture(config, actor, "one", "Moved.md");
+    const movedBefore = await stat(movedPath);
     const next = join(first, "Replacement.md");
     await writeFile(next, "More synthetic content");
-    await rename(next, join(first, "Moved.md"));
-    await moved?.(false);
+    await rename(next, movedPath);
+    await moved?.(movedBefore, await stat(movedPath));
+    await writeFile(originalPath, "Unrelated file made outside LegalWork");
+    const reused = await beginDocumentCapture(config, actor, "one", "Revision.md");
+    const reusedBefore = await stat(originalPath);
+    await writeFile(next, "First LegalWork edit of the unrelated file");
+    await rename(next, originalPath);
+    await reused?.(reusedBefore, await stat(originalPath));
     const another = await beginDocumentCapture(config, actor, "two", "Revision.md");
     await writeFile(join(second, "Revision.md"), "Unrelated synthetic content");
-    await another?.(true);
+    await another?.(null, await stat(join(second, "Revision.md")));
     const profile = await captureProfile(config, await backOfficeAccess(config));
     const storage = z.object({ documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)) })
       .parse(JSON.parse(await readFile(profile.path, "utf8")));
     const entries = Object.values(storage.documentSaves).flatMap(day => Object.values(day));
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(4);
     const original = entries.find(item => item.projectId === "one" && item.activity === "DFT");
-    const amendment = entries.find(item => item.projectId === "one" && item.activity === "MOD");
+    const amendment = entries.find(item => item.projectId === "one" && item.narrative === "Moved.md");
+    const reusedName = entries.find(item => item.projectId === "one" && item.narrative === "Revision.md" && item.activity === "MOD");
     expect(original?.documentId).toBeTruthy();
     expect(amendment?.documentId).toBe(original?.documentId);
+    expect(reusedName?.documentId).toBeTruthy();
+    expect(reusedName?.documentId).not.toBe(original?.documentId);
     expect(entries.find(item => item.projectId === "two")?.documentId).not.toBe(original?.documentId);
     expect(entries.every(item => item.workedMinutes === null && !item.changeSummary)).toBe(true);
   } finally {

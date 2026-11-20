@@ -1,13 +1,15 @@
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, strFromU8, strToU8, zipSync } from "fflate";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
+import { standardInvoice, starterInvoiceWord } from "@legalwork/types/invoice-template";
 import { startServer } from "./server.js";
 import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { BackOfficeRecordSchema } from "./back-office/schema.js";
+import { extractPdfText } from "./document-preparation/render.js";
 import {
   invoiceDraftRef,
   prepareInvoice,
@@ -136,6 +138,14 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
         })
       ).status,
     ).toBe(409);
+    const letterhead = "Fixture custom letterhead";
+    const customTemplate = unzipSync(Buffer.from(starterInvoiceWord, "base64"));
+    customTemplate["word/document.xml"] = strToU8(
+      strFromU8(customTemplate["word/document.xml"]).replace("{{ client_name }}", letterhead + " - {{ client_name }}"),
+    );
+    await command({ type: "template", template: { ...standardInvoice, word: {
+      name: "Fixture letterhead.docx", contentBase64: Buffer.from(zipSync(customTemplate)).toString("base64"),
+    } } });
     const approval = async (entries: typeof approved.entries) => {
       const prepared = await command(prepareInvoice(entries));
       const draft = invoiceDraftRef(prepared);
@@ -143,13 +153,23 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
       return { type: "issueInvoice", ...draft, requestId: crypto.randomUUID() };
     };
     const visibleDraft = await command(prepareInvoice([approved.entries[0]]));
+    expect(visibleDraft.invoices).toHaveLength(0);
+    const previewRef = invoiceDraftRef(visibleDraft);
     const draftUrl =
       "/timesheet/drafts/" +
-      visibleDraft.invoiceDraft!.id +
+      previewRef.id +
       "/document" +
       query +
-      "&format=docx";
-    expect((await api(draftUrl)).status).toBe(200);
+      "&revision=" + previewRef.revision;
+    const draftDocx = await api(draftUrl + "&format=docx");
+    expect(draftDocx.status).toBe(200);
+    expect(strFromU8(unzipSync(new Uint8Array(await draftDocx.arrayBuffer()))["word/document.xml"])).toContain(letterhead);
+    const draftPdf = await api(draftUrl + "&format=pdf");
+    expect(draftPdf.status).toBe(200);
+    expect(draftPdf.headers.get("content-type")).toBe("application/pdf");
+    const previewPdf = Buffer.from(await draftPdf.arrayBuffer());
+    expect(previewPdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect((await api(draftUrl.replace(previewRef.revision, "a".repeat(64)) + "&format=pdf")).status).toBe(409);
     const policy = visibleDraft.policies.find(
       (p) => p.scope === "firm" && p.effectiveFrom === "2026-01-01",
     )!;
@@ -157,7 +177,7 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
       type: "policy",
       policy: { ...policy, soloApproval: false },
     });
-    const revoked = await api(draftUrl);
+    const revoked = await api(draftUrl + "&format=docx");
     expect([403, 409]).toContain(revoked.status);
     expect(revoked.headers.get("content-type")).not.toContain(
       "wordprocessingml",
@@ -200,7 +220,15 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     expect(strFromU8(unzipSync(word)["word/document.xml"])).toContain(
       "Client call",
     );
+    expect(strFromU8(unzipSync(word)["word/document.xml"])).toContain(letterhead);
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    if (process.env.LEGALWORK_TEST_LIBREOFFICE) {
+      for (const artifact of [previewPdf, pdf]) {
+        const { pages } = await extractPdfText(artifact, AbortSignal.timeout(10_000));
+        const text = pages.map((page) => page.text).join(" ");
+        for (const expected of [letterhead, "Client call", "50.00"]) expect(text).toContain(expected);
+      }
+    }
     const adjusted = await command({
       type: "adjust",
       id: entry.id,

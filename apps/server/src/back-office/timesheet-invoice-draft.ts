@@ -4,6 +4,7 @@ import {
   checkBillingNarrative,
   currencyScale,
   hasTimeEntryPrice,
+  isHourlyInvoiceLine,
   reducedInvoiceMinor,
   standardInvoice,
   timeFeeMinor,
@@ -35,7 +36,8 @@ function selectedLines(
   entries: TimeEntry[],
   canReview: (entry: TimeEntry) => boolean,
 ) {
-  const { period, matterId, clientId } = input;
+  const { period, matterId, clientId, pricing } = input;
+  const selectedCurrency = pricing.mode === "hourly" ? pricing.currency : undefined;
   if (period.from && period.from > period.to)
     timeError("Choose a valid service period.");
   const eligible = entries.filter(
@@ -52,15 +54,7 @@ function selectedLines(
   const unique = new Set(input.entries.map((entry) => entry.id));
   if (unique.size !== input.entries.length)
     timeError("Select each revision once.");
-  if (
-    !period.from &&
-    input.entries.length !== eligible.filter(canReview).length
-  )
-    timeError(
-      "The open entries through this date changed. Refresh and preview all open entries again.",
-      409,
-    );
-  return input.entries.map((ref) => {
+  const selected = input.entries.map((ref) => {
     const entry = byId.get(ref.id);
     if (!entry || entry.revision !== ref.revision)
       timeError(
@@ -69,6 +63,13 @@ function selectedLines(
       );
     return entry;
   });
+  const matchesCurrency = (entry: TimeEntry) =>
+    !selectedCurrency || (entry.currency === selectedCurrency && isHourlyInvoiceLine(entry));
+  if (selected.some((entry) => !matchesCurrency(entry)))
+    timeError("Select approved, priced billing lines in the invoice currency.", 409);
+  if (!period.from && selected.length !== eligible.filter((entry) => matchesCurrency(entry) && canReview(entry)).length)
+    timeError("The open entries through this date changed. Refresh and preview all open entries again.", 409);
+  return selected;
 }
 
 export function buildInvoiceDraft(
@@ -93,16 +94,13 @@ export function buildInvoiceDraft(
     input.adjustmentVersions,
   );
   for (const entry of originals) validateEntry(entry);
-  const currency =
-    pricing.mode === "fixed" ? pricing.currency : entries[0].currency;
+  const currency = pricing.currency ?? entries[0].currency;
   if (
     !currency ||
     (pricing.mode === "hourly" &&
       entries.some(
         (entry) =>
-          !hasTimeEntryPrice(entry) ||
-          entry.currency !== currency ||
-          entry.nonHourlyApproval,
+          !isHourlyInvoiceLine(entry) || entry.currency !== currency,
       ))
   )
     timeError(
