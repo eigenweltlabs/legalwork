@@ -25,7 +25,8 @@ export type OcrSettingsView = {
   engines: Array<{
     id: string;
     label: string;
-    kind: "local" | OcrApiType;
+    kind: "local" | "cloud-ocr" | OcrApiType;
+    managed?: boolean;
     authentication?: "api-key" | "none";
     model: string;
     endpoint?: string;
@@ -35,6 +36,6 @@ export type OcrSettingsView = {
     downloadBytes?: number;
     /** One of the firm's engines: whose key it uses. Older servers omit it. */
     firmKey?: "firm" | "member";
-    status: "ready" | "not-installed" | "unsupported" | "missing-key";
+    status: "ready" | "not-installed" | "unsupported" | "missing-key" | "disabled" | "unavailable" | "disconnected";
   }>;
 };

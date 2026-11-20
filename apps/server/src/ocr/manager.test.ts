@@ -28,7 +28,7 @@ test("auth changes never retain or forward old credentials to another origin", a
   const ocr = await manager();
   const id = await ocr.saveServer(input);
   const original = (await ocr.store.read()).engines.find((engine) => engine.id === id);
-  if (!original || original.kind === "local" || !original.apiKeyRef) throw new Error("Missing credential");
+  if (!original || original.kind === "local" || original.kind === "cloud-ocr" || !original.apiKeyRef) throw new Error("Missing credential");
   await expect(ocr.saveServer({ ...input, authentication: "none", apiKey: undefined }, id)).rejects.toThrow("localhost");
   const localInput = { ...input, kind: "paddleocr", endpoint: "http://127.0.0.1:8080/layout-parsing", authentication: "none", apiKey: undefined };
   await ocr.saveServer(localInput, id);
@@ -103,7 +103,7 @@ test("blank key preserves credentials, origin changes require replacement, delet
   await ocr.setDefault(id);
   await ocr.removeServer(id);
   expect((await ocr.view()).defaultEngineId).toBe("local-fast");
-  expect((await ocr.view()).engines).toHaveLength(2);
+  expect((await ocr.view()).engines.filter(engine => engine.kind !== "local" && !engine.managed)).toHaveLength(0);
   await expect(ocr.removeServer("local-fast")).rejects.toThrow("Custom OCR model not found");
 });
 
@@ -114,7 +114,7 @@ test("rejects unsafe configuration and serializes concurrent updates", async () 
   await expect(ocr.saveServer({ ...input, languages: ["not a language"] })).rejects.toThrow("Check the name");
   await expect(ocr.setDefault("unknown")).rejects.toThrow("not found");
   await Promise.all([ocr.saveServer(input), ocr.saveServer({ ...input, label: "Second" })]);
-  expect((await ocr.view()).engines).toHaveLength(4);
+  expect((await ocr.view()).engines.filter(engine => engine.kind !== "local" && !engine.managed)).toHaveLength(2);
 });
 
 test("sample test uses saved server credentials and returns no model content", async () => {

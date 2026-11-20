@@ -23,7 +23,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Projects, matter/client links, field names/types/content, More and Customize fields, templates, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
 | Back Office, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
 | Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
-| Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
+| Model providers, Fusion, OCR, Google cloud OCR, firm OCR enable/disable or JEV | [models-fusion.md](references/models-fusion.md) |
 | Web search, AWS versus Exa, search costs, query length or search processing location | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |

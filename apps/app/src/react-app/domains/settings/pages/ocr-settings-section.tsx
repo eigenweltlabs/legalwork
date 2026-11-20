@@ -36,6 +36,9 @@ const endpointExamples: Record<OcrApiType, string> = {
 };
 const ocrStatusLabels: Record<Engine["status"], () => string> = {
   ready: () => t("ocr.status_ready"),
+  disabled: () => t("ocr.status_disabled"),
+  unavailable: () => t("ocr.status_unavailable"),
+  disconnected: () => t("ocr.status_disconnected"),
   "not-installed": () => t("ocr.status_not-installed"),
   unsupported: () => t("ocr.status_unsupported"),
   "missing-key": () => t("ocr.status_missing-key"),
@@ -245,6 +248,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
               <p className="truncate text-sm font-medium">{engine.label}</p>
               <p className="truncate text-xs text-dls-secondary" title={engine.endpoint}>{engine.endpoint}</p>
               {engine.firmKey ? <FirmItemNote /> : null}
+              {engine.managed ? <p className="text-xs text-dls-secondary">{t("ocr.cloud_managed_description")}</p> : null}
             </div>
           </div>
           {/* The firm's engines are not the member's to edit; only their own key, where the firm asks for it. */}
@@ -252,9 +256,9 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
             <Button variant="outline" size="sm" disabled={disabled} onClick={() => setKeyFor(engine)}>
               {t(engine.keyConfigured ? "org_policy.change_own_key" : "org_policy.add_own_key")}
             </Button>
-          ) : engine.firmKey ? null : <ProviderActionsMenu name={engine.label} disabled={disabled}>
+          ) : engine.firmKey || engine.managed ? null : <ProviderActionsMenu name={engine.label} disabled={disabled}>
             <DropdownMenuItem onClick={() => {
-              if (engine.kind === "local") return;
+              if (engine.kind === "local" || engine.kind === "cloud-ocr") return;
               setFormError(null); setDraft({ id: engine.id, kind: engine.kind, authentication: engine.authentication ?? "api-key", label: engine.label, endpoint: engine.endpoint ?? "", model: engine.model, languages: engine.languages, apiKey: "" });
             }}>{t("ocr.edit")}</DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => setRemoving(engine)}>{t("ocr.remove")}</DropdownMenuItem>

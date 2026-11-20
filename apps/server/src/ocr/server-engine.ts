@@ -2,6 +2,7 @@ import { z } from "zod";
 import { setTimeout as delay } from "node:timers/promises";
 import { OCR_MAX_RESPONSE_BYTES, OcrError } from "./types.js";
 import type { OcrContent, OcrEngine, OcrPage } from "./types.js";
+import { contentSchema } from "./types.js";
 import { serverEngineSchema } from "./settings.js";
 import type { ServerEngineSettings } from "./settings.js";
 
@@ -98,7 +99,11 @@ const adapters: Record<ServerEngineSettings["kind"], OcrApiAdapter> = {
       return { server_id, name, arguments: { file: Buffer.from(page.data).toString("base64"), width: page.width, height: page.height } };
     },
     parse(body, page) {
-      return adapters.paddleocr.parse(mcpPayload(body), page);
+      const payload = mcpPayload(body);
+      const google = z.object({ schemaVersion: z.literal(1), provider: z.literal("google-document-ai"),
+        text: contentSchema.shape.text, regions: contentSchema.shape.regions, truncated: contentSchema.shape.truncated }).safeParse(payload);
+      if (google.success) return { text: google.data.text, regions: google.data.regions, truncated: google.data.truncated };
+      return adapters.paddleocr.parse(payload, page);
     },
   },
   "chat-completions": {
@@ -160,7 +165,7 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
   const settings = serverEngineSchema.parse(input);
   const adapter = adapters[settings.kind];
   return {
-    // The Gateway's bounded page pool feeds vLLM; other providers retain their lower limit.
+    // The Gateway bounds parallel calls to its regional OCR API; other providers retain their lower limit.
     info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr" || settings.kind === "mcp-ocr", languages: settings.languages, warnings: [], concurrentPages: settings.kind === "mcp-ocr" ? 8 : 2 },
     async recognize(page, context) {
       context.signal.throwIfAborted();

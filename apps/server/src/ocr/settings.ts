@@ -12,6 +12,13 @@ export function isLoopbackOcrEndpoint(value: string): boolean {
 export const localEngineSchema = z.strictObject({
   ...identity, kind: z.literal("local"), model: z.enum(["pp-ocrv6-small", "paddleocr-vl-1.6"]),
 });
+export const cloudEngineSchema = z.strictObject({
+  ...identity, kind: z.literal("cloud-ocr"), model: z.enum(["google-document-ocr-eu", "google-document-ocr-us"]),
+});
+const cloudEngines = [
+  { id: "cloud-google-eu", label: "Google Document OCR (EU)", kind: "cloud-ocr", model: "google-document-ocr-eu" },
+  { id: "cloud-google-us", label: "Google Document OCR (US)", kind: "cloud-ocr", model: "google-document-ocr-us" },
+];
 export const serverEngineSchema = z.strictObject({
   ...identity, kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr", "mcp-ocr"]), model: z.string().trim().min(1).max(200),
   /** Full endpoint, not a provider base URL. HTTPS, or loopback HTTP for self-hosted services. */
@@ -30,7 +37,7 @@ export const settingsSchema = z.strictObject({
   version: z.literal(1),
   defaultEngineId: identity.id,
   pageTimeoutMs: z.number().int().min(1).max(600000).default(120000),
-  engines: z.array(z.discriminatedUnion("kind", [localEngineSchema, serverEngineSchema])).min(1).max(32),
+  engines: z.array(z.discriminatedUnion("kind", [localEngineSchema, cloudEngineSchema, serverEngineSchema])).min(1).max(64),
 }).superRefine((settings, context) => {
   const ids = settings.engines.map((engine) => engine.id);
   if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", message: "Duplicate OCR engine ID" });
@@ -44,6 +51,7 @@ export function defaultOcrSettings(): OcrSettings {
   return settingsSchema.parse({ version: 1, defaultEngineId: "local-fast", engines: [
     { id: "local-fast", label: "Fast · Local", kind: "local", model: "pp-ocrv6-small" },
     { id: "local-quality", label: "Higher quality · Local", kind: "local", model: "paddleocr-vl-1.6" },
+    ...cloudEngines,
   ] });
 }
 
@@ -51,7 +59,10 @@ export function defaultOcrSettings(): OcrSettings {
 export class OcrSettingsStore {
   constructor(readonly path: string) {}
   async read(): Promise<OcrSettings> {
-    try { return settingsSchema.parse(JSON.parse(await readFile(this.path, "utf8"))); }
+    try {
+      const saved = settingsSchema.parse(JSON.parse(await readFile(this.path, "utf8")));
+      return settingsSchema.parse({ ...saved, engines: [...saved.engines, ...cloudEngines.filter(engine => !saved.engines.some(each => each.id === engine.id))] });
+    }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return defaultOcrSettings();
       throw new OcrError("invalid-input", "The saved OCR configuration could not be read.");

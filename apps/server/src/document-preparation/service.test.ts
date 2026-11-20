@@ -38,10 +38,13 @@ const content = { text: "Visual addition: 60 days", regions: [{ text: "Visual ad
 test("renders native and rotated scanned pages, OCRs both, pins model and caches by content/configuration", async () => {
   const root = await fixture();
   const calls: number[] = []; let fingerprint = "model-A";
-  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint, service: new OcrService([{ info, async recognize(page, context) {
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint, service: new OcrService([
+  { info: { ...info, id: "unselected" }, async recognize() { throw new Error("The first engine must not be selected implicitly"); } },
+  { info, async recognize(page, context) {
     calls.push(page.pageNumber); expect(context.languages).toEqual([]); expect(page.data.length).toBeGreaterThan(100); return content;
   } }], "test") }) });
   const first = await service.start(root, { files: ["contract.pdf"] }); fingerprint = "model-B";
+  expect(first.engine.id).toBe("test");
   const finished = await done(service, root, first.id);
   expect(finished.status).toBe("complete"); expect(calls).toEqual([1, 2]);
   const doc = preparedSchema.parse(JSON.parse(await readFile(join(root, finished.documents[0]!.preparationPath!), "utf8")));
