@@ -1,16 +1,17 @@
 import { Action, ActionPanel, Color, Icon, List, showToast, Toast } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { launch, readPairing, requirePairing, request, type Pairing, type WorkItem } from "./legalwork";
+import { completedLabel, label } from "./status-labels";
 
 const STATUS = {
-  "input-required": { label: "Input required", icon: Icon.QuestionMark, color: Color.Orange },
-  running: { label: "Running", icon: Icon.CircleProgress, color: Color.Blue },
-  queued: { label: "Queued", icon: Icon.Clock, color: Color.SecondaryText },
-  idle: { label: "Idle", icon: Icon.Circle, color: Color.SecondaryText },
-  returned: { label: "✓ Done", icon: Icon.CheckCircle, color: Color.Green },
-  failed: { label: "Failed", icon: Icon.XMarkCircle, color: Color.Red },
-  stopped: { label: "Stopped", icon: Icon.Stop, color: Color.SecondaryText },
-  unavailable: { label: "Unavailable", icon: Icon.Warning, color: Color.Orange },
+  "input-required": { label: label("Input required", "Eingabe erforderlich"), icon: Icon.QuestionMark, color: Color.Orange },
+  running: { label: label("Running", "Läuft"), icon: Icon.CircleProgress, color: Color.Blue },
+  queued: { label: label("Queued", "Wartend"), icon: Icon.Clock, color: Color.SecondaryText },
+  idle: { label: label("Idle", "Inaktiv"), icon: Icon.Circle, color: Color.SecondaryText },
+  returned: { label: completedLabel, icon: Icon.CheckCircle, color: Color.Green },
+  failed: { label: label("Failed", "Fehlgeschlagen"), icon: Icon.XMarkCircle, color: Color.Red },
+  stopped: { label: label("Stopped", "Gestoppt"), icon: Icon.Stop, color: Color.SecondaryText },
+  unavailable: { label: label("Unavailable", "Nicht verfügbar"), icon: Icon.Warning, color: Color.Orange },
 } satisfies Record<WorkItem["status"], { label: string; icon: Icon; color: Color }>;
 
 export default function Command() {

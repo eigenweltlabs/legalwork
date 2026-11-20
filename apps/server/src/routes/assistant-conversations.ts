@@ -41,7 +41,7 @@ const CAPTURE_PATH = /^\.legalwork\/attachments\/[a-f0-9-]+\/(region|window)-[0-
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 /** Only screenshot files staged by the launcher are promoted to model images. */
-async function readCapture(root: string, path: string, name: string, remaining: number): Promise<{ part: SubmissionPart; bytes: number }> {
+async function readCapture(root: string, path: string, name: string, remaining: number): Promise<{ part: Extract<SubmissionPart, { type: "file" }>; bytes: number }> {
   if (!CAPTURE_PATH.test(path)) throw new ApiError(400, "capture_path", "Attach the screenshot again from the launcher.");
   const unavailable = () => new ApiError(400, "capture_missing", "The screenshot is unavailable. Capture or attach it again.");
   const workspace = await realpath(root);
@@ -203,6 +203,9 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
       const { part, bytes } = await readCapture(imageWorkspace.path, image.path, image.name, remainingCaptureBytes);
       remainingCaptureBytes -= bytes;
       parts.push(part);
+      if (input.queue && !input.queue.draft.attachments.some(attachment => attachment.id === image.id)) {
+        input.queue.draft.attachments.push({ id: image.id, name: image.name, mimeType: part.mime, size: bytes, kind: "image", data: part.url });
+      }
     }
     const submission = await submissions.submit({ requestId: input.requestId, messageId: input.messageId, conversationId: conversation.id, ...destination,
       preview: input.text.trim().slice(0, 200), target: input.context?.target ?? { kind: "assistant" }, payload: stageAssistantSubmission(input.messageId, { parts, authority, ...(input.queue ? { queue: input.queue } : {}), ...(input.command ? { command: input.command } : {}), ...(model ? { model } : {}), ...(agent ? { agent } : {}), ...(variant ? { variant } : {}) }) });

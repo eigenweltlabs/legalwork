@@ -8376,7 +8376,7 @@ export default {
   "launcher.work.status.running": "Running",
   "launcher.work.status.idle": "Idle",
   "launcher.work.status.returned": "Returned",
-  "launcher.work.status.input-required": "Needs you",
+  "launcher.work.status.input-required": "Input required",
   "launcher.work.status.failed": "Failed",
   "launcher.work.status.stopped": "Stopped",
   "launcher.work.status.unavailable": "Unavailable",

@@ -2,6 +2,7 @@ import { Action, ActionPanel, Color, Clipboard, Icon, List, open, showInFinder, 
 import { useEffect, useState } from "react";
 import { launcherResultActions } from "@legalwork/types/launcher";
 import { launch, localResultPath, readPairing, requirePairing, request, type Pairing, type SearchKind, type SearchResult, type SourceState } from "./legalwork";
+import { completedLabel, coverageLabels, label } from "./status-labels";
 import { resultReference } from "./result-files";
 
 const KINDS: { value: SearchKind | "all"; title: string }[] = [{ value: "all", title: "Everything" }, { value: "files", title: "Files" }, { value: "projects", title: "Projects" }, { value: "chats", title: "Chats" }, { value: "tasks", title: "Tasks" }, { value: "recordings", title: "Recordings" }];
@@ -54,11 +55,11 @@ export default function Command() {
   };
   const refreshAction = <Action title="Refresh Search" icon={Icon.ArrowClockwise} onAction={() => setRefresh(value => value + 1)} />;
   if (pairing === null) return <List><List.EmptyView title="LegalWork is not paired" description="Enable Raycast pairing in LegalWork Settings, Assistant launcher." actions={<ActionPanel>{refreshAction}</ActionPanel>} /></List>;
-  const coverage = sources.filter(source => source.coverage !== "complete").map(source => `${source.label}: ${source.coverage}`).join(" · ");
+  const coverage = sources.filter(source => source.coverage !== "complete").map(source => `${source.label}: ${coverageLabels[source.coverage]}`).join(" · ");
   return <List isLoading={loading || pairing === undefined} searchText={query} onSearchTextChange={setQuery} throttle searchBarPlaceholder="Search files, projects, chats, tasks and recordings"
     searchBarAccessory={<List.Dropdown tooltip="Category" value={kind} onChange={value => { const next = KINDS.find(item => item.value === value); if (next) setKind(next.value); }}>{KINDS.map(item => <List.Dropdown.Item key={item.value} value={item.value} title={item.title} />)}</List.Dropdown>}>
-    {items.length > 0 && <List.Section title={coverage ? "Partial search results" : undefined} subtitle={coverage || undefined}>
-    {items.map(item => <List.Item key={`${item.kind}:${item.sourceId}:${item.id}`} icon={item.fileType === "folder" ? Icon.Folder : ICONS[item.kind]} title={item.title} subtitle={item.subtitle ?? item.path} accessories={item.kind === "tasks" && item.completed ? [{ tag: { value: "✓ Done", color: Color.Green } }] : [{ text: item.kind }]} actions={<ActionPanel>
+    {items.length > 0 && <List.Section title={coverage ? label("Partial search results", "Unvollständige Suchergebnisse") : undefined} subtitle={coverage || undefined}>
+    {items.map(item => <List.Item key={`${item.kind}:${item.sourceId}:${item.id}`} icon={item.fileType === "folder" ? Icon.Folder : ICONS[item.kind]} title={item.title} subtitle={item.subtitle ?? item.path} accessories={item.kind === "tasks" && item.completed ? [{ tag: { value: completedLabel, color: Color.Green } }] : [{ text: item.kind }]} actions={<ActionPanel>
       <Action title={item.kind === "files" ? "Open" : "Open in LegalWork"} icon={Icon.ArrowRight} onAction={() => void run(item, "open")} />
       {item.kind === "files" && <>
         <Action title="Open in LegalWork" icon={Icon.ArrowRight} onAction={() => void run(item, "legalwork")} />
@@ -71,6 +72,6 @@ export default function Command() {
       {refreshAction}
     </ActionPanel>} />)}
     </List.Section>}
-    {!items.length && !loading && <List.EmptyView title={error ? "Search unavailable" : !query.trim() && kind === "all" ? "Search LegalWork" : coverage ? "Search incomplete" : "No results"} description={error ?? (coverage || (!query.trim() && kind === "all" ? "Type a search or choose a category." : "Try another term or category."))} actions={<ActionPanel>{refreshAction}</ActionPanel>} />}
+    {!items.length && !loading && <List.EmptyView title={error ? "Search unavailable" : !query.trim() && kind === "all" ? "Search LegalWork" : coverage ? label("Search incomplete", "Suche unvollständig") : label("No results", "Keine Treffer")} description={error ?? (coverage || (!query.trim() && kind === "all" ? "Type a search or choose a category." : "Try another term or category."))} actions={<ActionPanel>{refreshAction}</ActionPanel>} />}
   </List>;
 }

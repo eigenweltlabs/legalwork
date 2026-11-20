@@ -2,7 +2,7 @@ import { getSelectedText, open, showToast, Toast } from "@raycast/api";
 import { randomUUID } from "node:crypto";
 import { raycastHandoffUrl, readPairing, type Pairing } from "./pairing";
 export { readPairing, type Pairing } from "./pairing";
-import type { AssistantContextItem, AssistantWorkItem, LauncherInvocation, LauncherSearchResult } from "@legalwork/types/launcher";
+import type { AssistantContextItem, AssistantWorkItem, LauncherInvocation, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { canonicalResultFile } from "./result-files";
 
 /**
@@ -14,7 +14,7 @@ import { canonicalResultFile } from "./result-files";
  */
 export type SearchKind = "files" | "projects" | "chats" | "tasks" | "recordings";
 export type SearchResult = LauncherSearchResult;
-export type SourceState = { id: string; kind: SearchKind; label: string; coverage: string; count: number };
+export type SourceState = LauncherSourceState;
 export type CatalogEntry = { id: string; label: string; description: string | null; kind: string; source: string; requires: string[]; favorite: boolean; quickAction: { id: string } | null };
 export type WorkItem = AssistantWorkItem;
 export type ContextItem = AssistantContextItem;

@@ -8724,7 +8724,7 @@ const de = {
   "launcher.work.status.running": "Läuft",
   "launcher.work.status.idle": "Inaktiv",
   "launcher.work.status.returned": "Zurückgemeldet",
-  "launcher.work.status.input-required": "Braucht Sie",
+  "launcher.work.status.input-required": "Eingabe erforderlich",
   "launcher.work.status.failed": "Fehlgeschlagen",
   "launcher.work.status.stopped": "Gestoppt",
   "launcher.work.status.unavailable": "Nicht verfügbar",

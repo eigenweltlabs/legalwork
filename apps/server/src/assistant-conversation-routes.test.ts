@@ -12,6 +12,7 @@ import { currentWikiAgentSession } from "./wiki/agent-access.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { matchRoute, type Route, type RequestContext } from "./routes/registry.js";
+import type { QueueInput } from "@legalwork/types/session-queue";
 
 test("concurrent project-command retries reuse one destination and its original payload", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-command-route-"));
@@ -79,10 +80,12 @@ test("project conversations submit without an Assistant plan while Assistant exe
     const create = async (title: string) => ({ id: crypto.randomUUID(), title, directory: root, time: {} });
     const projectChat = await conversations.create(project, { create });
     const assistantChat = await conversations.create(assistant, { create });
-    let sent = 0;
+    const sentMessages = new Set<string>();
     const payloads: SubmissionPayload[] = [];
     const submissions = await AssistantSubmissions.open(join(root, "runtime.sqlite"), {
-      hasMessage: async () => sent > 0, outcome: async () => "accepted", send: async (_entry, payload) => { payloads.push(payload); sent++; },
+      hasMessage: async (_target, messageId) => sentMessages.has(messageId),
+      outcome: async () => "accepted",
+      send: async (entry, payload) => { payloads.push(payload); sentMessages.add(entry.messageId); },
     });
     const routes: Route[] = [];
     const routeOptions = { routes, config, conversations, submissions, sessionAccess,
@@ -101,9 +104,10 @@ test("project conversations submit without an Assistant plan while Assistant exe
     const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7d8AAAAASUVORK5CYII=";
     await mkdir(join(root, attachmentDir), { recursive: true });
     await writeFile(join(root, path), Buffer.from(png, "base64"));
-    const send = (id: string, attachmentPath = path, draftAccount?: string) => {
+    const send = (id: string, attachmentPath = path, draftAccount?: string, queue?: Pick<QueueInput, "id" | "draft">) => {
       const context = { items: [{ id: "image", type: "image", workspaceId: project.id, name, capture: "region", sourceApp: null, sourceWindow: null, capturedAt: 1, path: attachmentPath }], target: { kind: "project", workspaceId: project.id }, searchScope: null, capturedAt: 1 };
-      const request = new Request(`http://localhost/assistant/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ requestId: `request_${id}`, messageId: `msg_${id.replaceAll("_", "")}`, text: "Review the file", context, draftAccount }) });
+      const key = queue ? `${id}queued` : id;
+      const request = new Request(`http://localhost/assistant/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ requestId: `request_${key}`, messageId: `msg_${key.replaceAll("_", "")}`, text: "Review the file", context, draftAccount, queue }) });
       return matchRoute(routes, "POST", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: { id }, actor: { type: "host" } } as unknown as RequestContext);
     };
     const request = new Request("http://localhost/launcher/assistant-availability");
@@ -125,17 +129,24 @@ test("project conversations submit without an Assistant plan while Assistant exe
     const second = await resolveDraftAccount();
     expect(second).not.toBe(first);
     await expect(send(projectChat.id, path, first)).rejects.toMatchObject({ status: 409, code: "draft_account_changed" });
-    expect(sent).toBe(0);
+    expect(sentMessages.size).toBe(0);
     const symlinkPath = `${attachmentDir}/window-2026-11-20T12-00-00-000Z.png`;
     await symlink(join(root, path), join(root, symlinkPath));
     await expect(send(projectChat.id, symlinkPath)).rejects.toMatchObject({ status: 400, code: "capture_missing" });
     expect((await send(projectChat.id, path, second)).status).toBe(202);
     expect(currentWikiAgentSession(config, projectChat.sessionId)?.scope).toBe("owner");
     await expect(send(assistantChat.id)).rejects.toMatchObject({ status: 403, code: "assistant_subscription_required" });
-    expect(sent).toBe(1);
+    expect(sentMessages.size).toBe(1);
     const url = `data:image/png;base64,${png}`;
     expect(payloads[0].parts).toContainEqual({ type: "file", filename: name, mime: "image/png", url });
     expect(payloads[0]).toMatchObject({ model: { providerID: "native", modelID: "selected-model" }, variant: "deep", agent: "selected-agent",
       queue: { id: expect.any(String), draft: { text: "Review the file", attachments: [{ kind: "image", name, data: url }] } } });
+    const queued = payloads[0].queue;
+    expect(queued).toBeDefined();
+    if (!queued) throw new Error("The screenshot must also survive queue editing.");
+    const explicit = { id: crypto.randomUUID(), draft: { ...queued.draft, attachments: [] } };
+    expect((await send(projectChat.id, path, second, explicit)).status).toBe(202);
+    expect(payloads[1].parts).toContainEqual({ type: "file", filename: name, mime: "image/png", url });
+    expect(payloads[1].queue).toMatchObject({ id: explicit.id, draft: { text: "Review the file", attachments: [{ kind: "image", name, data: url }] } });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
