@@ -52,7 +52,7 @@ import {
   productOptions,
   rowColumns,
   stopwatchRowCharge,
-  adjacentPeriod, periodDates, periodLabels, timePeriods, type TimePeriod,
+  adjacentPeriod, periodDates, periodLabels, periodTimeTotals, timePeriods, type TimePeriod,
   workerOptions,
   type RowColumn,
   type RowValues,
@@ -290,17 +290,7 @@ export function TimesheetLedger({
         a.id.localeCompare(b.id),
     );
   const countedRows = rows.filter(row => row.status !== "pending");
-  const workedByDate = new Map<string, number>();
-  const totals = countedRows
-    .reduce(
-      (sum, row) => {
-        workedByDate.set(row.date, (workedByDate.get(row.date) ?? 0) + row.workedMinutes);
-        sum.worked += row.workedMinutes;
-        sum.charge += row.billableMinutes;
-        return sum;
-      },
-      { worked: 0, charge: 0 },
-    );
+  const { totals, byDate } = periodTimeTotals(countedRows);
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
   const ready = rows.filter((e) => e.status === "confirmed");
   const shareable = ready.filter(
@@ -1088,6 +1078,7 @@ export function TimesheetLedger({
           ))}
         </details>
       )}
+      <TimesheetWeekTotals dates={dates} date={date} totalsByDate={byDate} onDateChange={chooseDate} />
       <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
           [t("timesheets.ledger.worked_total"), totals.worked],
@@ -1098,7 +1089,6 @@ export function TimesheetLedger({
           </span>
         ))}
       </div>
-      <TimesheetWeekTotals dates={dates} date={date} workedByDate={workedByDate} onDateChange={chooseDate} />
       {activeCap !== null && (
         <div className="bo-time-cap" role="status">
           <AlertTriangle size={13} />

@@ -808,8 +808,12 @@ try {
   for (let i = 0; i < 20 && !suggestionRow(partial); i++) await settle();
   const weekDays = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")];
   assert.equal(weekDays.length, 7);
-  const wednesday = weekDays.find(day => day.textContent?.includes("0:34 h"));
-  assert.ok(wednesday, "an entry on another day contributes to that day's week total");
+  const weekdayHeaders = [...document.querySelectorAll(".bo-time-week th[scope=col]")].map(cell => cell.textContent);
+  assert.deepEqual(weekdayHeaders, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
+  const wednesday = weekDays[2];
+  assert.equal(wednesday.querySelector("time")?.dateTime, otherDate);
+  assert.deepEqual([...wednesday.querySelectorAll("span")].map(item => item.textContent),
+    [t("timesheets.sheet.worked", { minutes: 34 }), t("timesheets.sheet.charge", { minutes: 30 })]);
   assert.equal(wednesday.getAttribute("aria-pressed"), "false");
   const acceptFor = (proposal: CaptureProposal) => suggestionRow(proposal)?.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
   assert.equal(acceptFor(exact)?.disabled, true);
@@ -902,6 +906,10 @@ try {
   assert.ok(month);
   await act(async () => month.click());
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
+  const firstWeek = document.querySelector(".bo-time-month tbody tr");
+  assert.equal(firstWeek?.children.length, 7);
+  assert.equal(firstWeek?.children[6].querySelector("time")?.dateTime, "2026-11-01", "November begins under Sunday");
+  assert.equal(firstWeek?.querySelectorAll("button").length, 1);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next month"]')?.click());
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 31);
   cache.clear();

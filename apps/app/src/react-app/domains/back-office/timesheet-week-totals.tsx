@@ -1,25 +1,53 @@
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { duration } from "./timesheet-row";
+import { offsetDate, weekDates, type TimeTotals } from "./timesheet-row";
 
-export function TimesheetWeekTotals({ dates, date, workedByDate, onDateChange }: {
+export function TimesheetWeekTotals({ dates, date, totalsByDate, onDateChange }: {
   dates: readonly string[];
   date: string;
-  workedByDate: ReadonlyMap<string, number>;
+  totalsByDate: ReadonlyMap<string, TimeTotals>;
   onDateChange: (date: string) => void;
 }) {
   const locale = useLocale();
   if (dates.length < 2) return null;
   const month = dates.length > 7;
-  const firstColumn = (new Date(dates[0] + "T12:00:00").getDay() + 6) % 7 + 1;
+  const weekdays = weekDates(dates[0]);
+  const weeks = [];
+  for (let monday = weekdays[0]; monday <= dates[dates.length - 1]; monday = offsetDate(monday, 7)) {
+    weeks.push(weekDates(monday));
+  }
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "long" });
+  const fullDate = new Intl.DateTimeFormat(locale, { dateStyle: "full" });
   return (
-    <div className={"bo-time-week" + (month ? " bo-time-month" : "")} role="group" aria-label={t("timesheets.ledger.worked_total")}>
-      {dates.map((day, index) => (
-        <button type="button" key={day} style={month && index === 0 ? { gridColumnStart: firstColumn } : undefined} aria-pressed={day === date} onClick={() => onDateChange(day)}>
-          {new Date(day + "T12:00:00").toLocaleDateString(locale, { weekday: "short", day: "numeric" })}
-          {" · "}{duration(workedByDate.get(day) ?? 0)} h
-        </button>
-      ))}
+    <div className={"bo-time-week" + (month ? " bo-time-month" : "")}>
+      <table aria-label={t(month ? "calendar.month" : "calendar.week")}>
+        <thead>
+          <tr>{weekdays.map(day => <th key={day} scope="col">{weekday.format(new Date(day + "T12:00:00"))}</th>)}</tr>
+        </thead>
+        <tbody>
+          {weeks.map(week => (
+            <tr key={week[0]}>
+              {week.map(day => {
+                if (!dates.includes(day)) return <td key={day} />;
+                const totals = totalsByDate.get(day);
+                const recorded = t("timesheets.sheet.worked", { minutes: totals?.worked ?? 0 });
+                const billable = t("timesheets.sheet.charge", { minutes: totals?.charge ?? 0 });
+                const localDay = new Date(day + "T12:00:00");
+                return (
+                  <td key={day}>
+                    <button type="button" aria-pressed={day === date}
+                      aria-label={`${fullDate.format(localDay)}. ${recorded}. ${billable}.`} onClick={() => onDateChange(day)}>
+                      <time dateTime={day}>{localDay.getDate()}</time>
+                      <span>{recorded}</span>
+                      <span>{billable}</span>
+                    </button>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

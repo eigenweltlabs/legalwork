@@ -149,7 +149,14 @@ try {
   // A refresh that removes the source must not send a private row to the directory.
   const active = capture({ proposals: [proposal], privateAvailable: true,
     wording: { [proposal.digest]: { narrative: "Generated private wording", activity: "RES" } } });
+  const { weekDates } = await import("../../src/react-app/domains/back-office/timesheet-row");
+  const additional = { ...savedRow, id: crypto.randomUUID(), values: { ...savedRow.values, recordedMinutes: 5, billableMinutes: 15 } };
+  await render({ ...active, dates: weekDates(first) }, [workerContact, savedRow, additional]);
+  const calendarMetrics = (day: string) => [...host.querySelectorAll(`.bo-time-week button:has(time[datetime="${day}"]) span`)].map(item => item.textContent);
+  assert.deepEqual(calendarMetrics(first), [t("timesheets.sheet.worked", { minutes: 20 }), t("timesheets.sheet.charge", { minutes: 30 })]);
+  assert.deepEqual(calendarMetrics(second), [t("timesheets.sheet.worked", { minutes: 0 }), t("timesheets.sheet.charge", { minutes: 0 })]);
   await render(active);
+  assert.equal(host.querySelector(".bo-time-week"), null);
   assert.ok(![...host.querySelectorAll('[role="columnheader"]')].some(header => header.textContent?.includes(t("timesheets.sheet.bill_to"))));
   assert.equal(host.querySelector("[data-sheet-blank]"), null);
   assert.ok(host.querySelector(".time-new-entry"));

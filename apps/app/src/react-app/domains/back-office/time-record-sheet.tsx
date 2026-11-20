@@ -15,6 +15,7 @@ import { sourceKeys } from "./timesheet-labels";
 import { proposalValues, timeRecordDate } from "./time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, timeCellChanges, timeRecordConflictSchema, timeRecordEdits, timeRowClipboardSchema, type TimeRecordEdit, type TimeRecordValues, type TimeRowDraft } from "./time-record-edits";
 import { useBookingReceipt } from "./time-booking-receipt";
+import { periodTimeTotals } from "./timesheet-row";
 import { TimesheetWeekTotals } from "./timesheet-week-totals";
 import { useNavigate } from "react-router-dom";
 
@@ -437,12 +438,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     });
   }
 
-  const sums = visible.reduce((sum, record) => ({ worked: sum.worked + Number(record.values.recordedMinutes || 0), charge: sum.charge + Number(record.values.billableMinutes || 0) }), { worked: 0, charge: 0 });
-  const workedByDate = new Map<string, number>();
-  for (const record of visible) {
-    const date = serviceDate(record.values);
-    workedByDate.set(date, (workedByDate.get(date) ?? 0) + Number(record.values.recordedMinutes || 0));
-  }
+  const { totals: sums, byDate } = periodTimeTotals(visible.map(record => ({
+    date: serviceDate(record.values),
+    workedMinutes: Number(record.values.recordedMinutes || 0),
+    billableMinutes: Number(record.values.billableMinutes || 0),
+  })));
   const unsaved = edits.updates.size > 0 || [...edits.drafts.values()].some(draft => !draft.proposal && !known.has(draft.record.id)) ||
     Object.entries(capture.drafts).some(([id, draft]) => !draft.proposalDigest && !draft.values.workflow && !known.has(id));
   return <div ref={grid} className="time-record-sheet" onCopy={event => {
@@ -456,7 +456,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
       if (value.success) { event.preventDefault(); duplicate(value.data.values); }
     } catch { /* Ordinary text remains available to the focused editor. */ }
   }}>
-    <TimesheetWeekTotals dates={capture.dates} date={capture.date} workedByDate={workedByDate} onDateChange={capture.selectDate} />
+    <TimesheetWeekTotals dates={capture.dates} date={capture.date} totalsByDate={byDate} onDateChange={capture.selectDate} />
     <div className="time-sheet-summary">
       {members.length > 1 ? <select aria-label={t("timesheets.ledger.workers")} value={person} onChange={event => { setPerson(event.target.value); setComposerId(undefined); }}>
         <option value="">{t("timesheets.sheet.all_people")}</option>

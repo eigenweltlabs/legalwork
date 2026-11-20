@@ -44,7 +44,6 @@
 .bo-time-toolbar select,
 .bo-time-toolbar input,
 .bo-time-toolbar > button,
-.bo-time-week button,
 .bo-time-state button,
 .bo-time-new button {
   font-size: 12px;
@@ -59,13 +58,11 @@
 }
 .bo-time-toolbar button:hover,
 .bo-time-new button:hover,
-.bo-time-week button:hover,
 .bo-time-state button:hover {
   background: var(--bo-surface);
 }
 .bo-time-totals,
-.bo-time-footer,
-.bo-time-week {
+.bo-time-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -83,17 +80,41 @@
   color: var(--t-font-color-primary);
 }
 .bo-time-week {
-  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: auto;
+  margin: 0 16px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
-.bo-time-week.bo-time-month {
-  display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:2px;
-  max-height:34vh; overflow:auto; flex-shrink:0;
+.bo-time-month { max-height: 34vh }
+.bo-time-week table { width: 100%; min-width: 46rem; table-layout: fixed; border-spacing: 0; border-collapse: separate }
+.bo-time-week th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--bo-border);
+  background: var(--bo-bg);
+  color: var(--bo-text);
+  font-weight: 700;
+  text-align: start;
 }
-.bo-time-month button { min-width:0; padding:3px; font-size:11px; white-space:normal }
-.bo-time-week button[aria-pressed="true"] {
-  background: var(--bo-surface);
-  color: var(--t-font-color-primary);
+.bo-time-week td { vertical-align: top; padding: 0; border-bottom: 1px solid var(--bo-border) }
+.bo-time-week td + td { border-inline-start: 1px solid var(--bo-border) }
+.bo-time-week button {
+  display: grid;
+  width: 100%;
+  gap: 1px;
+  padding: 3px 6px 5px;
+  color: var(--bo-muted);
+  text-align: start;
 }
+.bo-time-week time { font-weight: 600; color: var(--bo-text) }
+.bo-time-week button:hover, .bo-time-week button[aria-pressed="true"] { background: var(--bo-surface) }
+.bo-time-week button[aria-pressed="true"] time { text-decoration: underline; text-underline-offset: 2px }
+.bo-time-week button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px }
 .bo-time-scroll {
   padding-bottom: 12px;
 }

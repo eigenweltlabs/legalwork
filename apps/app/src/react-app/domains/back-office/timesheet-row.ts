@@ -76,6 +76,22 @@ export function periodDates(value: string, period: TimePeriod) {
   return Array.from({ length: last.getDate() }, (_, index) => offsetDate(first, index));
 }
 
+export type TimeTotals = { worked: number; charge: number };
+
+export function periodTimeTotals(entries: readonly Pick<TimeDraft, "date" | "workedMinutes" | "billableMinutes">[]) {
+  const totals = { worked: 0, charge: 0 };
+  const byDate = new Map<string, TimeTotals>();
+  for (const entry of entries) {
+    const day = byDate.get(entry.date) ?? { worked: 0, charge: 0 };
+    day.worked += entry.workedMinutes;
+    day.charge += entry.billableMinutes;
+    byDate.set(entry.date, day);
+    totals.worked += entry.workedMinutes;
+    totals.charge += entry.billableMinutes;
+  }
+  return { totals, byDate };
+}
+
 export function adjacentPeriod(value: string, period: TimePeriod, direction: 1 | -1) {
   if (period !== "month") return offsetDate(value, direction * (period === "day" ? 1 : 7));
   const last = new Date(value + "T12:00:00");
