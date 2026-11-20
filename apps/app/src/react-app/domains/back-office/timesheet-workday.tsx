@@ -315,14 +315,13 @@ export function TimesheetWorkday({
                 {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
                 {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
               </p>
-              <div key={selected.digest + (correcting ? "-correction" : "")} ref={bindEditorForm}>
-                {correcting
-                  ? <WorkdayCorrectionForm proposal={correcting} state={state}
+              <div key={selected.digest} ref={bindEditorForm}>
+                <div hidden={Boolean(correcting)}>{renderProposal(selected)}</div>
+                {correcting && <WorkdayCorrectionForm proposal={correcting} state={state}
                     pending={running} save={act} close={() => {
                       if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
                       setCorrection(undefined);
-                    }} />
-                  : renderProposal(selected)}
+                    }} />}
               </div>
             </div>
           )}

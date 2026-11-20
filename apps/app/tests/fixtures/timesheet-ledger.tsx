@@ -789,6 +789,14 @@ try {
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   assert.equal(document.activeElement, proposedCharge, "a background refresh keeps focus and the in-progress value in the editor");
   assert.equal(proposedCharge.value, "30");
+  await press("Edit source and times", true);
+  assert.equal(document.activeElement, proposalHeading());
+  const cancelCorrection = document.querySelector<HTMLButtonElement>('.bo-workday-correction button[type="button"]');
+  assert.ok(cancelCorrection);
+  await act(async () => { cancelCorrection.focus(); cancelCorrection.click(); });
+  assert.equal(document.activeElement, proposalHeading());
+  assert.equal(proposalPanel.querySelector('[data-column="charge"]'), proposedCharge);
+  assert.equal(proposedCharge.value, "30", "returning from correction keeps the existing private edit mounted");
   await press("Private chat");
   assert.equal(workspaceGroup().dataset.view, "chat");
   await press("Day timeline");
