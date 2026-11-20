@@ -4,7 +4,7 @@ import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import type { OcrSettingsView } from "@legalwork/types/ocr";
 import { ApiError } from "../errors.js";
-import { createConfiguredOcrService } from "./index.js";
+import { createConfiguredOcrService, type CloudOcrRuntime } from "./index.js";
 import { isLoopbackOcrEndpoint, OcrSettingsStore, serverEngineSchema, type OcrSettings, type ServerEngineSettings } from "./settings.js";
 import type { OcrSecretResolver } from "./server-engine.js";
 import { OcrRuntime, ocrTestPage } from "./runtime.js";
@@ -45,7 +45,7 @@ export class OcrManager {
   private automaticCancelled = false;
   private automaticInstall = false;
   private stopped = false;
-  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>, download?: ModelDownloadFetch) {
+  constructor(root: string, private readonly firm?: () => Promise<FirmOcr>, download?: ModelDownloadFetch, private readonly cloud?: CloudOcrRuntime) {
     this.store = new OcrSettingsStore(join(root, "settings.json"));
     this.vault = new OcrVault(join(root, "keys.vault"));
     this.runtime = new OcrRuntime(root, download);
@@ -57,7 +57,7 @@ export class OcrManager {
     const firm = await this.firm?.();
     if (!firm) return { settings, resolveApiKey: own, firmKeys: new Map() };
     const engines = [
-      ...settings.engines.filter((engine) => (engine.kind === "local" || firm.allowCustom) && !firm.engines.some((each) => each.id === engine.id)),
+      ...settings.engines.filter((engine) => (engine.kind === "local" || engine.kind === "cloud-ocr" || firm.allowCustom) && !firm.engines.some((each) => each.id === engine.id)),
       ...firm.engines.map(({ firmKey: _firmKey, ...engine }) => engine),
     ];
     const ids = engines.map((engine) => engine.id);
@@ -74,27 +74,28 @@ export class OcrManager {
   }
   async serviceSnapshot() {
     const { settings, resolveApiKey } = await this.effective();
-    return { service: createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey }),
+    return { service: createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey, cloudRuntime: this.cloud }),
       fingerprint: createHash("sha256").update(JSON.stringify(settings)).digest("hex") };
   }
   async view(readOnly = false): Promise<OcrSettingsView> {
     const { settings, resolveApiKey, firmKeys } = await this.effective();
-    const info = createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey }).listEngines();
+    const info = createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey, cloudRuntime: this.cloud }).listEngines();
     return {
       defaultEngineId: settings.defaultEngineId, readOnly,
       installerAvailable: await this.runtime.available(), installation: this.runtime.installation ?? (this.automaticPending ? { engineId: "local-fast", stage: "runtime" } : null),
       layout: { model: "pp-doclayout-v3-onnx", bytes: layoutModelAsset.bytes, status: await this.runtime.layoutReady() ? "ready" : "not-installed" },
       engines: await Promise.all(settings.engines.map(async (engine) => {
-        const keyConfigured = engine.kind !== "local" && engine.apiKeyRef !== null && Boolean(await resolveApiKey(engine.apiKeyRef));
+        const keyConfigured = engine.kind !== "local" && engine.kind !== "cloud-ocr" && engine.apiKeyRef !== null && Boolean(await resolveApiKey(engine.apiKeyRef));
         return {
           id: engine.id, label: engine.label, kind: engine.kind, model: engine.model,
-          endpoint: engine.kind !== "local" ? engine.endpoint : undefined,
-          authentication: engine.kind === "local" ? undefined : engine.apiKeyRef === null ? "none" : "api-key",
+          endpoint: engine.kind !== "local" && engine.kind !== "cloud-ocr" ? engine.endpoint : undefined,
+          managed: engine.kind === "cloud-ocr" || undefined,
+          authentication: engine.kind === "local" || engine.kind === "cloud-ocr" ? undefined : engine.apiKeyRef === null ? "none" : "api-key",
           languages: info.find((item) => item.id === engine.id)?.languages?.slice() ?? null,
           keyConfigured,
           downloadBytes: engine.kind === "local" ? this.runtime.downloadBytes(engine.model) : undefined,
           firmKey: firmKeys.get(engine.id),
-          status: engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
+          status: engine.kind === "cloud-ocr" ? await this.cloud?.status(engine.model) ?? "unavailable" : engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
             : !this.runtime.supported(engine.model) ? "unsupported"
             : await this.runtime.ready(engine.model) ? "ready" : "not-installed",
         };
@@ -106,10 +107,12 @@ export class OcrManager {
       const settings = await this.store.read();
       const engine = settings.engines.find((item) => item.id === id);
       if (!engine) throw new ApiError(404, "ocr_not_found", "OCR model not found.");
+      if (engine.kind === "cloud-ocr" && await this.cloud?.status(engine.model) !== "ready")
+        throw new ApiError(403, "cloud_ocr_disabled", "Sign in and ask your firm admin to enable this cloud OCR model.");
       if (engine.kind === "local" && !this.runtime.supported(engine.model)) throw new ApiError(400, "ocr_unsupported", "This model is not supported on this computer.");
       if (engine.kind === "local" && (this.startingInstall || this.runtime.busy || !await this.runtime.ready(engine.model)))
         throw new ApiError(400, "ocr_not_ready", "Download and finish setting up this model before using it as the default.");
-      if (engine.kind !== "local" && engine.apiKeyRef !== null && !await this.vault.get(engine.apiKeyRef))
+      if (engine.kind !== "local" && engine.kind !== "cloud-ocr" && engine.apiKeyRef !== null && !await this.vault.get(engine.apiKeyRef))
         throw new ApiError(400, "ocr_key_required", "Add an API key before using this model as the default.");
       await this.store.write({ ...settings, defaultEngineId: id });
     });
@@ -121,8 +124,8 @@ export class OcrManager {
     return vaultLock(this.store.path, async () => {
       const settings = await this.store.read();
       const existing = id ? settings.engines.find((item) => item.id === id) : undefined;
-      if (id && (!existing || existing.kind === "local")) throw new ApiError(404, "ocr_not_found", "Custom OCR model not found.");
-      const previous = existing && existing.kind !== "local" ? existing : undefined;
+      if (id && (!existing || existing.kind === "local" || existing.kind === "cloud-ocr")) throw new ApiError(404, "ocr_not_found", "Custom OCR model not found.");
+      const previous = existing && existing.kind !== "local" && existing.kind !== "cloud-ocr" ? existing : undefined;
       const { apiKey, authentication, kind, ...fields } = parsed.data;
       const useKey = (authentication ?? (previous?.apiKeyRef === null ? "none" : "api-key")) === "api-key";
       if (!useKey && !isLoopbackOcrEndpoint(fields.endpoint))
@@ -151,7 +154,7 @@ export class OcrManager {
     return vaultLock(this.store.path, async () => {
       const settings = await this.store.read();
       const engine = settings.engines.find((item) => item.id === id);
-      if (!engine || engine.kind === "local") throw new ApiError(404, "ocr_not_found", "Custom OCR model not found.");
+      if (!engine || engine.kind === "local" || engine.kind === "cloud-ocr") throw new ApiError(404, "ocr_not_found", "Custom OCR model not found.");
       await this.store.write({ ...settings, defaultEngineId: settings.defaultEngineId === id ? "local-fast" : settings.defaultEngineId, engines: settings.engines.filter((item) => item.id !== id) });
       if (engine.apiKeyRef) await this.vault.set(engine.apiKeyRef);
     });

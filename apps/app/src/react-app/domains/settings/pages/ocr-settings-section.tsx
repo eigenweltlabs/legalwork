@@ -29,12 +29,16 @@ function isLoopbackEndpoint(endpoint: string) {
   catch { return false; }
 }
 const endpointExamples: Record<OcrApiType, string> = {
+  "mcp-ocr": "http://localhost:8080/mcp-rest/tools/call",
   paddleocr: "http://localhost:8080/layout-parsing",
   "mistral-ocr": "https://api.mistral.ai/v1/ocr",
   "chat-completions": "http://localhost:8000/v1/chat/completions",
 };
 const ocrStatusLabels: Record<Engine["status"], () => string> = {
   ready: () => t("ocr.status_ready"),
+  disabled: () => t("ocr.status_disabled"),
+  unavailable: () => t("ocr.status_unavailable"),
+  disconnected: () => t("ocr.status_disconnected"),
   "not-installed": () => t("ocr.status_not-installed"),
   unsupported: () => t("ocr.status_unsupported"),
   "missing-key": () => t("ocr.status_missing-key"),
@@ -88,6 +92,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
     : layoutInstalling && settings?.installation ? ocrInstallLabel(settings.installation.stage)
     : settings?.layout ? ocrStatusLabel(settings.layout.status) : "";
   const apiTypes = [
+    { value: "mcp-ocr", label: t("ocr.api_mcp") },
     { value: "paddleocr", label: t("ocr.api_paddle") },
     { value: "mistral-ocr", label: t("ocr.api_mistral") },
     { value: "chat-completions", label: t("ocr.api_chat") },
@@ -243,6 +248,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
               <p className="truncate text-sm font-medium">{engine.label}</p>
               <p className="truncate text-xs text-dls-secondary" title={engine.endpoint}>{engine.endpoint}</p>
               {engine.firmKey ? <FirmItemNote /> : null}
+              {engine.managed ? <p className="text-xs text-dls-secondary">{t("ocr.cloud_managed_description")}</p> : null}
             </div>
           </div>
           {/* The firm's engines are not the member's to edit; only their own key, where the firm asks for it. */}
@@ -250,9 +256,9 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
             <Button variant="outline" size="sm" disabled={disabled} onClick={() => setKeyFor(engine)}>
               {t(engine.keyConfigured ? "org_policy.change_own_key" : "org_policy.add_own_key")}
             </Button>
-          ) : engine.firmKey ? null : <ProviderActionsMenu name={engine.label} disabled={disabled}>
+          ) : engine.firmKey || engine.managed ? null : <ProviderActionsMenu name={engine.label} disabled={disabled}>
             <DropdownMenuItem onClick={() => {
-              if (engine.kind === "local") return;
+              if (engine.kind === "local" || engine.kind === "cloud-ocr") return;
               setFormError(null); setDraft({ id: engine.id, kind: engine.kind, authentication: engine.authentication ?? "api-key", label: engine.label, endpoint: engine.endpoint ?? "", model: engine.model, languages: engine.languages, apiKey: "" });
             }}>{t("ocr.edit")}</DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={() => setRemoving(engine)}>{t("ocr.remove")}</DropdownMenuItem>
@@ -280,8 +286,8 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
           <div className="space-y-1.5"><TextInput label={t("ocr.name")} id="ocr-name" required maxLength={120} value={draft.label} disabled={busy} onChange={(event) => setDraft({ ...draft, label: event.target.value })} /></div>
           <div className="grid gap-2"><Label className="text-xs font-medium text-dls-text" htmlFor="ocr-api-type">{t("ocr.api_type")}</Label>
             <Select value={draft.kind} items={apiTypes} disabled={busy} onValueChange={(kind) => {
-              if (kind === "paddleocr" || kind === "mistral-ocr" || kind === "chat-completions")
-                setDraft({ ...draft, kind, model: kind === draft.kind ? draft.model : kind === "paddleocr" ? "PaddleOCR" : kind === "mistral-ocr" ? "mistral-ocr-latest" : "" });
+              if (kind === "paddleocr" || kind === "mistral-ocr" || kind === "chat-completions" || kind === "mcp-ocr")
+                setDraft({ ...draft, kind, model: kind === draft.kind ? draft.model : kind === "mcp-ocr" ? "eigenwelt_ocr_dev/recognize_page" : kind === "paddleocr" ? "PaddleOCR" : kind === "mistral-ocr" ? "mistral-ocr-latest" : "" });
             }}>
               <SelectTrigger id="ocr-api-type" className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>{apiTypes.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
@@ -291,7 +297,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
             const endpoint = event.target.value;
             setDraft({ ...draft, endpoint, authentication: isLoopbackEndpoint(endpoint) ? draft.authentication : "api-key" });
           }} /></div>
-          {draft.kind !== "paddleocr" ? <div className="space-y-1.5"><TextInput label={t("ocr.model")} id="ocr-model" required maxLength={200} value={draft.model} disabled={busy} onChange={(event) => setDraft({ ...draft, model: event.target.value })} /></div> : null}
+          {draft.kind !== "paddleocr" ? <div className="space-y-1.5"><TextInput label={t(draft.kind === "mcp-ocr" ? "ocr.mcp_tool" : "ocr.model")} id="ocr-model" required maxLength={200} value={draft.model} disabled={busy} onChange={(event) => setDraft({ ...draft, model: event.target.value })} /></div> : null}
           <div className="grid gap-2"><Label className="text-xs font-medium text-dls-text" htmlFor="ocr-auth">{t("ocr.authentication")}</Label>
             <Select value={draft.authentication} items={authenticationItems} disabled={busy} onValueChange={(authentication) => {
               if (authentication === "api-key" || (authentication === "none" && isLoopbackEndpoint(draft.endpoint))) setDraft({ ...draft, authentication, apiKey: "" });

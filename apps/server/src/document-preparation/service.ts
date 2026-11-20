@@ -6,7 +6,6 @@ import { z } from "zod";
 import type { PageStructure } from "@legalwork/types/document-structure";
 import { ReviewOcrSchema } from "../reviews/schema.js";
 import { ApiError } from "../errors.js";
-import { createConfiguredOcrService } from "../ocr/index.js";
 import { OcrManager } from "../ocr/manager.js";
 import { languageSchema, OcrError } from "../ocr/types.js";
 import type { OcrEngineInfo } from "../ocr/types.js";
@@ -53,19 +52,14 @@ export async function documentPath(workspace: string, input: string) {
 }
 
 async function snapshot(ocr: OcrManager): Promise<Snapshot> {
-  const settings = await ocr.store.read();
-  const engine = settings.engines.find(engine => engine.id === settings.defaultEngineId);
+  const result = await ocr.serviceSnapshot();
+  const engine = result.service.listEngines().find(engine => engine.id === result.service.defaultEngineId);
   if (!engine) throw new ApiError(400, "ocr_not_ready", "Choose an OCR model in Settings → AI Providers.");
-  if (engine.kind === "local" && (ocr.runtime.busy || !await ocr.runtime.ready(engine.model)))
-    throw new ApiError(400, "ocr_not_ready", "Download the selected OCR model in Settings → AI Providers, then retry the review.");
-  const key = engine.kind !== "local" && engine.apiKeyRef !== null ? await ocr.vault.get(engine.apiKeyRef) : undefined;
-  if (engine.kind !== "local" && engine.apiKeyRef !== null && !key)
-    throw new ApiError(400, "ocr_key_required", "Add the selected model's API key in Settings → AI Providers, then retry.");
-  return {
-    service: createConfiguredOcrService({ ...settings, engines: [engine] }, { localRuntime: ocr.runtime.local, resolveApiKey: async () => key }),
-    // Native preprocessing/decoding changes evidence; do not reuse Python OCR pages.
-    fingerprint: digest(JSON.stringify(engine) + (engine.kind === "local" && engine.model === "pp-ocrv6-small" ? ":native-ocr-1" : "")),
-  };
+  const view = (await ocr.view()).engines.find(item => item.id === engine.id);
+  if (view?.status !== "ready") throw new ApiError(400, "ocr_not_ready", engine.execution === "local"
+    ? "Download the selected OCR model in Settings → AI Providers, then retry the review."
+    : "Enable and finish setting up the selected OCR model in Settings → AI Providers, then retry.");
+  return { service: result.service, fingerprint: digest(result.fingerprint + (engine.model === "pp-ocrv6-small" ? ":native-ocr-1" : "")) };
 }
 
 /** Shared document preparation for review tools. Jobs and page OCR are serialized across runs. */
@@ -93,7 +87,7 @@ export class DocumentPreparation {
     const sources = await Promise.all(input.files.map(file => documentPath(workspaceFileRoot({ path: workspace, contentPath }, file), file)));
     if (new Set(sources.map(source => source.path)).size !== sources.length) throw new ApiError(400, "duplicate_document", "Each document should appear once in a review run.");
     const selected = await (this.options.snapshot ? this.options.snapshot() : snapshot(this.ocr));
-    const engine = selected.service.listEngines()[0];
+    const engine = selected.service.listEngines().find(engine => engine.id === selected.service.defaultEngineId);
     if (!engine) throw new Error("Missing OCR engine");
     const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now() };
     this.jobs.set(job.id, job);

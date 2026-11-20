@@ -58,7 +58,7 @@ export type OcrEngineInfo = {
   /** Pages the engine reads at once. Local models read one; remote APIs may take several. */
   concurrentPages?: number;
 };
-export type OcrContext = { languages: readonly string[]; signal: AbortSignal };
+export type OcrContext = { languages: readonly string[]; signal: AbortSignal; onDurableJob?: () => void };
 export interface OcrEngine {
   readonly info: OcrEngineInfo;
   recognize(page: OcrPage, context: OcrContext): Promise<OcrContent>;
@@ -100,7 +100,7 @@ export type OcrRequest = {
 
 export class OcrError extends Error {
   constructor(
-    readonly code: "invalid-input" | "unknown-engine" | "unsupported-language" | "runtime-unavailable" | "local-failed" | "missing-api-key" | "server-failed" | "invalid-response" | "cancelled" | "timeout",
+    readonly code: "invalid-input" | "unknown-engine" | "unsupported-language" | "runtime-unavailable" | "local-failed" | "missing-api-key" | "server-failed" | "invalid-response" | "cancelled" | "timeout" | "pending",
     message: string,
   ) { super(message); this.name = "OcrError"; }
 }

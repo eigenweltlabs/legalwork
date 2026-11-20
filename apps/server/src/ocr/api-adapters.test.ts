@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { createConfiguredOcrService, defaultOcrSettings, OcrService, serverEngineSchema } from "./index.js";
 import { createServerOcrEngine } from "./server-engine.js";
 import type { OcrApiType } from "@legalwork/types/ocr";
@@ -101,4 +102,82 @@ test("Chat truncation remains text-only", async () => {
   const engine = createServerOcrEngine(settings, async () => "secret", async () => Response.json({ choices: [{ message: { content: "Partial" }, finish_reason: "length" }] }));
   const result = (await new OcrService([engine], "chat").extract(request)).pages[0];
   expect(result).toMatchObject({ text: "Partial", regions: [], truncated: true });
+});
+
+test("Gateway MCP OCR sends only the page to the configured tool and preserves validated regions", async () => {
+  const body = { errorCode: 0, result: { layoutParsingResults: [{ markdown: { text: "Payment within 14 days." },
+    prunedResult: { width: 100, height: 50, parsing_res_list: [{ block_label: "text", block_content: "Payment within 14 days.", block_bbox: [10, 5, 90, 40] }] } }] } };
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: async (req) => {
+    expect(req.headers.get("authorization")).toBe("Bearer gateway-key");
+    expect(await req.json()).toEqual({ server_id: "eigenwelt_ocr_dev", name: "recognize_page", arguments: { file: "AQID", width: 100, height: 50 } });
+    return Response.json({ content: [{ type: "text", text: JSON.stringify(body) }], structuredContent: body, isError: false });
+  } });
+  try {
+    const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "eigenwelt_ocr_dev/recognize_page", endpoint: server.url.href, apiKeyRef: "gateway-key" });
+    const service = new OcrService([createServerOcrEngine(settings, async () => "gateway-key")], "gateway");
+    const result = await service.extract(request);
+    expect(result.pages[0]).toMatchObject({ text: "Payment within 14 days.", pageNumber: 4,
+      regions: [{ text: "Payment within 14 days.", box: { x: 0.1, y: 0.1, width: 0.8, height: 0.7 } }] });
+    expect(result.warnings).toContain("remote-processing");
+  } finally { server.stop(true); }
+});
+
+test("Gateway MCP text fallback is strict; tool errors and malformed or ambiguous results fail", async () => {
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "http://localhost:8080/mcp-rest/tools/call", apiKeyRef: null });
+  const run = async (body: unknown) => new OcrService([createServerOcrEngine(settings, async () => undefined, async () => Response.json(body))], "gateway").extract(request);
+  expect((await run({ content: [{ type: "text", text: JSON.stringify(responseFor("paddleocr")) }] })).pages[0].text).toBe("Agreement / Vertrag");
+  for (const body of [
+    { isError: true, structuredContent: responseFor("paddleocr"), content: [{ type: "text", text: "private provider details" }] },
+    { structuredContent: {} }, { content: [{ type: "text", text: "not JSON" }] },
+    { content: [{ type: "text", text: "{}" }, { type: "text", text: "{}" }] },
+    { structuredContent: { errorCode: 0, result: { layoutParsingResults: [{ markdown: { text: "A" } }, { markdown: { text: "B" } }] } } },
+  ]) await expect(run(body)).rejects.toMatchObject({ code: "invalid-response", message: "The OCR server did not return a valid transcription." });
+  expect(serverEngineSchema.safeParse({ ...settings, model: "missing-server" }).success).toBe(false);
+});
+
+test("Gateway durable OCR submits once and polls its own job until the page is complete", async () => {
+  const id = randomUUID(), names: string[] = [];
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "https://example.com/mcp-rest/tools/call", apiKeyRef: "key" });
+  const engine = createServerOcrEngine(settings, async () => "secret", async (_url, init) => {
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer secret");
+    const body = JSON.parse(String(init.body)); names.push(body.name);
+    expect(body.server_id).toBe("ocr");
+    if (body.name === "recognize_page") return Response.json({ structuredContent: { job: { id, status: "queued", retryAfterMs: 250 } } });
+    expect(body.arguments).toEqual({ job_id: id });
+    return Response.json({ structuredContent: { job: { id, status: "succeeded", retryAfterMs: 250 }, result: responseFor("paddleocr") } });
+  });
+  expect((await new OcrService([engine], "gateway").extract(request)).pages[0].text).toBe("Agreement / Vertrag");
+  expect(names).toEqual(["recognize_page", "ocr_page_status"]);
+});
+
+test("Gateway durable OCR rejects changed job identities and terminal failures", async () => {
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "http://localhost:8080/mcp-rest/tools/call", apiKeyRef: null });
+  for (const status of ["failed", "cancelled", "changed-id"]) {
+    const id = randomUUID(); let calls = 0;
+    const engine = createServerOcrEngine(settings, async () => undefined, async () => {
+      calls++;
+      return Response.json({ structuredContent: { job: { id: status === "changed-id" && calls > 1 ? randomUUID() : id,
+        status: calls === 1 ? "queued" : status === "changed-id" ? "running" : status, retryAfterMs: 250 } } });
+    });
+    await expect(new OcrService([engine], "gateway").extract(request)).rejects.toMatchObject({ code: status === "changed-id" ? "invalid-response" : "server-failed" });
+    expect(calls).toBe(2);
+  }
+});
+
+test("cancelling a queued Gateway read stops polling and leaves its durable job available to resume", async () => {
+  const controller = new AbortController(), id = randomUUID(); let calls = 0;
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "http://localhost:8080/mcp-rest/tools/call", apiKeyRef: null });
+  const engine = createServerOcrEngine(settings, async () => undefined, async () => {
+    calls++; setTimeout(() => controller.abort(), 10);
+    return Response.json({ structuredContent: { job: { id, status: "queued", retryAfterMs: 250 } } });
+  });
+  await expect(new OcrService([engine], "gateway").extract({ ...request, signal: controller.signal })).rejects.toMatchObject({ code: "cancelled" });
+  expect(calls).toBe(1);
+});
+
+test("a durable job outliving the page deadline reports pending work with a resume instruction", async () => {
+  const id = randomUUID();
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "http://localhost:8080/mcp-rest/tools/call", apiKeyRef: null });
+  const engine = createServerOcrEngine(settings, async () => undefined, async () => Response.json({ structuredContent: { job: { id, status: "queued", retryAfterMs: 250 } } }));
+  await expect(new OcrService([engine], "gateway", 30).extract(request)).rejects.toMatchObject({ code: "pending", message: expect.stringContaining("resume the saved job") });
 });

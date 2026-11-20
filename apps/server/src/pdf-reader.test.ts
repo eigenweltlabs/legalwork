@@ -3,7 +3,7 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { PdfReader } from "./pdf-reader.js";
 import { OcrService } from "./ocr/service.js";
 import { OcrError } from "./ocr/types.js";
-import type { OcrPage } from "./ocr/types.js";
+import type { OcrEngineInfo, OcrPage } from "./ocr/types.js";
 
 async function document() {
   const pdf = await PDFDocument.create();
@@ -14,12 +14,12 @@ async function document() {
   pdf.addPage([200, 200]).drawRectangle({ x: 0, y: 0, width: 100, height: 100, color: rgb(0, 0, 0) });
   return pdf.save();
 }
-function fixture(recognize: (page: OcrPage, signal: AbortSignal) => Promise<string> = async page => `Recognized page ${page.pageNumber}`) {
+function fixture(recognize: (page: OcrPage, signal: AbortSignal) => Promise<string> = async page => `Recognized page ${page.pageNumber}`, info: Pick<OcrEngineInfo, "execution" | "concurrentPages"> = { execution: "local" }) {
   const calls: number[] = [];
   let snapshots = 0, fingerprint = "settings-1";
   const reader = new PdfReader({ async serviceSnapshot() {
     snapshots++;
-    return { fingerprint, service: new OcrService([{ info: { id: "test", label: "Test", model: "test", execution: "local", regions: false, languages: null, warnings: [] },
+    return { fingerprint, service: new OcrService([{ info: { id: "test", label: "Test", model: "test", regions: false, languages: null, warnings: [], ...info },
       async recognize(page, context) { calls.push(page.pageNumber); return { text: await recognize(page, context.signal), regions: [], truncated: false }; },
     }], "test") };
   } });
@@ -142,4 +142,76 @@ test("cancellation interrupts OCR and does not become a successful partial read"
   const state = fixture(async () => { controller.abort(); return "cancelled"; });
   await expect(state.reader.read(await document(), { ocr: true, pages: [3] }, controller.signal)).rejects.toThrow();
   expect(state.calls).toEqual([3]);
+});
+
+test("remote pages overlap, retain source order and cache each completed page", async () => {
+  const started = Promise.withResolvers<void>();
+  const releases = new Map<number, () => void>();
+  const state = fixture(async page => {
+    await new Promise<void>(resolve => { releases.set(page.pageNumber, resolve); if (releases.size === 3) started.resolve(); });
+    return `Recognized page ${page.pageNumber}`;
+  }, { execution: "remote", concurrentPages: 3 });
+  const bytes = await document(), operation = state.reader.read(bytes, { ocr: true }, signal());
+  await started.promise;
+  for (const page of [3, 1, 2]) releases.get(page)!();
+  const result = await operation;
+  expect(result.complete).toBe(true);
+  expect(result.pages.map(page => page.text)).toEqual([1, 2, 3].map(page => `Recognized page ${page}`));
+  await state.reader.read(bytes, { ocr: true }, signal());
+  expect([...state.calls].sort((left, right) => left - right)).toEqual([1, 2, 3]);
+});
+
+test("page concurrency stays bounded, including local engines", async () => {
+  for (const execution of ["local", "remote"] satisfies OcrEngineInfo["execution"][]) {
+    let active = 0, peak = 0;
+    const state = fixture(async page => {
+      peak = Math.max(peak, ++active);
+      await new Promise(resolve => setTimeout(resolve, 15)); active--;
+      return `Page ${page.pageNumber}`;
+    }, { execution, concurrentPages: 2 });
+    await state.reader.read(await document(), { ocr: true }, signal());
+    expect(peak).toBe(execution === "local" ? 1 : 2);
+  }
+});
+
+test("a failed parallel page preserves successful siblings", async () => {
+  const state = fixture(async page => {
+    if (page.pageNumber === 2) throw new Error("Synthetic failure");
+    return `Page ${page.pageNumber}`;
+  }, { execution: "remote", concurrentPages: 3 });
+  const result = await state.reader.read(await document(), { ocr: true }, signal());
+  expect(result.complete).toBe(false);
+  expect(result.pages.map(page => page.error)).toEqual([undefined, "OCR processing failed.", undefined]);
+  expect(result.pages[0].text).toBe("Page 1"); expect(result.pages[2].text).toBe("Page 3");
+});
+
+test("pending durable OCR can resume immediately without the ordinary failure cooldown", async () => {
+  let pending = true;
+  const state = fixture(async () => {
+    if (pending) { pending = false; throw new OcrError("pending", "Read this unchanged page again to resume the saved job."); }
+    return "Completed saved job";
+  }, { execution: "remote", concurrentPages: 1 });
+  const bytes = await document();
+  expect((await state.reader.read(bytes, { ocr: true, pages: [1] }, signal())).complete).toBe(false);
+  const resumed = await state.reader.read(bytes, { ocr: true, pages: [1] }, signal());
+  expect(resumed.complete).toBe(true);
+  expect(resumed.pages[0].text).toBe("Completed saved job");
+  expect(state.calls).toEqual([1, 1]);
+});
+
+test("cancelling parallel OCR settles workers and keeps the reader reusable", async () => {
+  const started = Promise.withResolvers<void>(), controller = new AbortController();
+  let active = 0;
+  const state = fixture(async (_page, requestSignal) => {
+    if (++active === 3) started.resolve();
+    await new Promise<void>((_resolve, reject) => requestSignal.addEventListener("abort", () => { active--; reject(requestSignal.reason); }, { once: true }));
+    return "Never returned";
+  }, { execution: "remote", concurrentPages: 3 });
+  const operation = state.reader.read(await document(), { ocr: true }, controller.signal);
+  const rejected = operation.catch(error => error);
+  await started.promise; controller.abort();
+  expect(await rejected).toBeInstanceOf(Error);
+  expect(active).toBe(0);
+  const text = await state.reader.read(await document(), { text: true, pages: [1] }, signal());
+  expect(text.complete).toBe(true);
 });

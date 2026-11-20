@@ -32,6 +32,7 @@ import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import { composedSkill } from "./skill-composition.js";
 import { parseEigenweltCheckoutSelection } from "./eigenwelt-checkout.js";
 import { projectSyncStore } from "./project-sync-store.js";
+import { cloudOcrRuntime } from "./cloud-ocr.js";
 import { eigenweltUsageRequest } from "./eigenwelt-usage.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -897,7 +898,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory),
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), runtimeOptions.modelDownloadFetch);
+  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"), () => orgOcr(config), runtimeOptions.modelDownloadFetch, cloudOcrRuntime(config));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {

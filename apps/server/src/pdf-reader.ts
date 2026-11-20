@@ -5,6 +5,7 @@ import { extractPdfText, openDocument } from "./document-preparation/render.js";
 import { ApiError } from "./errors.js";
 import type { OcrManager } from "./ocr/manager.js";
 import type { OcrService } from "./ocr/service.js";
+import { OcrError } from "./ocr/types.js";
 import { PDF_MAX_BYTES, PDF_IN_MEMORY_MAX_BYTES, PDF_ATTACHMENT_MAX_BYTES, pdfReadOptions, type PdfTextResult } from "./pdf-read-schema.js";
 import { PdfFile } from "./pdf-file.js";
 import type { z } from "zod";
@@ -79,15 +80,18 @@ export class PdfReader {
     if (options.ocr === true && options.text === true) for (const page of required) page.native_text = page.text;
     if (!required.length) return { source_hash, page_count: native.pageCount, extraction: "native", complete: pages.every(page => page.embedded_text_chars > 0), pages };
     if (required.length > 100) throw new ApiError(400, "pdf_ocr_pages", "OCR was not started: at most 100 pages can be recognized per call. Select fewer source pages with pages, or use text=true without ocr for embedded text. offset/limit only paginate returned text and do not reduce OCR work.");
-    // Serialize OCR across reads. A cancelled request must not release the slot
-    // while an earlier operation still owns the model process.
+    // Bound memory across documents; remote pages within a document can overlap.
+    // Drain all started pages before closing their renderer or model processes.
     const operation = this.pending.catch(() => undefined).then(async () => {
       signal.throwIfAborted();
       let service: OcrService | undefined;
       let document: Awaited<ReturnType<typeof openDocument>> | undefined;
       try {
         const snapshot = await this.ocr.serviceSnapshot();
-        service = snapshot.service;
+        const current = service = snapshot.service;
+        const engine = current.listEngines().find(item => item.id === current.defaultEngineId);
+        const concurrency = engine?.execution === "remote" ? Math.min(8, engine.concurrentPages ?? 1) : 1;
+        const pending: typeof required = [];
         for (const page of required) {
           signal.throwIfAborted();
           const key = `${source_hash}:${snapshot.fingerprint}:${page.page}`;
@@ -99,20 +103,38 @@ export class PdfReader {
             continue;
           }
           this.failures.delete(key);
-          try {
-            document ??= await render();
-            const rendered = await document.page(page.page, signal);
-            const result = await service.extract({ sourceId: source_hash, pages: [rendered.image], languages: [], signal });
-            const recognized = result.pages[0];
-            if (!recognized?.text.trim() || recognized.truncated) throw new Error(recognized?.truncated ? "OCR output was truncated." : "OCR returned no readable text.");
-            page.text = recognized.text; page.extraction = "ocr";
-            this.remember(key, page.text);
-          } catch (error) {
-            signal.throwIfAborted();
-            page.error = error instanceof Error ? error.message : "Could not recognize this page.";
-            if (this.failures.size >= 1000) this.failures.delete(this.failures.keys().next().value!);
-            this.failures.set(key, { error: page.error, until: Date.now() + 60000 });
-          }
+          pending.push(page);
+        }
+        if (pending.length) {
+          const opened = document = await render();
+          let next = 0;
+          const worker = async () => {
+            while (next < pending.length) {
+              signal.throwIfAborted();
+              const page = pending[next++];
+              const key = `${source_hash}:${snapshot.fingerprint}:${page.page}`;
+              try {
+                const rendered = await opened.page(page.page, signal);
+                const result = await current.extract({ sourceId: source_hash, pages: [rendered.image], languages: [], signal });
+                const recognized = result.pages[0];
+                if (!recognized?.text.trim() || recognized.truncated) throw new Error(recognized?.truncated ? "OCR output was truncated." : "OCR returned no readable text.");
+                page.text = recognized.text; page.extraction = "ocr";
+                this.remember(key, page.text);
+              } catch (error) {
+                signal.throwIfAborted();
+                page.error = error instanceof Error ? error.message : "Could not recognize this page.";
+                if (!(error instanceof OcrError && error.code === "pending")) {
+                  if (this.failures.size >= 1000) this.failures.delete(this.failures.keys().next().value!);
+                  this.failures.set(key, { error: page.error, until: Date.now() + 60000 });
+                }
+              }
+            }
+          };
+          // One rendered page can wait behind the engine's own concurrency gate.
+          const workers = concurrency + (engine?.execution === "remote" ? 1 : 0);
+          await Promise.allSettled(Array.from({ length: Math.min(workers, pending.length) }, worker));
+          signal.throwIfAborted();
+
         }
       } catch (error) {
         signal.throwIfAborted();

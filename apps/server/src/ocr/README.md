@@ -211,7 +211,7 @@ await store.write(settings);
 // Recreate the service with this settings snapshot after saving changes.
 ```
 
-Custom models support three explicit API types:
+Custom models support four explicit API types:
 
 - `chat-completions`: vision Chat Completions with inline image data, `max_tokens`,
   and a standard choices/message response. Existing configurations keep this type.
@@ -221,6 +221,13 @@ Custom models support three explicit API types:
   single image's `result.layoutParsingResults[0].markdown.text`. Model selection
   belongs to the deployed PaddleOCR pipeline; the UI therefore omits a model-ID
   field for this API. The stored model label is `PaddleOCR`.
+
+- `mcp-ocr`: LiteLLM's `/mcp-rest/tools/call`. Set `model` to `server/name`, e.g.
+  `eigenwelt_ocr_dev/recognize_page`. Sends `{server_id, name, arguments: {file,
+  width, height}}` using the configured Gateway bearer key. The MCP tool returns
+  the Paddle single-page contract in `structuredContent`, or one JSON text block.
+  Tool errors fail the page even on HTTP 200. Paddle's geometry checks apply to
+  returned blocks. The host never lists or executes an agent-selected tool.
 
 The latter two adapters preserve returned Markdown in the text result. They do not
 download linked images or claim word coordinates. Each request processes one supplied
@@ -342,7 +349,7 @@ for jobs and refresh it when settings change.
   never provider output. A server model test transmits this sample to that endpoint.
 
 Custom model input is `{ kind, authentication, label, endpoint, model, languages: string[] | null, apiKey? }`.
-`kind` is one of the three API types above. `authentication` is `api-key` or `none`;
+`kind` is one of the four API types above. `authentication` is `api-key` or `none`;
 `none` is allowed only for localhost, 127.0.0.1 or ::1 endpoints. It stores a null
 key reference and sends no Authorization header. Selecting `none` while editing
 also deletes the previously saved key. A configured but missing key always fails;
