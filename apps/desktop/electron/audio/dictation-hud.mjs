@@ -26,7 +26,7 @@ export class DictationHud {
     /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "miniBarEnabled" | "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform" | "appearance">} */
     this.status = { miniBarEnabled: false, appearance: "app", enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
     /** The floating companion: a handle into the Assistant with quiet attention and recording status. */
-    this.companion = { enabled: false, badge: true, attention: 0, recording: false };
+    this.companion = { badge: true, attention: 0, recording: false };
     this.hideTimer = null;
     this.settleKey = "";
     this.updateVersion = 0;
@@ -89,7 +89,7 @@ export class DictationHud {
     return this.meeting && this.meeting.state !== "idle" ? `meeting-${this.meeting.state}` : this.state;
   }
 
-  /** @param {{ enabled: boolean, badge: boolean, attention: number, recording: boolean }} state */
+  /** @param {{ badge: boolean, attention: number, recording: boolean }} state */
   async setCompanion(state) {
     this.companion = { ...this.companion, ...state };
     await this.setState(this.state, this.message, this.locale);

@@ -596,4 +596,4 @@ body[data-state=idle] #bar[data-hovered=true] #assistant { width:28px; margin-le
 html body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar #assistant { width:28px; height:0; margin:0 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar[data-hovered=true] #assistant { height:28px }
 #assistant-label { font-size:11px; font-weight:500; white-space:nowrap }
-body[data-companion=true][data-companion-recording=true] #assistant svg { color:#dc2626 }
+body[data-companion-recording=true] #assistant svg { color:#dc2626 }
