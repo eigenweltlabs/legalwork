@@ -21,9 +21,9 @@ test("the store persists atomically and reloads", async () => {
   try {
     const store = new LauncherSettingsStore(dir);
     await store.load();
-    await store.update({ companion: true, aliases: { chats: "g" } });
+    await store.update({ companionBadge: false, aliases: { chats: "g" } });
     const raw = JSON.parse(await readFile(path.join(dir, "launcher.json"), "utf8"));
-    assert.equal(raw.companion, true);
+    assert.equal(raw.companionBadge, false);
     assert.equal(raw.aliases.chats, "g");
     const reloaded = new LauncherSettingsStore(dir);
     assert.equal((await reloaded.load()).aliases.chats, "g");

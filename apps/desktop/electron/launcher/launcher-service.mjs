@@ -19,7 +19,7 @@ export class LauncherService {
    * @param {{ app: import("electron").App, globalShortcut: import("electron").GlobalShortcut, userDataDir: string, platform?: string,
    *   workspaceContext?: () => import("@legalwork/types/launcher").LauncherWorkspaceContext | null, window: import("./launcher-window.mjs").LauncherWindow, origin: import("./origin-service.mjs").OriginService, capture: import("./screen-capture.mjs").ScreenCapture,
    *   pairing: import("./raycast-pairing.mjs").RaycastPairing, dictation: () => { enabled: boolean, accelerator: string, runtimeState: string }, meeting: () => { state: string },
-   *   companion: (state: { enabled: boolean, badge: boolean, attention: number, recording: boolean }) => void, onPresenceChanged: () => void, dictate: () => void, record: () => void, composerRecording: () => boolean, settings?: LauncherSettingsStore, registry?: LauncherShortcutRegistry }} options
+   *   companion: (state: { badge: boolean, attention: number, recording: boolean }) => void, onPresenceChanged: () => void, dictate: () => void, record: () => void, composerRecording: () => boolean, settings?: LauncherSettingsStore, registry?: LauncherShortcutRegistry }} options
    */
   constructor(options) {
     this.options = options;
@@ -89,7 +89,7 @@ export class LauncherService {
   }
   syncCompanion() {
     const settings = this.settings.get();
-    this.options.companion({ enabled: settings.companion, badge: settings.companionBadge, attention: this.attention, recording: this.recording });
+    this.options.companion({ badge: settings.companionBadge, attention: this.attention, recording: this.recording });
   }
   setAttention(input) {
     this.attention = Math.max(0, Number(input?.count) || 0);

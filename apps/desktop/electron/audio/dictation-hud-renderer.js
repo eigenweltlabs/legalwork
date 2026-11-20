@@ -95,8 +95,7 @@ bridge.onState((value) => {
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
-  const companion = value.companion ?? { enabled: false, badge: true, attention: 0, recording: false };
-  document.body.dataset.companion = String(Boolean(companion.enabled));
+  const companion = value.companion ?? { badge: true, attention: 0, recording: false };
   document.body.dataset.companionRecording = String(Boolean(companion.recording));
   const assistantButton = document.getElementById("assistant");
   const badge = document.getElementById("assistant-badge");
@@ -175,7 +174,7 @@ setInterval(() => {
 }, 250);
 bar.addEventListener("click", (event) => {
   if (currentState !== "idle" || event.target.closest("button")) return;
-  if (document.getElementById("start").disabled && document.body.dataset.companion === "true") bridge.action("assistant-open");
+  if (document.getElementById("start").disabled) bridge.action("assistant-open");
   else bridge.action("start");
 });
 let interactive = false;

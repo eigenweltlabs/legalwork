@@ -107,7 +107,7 @@ test("direct action shortcuts jump into the panel and the selection shortcut pre
   const dir = await mkdtemp(path.join(tmpdir(), "launcher-service-actions-"));
   try {
     const { service, window, origin, globalShortcut, companionStates } = await makeService(dir);
-    await service.updateSettings({ actionShortcuts: { "app.search-files": "Alt+F", "app.add-selection": "Alt+S", "app.dictate": "Alt+D", "quick-action:qa_1": "Alt+Q" }, companion: true });
+    await service.updateSettings({ actionShortcuts: { "app.search-files": "Alt+F", "app.add-selection": "Alt+S", "app.dictate": "Alt+D", "quick-action:qa_1": "Alt+Q" } });
     assert.deepEqual([...globalShortcut.bound.keys()].sort(), ["Alt+F", "Alt+Q", "Alt+S", "Command+Shift+Space"]);
     window.setLoading(false);
     service.drain();
@@ -121,7 +121,7 @@ test("direct action shortcuts jump into the panel and the selection shortcut pre
     assert.deepEqual(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.actionId, "quick-action:qa_1");
     assert.equal(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.captureSelection, undefined);
     service.setAttention({ count: 2, recording: true });
-    assert.deepEqual(companionStates.at(-1), { enabled: true, badge: true, attention: 2, recording: true });
+    assert.deepEqual(companionStates.at(-1), { badge: true, attention: 2, recording: true });
     assert.equal(window.sent.at(-1)?.type, "attention");
     const status = await service.status();
     assert.deepEqual(status.conflicts, []);

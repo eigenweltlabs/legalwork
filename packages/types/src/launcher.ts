@@ -197,13 +197,13 @@ export type LauncherStagedContext = z.infer<typeof LauncherStagedContextSchema>;
 
 /** Desktop-side preferences, persisted beside the dictation settings. */
 export const LauncherSettingsSchema = z.object({
-  shortcut: z.string().max(60), backgroundPresence: z.boolean(), autostart: z.boolean(), companion: z.boolean(), companionBadge: z.boolean(),
+  shortcut: z.string().max(60), backgroundPresence: z.boolean(), autostart: z.boolean(), companionBadge: z.boolean(),
   aliases: z.record(LauncherSearchKindSchema, z.string().regex(/^[a-z0-9]{1,3}$/)),
   actionShortcuts: z.record(z.string(), z.string().max(60)), pinned: z.boolean(), rememberPosition: z.boolean(),
 });
 export type LauncherSettings = z.infer<typeof LauncherSettingsSchema>;
 export const DEFAULT_LAUNCHER_SETTINGS: LauncherSettings = {
-  shortcut: "CommandOrControl+Shift+Space", backgroundPresence: false, autostart: false, companion: false, companionBadge: true,
+  shortcut: "CommandOrControl+Shift+Space", backgroundPresence: false, autostart: false, companionBadge: true,
   aliases: { ...DEFAULT_LAUNCHER_ALIASES }, actionShortcuts: {}, pinned: false, rememberPosition: true,
 };
 

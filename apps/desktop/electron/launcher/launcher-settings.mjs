@@ -5,7 +5,7 @@ const FILE = "launcher.json";
 export const LAUNCHER_SEARCH_KINDS = ["files", "projects", "chats", "tasks", "recordings"];
 /** @type {Readonly<import("@legalwork/types/launcher").LauncherSettings>} */
 export const DEFAULT_LAUNCHER_SETTINGS = Object.freeze({
-  shortcut: "CommandOrControl+Shift+Space", backgroundPresence: false, autostart: false, companion: false, companionBadge: true,
+  shortcut: "CommandOrControl+Shift+Space", backgroundPresence: false, autostart: false, companionBadge: true,
   aliases: { files: "f", projects: "p", chats: "c", tasks: "t", recordings: "r" }, actionShortcuts: {}, pinned: false, rememberPosition: true,
 });
 const ACCELERATOR = /^[A-Za-z0-9+]{1,60}$/;
@@ -22,7 +22,7 @@ export function normalizeLauncherSettings(input, current = DEFAULT_LAUNCHER_SETT
   if (!input || typeof input !== "object") return next;
   const patch = /** @type {Record<string, unknown>} */ (input);
   if (typeof patch.shortcut === "string" && ACCELERATOR.test(patch.shortcut.trim())) next.shortcut = patch.shortcut.trim();
-  for (const key of /** @type {const} */ (["backgroundPresence", "autostart", "companion", "companionBadge", "rememberPosition"])) if (typeof patch[key] === "boolean") next[key] = patch[key];
+  for (const key of /** @type {const} */ (["backgroundPresence", "autostart", "companionBadge", "rememberPosition"])) if (typeof patch[key] === "boolean") next[key] = patch[key];
   if (patch.aliases && typeof patch.aliases === "object") {
     const aliases = /** @type {Record<string, unknown>} */ (patch.aliases);
     for (const kind of /** @type {const} */ (["files", "projects", "chats", "tasks", "recordings"])) {
