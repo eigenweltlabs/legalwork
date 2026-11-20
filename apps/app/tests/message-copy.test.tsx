@@ -12,6 +12,7 @@ import type { ThreadStatus } from "../src/lib/messages";
 import { createSessionErrorUIMessage } from "../src/react-app/domains/session/sync/usechat-adapter";
 import { textPartProviderMetadata } from "../src/react-app/domains/session/sync/assistant-message-sender";
 import { integrationInstruction, createIntegrationMention, type IntegrationSelection } from "../src/react-app/domains/session/surface/composer/integration-mention";
+import { createWorkspaceAttachmentMention, workspaceAttachmentDisplayText } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 
 function textMessage(id: string, role: UIMessage["role"], text: string): UIMessage {
   return { id, role, parts: [{ type: "text", text }] };
@@ -55,6 +56,16 @@ describe("message copying", () => {
     expect(copyButtonCount(renderMessages(messages, "ready"))).toBe(4);
     expect(copyButtonCount(renderMessages(messages, "ready", "assistant-2"))).toBe(3);
   });
+
+  test.each(["Test Hallo Johann.docx", "Contracts/Prüfung [A] (final) #1.docx", ".legalwork/attachments/snapshot/Contract.docx"])("renders sent file references as clickable badges: %s", (path) => {
+    const name = path.split("/").at(-1)!;
+    const link = workspaceAttachmentDisplayText(createWorkspaceAttachmentMention(name, path));
+    const html = renderMessages([textMessage("user", "user", `${link} Was ist in dieser Datei?`)], "ready");
+    expect(html).toContain(`class="truncate">${name}</span>`);
+    expect(html).toContain("Was ist in dieser Datei?");
+    expect(html).not.toContain(link);
+  });
+
   test("sent integration references render inline as chips while ordinary mentions stay text", () => {
     const selection: IntegrationSelection = { kind: "website", id: "beck", label: "beck-online" };
     for (const legacy of [false, true]) {

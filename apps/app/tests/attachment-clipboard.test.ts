@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { attachmentClipboardParts } from "../src/react-app/domains/session/surface/composer/attachment-clipboard";
 import { homeClipboardAttachment, activeHomeAttachments, homeAttachmentToken } from "../src/react-app/domains/session/home/home-attachments";
-import { parseWorkspaceAttachmentMention } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
+import { createWorkspaceAttachmentMention, parseWorkspaceAttachmentMention, workspaceAttachmentDisplayText } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 
 const link = "[Contract.docx](.legalwork/attachments/snapshot/Contract.docx)";
 const source = { projectId: "project-a", workspaceId: "workspace-a", name: "Contract.docx", path: ".legalwork/attachments/snapshot/Contract.docx" };
@@ -15,6 +15,18 @@ test("copied prompts preserve text and attachment provenance for a fresh snapsho
   expect(attachment?.source).toEqual(source);
   expect(attachment?.name).toBe("Contract.docx · Matter A");
   expect(attachment?.path).toStartWith("pending/");
+});
+
+test.each(["Test Hallo Johann.docx", "Contracts/Prüfung [A] (final) #1.docx", "literal%20name%2F.docx"])("copied original file links retain the exact source path: %s", (path) => {
+  const name = path.split("/").at(-1)!;
+  const original = { ...source, name, path };
+  const originalLink = workspaceAttachmentDisplayText(createWorkspaceAttachmentMention(name, path));
+  const text = `Review ${originalLink}\nThen explain.`;
+  const parts = attachmentClipboardParts(text, metadata([{ link: originalLink, source: original, projectName: "Matter A" }]))!;
+  expect(parts?.[0]).toEqual({ text: "Review " });
+  expect(parts?.[2]).toEqual({ text: "\nThen explain." });
+  expect(parseWorkspaceAttachmentMention(parts?.[1]?.mention ?? "")?.source).toEqual(original);
+  expect(attachmentClipboardParts(text, metadata([{ link: originalLink, source: { ...original, path: "another.docx" }, projectName: "Matter A" }]))).toBeNull();
 });
 
 test("copying an already attached badge does not append project labels to the filename", () => {
