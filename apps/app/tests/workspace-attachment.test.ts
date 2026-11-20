@@ -12,6 +12,7 @@ import {
 } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
+import { resolvePathOpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
 
 describe("workspace attachments", () => {
   test("file mentions reference the original project file without copying its bytes", async () => {
@@ -47,6 +48,27 @@ describe("workspace attachments", () => {
     expect(tokens[0]?.type).toBe("link");
     if (tokens[0]?.type === "link") expect(decodeURIComponent(tokens[0].href)).toBe(path);
     expect(workspaceAttachmentInstruction(decoded)).toContain(JSON.stringify(path));
+  });
+
+  test.each([
+    "Test Hallo Johann.docx",
+    "Contracts/Prüfung [A] (final) #1 100%.docx",
+    "notes/literal%20name%2F.txt",
+    "README",
+  ])("original project file links stay recognizable and open the exact path: %s", (path) => {
+    const name = path.split("/").at(-1)!;
+    const mention = createWorkspaceAttachmentMention(name, path);
+    const link = workspaceAttachmentDisplayText(mention);
+    expect(parseWorkspaceAttachmentLink(link)).toEqual({ name, path });
+    expect(`Read ${link}\nThen explain.`.split(new RegExp(`(${WORKSPACE_ATTACHMENT_LINK_SOURCE})`))).toEqual(["Read ", link, "\nThen explain."]);
+    const parsed = parseWorkspaceAttachmentLink(link);
+    expect(parsed && resolvePathOpenTarget(parsed.path, [], "attachment")).toMatchObject({ kind: "file", value: path });
+  });
+
+  test("file links reject outside-project paths, external URLs and malformed encoding", () => {
+    for (const path of ["../secret.docx", "%2E%2E/secret.docx", "/tmp/secret.docx", "%2Ftmp/secret.docx", "C%3A%5Csecret.docx", "docs/%5Csecret.docx", "docs/%00secret.docx", "bad%2.docx", "https://example.com/file.docx", "mailto:test@example.com", "#section"]) {
+      expect(parseWorkspaceAttachmentLink(`[Document](${path})`)).toBeNull();
+    }
   });
   for (const [name, type] of [
     ["contract.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
