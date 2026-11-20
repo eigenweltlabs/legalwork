@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { app, BrowserWindow, protocol } from "electron";
-import { guardPreviewNavigation } from "../electron/app-url.mjs";
+import { createAppUrlMatcher, guardPreviewNavigation } from "../electron/app-url.mjs";
 import { PDFDocument, PDFName } from "../../server/resources/core-opencode/skills/pdf-tools/assets/vendor/pdf-lib.mjs";
 
 const securitySource = await readFile(new URL("../../app/src/react-app/domains/session/artifacts/html-preview-security.ts", import.meta.url), "utf8");
@@ -35,7 +35,7 @@ app.whenReady().then(async () => {
     const origin = `http://127.0.0.1:${server.address().port}`;
     protocol.handle("lw-recording", () => { requests.push("recording"); return new Response("private audio"); });
     window = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, plugins: true } });
-    guardPreviewNavigation(window.webContents);
+    guardPreviewNavigation(window.webContents, { isAppUrl: createAppUrlMatcher({ devServerUrl: origin, appRoot: "/unused" }) });
     await window.loadURL("data:text/html,<html><body>Preview security regression</body></html>");
     const document = offlinePreviewDocument(`<html><body><button onclick="document.body.dataset.clicked='yes'">Local interaction</button>
       <script src="${origin}/remote-code"></script><img src="${origin}/image">
@@ -64,6 +64,42 @@ app.whenReady().then(async () => {
     assert.deepEqual(result, { bridge: "undefined", clicked: "yes", isolated: true });
     assert.deepEqual(requests, [], "previews must not make network requests, including self-navigation");
     console.log("PASS: interactive scripts and blob workers run without desktop access or outbound requests");
+    // Intercept HTTPS in this disposable Electron profile: no real Stripe
+    // account, bank, payment, or external network request is involved.
+    const paymentRequests = [];
+    protocol.handle("https", (request) => {
+      const url = new URL(request.url);
+      paymentRequests.push(url.origin + url.pathname);
+      let body;
+      if (url.hostname === "js.stripe.com") body = `<iframe src="https://hooks.stripe.com/challenge"></iframe><script>
+        addEventListener('message', e => parent.postMessage({...e.data, stripeBridge:typeof window.__LEGALWORK_ELECTRON__}, '*'));
+      </script>`;
+      else if (url.hostname === "hooks.stripe.com") body = `<iframe src="https://bank.example/challenge"></iframe><script>
+        addEventListener('message', e => parent.postMessage(e.data, '*'));
+      </script>`;
+      else body = `<script>parent.postMessage({type:'synthetic-bank-ready', bankBridge:typeof window.__LEGALWORK_ELECTRON__}, '*')</script>`;
+      return new Response(body, { headers: { "Content-Type": "text/html" } });
+    });
+    await window.loadURL(`${origin}/viewer`);
+    const payment = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Stripe payment frames were blocked')), 5000);
+      const frame = document.createElement('iframe');
+      addEventListener('message', function ready(e) {
+        if(e.source !== frame.contentWindow || e.data?.type !== 'synthetic-bank-ready') return;
+        clearTimeout(timeout); removeEventListener('message', ready); resolve(e.data);
+      });
+      frame.src = 'https://js.stripe.com/controller'; document.body.append(frame);
+    })`);
+    assert.deepEqual(payment, { type: "synthetic-bank-ready", bankBridge: "undefined", stripeBridge: "undefined" });
+    assert.deepEqual(paymentRequests, ["https://js.stripe.com/controller", "https://hooks.stripe.com/challenge", "https://bank.example/challenge"]);
+    await window.webContents.executeJavaScript(`{
+      const preview = document.createElement('iframe'); preview.sandbox = 'allow-scripts';
+      preview.srcdoc = '<script>location.replace("https://js.stripe.com/preview-must-stay-blocked")<\/script>';
+      document.body.replaceChildren(preview);
+    }`);
+    await delay(300);
+    assert.equal(paymentRequests.length, 3, "a preview must not reuse the Stripe payment exception");
+    console.log("PASS: app-owned Stripe and nested bank frames load without desktop access; previews cannot use the exception");
     // A non-opaque parent origin lets PDFium read its persisted viewer settings,
     // matching the actual app's blob previews.
     await window.loadURL(`${origin}/viewer`);
