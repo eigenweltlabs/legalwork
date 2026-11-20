@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import * as systemOne from "./systemone.js";
 import { readEigenweltConnection, withEigenweltConnectionLock, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
+import { runProjectSync } from "./project-sync.js";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -186,6 +187,39 @@ test("the account API signs out while preserving an old project without ownershi
     expect(await readFile(join(home, "history.txt"), "utf8")).toBe("Preserved local history");
     expect(requests.some(request => request.startsWith("GET /api/projects") || request.startsWith("GET /api/tasks"))).toBe(false);
   } finally {
+    platform.stop(true);
+    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+  }
+});
+
+test("sign-in discovers shared projects without waiting for a background notification or timer", async () => {
+  // Clear the startup round while signed out; the fallback timer is a minute away.
+  await runProjectSync(config);
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL, projectId = crypto.randomUUID();
+  const scope = { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false, calendar: false };
+  const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    if (new URL(request.url).pathname === "/api/projects") return Response.json({
+      projects: [{ id: projectId, name: "Shared fixture", ownerUserId: "owner", role: "member", access: "org", memberIds: [], scope, fields: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }], nextCursor: null,
+    });
+    return Response.json({});
+  } });
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${platform.port}`;
+  try {
+    const response = await call("PUT", "/workspace/ws_a/eigenwelt/connection", {
+      platformURL: process.env.EIGENWELT_PLATFORM_URL, platformToken: "test-access", accessTokenExpiresAt: Date.now() + 3_600_000,
+      account: { userId: "member", orgId: "firm", orgName: "Test firm", userName: "Test member", userEmail: null },
+    });
+    expect(response.status).toBe(200);
+    const store = await projectSyncStore(config);
+    for (let attempt = 0; attempt < 150 && !store.linkByProject(projectId); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    const copy = store.linkByProject(projectId);
+    expect(copy?.role).toBe("member");
+    const list = await (await call("GET", "/workspaces")).json();
+    expect(list.items.some((workspace: { id: string }) => workspace.id === copy?.workspaceId)).toBe(true);
+  } finally {
+    await writeEigenweltConnection(config, { account: null, platformToken: null, refreshToken: null });
+    await runProjectSync(config);
     platform.stop(true);
     if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
     else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
