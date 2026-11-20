@@ -248,7 +248,10 @@ export function TimesheetWorkspace({
           {capture => <TimeRecordSheet client={client} directory={directory} state={state} capture={capture} />}
         </TimesheetWorkday>
       )}
-      {recordsOnly && page === "billing-review" && directory.permissions.finance && renderRecords("invoices")}
+      {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
+        <p className="mx-4 my-2 text-sm text-muted-foreground">{t("timesheets.invoice_records_hint")}</p>
+        {renderRecords("invoices")}
+      </>}
       {recordsOnly && page === "billing-settings" && (
         <section className="time-record-settings" aria-label={t("timesheets.settings")}>
           <LayoutStack>

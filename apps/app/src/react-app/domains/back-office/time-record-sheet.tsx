@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, X, Plus, Timer, Sparkles, Info, Copy, History } from "lucide-react";
+import { Check, X, Plus, Timer, Sparkles, Info, CopyPlus, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { z, BackOfficeRecordSchema, BackOfficeViewSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { CaptureAction, CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
@@ -20,7 +20,7 @@ import { useNavigate } from "react-router-dom";
 
 const memberPrefix = "member:";
 const memberSource = (id: string) => "eigenwelt-member:" + id;
-const membersSchema = z.object({ members: z.array(z.object({ userId: z.string(), name: z.string().nullable(), email: z.string().nullable() })) });
+const membersSchema = z.object({ members: z.array(z.object({ userId: z.string(), name: z.string().nullable(), email: z.string().nullable(), canRecordTimeFor: z.boolean().optional() })) });
 const responseSchema = z.object({ record: BackOfficeRecordSchema });
 const billingFields = ["matter", "client", "billableMinutes"];
 const changesBilling = (values: TimeRecordValues) => billingFields.some(field => Object.hasOwn(values, field));
@@ -55,12 +55,13 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   const navigate = useNavigate();
   useSyncExternalStore(edits.subscribe, edits.snapshot, () => 0);
   const roster = useQuery({ queryKey: ["back-office", client.baseUrl, "time-members", directory.directoryId, directory.permissions.principalKey],
-    queryFn: async () => membersSchema.parse(await client.backOffice("/time-members")), retry: false });
-  const members = roster.data?.members ?? [];
+    queryFn: async () => membersSchema.parse(await client.backOffice("/time-members")), retry: false, refetchInterval: 60000 });
+  const members = (roster.data?.members ?? []).filter(member => member.userId === directory.permissions.userId || member.canRecordTimeFor === true);
   const self = memberPrefix + directory.permissions.userId;
   const [hiddenProposals, hideProposals] = useState<Set<string>>(new Set());
   const [source, setSource] = useState<string>();
-  const [person, setPerson] = useState(self);
+  const [filter, setPerson] = useState(self);
+  const person = members.length > 1 && (!filter || members.some(member => memberPrefix + member.userId === filter)) ? filter : self;
   const [composerId, setComposerId] = useState<string>();
   const grid = useRef<HTMLDivElement>(null);
   useEffect(() => setComposerId(undefined), [capture.date]);
@@ -114,7 +115,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   function fieldValue(record: BackOfficeRecord, id: string) {
     const value = record.values[id];
     if (id === "startedAt") return serviceDate(record.values);
-    if (id === "timekeeper" && typeof value === "string") return contacts.get(value) ?? value;
+    if (id === "timekeeper") {
+      if (typeof value === "string") return contacts.get(value) ?? value;
+      const owner = memberPrefix + record.ownerId;
+      if (!value && rosterIds.has(owner)) return owner;
+    }
     return value;
   }
   function isOwn(record: BackOfficeRecord) {
@@ -122,7 +127,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   }
   function isVisible(record: BackOfficeRecord) {
     return capture.dates.includes(serviceDate(record.values)) &&
-      (!person || fieldValue(record, "timekeeper") === person || (person === self && isOwn(record)));
+      (person ? fieldValue(record, "timekeeper") === person || (person === self && isOwn(record))
+        : isOwn(record) || rosterIds.has(String(fieldValue(record, "timekeeper"))));
   }
   const known = new Map(directory.records.filter(record => record.objectId === "timeEntries").map(record => [record.id, record]));
   for (const [id, saved] of edits.confirmed) {
@@ -131,7 +137,10 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   currentRecords.current = known;
   const stored = [...known.values()].filter(record => !record.archivedAt);
   const visible = stored.filter(isVisible);
-  const proposals = capture.proposals.filter(proposal => !known.has(proposal.key) && !hiddenProposals.has(proposal.key));
+  const proposals = capture.proposals.filter(proposal => {
+    const worker = edits.drafts.get(proposal.key)?.record.values.timekeeper ?? capture.drafts[proposal.key]?.values.timekeeper ?? self;
+    return (!person || person === self || worker === person) && !known.has(proposal.key) && !hiddenProposals.has(proposal.key);
+  });
   const proposalMap = new Map(proposals.map(proposal => [proposal.key, proposal]));
   const createdIds = new Set(bookings.map(item => item.id));
   const entries = new Map(visible.map(record => [record.id, record]));
@@ -142,12 +151,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     if (entries.has(record.id) || createdIds.has(record.id) || isVisible(overlay)) entries.set(record.id, overlay);
   }
   for (const [id, draft] of Object.entries(capture.drafts)) {
-    if (!draft.proposalDigest && !draft.values.workflow && !known.has(id) && capture.dates.includes(draft.date)) {
+    if ((!person || (draft.values.timekeeper ?? self) === person || id === blankId) && !draft.proposalDigest && !draft.values.workflow && !known.has(id) && capture.dates.includes(draft.date)) {
       entries.set(id, row(id, { timekeeper: self, ...draft.values, startedAt: draft.values.startedAt ?? draft.date }));
     }
   }
   for (const [id, draft] of edits.drafts) {
-    if (!draft.proposal && !known.has(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
+    if ((!person || (draft.record.values.timekeeper ?? self) === person || id === blankId) && !draft.proposal && !known.has(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
   }
   for (const proposal of proposals) {
     const draft = edits.drafts.get(proposal.key);
@@ -159,7 +168,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     candidateOrigins.current.set(candidate, proposal);
     entries.set(proposal.key, candidate);
   }
-  const blank = row(blankId, { name: "", billingNarrative: "", status: "Draft", timekeeper: self, recordedMinutes: null, billableMinutes: null, startedAt: capture.date, serviceDate: capture.date });
+  const blank = row(blankId, { name: "", billingNarrative: "", status: "Draft", timekeeper: person || self, recordedMinutes: null, billableMinutes: null, startedAt: capture.date, serviceDate: capture.date });
   const showBlank = composerId === blankId || entries.has(blankId);
   const blankRow = entries.get(blankId) ?? blank;
   entries.delete(blankId);
@@ -379,6 +388,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     enqueue(id, () => persistDraft(id));
   }
   function duplicate(input: TimeRecordValues) {
+    if (person && person !== self) setPerson(self);
     const values = copyTimeRecordValues(input, object.fields, capture.date, self, directory.permissions.finance);
     const id = crypto.randomUUID();
     const draft = { record: row(id, values), date: capture.date };
@@ -448,7 +458,10 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   }}>
     <TimesheetWeekTotals dates={capture.dates} date={capture.date} workedByDate={workedByDate} onDateChange={capture.selectDate} />
     <div className="time-sheet-summary">
-      <select aria-label={t("timesheets.ledger.workers")} value={person} onChange={event => setPerson(event.target.value)}><option value="">{t("timesheets.sheet.all_people")}</option>{choices.map(member => <option key={member.id} value={member.id}>{String(member.values.name)}</option>)}</select>
+      {members.length > 1 ? <select aria-label={t("timesheets.ledger.workers")} value={person} onChange={event => { setPerson(event.target.value); setComposerId(undefined); }}>
+        <option value="">{t("timesheets.sheet.all_people")}</option>
+        {choices.map(member => <option key={member.id} value={member.id}>{String(member.values.name)}</option>)}
+      </select> : <span title={t("timesheets.self_only")}>{t("timesheets.ledger.me")}</span>}
       <span>{t("timesheets.sheet.worked", { minutes: sums.worked })}</span><span>{t("timesheets.sheet.charge", { minutes: sums.charge })}</span>
       <span className="time-sheet-sync" role="status" title={t(unsaved ? "timesheets.sheet.edit_unsaved_hint" : directory.scope === "local" ? "timesheets.sheet.local" : "timesheets.sheet.sharing")}><Info size={12} />{edits.saving.size ? t("projects.saving") : unsaved ? t("timesheets.sheet.edit_unsaved") : directory.sync.error ? t("timesheets.sheet.sync_error") : directory.sync.pending ? t("timesheets.sheet.pending") : t("timesheets.sheet.synced")}</span>
     </div>
@@ -460,6 +473,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
         const saved = z.object({ view: BackOfficeViewSchema }).parse(await client.backOffice("/views", { method: "POST", body: { ...view, expected } })).view;
         void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }); return saved;
       }}
+      readOnlyFields={members.length <= 1 ? ["timekeeper"] : undefined}
       sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: bookings.length,
         afterRows: render => <>
           {directory.permissions.edit && roster.data && !showBlank &&
@@ -473,8 +487,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           })}
         </>,
         allowedRelationIds: (record, field) => field === "client" ? billingClients(record.values.matter) : undefined, widths: { startedAt: 130, timekeeper: 140, matter: 200, client: 170, billingNarrative: 340, recordedMinutes: 120, billableMinutes: 120 },
-        onFocus: record => { copied.current = record.id !== blankId && !proposalMap.has(record.id) ? record.values : undefined; },
-        trailing: record => record.revision > 0 ? <button title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => openRecord(record)}><History size={13} /></button> : null,
+        onFocus: record => { copied.current = record.revision > 0 ? record.values : undefined; },
+        trailing: record => record.revision > 0 ? <>
+          {directory.permissions.edit && <button type="button" title={t("timesheets.ledger.duplicate")} aria-label={t("timesheets.ledger.duplicate")}
+            onClick={() => duplicate(record.values)}><CopyPlus size={13} /></button>}
+          <button title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => openRecord(record)}><History size={13} /></button>
+        </> : null,
         leading: record => {
           if (!directory.permissions.edit || !roster.data) return null;
           const proposal = proposalMap.get(record.id);
@@ -485,7 +503,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
               <button aria-label={t("timesheets.sheet.accept")} title={t(blocked ? "timesheets.workday.overlap" : "timesheets.sheet.accept")} disabled={blocked || edits.saving.has(record.id)} onClick={() => accept(record, proposal)}><Check size={14} /></button>
             </div>;
           }
-          return record.id === blankId ? <button aria-label={t("back_office.add_new")} onClick={event => event.currentTarget.closest("[role=row]")?.querySelector<HTMLElement>("[role=gridcell]")?.click()}><Plus size={14} /></button> : <button aria-label={t("timesheets.sheet.copy_row")} title={t("timesheets.sheet.copy_row")} onClick={() => { copied.current = record.values; duplicate(record.values); }}><Copy size={13} /></button>;
+          return record.id === blankId ? <button aria-label={t("back_office.add_new")} onClick={event => event.currentTarget.closest("[role=row]")?.querySelector<HTMLElement>("[role=gridcell]")?.click()}><Plus size={14} /></button> : undefined;
         },
         details: (record, columns) => {
           const proposal = proposalMap.get(record.id), error = edits.draftErrors.get(record.id), change = edits.updates.get(record.id)?.[0];

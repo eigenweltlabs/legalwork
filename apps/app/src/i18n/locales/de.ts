@@ -211,6 +211,8 @@ const de = {
   "timesheets.ai_settings": "Einstellungen für KI-Vorschläge",
   "timesheets.ai_model": "Modell",
   "timesheets.ai_automatic": "Automatisch",
+  "timesheets.invoice_records_hint": "Erstellen Sie einen Rechnungsdatensatz mit Rechnungsnummer, Beträgen und Rechnungs-PDF. Für die Rechnungserstellung aus freigegebenen Zeiten benötigt Ihre Kanzlei den Abrechnungsworkflow.",
+  "timesheets.self_only": "Ihre Kanzlei hat die Zeiterfassung für Ihr eigenes Konto freigegeben.",
   "timesheets.sheet.just_created": "Gerade erfasst",
   "timesheets.sheet.view_date": "Zum {date}",
   "timesheets.sheet.choose_bill_to": "Wählen Sie einen Mandanten für die Abrechnung dieser Akte.",

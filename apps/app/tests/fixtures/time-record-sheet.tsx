@@ -66,6 +66,7 @@ const savedRow = BackOfficeRecordSchema.parse({
 });
 let current = savedRow;
 let rejectUpdate = false;
+let canDelegate = false;
 const writeSchema = z.object({
   id: z.string(), revision: z.number(), values: z.record(z.string(), BackOfficeValueSchema), create: z.boolean().optional(),
   timekeeperUserId: z.string().optional(), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
@@ -75,7 +76,7 @@ const writes: z.infer<typeof writeSchema>[] = [];
 const privateActions: CaptureAction[] = [];
 const client = createLegalworkServerClient({ baseUrl: "http://localhost" });
 client.backOffice = async (path, options) => {
-  if (path === "/time-members") return { members: [{ userId: "worker", name: "Worker", email: null }] };
+  if (path === "/time-members") return { members: [{ userId: "worker", name: "Worker", email: null }, { userId: "other", name: "Other worker", email: null, canRecordTimeFor: canDelegate }] };
   assert.equal(path, "/records");
   const write = writeSchema.parse(options?.body);
   writes.push(write);
@@ -369,6 +370,26 @@ try {
   await render(capture({ date: second, dates: [second] }));
   assert.equal(visible(offDayId), true);
   assert.equal(host.querySelector(".time-booking-receipt"), null);
+  assert.equal(host.querySelector(".time-sheet-summary select"), null, "membership alone does not enable delegation");
+  canDelegate = true;
+  await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
+  await render(active, [workerContact, current]);
+  const filter = host.querySelector<HTMLSelectElement>(".time-sheet-summary select");
+  assert.ok(filter);
+  await act(async () => { filter.value = "member:other"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  assert.equal(host.querySelector(".time-proposal-actions"), null, "the colleague's filter hides the current user's private activities");
+  const chosenWorker = cell(blank(), 1);
+  assert.match(chosenWorker.textContent ?? "", /Other worker/);
+  await act(async () => chosenWorker.click());
+  const chooseSelf = [...document.querySelectorAll<HTMLButtonElement>(".bo-choices button")].find(item => item.textContent?.includes(t("timesheets.ledger.me")));
+  assert.ok(chooseSelf);
+  await act(async () => chooseSelf.click());
+  assert.match(cell(blank(), 1).textContent ?? "", new RegExp(t("timesheets.ledger.me")));
+
+  canDelegate = false;
+  await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
+  await render(active, [workerContact, current]);
+  assert.equal(host.querySelector(".time-sheet-summary select"), null);
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

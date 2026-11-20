@@ -59,6 +59,7 @@ export type IntakeTask = {
 };
 
 export type IntakeMember = {
+  canRecordTimeFor?: boolean;
   userId: string;
   name: string | null;
   email: string | null;
@@ -472,6 +473,7 @@ function parseIntakeMember(value: unknown): IntakeMember | null {
     name: toNullableText(value.name),
     email: toNullableText(value.email),
     role: toText(value.role),
+    ...(value.canRecordTimeFor === true ? { canRecordTimeFor: true } : {}),
   };
 }
 

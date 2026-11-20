@@ -177,11 +177,10 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     const colleague = await object("people", { name: "Local associate", personType: "Associate", active: true });
     const outsider = await object("people", { name: "External", personType: "External contact", active: true });
     const inactive = await object("people", { name: "Former colleague", personType: "Partner", active: false });
-    const delegated = await command({ ...create, requestId: crypto.randomUUID(), workerIds: [colleague.id] });
-    expect(delegated.people).toContainEqual({ id: colleague.id, name: "Local associate", directoryOnly: true });
-    expect(delegated.people.some((p) => [outsider.id, inactive.id].includes(p.id))).toBe(false);
-    expect(delegated.delegatedEntries).toMatchObject([{ workerId: colleague.id, narrative: create.entry.narrative }]);
-    expect(delegated.entries.every((e) => e.workerId === "local")).toBe(true);
+    const directory = TimesheetStateSchema.parse(await (await api(path)).json());
+    expect(directory.people).toContainEqual({ id: colleague.id, name: "Local associate", directoryOnly: true });
+    expect(directory.people.some(p => [outsider.id, inactive.id].includes(p.id))).toBe(false);
+    expect((await api(path, { ...create, requestId: crypto.randomUUID(), workerIds: [colleague.id] })).status).toBe(403);
     expect((await api(path, { ...create, requestId: crypto.randomUUID(), workerIds: [inactive.id] })).status).toBe(400);
     expect((await api(path, { type: "policy", policy: {
       scope: "firm", targetId: "firm", reviewerId: colleague.id, revision: 0, effectiveFrom: "2027-01-01",

@@ -22,7 +22,7 @@ export async function timeMembers(config: ServerConfig, scope: string, actor: Ba
   if (!members.some(member => member.userId === actor.userId)) members.unshift({
     userId: actor.userId, name: connection.account.userName, email: connection.account.userEmail, role: connection.account.orgRole ?? "org:member",
   });
-  return members;
+  return members.filter(member => member.userId === actor.userId || member.canRecordTimeFor === true);
 }
 
 /** A member is represented by an ordinary synced contact, linked by its external

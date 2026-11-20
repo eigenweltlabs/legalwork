@@ -538,6 +538,7 @@ export class BackOfficeStore {
     actor: BackOfficeActor,
     input: unknown,
     verifiedTimeMemberId?: string,
+    recordableWorkers?: ReadonlySet<string>,
   ): BackOfficeRecord {
     if (!actor.edit)
       throw new ApiError(
@@ -587,6 +588,18 @@ export class BackOfficeStore {
             "back_office_record",
             "The record is unavailable.",
           );
+        if (object.id === "timeEntries" && scope !== "local") {
+          const memberFor = (contact: BackOfficeRecord["values"][string] | undefined) =>
+            typeof contact === "string" ? timeMemberUserId(scope, this.raw(scope, contact)) : undefined;
+          const permitted = (worker: string | undefined) => worker === actor.userId || Boolean(worker && recordableWorkers?.has(worker));
+          const owner = existing?.ownerId ?? actor.userId;
+          const invoiceLink = existing && actor.finance && parsed.archived === undefined && parsed.access === undefined && parsed.members === undefined &&
+            Object.keys(parsed.values).length === 1 && Object.hasOwn(parsed.values, "invoice");
+          const changingWorker = Object.hasOwn(parsed.values, "timekeeper") && parsed.values.timekeeper !== existing?.values.timekeeper;
+          if ((existing && !invoiceLink && !permitted(memberFor(existing.values.timekeeper) ?? owner)) ||
+              (changingWorker && !permitted(parsed.values.timekeeper == null ? owner : memberFor(parsed.values.timekeeper))))
+            throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
+        }
         if (object.id === "people" && parsed.sourceId !== undefined && parsed.sourceId !== existing?.sourceId &&
             (isTimeMemberSource(parsed.sourceId) || timeMemberUserId(scope, existing)) &&
             !(verifiedTimeMemberId && parsed.id === timeMemberContactId(scope, verifiedTimeMemberId) &&

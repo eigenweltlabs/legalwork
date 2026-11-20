@@ -586,7 +586,7 @@ export const TimesheetStateSchema = z.object({
   adjustments: z.array(TimeAdjustmentSchema).optional(),
   matters: z.array(entity.extend({ clientIds: z.array(id), reference: z.string() })),
   clients: z.array(entity),
-  people: z.array(entity.extend({ directoryOnly: z.literal(true).optional() })),
+  people: z.array(entity.extend({ directoryOnly: z.literal(true).optional(), canRecordTimeFor: z.boolean().optional() })),
   products: z.array(
     entity.extend({
       matterId: id,

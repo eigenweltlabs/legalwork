@@ -12,9 +12,13 @@ import { beginDocumentCapture, captureProfile } from "./routes.js";
 test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and keeps generated wording out of chat and storage", async () => {
   const narrative = "Reviewed the synthetic agreement";
   const prompts: string[] = [];
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let hold = false;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = z.object({ model: z.literal("fixture"), messages: z.array(z.object({ role: z.string(), content: z.string() })) }).parse(await request.json());
     prompts.push(...body.messages.filter(item => item.role === "user").map(item => item.content));
+    if (hold) { entered.resolve(); await release.promise; }
     const content = JSON.stringify([{ index: 0, activity: "MOD", narrative }]);
     function chunk(delta: object, finish_reason: string | null) {
       return "data: " + JSON.stringify({ id: "synthetic", object: "chat.completion.chunk", model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason }] }) + "\n\n";
@@ -71,7 +75,19 @@ test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and k
       expect(bytes.includes("Example.docx")).toBe(false);
       expect(bytes.includes(narrative)).toBe(false);
     }
+    hold = true;
+    const interrupted = request(refresh);
+    await entered.promise;
+    try {
+      await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: false } });
+    } finally {
+      release.resolve();
+    }
+    const cancelled = await interrupted;
+    expect(cancelled.wording).toBeUndefined();
+    expect(cancelled.settings.aiSuggestions).toBe(false);
   } finally {
+    release.resolve();
     await server.stop();
     await engine.close();
     provider.stop(true);

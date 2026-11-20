@@ -351,7 +351,7 @@ export function RecordGrid({
     } finally { setArchiving(false); }
   };
   const kanbanField = object.fields.find((field) => field.id === groupField);
-  const template = `${sheet ? 56 : 32}px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} 32px minmax(0,1fr)`;
+  const template = `${sheet ? 56 : 32}px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} ${sheet ? 64 : 32}px minmax(0,1fr)`;
   const saveView = async () => {
     if (!viewName.trim()) return;
     try {

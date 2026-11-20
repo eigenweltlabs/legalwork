@@ -16,7 +16,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  ClipboardCopy,
   CopyPlus,
   History,
   Plus,
@@ -219,7 +218,7 @@ export function TimesheetLedger({
   const host = useRef<HTMLDivElement>(null);
   const matters = useMemo(() => matterOptions(state), [state.matters, state.clients, state.projects]);
   const people = useMemo(() => workerOptions(state), [state.people, state.userId, locale]);
-  const person = (id: string) => people.find((p) => p.id === id)?.label ?? id;
+  const person = (id: string) => people.find((p) => p.id === id)?.label ?? state.people.find(p => p.id === id)?.name ?? id;
   const [ledgerDate, setLedgerDate] = useState(initialDraft?.entry.date ?? initialDate ?? localDate(new Date()));
   const [period, setPeriod] = useState<TimePeriod>("day");
   const date = capture?.date ?? ledgerDate;
@@ -739,8 +738,8 @@ export function TimesheetLedger({
             aria-label={t(ledgerColumnKeys[column])}
             type={column === "date" ? "date" : "text"}
             disabled={busy || (column === "workers" && row !== "new")}
-            readOnly={column === "charge" && !values.billable}
-            title={column === "workers" ? t("timesheets.ledger.worker_hint") : undefined}
+            readOnly={column === "charge" && !values.billable || column === "workers" && people.length <= 1}
+            title={column === "workers" ? t(people.length <= 1 ? "timesheets.self_only" : "timesheets.ledger.worker_hint") : undefined}
             autoComplete="off"
             placeholder={
               column === "product" && values.createProduct
@@ -936,6 +935,8 @@ export function TimesheetLedger({
             ) : (
               <span>{t(entryStatusKeys[entry.status])}</span>
             )}
+            {canEdit && <button type="button" title={t("timesheets.ledger.duplicate")} aria-label={t("timesheets.ledger.duplicate")}
+              disabled={busy} onClick={() => pasteEntry(entry)}><CopyPlus size={13} /></button>}
             <button
               type="button"
               aria-expanded={history === entry.id}
@@ -1030,35 +1031,6 @@ export function TimesheetLedger({
         </>}
         <div className="bo-view-actions">
           {columnChooser}
-          {copied && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                startIcon={<ClipboardCopy size={14} />}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(encodeTimeRow(copied).plain);
-                    setNotice(t("timesheets.ledger.copied"));
-                  } catch {
-                    setError(t("timesheets.ledger.use_shortcut"));
-                  }
-                }}
-              >
-                {t("timesheets.ledger.copy")}
-              </Button>
-              {canEdit && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  startIcon={<CopyPlus size={14} />}
-                  onClick={() => pasteEntry(copied)}
-                >
-                  {t("timesheets.ledger.duplicate")}
-                </Button>
-              )}
-            </>
-          )}
           {canEdit && !!ready.length && (
             <Button
               size="sm"

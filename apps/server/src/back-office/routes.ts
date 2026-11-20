@@ -1,3 +1,4 @@
+import { timeMemberContactId } from "./time-member-identity.js";
 import { timeMembers, timeMemberContact } from "./time-members.js";
 import { acceptPrivateProposal, captureProfile } from "../time-capture/routes.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
@@ -374,14 +375,22 @@ export function registerBackOfficeRoutes(options: {
     if (expectedReplicaId !== undefined && actor.replicaId !== expectedReplicaId)
       throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
     const memberId = timekeeperUserId === undefined ? undefined : z.string().min(1).max(200).parse(timekeeperUserId);
-    const member = memberId ? (await timeMembers(options.config, scope, actor)).find(member => member.userId === memberId) : undefined;
-    if (memberId && (!member || body.objectId !== "timeEntries" || !actor.edit || ctx.agentAccess || actor.agentId))
-      throw new ApiError(403, "time_member", "Choose an available firm member.");
+    const existing = body.objectId === "timeEntries" && typeof body.id === "string" ? store.raw(scope, body.id) : null;
+    const timekeeper = z.object({ timekeeper: z.string().optional().nullable() }).safeParse(body.values);
+    const ownContact = timeMemberContactId(scope, actor.userId);
+    const needsRoster = memberId !== undefined || (existing?.values.timekeeper && existing.values.timekeeper !== ownContact)
+      || (existing && !existing.values.timekeeper && existing.ownerId !== actor.userId)
+      || (timekeeper.success && timekeeper.data.timekeeper && timekeeper.data.timekeeper !== ownContact);
+    const roster = body.objectId === "timeEntries" && needsRoster && actor.edit && !ctx.agentAccess && !actor.agentId
+      ? await timeMembers(options.config, scope, actor) : [];
+    const member = roster.find(person => person.userId === memberId);
+    if (memberId && !member) throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
+    const recordableWorkers = new Set(roster.map(person => person.userId));
     const save = (record: unknown) => {
-      if (!member) return store.saveRecord(scope, actor, record);
+      if (!member) return store.saveRecord(scope, actor, record, undefined, recordableWorkers);
       const value = z.object({ values: z.record(z.string(), BackOfficeValueSchema) }).passthrough().parse(record);
       return store.transaction(() => store.saveRecord(scope, actor, { ...value,
-        values: { ...value.values, timekeeper: timeMemberContact(store, scope, actor, member) } }));
+        values: { ...value.values, timekeeper: timeMemberContact(store, scope, actor, member) } }, undefined, recordableWorkers));
     };
     if (privateProposal !== undefined) {
       if (ctx.actor?.type !== "host" || ctx.agentAccess || actor.agentId)

@@ -157,7 +157,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
             <input aria-label={t(ledgerColumnKeys[column])} data-column={column}
               value={column === "charge" && !values.billable ? "0" : values[column]}
               type={column === "date" ? "date" : "text"} disabled={!canEdit || busy}
-              readOnly={column === "charge" && !values.billable} list={choices[column] ? id + column : undefined}
+              readOnly={column === "charge" && !values.billable || column === "workers" && people.length <= 1} list={choices[column] ? id + column : undefined}
               onChange={event => {
                 const value = event.target.value;
                 setChanged(true);

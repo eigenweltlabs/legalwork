@@ -25,7 +25,7 @@ import { backOfficeMajorAmount, BackOfficeMoneySchema, z, type BackOfficeActor }
 const owner = { userId: "alice", edit: true, finance: true, model: true },
   ben = { ...owner, userId: "ben", finance: false },
   eva = { ...owner, userId: "eva" };
-const people = [owner, ben, eva].map((a) => ({ id: a.userId, name: a.userId }));
+const people = [owner, ben, eva].map((a) => ({ id: a.userId, name: a.userId, canRecordTimeFor: true }));
 const stores: BackOfficeStore[] = [];
 afterEach(() => {
   while (stores.length) stores.pop()?.close();

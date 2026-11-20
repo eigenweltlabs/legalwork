@@ -350,3 +350,10 @@ The stopwatch project panel must fit inside the overlay at every dock position, 
 ### Connected-model wording update
 
 The **AI suggestions** switch starts off. After the worker enables it, opening the view or selecting a day can send activity titles and codes from enabled sources to the time-tracking model (Eigenwelt Haiku, then Luna by default). This opt-in supersedes the original on-device-only requirement for the open view. Session-scoped generation applies the project's provider policy and leaves no chat messages. The wording is held in the open view until edited or accepted. Background schedules retain on-device inference. Only the reviewed booking enters firm record sync.
+
+
+### Time-entry delegation and invoice records
+
+The firm backend owns the organization chart and secretariat assignments. A timekeeper can book their own work. Managers can book for the reports the firm authorizes. Secretariat staff can book for the workers covered by an explicit delegation. Changing an assignee or booking for multiple participants requires current authority for every affected worker. Record authorship and worker confirmation remain separate. The [firm integration contract](timekeeping-server-integration.md#requested-firm-capabilities) specifies the response fields and write checks.
+
+A firm using the ordinary directory creates invoice records with client, matter, invoice number, totals and a PDF attachment. Issuance from approved time entries belongs to the billing workflow. Saved time entries expose one Duplicate action beside their history in both views.

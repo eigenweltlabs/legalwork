@@ -323,6 +323,8 @@ function apply(
     const workers = [...new Set(command.workerIds ?? [actor.userId])];
     if (workers.some((id) => !state.people.some((p) => p.id === id)))
       timeError("Choose a current account for each participant.");
+    if (workers.some(id => id !== actor.userId && !state.people.some(person => person.id === id && person.canRecordTimeFor === true)))
+      timeError("Your firm has not delegated time entry for this person.", 403);
     const overrides = new Map(command.workerTimes?.map((time) => [time.workerId, time]));
     if (
       overrides.size !== (command.workerTimes?.length ?? 0) ||

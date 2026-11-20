@@ -23,9 +23,10 @@ test("a firm without a workflow service uses existing records; private evidence 
   const records = new Map<string, BackOfficeRecord>();
   const uploads: unknown[] = [];
   const files = new Map<string, Uint8Array>();
+  let delegate = false;
   const platform = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/api/intake/members") return Response.json([{ userId: "worker", name: "Worker", email: null, role: "org:member" }, { userId: "colleague", name: "Colleague", email: null, role: "org:member" }]);
+    if (path === "/api/intake/members") return Response.json([{ userId: "worker", name: "Worker", email: null, role: "org:member" }, { userId: "colleague", name: "Colleague", email: null, role: "org:member", canRecordTimeFor: delegate }]);
     if (path === "/api/desktop/policy") return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Test firm", revision: 1, role: "member", updatedAt: null,
       entries: { "backOffice.sync": { mode: "enforced", value: { enabled: true, modelEditors: ["worker"], directoryEditors: ["worker"], billingMembers: ["worker"] } } } });
     if (path === "/api/desktop/policy/secrets") return Response.json({ schemaVersion: 1, revision: 1, secrets: {} });
@@ -101,7 +102,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     const context = new URLSearchParams({ date: proposal.date, profileId: profile.profileId, user: profile.user, scope: profile.scope, principal: profile.principal });
     expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).proposals).toHaveLength(1);
     const roster = z.object({ members: z.array(z.object({ userId: z.string() })) }).parse(await (await api("/back-office/time-members")).json());
-    expect(roster.members.map(member => member.userId)).toEqual(["worker", "colleague"]);
+    expect(roster.members.map(member => member.userId)).toEqual(["worker"]);
     expect(store.records("firm", access.actor, "people")).toHaveLength(0);
     const draftAction = { type: "draft", key: proposal.key, proposalDigest: proposal.digest, values: { billingNarrative: "PRIVATE edited wording", recordedMinutes: 13 } };
     expect((await api("/private-timesheet/workday?" + context, draftAction, false)).status).toBe(401);
@@ -114,6 +115,8 @@ test("a firm without a workflow service uses existing records; private evidence 
       privateProposal: { key: proposal.key, digest: proposal.digest, profileId: profile.profileId } };
     expect((await api("/back-office/records", booking, false)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, privateProposal: { ...booking.privateProposal, profileId: "another" } })).status).toBe(409);
+    const other = { ...booking, id: crypto.randomUUID(), privateProposal: undefined, timekeeperUserId: "colleague" };
+    expect((await api("/back-office/records", other)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, timekeeperUserId: "outside-contact" })).status).toBe(403);
     const saved = await api("/back-office/records", booking);
     expect(saved.status).toBe(200);
@@ -164,6 +167,14 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(records.get(invoice.id)?.values.invoiceFile).toEqual([file]);
     const downloaded = await api(`/back-office/records/${invoice.id}/files/invoiceFile/${file.id}`);
     expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(pdf);
+    delegate = true;
+    const delegatedBooking = await api("/back-office/records", other);
+    expect(delegatedBooking.status).toBe(200);
+    const assigned = BackOfficeRecordSchema.parse((await delegatedBooking.json()).record);
+    delegate = false;
+    expect((await api("/back-office/records", { objectId: "timeEntries", id: assigned.id, revision: 1, values: { recordedMinutes: 40 } })).status).toBe(403);
+    expect((await api("/back-office/records", { objectId: "timeEntries", id: crypto.randomUUID(), revision: 0, create: true,
+      values: { ...other.values, timekeeper: assigned.values.timekeeper } })).status).toBe(403);
     const dateOnlyId = crypto.randomUUID();
     const dateOnly = await api("/back-office/records", { id: dateOnlyId, create: true, revision: 0, objectId: "timeEntries", timekeeperUserId: "worker",
       values: { ...booking.values, name: "Date-only service", billingNarrative: "Date-only service", serviceDate: "2026-11-18", startedAt: "2026-11-18", endedAt: null } });

@@ -201,6 +201,8 @@ export default {
   "timesheets.ai_settings": "AI suggestion settings",
   "timesheets.ai_model": "Model",
   "timesheets.ai_automatic": "Automatic",
+  "timesheets.invoice_records_hint": "Create an invoice record, enter its number and totals, and attach the invoice PDF. Your firm needs the billing workflow to issue invoices from approved time entries.",
+  "timesheets.self_only": "Your firm has granted time entry for your own account.",
   "timesheets.sheet.just_created": "Just created",
   "timesheets.sheet.view_date": "View {date}",
   "timesheets.sheet.choose_bill_to": "Choose a billing client for this matter.",

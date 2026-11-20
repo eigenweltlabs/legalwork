@@ -76,7 +76,7 @@ const state: TimesheetState = {
   projects: [{ id: "p1", name: "Project", matterIds: ["matter"] }],
   people: [
     { id: "anna", name: "Anna" },
-    { id: "ben", name: "Ben" },
+    { id: "ben", name: "Ben", canRecordTimeFor: true },
   ],
   products: [
     { id: "wp2", name: "Memo", matterId: "matter", authorId: "ben", createdAt: "2026-11-11T10:00:00Z" },
@@ -372,7 +372,7 @@ try {
   );
   const caseMatches = {
     ...state,
-    people: [...state.people, { id: "second", name: "ANNA" }],
+    people: [...state.people, { id: "second", name: "ANNA", canRecordTimeFor: true }],
     matters: [...state.matters, { ...state.matters[0], id: "second-matter", name: "m" }],
   };
   const distinctWorker = workerOptions(caseMatches).find((p) => p.id === "second");

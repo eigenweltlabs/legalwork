@@ -50,8 +50,8 @@ app.whenReady().then(async () => {
   const stopwatchRequest = async (action, profile) => {
     if (action) {
       assert.equal(profile, "fixture");
-      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId };
-      else if (action.type === "assign") timerState.active.projectId = action.projectId;
+      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId ?? null };
+      else if (action.type === "assign") timerState.active.projectId = action.projectId ?? null;
       else {
         assert.equal(action.id, timerState.active.id);
         timerState.active = null;
@@ -158,7 +158,7 @@ app.whenReady().then(async () => {
           return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("stopwatch-label")).opacity];
         })()`), [["start", "meeting-start", "stopwatch"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 94, "1"]);
         await click(previous);
-        assert.equal(await read('document.querySelector("#stopwatch-project span").textContent'), "Project review · Demo");
+        assert.equal(await read('document.querySelector("#stopwatch-projects button[aria-pressed=true]").textContent'), "Project review · Demo");
         assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " project panel stays on screen");
         if (output) await writeFile(path.join(output, "stopwatch-project-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
         await click(await center("stopwatch-confirm"));
@@ -191,7 +191,6 @@ app.whenReady().then(async () => {
         })()`);
         assert.deepEqual(running, { visible: true, hit: "stopwatch", meeting: "meeting-stop", label: dock === "bottom" ? "Stop stopwatch and save time" : "Stoppuhr stoppen und Zeit speichern" });
         await click(await center("stopwatch"));
-        await click(await center("stopwatch-project"));
         assert.ok(await read(`(() => {
           return ["stopwatch-panel", "stopwatch-heading", "stopwatch-confirm"].every(id => {
             const r = document.getElementById(id).getBoundingClientRect();
@@ -199,7 +198,9 @@ app.whenReady().then(async () => {
           });
         })()`), dock + " expanded project list keeps its heading and start/stop action inside the overlay");
         const alternate = await read(`(() => {
-          const r = document.querySelectorAll("#stopwatch-projects button")[1].getBoundingClientRect();
+          const option = [...document.querySelectorAll("#stopwatch-projects button")].find(button => button.textContent === "Due diligence · Demo");
+          option.scrollIntoView({ block: "nearest" });
+          const r = option.getBoundingClientRect();
           return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};
         })()`);
         await click(alternate);
@@ -207,7 +208,7 @@ app.whenReady().then(async () => {
         await click(await center("stopwatch-confirm"));
         assert.equal(timerState.active, null);
         assert.equal(hud.meeting.state, "recording");
-        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /AI suggestions|KI-Vorschläge/);
+        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /Time tracking|Zeiterfassung/);
         await hud.setMeeting(idleMeeting);
       }
       timerState.suggestedProjectId = null;
@@ -216,8 +217,11 @@ app.whenReady().then(async () => {
       await delay(400);
       await click(await center("stopwatch"));
       await waitFor(() => read('!document.querySelector("#stopwatch-projects").hidden'), "missing context opens the project chooser");
-      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
-      await click(await center("stopwatch-close"));
+      assert.equal(await read('document.querySelector("#stopwatch-projects button:first-child").getAttribute("aria-pressed")'), "true");
+      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
+      await click(await center("stopwatch-confirm"));
+      assert.ok(timerState.active);
+      assert.equal(timerState.active.projectId, null);
       assert.deepEqual(actions, [], "operating the timer never triggers dictation or meeting actions");
       console.log("PASS: the anchored mini bar reveals Dictate, Record meeting and Stopwatch on all three docks; timing survives collapse and stops independently during a meeting");
       return;

@@ -131,7 +131,7 @@ export function matchMatter(options: ReturnType<typeof matterOptions>, label: st
 }
 
 export function workerOptions(state: LedgerDirectory) {
-  const people = [...state.people];
+  const people = state.people.filter(person => person.id === state.userId || person.canRecordTimeFor === true);
   if (!people.some((person) => person.id === state.userId))
     people.unshift({ id: state.userId, name: t("timesheets.ledger.me") });
   return people.map((person) => ({

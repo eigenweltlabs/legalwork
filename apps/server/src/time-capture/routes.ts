@@ -258,10 +258,10 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
   let previous;
   while ((previous = workdaysRunning.get(path))) {
     if (!refreshSignal) throw new ApiError(409, "timesheet_running", "A workday is already being prepared.");
-    refreshSignal.throwIfAborted();
+    if (refreshSignal.aborted) return;
     await previous.done;
   }
-  refreshSignal?.throwIfAborted();
+  if (refreshSignal?.aborted) return;
   const controller = new AbortController();
   const signal = refreshSignal ? AbortSignal.any([controller.signal, refreshSignal]) : controller.signal;
   const { promise, resolve } = Promise.withResolvers<void>();
@@ -351,6 +351,10 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
       };
       return await generate(candidates, verify, signal);
     }
+  } catch (error) {
+    // Navigation and changes to capture settings retire an in-flight refresh.
+    if (refreshSignal && signal.aborted && signal.reason?.name !== "TimeoutError") return;
+    throw error;
   } finally {
     workdaysRunning.delete(path);
     resolve();
@@ -492,7 +496,8 @@ export function registerWorkdayRoutes(options: {
         const action = parsed.data;
         if (action.type === "suggest" || action.type === "refresh") {
           const model = action.model;
-          const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
+          const timeout = AbortSignal.timeout(150_000);
+          const signal = AbortSignal.any([ctx.request.signal, timeout]);
           wording = await prepare(config, path, date, false, async (proposals, verify, cancel) => {
             const active = AbortSignal.any([signal, cancel]);
             if (model) {
@@ -501,7 +506,12 @@ export function registerWorkdayRoutes(options: {
             }
             if (action.type === "refresh" && !await localModel()) return;
             return previewWorkdayWording(proposals, verify, active);
-          }, action.type === "refresh" ? signal : undefined);
+          }, action.type === "refresh" ? signal : undefined).catch(error => {
+            if (signal.aborted) return undefined;
+            throw error;
+          });
+          if (timeout.aborted && !ctx.request.signal.aborted)
+            throw new ApiError(504, "timesheet_model_timeout", "Preparing workday suggestions timed out. Reopen the day or choose another model.");
         } else if (action.type === "run" || action.type === "calendar")
           await prepare(config, path, date, action.type === "run");
         else

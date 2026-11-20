@@ -83,9 +83,12 @@ export function registerTimesheetRoutes(
           }
         }
         if (access.scope !== "local" && !recordsOnly) {
-          if (command && requiresTimeAllocations(command)) {
+          const otherWorkers = command?.type === "create" ? (command.workerIds ?? []).filter(id => id !== access.actor.userId) : [];
+          if (command && (requiresTimeAllocations(command) || otherWorkers.length)) {
             const current = await platformState(access, "GET");
-            if (!current.supportsTimeAllocations)
+            if (otherWorkers.some(id => !current.people.some(person => person.id === id && person.canRecordTimeFor === true)))
+              timeError("Your firm has not delegated time entry for this person.", 403);
+            if (requiresTimeAllocations(command) && !current.supportsTimeAllocations)
               timeError("The connected firm does not support split or per-participant time. Update its timesheet service before saving.", 409);
             await assertIdentity(ctx, store, access);
           }
