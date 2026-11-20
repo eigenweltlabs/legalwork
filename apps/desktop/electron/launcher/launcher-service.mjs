@@ -25,7 +25,7 @@ export class LauncherService {
     this.options = options;
     /** @type {"darwin" | "windows" | "linux"} */
     this.platform = options.platform === "darwin" || options.platform === "windows" || options.platform === "linux" ? options.platform : process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
-    this.settings = options.settings ?? new LauncherSettingsStore(options.userDataDir);
+    this.settings = options.settings ?? new LauncherSettingsStore(options.userDataDir, this.platform === "windows");
     this.registry = options.registry ?? new LauncherShortcutRegistry({ globalShortcut: options.globalShortcut, platform: process.platform, reserved: () => { const dictation = options.dictation(); return dictation.enabled && dictation.accelerator ? [dictation.accelerator] : []; } });
     /** @type {import("@legalwork/types/launcher").LauncherInvocation[]} */
     this.pending = [];
@@ -43,14 +43,15 @@ export class LauncherService {
     this.preparing = Promise.resolve();
   }
   async initialize() {
+    this.options.origin.prepare?.();
     await this.settings.load();
     await this.options.pairing.load();
     this.applyShortcuts();
     this.syncCompanion();
     this.options.window.rememberPosition = this.settings.get().rememberPosition;
     this.options.window.setPinned(false);
-    // Background presence keeps the renderer warm, so the first shortcut after boot does not cold-load it.
-    if (this.settings.get().backgroundPresence) void this.options.window.ensure().catch(error => console.warn("[launcher] Could not prepare the launcher", error));
+    // Preload the Windows panel so the global shortcut can paint it while the external app still has focus.
+    if (this.platform === "windows" || this.settings.get().backgroundPresence) void this.options.window.ensure().catch(error => console.warn("[launcher] Could not prepare the launcher", error));
   }
   bindings() {
     const settings = this.settings.get();
@@ -155,13 +156,20 @@ export class LauncherService {
     if (selection) payload.captureSelection = true;
     payload.workspaceContext ??= this.options.workspaceContext?.() ?? undefined;
     const opening = this.opening = {};
+    if (this.platform === "windows" && invocation.source === "shortcut" && !this.options.window.isVisible()) {
+      void this.options.window.preview(() => this.opening === opening).catch(error => console.warn("[launcher] Preview failed", error));
+    }
     // Serialize native context reads so an older capture cannot overwrite a newer invocation's origin.
     this.preparing = this.preparing.catch(() => {}).then(async () => {
       if (this.opening !== opening) return;
       const needsOrigin = !this.options.window.isFocused();
-      if (needsOrigin) await this.options.origin.capture();
+      const wantsSelection = Boolean(payload.captureSelection || invocation.action === "open" && (!payload.workspaceContext || this.platform === "windows" && invocation.source === "shortcut"));
+      if (needsOrigin) {
+        const external = await this.options.origin.capture(wantsSelection);
+        if (external && this.platform === "windows" && invocation.source === "shortcut") delete payload.workspaceContext;
+      }
       if (this.opening !== opening) return;
-      if (needsOrigin && (payload.captureSelection || !payload.workspaceContext && invocation.action === "open")) await this.options.origin.prefetchSelection(payload.captureSelection === true && invocation.source === "shortcut");
+      if (needsOrigin && wantsSelection) await this.options.origin.prefetchSelection(payload.captureSelection === true && invocation.source === "shortcut");
     });
     try {
       await this.preparing;
@@ -171,6 +179,9 @@ export class LauncherService {
       this.options.window.send({ type: "origin", origin: this.options.origin.current() });
       this.deliver(payload);
       return this.options.window.state();
+    } catch (error) {
+      if (this.opening === opening) this.options.window.hide();
+      throw error;
     } finally { if (this.opening === opening) this.opening = null; }
   }
   deliver(invocation) {
@@ -188,6 +199,7 @@ export class LauncherService {
   }
   /** @param {import("@legalwork/types/launcher").LauncherInvocation["source"]} source */
   async toggle(source) {
+    if (this.platform === "windows" && this.opening && source === "shortcut") return this.options.window.state();
     if (this.options.window.isVisible() || this.opening) return this.hide();
     return this.invoke({ id: `toggle_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: "open", source });
   }
@@ -232,5 +244,5 @@ export class LauncherService {
       default: return window.state();
     }
   }
-  dispose() { this.opening = null; this.registry.dispose(); this.options.window.destroy(); this.options.capture.destroy(); }
+  dispose() { this.opening = null; this.registry.dispose(); this.options.origin.dispose?.(); this.options.window.destroy(); this.options.capture.destroy(); }
 }

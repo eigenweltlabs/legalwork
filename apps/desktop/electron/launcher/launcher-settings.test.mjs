@@ -27,7 +27,7 @@ test("the store persists atomically and reloads", async () => {
     assert.equal(raw.aliases.chats, "g");
     const reloaded = new LauncherSettingsStore(dir);
     assert.equal((await reloaded.load()).aliases.chats, "g");
-    assert.equal(reloaded.get().shortcut, DEFAULT_LAUNCHER_SETTINGS.shortcut);
+    assert.equal(reloaded.get().shortcut, process.platform === "win32" ? "Control+F8" : DEFAULT_LAUNCHER_SETTINGS.shortcut);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

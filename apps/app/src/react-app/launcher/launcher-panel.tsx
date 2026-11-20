@@ -40,6 +40,7 @@ import { readPins, togglePin as togglePinnedResult } from "./launcher-pins";
 import { LauncherPreviewPane } from "./launcher-preview";
 import { CATEGORY_ICONS, LauncherActionMenu, LauncherResultList, actionLabel, launcherExtraActions, fileTypeIcon, resultIcon, type LauncherTransferAction } from "./launcher-results";
 import { LauncherSearchSession, resultKey } from "./launcher-search-session";
+import { splitLauncherAttachments } from "./launcher-draft-text";
 import { useLauncherShell } from "./launcher-shell";
 import type { ModelRef } from "@/app/types";
 import { createClient } from "@/app/lib/opencode";
@@ -64,7 +65,7 @@ import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
 import { readHiddenItems, writeHiddenItems, type HiddenLauncherItem } from "./launcher-hidden";
 import { LauncherRowMenu } from "./launcher-row-menu";
 import { LauncherTaskDetail, useLauncherDetailItems, type LauncherDetail } from "./launcher-details";
-import { hasRecentSource, readLauncherRecents, updateLauncherRecent, rememberLauncherOpen, suggestedRecents } from "./launcher-recents";
+import { hasRecentSource, readLauncherRecents, updateLauncherRecent, rememberLauncherOpen, suggestedRecents, useVisibleRecentChats } from "./launcher-recents";
 import { canCopyLauncherResult, copyLauncherText, isDesktopLauncherServer, launcherClipboardText, launcherLocalPaths } from "./launcher-clipboard";
 import { useLauncherFileDrag } from "./launcher-file-drag";
 import { launcherInvocationResultAction, resolveLauncherInvocationResult } from "./launcher-invocation-result";
@@ -266,7 +267,9 @@ export function LauncherPanel() {
   const conversation = store.conversation;
   // Adopt the authoritative draft: on binding, and again on reopening or focus when another surface edited meanwhile. Context staged by an invocation stays.
   const adoptDraft = useCallback(async (conversationId: string, overwrite: boolean) => {
-    const { draft } = await drafts.claim(conversationId, owner);
+    const { draft: saved } = await drafts.claim(conversationId, owner);
+    const workspaceId = saved.target.kind === "project" ? saved.target.workspaceId : assistant?.workspaceId;
+    const draft = workspaceId ? { ...saved, ...splitLauncherAttachments(saved.text, workspaceId, saved.context, saved.composer?.mentions) } : saved;
     if (!mounted.current) return;
     const state = useLauncherStore.getState();
     if (state.conversation?.conversationId !== conversationId) return;
@@ -295,8 +298,10 @@ export function LauncherPanel() {
     const state = useLauncherStore.getState();
     if (state.view !== "conversation" || state.conversation?.conversationId !== id || drafts.owns(id, owner)) return;
     const draft = drafts.get(id);
-    if (draft.text !== state.input) state.setInput(draft.text);
-    state.replaceContext(persistentContext(draft.context));
+    const workspaceId = draft.target.kind === "project" ? draft.target.workspaceId : state.conversation.workspaceId;
+    const restored = splitLauncherAttachments(draft.text, workspaceId, draft.context, draft.composer?.mentions);
+    if (restored.text !== state.input) state.setInput(restored.text);
+    state.replaceContext(persistentContext(restored.context));
   }), [drafts, owner]);
   // Persist the complete draft while this surface owns it.
   useEffect(() => {
@@ -1314,8 +1319,9 @@ export function LauncherPanel() {
     { id: "command-context:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, avatar: <AssistantAvatar icon={assistant?.profile.icon} className="size-5" />, run: () => chooseCommandContext() },
     ...workspaces.map(workspace => ({ id: `command-context:${workspace.id}`, title: workspace.displayName || workspace.name, Icon: Folder, run: () => chooseCommandContext(workspace.id) })),
   ];
+  const isVisibleRecentChat = useVisibleRecentChats(client, recents, store.visible && store.view === "idle");
   const recentItems = recents.filter(({ result }) => {
-    if (hiddenIds.has(resultKey(result))) return false;
+    if (!isVisibleRecentChat(result) || hiddenIds.has(resultKey(result))) return false;
     const current = invocationContext?.document;
     if (current && result.workspaceId === current.workspaceId && result.path === current.path) return false;
     return hasRecentSource(result, workspaces, result.kind === "files" && visibleResult(result));
@@ -1436,7 +1442,7 @@ export function LauncherPanel() {
     if (event.defaultPrevented || isComposingKeyEvent(event) || pendingQuestion || pickingChatProject || creation || saveImage || transfer || quickActionRequest || actionProject) return;
     const key = event.key;
     if (key === "Escape") { event.preventDefault(); event.stopPropagation(); void goBack(); return; }
-    const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey;
+    const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey || (key === "Enter" && event.metaKey);
     if (key === "Enter" && event.repeat && !(event.shiftKey && !modifier && (mode === "ask" || mode === "conversation"))) { event.preventDefault(); return; }
     if (hasSelectedText && modifier && !event.altKey && !event.shiftKey && ["1", "2", "3", "4"].includes(key)) {
       event.preventDefault(); event.stopPropagation();

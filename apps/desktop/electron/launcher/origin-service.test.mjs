@@ -60,6 +60,18 @@ test("insertion requires the validated destination; a changed document copies in
   assert.equal(linux.capabilities().selection, false);
 });
 
+test("one Windows foreground snapshot supplies the external selection after focus changes", async () => {
+  const { service: origins, calls } = service("windows", [JSON.stringify({ ok: true, pid: 17, app: "chrome", window: "Example", selection: "Selected paragraph" })]);
+  origins.windowsHelperPath = "LegalWorkLauncherOrigin.exe";
+  const origin = await origins.capture(true);
+  assert.equal(origin.supportsSelection, true);
+  await origins.prefetchSelection();
+  assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Selected paragraph", origin });
+  assert.deepEqual(calls, [["LegalWorkLauncherOrigin.exe", "--selection", String(process.pid)]]);
+  origins.invalidate();
+  assert.equal((await origins.selection(origin.id)).ok, false);
+});
+
 test("on Windows a plain open never advertises the selection; the selection shortcut reads it before the panel and then offers it", async () => {
   const { service: origins, calls } = service("windows", [front(7, "Lease.docx", "WINWORD"), JSON.stringify({ ok: true, text: "Clause 9" })]);
   const origin = await origins.capture();

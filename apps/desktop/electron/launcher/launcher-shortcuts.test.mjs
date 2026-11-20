@@ -30,6 +30,18 @@ test("bindings register once, duplicates and dictation collisions are reported, 
   assert.equal(shortcut.bound.size, 0);
 });
 
+test("unlock retries a Windows chord when the previous owner released it", () => {
+  const refused = new Set(["Control+F8"]);
+  const shortcut = fakeGlobalShortcut(refused);
+  const registry = new LauncherShortcutRegistry({ globalShortcut: shortcut, platform: "win32" });
+  const bindings = [{ id: "launcher.open", accelerator: "Control+F8", handler() {} }];
+  assert.equal(registry.apply(bindings)[0].reason, "registration-failed");
+  refused.clear();
+  assert.deepEqual(registry.refresh(bindings), []);
+  assert.equal(shortcut.bound.has("Control+F8"), true);
+  registry.dispose();
+});
+
 test("the same accelerator twice inside the registry is a duplicate, not a second registration", () => {
   const shortcut = fakeGlobalShortcut();
   const registry = new LauncherShortcutRegistry({ globalShortcut: shortcut });

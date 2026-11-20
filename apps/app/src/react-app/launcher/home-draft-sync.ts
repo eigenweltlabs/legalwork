@@ -6,7 +6,7 @@ import { stageFiles } from "./context-capture";
 import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import type { LauncherDraft } from "@legalwork/types/launcher";
 import { sharedDraftCoordinator, windowOwnerId } from "./launcher-route";
-import { launcherDraftToComposerText } from "./launcher-draft-text";
+import { launcherDraftToComposerText, splitLauncherAttachments } from "./launcher-draft-text";
 export { launcherDraftToComposerText } from "./launcher-draft-text";
 
 
@@ -51,11 +51,14 @@ export function useHomeDraftSync(input: { projectTarget?: string | null; active:
     const show = () => {
       if (!isCurrent()) return;
       const draft = drafts.get(conversationId);
-      presentedContext = draft.context;
       const composer = useComposerStateStore.getState();
       applying = true;
-      composer.setDraft(sessionId, launcherDraftToComposerText(draft, assistantWorkspaceId, input.projectNames));
-      composer.setMentions(sessionId, draft.composer?.mentions ?? {});
+      const mentions = { ...draft.composer?.mentions };
+      const restored = splitLauncherAttachments(draft.text, assistantWorkspaceId, draft.context, mentions);
+      presentedContext = restored.context;
+      const text = launcherDraftToComposerText(restored, assistantWorkspaceId, input.projectNames, mentions);
+      composer.setMentions(sessionId, mentions);
+      composer.setDraft(sessionId, text);
       composer.setPasteParts(sessionId, draft.composer?.pasteParts ?? []);
       composer.setAttachments(sessionId, []);
       applying = false;
@@ -76,7 +79,7 @@ export function useHomeDraftSync(input: { projectTarget?: string | null; active:
           for (const attachment of existing.attachments) context.push(...await stageFiles(client, assistantWorkspaceId, [attachment.file]));
           if (!isCurrent()) return;
           const current = useComposerStateStore.getState().sessions[sessionId] ?? existing;
-          await drafts.update(conversationId, owner.current, { text: current.draft, context, composer: { mentions: current.mentions, pasteParts: current.pasteParts }, target });
+          await drafts.update(conversationId, owner.current, { ...splitLauncherAttachments(current.draft, assistantWorkspaceId, context, current.mentions), composer: { mentions: current.mentions, pasteParts: current.pasteParts }, target });
         });
       }
       show();
@@ -100,8 +103,8 @@ export function useHomeDraftSync(input: { projectTarget?: string | null; active:
         const context = keepsContext ? [...presentedContext] : [];
         for (const attachment of current.attachments) { const item = uploads.get(attachment.id); if (item) context.push(item); }
         await drafts.update(conversationId, owner.current, {
-          text: keepsContext ? current.draft.trimEnd().slice(0, -rendered.length).trim() : current.draft,
-          context, target, composer: { mentions: current.mentions, pasteParts: current.pasteParts },
+          ...splitLauncherAttachments(keepsContext ? current.draft.trimEnd().slice(0, -rendered.length).trim() : current.draft, assistantWorkspaceId, context, current.mentions),
+          target, composer: { mentions: current.mentions, pasteParts: current.pasteParts },
           model: latest.current.prefs.defaultModel, variant: latest.current.prefs.modelVariant,
         });
       }));

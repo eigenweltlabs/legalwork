@@ -39,11 +39,12 @@ export class AssistantConversations {
     return this.db.all("SELECT * FROM assistant_conversations WHERE workspace_id = ? ORDER BY updated_at DESC", [workspaceId]).map(row => this.item(row));
   }
   /** Explicit conversations first by recency, pinned ahead, then legacy days. Never creates anything. */
-  list(workspaceId: string, input: { query?: string; cursor?: string; limit?: number; includeArchived?: boolean } = {}) {
+  list(workspaceId: string, input: { query?: string; cursor?: string; limit?: number; includeArchived?: boolean; sessionIds?: ReadonlySet<string> } = {}) {
     const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
     const sessions = new Set<string>();
     const all = [...this.explicit(workspaceId), ...this.days(workspaceId).map(day => this.dayItem(workspaceId, day))]
       .filter(item => { if (sessions.has(item.sessionId)) return false; sessions.add(item.sessionId); return true; })
+      .filter(item => !input.sessionIds || input.sessionIds.has(item.sessionId))
       .filter(item => (input.includeArchived || item.archivedAt === null) && (!input.query || matchesSearch(`${item.title} ${item.date ?? ""}`, input.query)))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id, "en"));
     const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0;

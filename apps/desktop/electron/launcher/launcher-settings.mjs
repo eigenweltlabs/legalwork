@@ -39,14 +39,14 @@ export function normalizeLauncherSettings(input, current = DEFAULT_LAUNCHER_SETT
 
 /** Persisted beside the dictation settings; writes are atomic so a crash never leaves a half file. */
 export class LauncherSettingsStore {
-  constructor(userDataDir) {
+  constructor(userDataDir, windows = process.platform === "win32") {
     this.path = path.join(userDataDir, FILE);
     /** @type {import("@legalwork/types/launcher").LauncherSettings} */
-    this.settings = { ...DEFAULT_LAUNCHER_SETTINGS, aliases: { ...DEFAULT_LAUNCHER_SETTINGS.aliases }, actionShortcuts: {} };
+    this.settings = { ...DEFAULT_LAUNCHER_SETTINGS, shortcut: windows ? "Control+F8" : DEFAULT_LAUNCHER_SETTINGS.shortcut, aliases: { ...DEFAULT_LAUNCHER_SETTINGS.aliases }, actionShortcuts: {} };
     this.writes = Promise.resolve();
   }
   async load() {
-    try { this.settings = normalizeLauncherSettings(JSON.parse(await readFile(this.path, "utf8"))); }
+    try { this.settings = normalizeLauncherSettings(JSON.parse(await readFile(this.path, "utf8")), this.settings); }
     catch { /* First run or unreadable file: defaults apply. */ }
     return this.settings;
   }

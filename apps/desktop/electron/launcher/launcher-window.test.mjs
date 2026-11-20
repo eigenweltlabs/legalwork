@@ -32,16 +32,17 @@ function windowFixture(load = async () => {}) {
     }
     isDestroyed() { return this.destroyed; }
     isVisible() { return this.visible; }
-    isFocused() { return this.visible; }
+    isFocused() { return Boolean(this.focused); }
     setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setMenuBarVisibility() {}
     loadFile() { return load(); }
-    show() { this.visible = true; }
-    focus() {} hide() { this.visible = false; }
+    show() { this.visible = true; this.focused = true; }
+    showInactive() { this.visible = true; }
+    focus() { this.focused = true; } hide() { this.visible = false; this.focused = false; }
     getBounds() { return this.bounds; }
     setBounds(bounds) { this.bounds = bounds; }
     destroy() { this.destroyed = true; this.emit("closed"); }
   }
-  const source = readFileSync(new URL("./launcher-window.mjs", import.meta.url), "utf8").replace(/^import .*;\n/gm, "").replace("export class LauncherWindow", "class LauncherWindow");
+  const source = readFileSync(new URL("./launcher-window.mjs", import.meta.url), "utf8").replace(/^import .*;\r?\n/gm, "").replace("export class LauncherWindow", "class LauncherWindow");
   const LauncherWindow = runInNewContext(`${source}\nLauncherWindow`, {
     BrowserWindow: NativeWindow, screen: { getAllDisplays: () => [display], getDisplayNearestPoint: () => display, getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayMatching: () => display },
     readFile, writeFile, path, process, placePanel, panelWasMoved, setTimeout, clearTimeout,
@@ -61,6 +62,23 @@ test("overlapping first opens share the position read and one native window", as
   finishPosition();
   assert.equal(await first, await second);
   assert.equal(created.length, 1);
+});
+
+test("preview paints once without focus and reuses the same placement on activation", async () => {
+  const { panel, created } = windowFixture();
+  const window = await panel.ensure();
+  const calls = [];
+  for (const name of ["showInactive", "show", "focus", "setBounds"]) {
+    const native = window[name].bind(window);
+    window[name] = (...args) => { calls.push(name); return native(...args); };
+  }
+  await panel.preview(() => true);
+  assert.equal(panel.isVisible(), true);
+  assert.equal(panel.isFocused(), false);
+  await panel.show();
+  assert.equal(panel.isFocused(), true);
+  assert.equal(created.length, 1);
+  assert.deepEqual(calls, ["showInactive", "focus"]);
 });
 
 test("a cancelled show stays hidden when its renderer finishes loading", async () => {

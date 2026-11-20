@@ -26,7 +26,7 @@ import { readAuthorizedRecording } from "../recording-library.js";
 import { extractCorpusText } from "../corpus/extract.js";
 import { isSupportedWorkspaceTextFilePath, normalizeWorkspaceRelativePath } from "./files.js";
 import { filterRecordings, searchLauncher, titleScore } from "../launcher-search.js";
-import { searchFileContents, searchSessionContents } from "../content-search.js";
+import { nonemptySessionIds, searchFileContents, searchSessionContents } from "../content-search.js";
 import { taskStore } from "../task-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
@@ -197,6 +197,14 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       return items;
     };
   };
+  addRoute(routes, "POST", "/launcher/chats/visible", "client", async ctx => {
+    read(ctx);
+    const input = parse(z.object({ workspaceId: z.string().min(1).max(200), sessionIds: z.array(z.string().min(1).max(200)).max(40) }),
+      await options.readJsonBodyLimited(ctx.request, 16000), "launcher_chat_visibility", "Choose recent chats from one project.");
+    const workspace = await workspaceFor(ctx, input.workspaceId);
+    const ids = await nonemptySessionIds(config, workspace, input.sessionIds);
+    return jsonResponse({ sessionIds: [...ids] });
+  });
   addRoute(routes, "GET", "/launcher/search", "client", async ctx => {
     read(ctx);
     const input = parse(z.object({ q: z.string().trim().max(300).default(""), kinds: z.string().max(100).optional(), projectId: z.string().max(200).optional(), content: z.enum(["1", "0"]).optional(), limit: z.coerce.number().int().min(1).max(200).default(80),
@@ -214,20 +222,28 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       (folder, signal) => searchFileContents(folder, input.q, signal, options.preparation), ctx.request.signal), searchLauncher({
       workspaces: () => accessible(ctx, kinds.length === 1 && kinds[0] === "files" ? input.sourceKind : undefined), projectName, fileIndex, recordings: recordings(ctx),
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
-      sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
+      sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal, { requireMessages: true }),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
     }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since, sourceKind: input.sourceKind, sort: input.sort }, ctx.request.signal)]);
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);
     if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {
-      const page = conversations.list(assistant.id, { query: input.q, limit: 20 });
-      for (const conversation of page.items) {
-        if (input.since && conversation.updatedAt < input.since) continue;
-        const score = titleScore(conversation.title, input.q) ?? { match: "content" as const, score: 300 };
-        response.items.push({ id: conversation.id, kind: "chats", workspaceId: assistant.id, sourceId: "assistant", title: conversation.title, subtitle: projectName(assistant), updatedAt: conversation.updatedAt, sessionId: conversation.sessionId, match: score.match, score: score.score, actions: ["resume", "open"] });
+      try {
+        const workspace = await workspaceFor(ctx, assistant.id);
+        const sessionIds = await nonemptySessionIds(config, workspace);
+        const page = conversations.list(assistant.id, { query: input.q, limit: 20, sessionIds });
+        for (const conversation of page.items) {
+          if (input.since && conversation.updatedAt < input.since) continue;
+          const score = titleScore(conversation.title, input.q) ?? { match: "content" as const, score: 300 };
+          response.items.push({ id: conversation.id, kind: "chats", workspaceId: assistant.id, sourceId: "assistant", title: conversation.title, subtitle: projectName(assistant), updatedAt: conversation.updatedAt, sessionId: conversation.sessionId, match: score.match, score: score.score, actions: ["resume", "open"] });
+        }
+        response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: page.nextCursor ? "partial" : "complete", count: page.items.length, limited: Boolean(page.nextCursor) });
+      } catch (error) {
+        if (!(error instanceof ApiError && [403, 404].includes(error.status))) {
+          response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: "unavailable", count: 0, error: "Chat history is unavailable." });
+          response.unavailable.push(assistant.id);
+        }
       }
-      response.sources.push({ id: "chats:assistant", kind: "chats", workspaceId: assistant.id, label: projectName(assistant), coverage: page.nextCursor ? "partial" : "complete", count: page.items.length, limited: Boolean(page.nextCursor) });
-      response.items.sort((a, b) => compareLauncherResults(a, b, input.sort));
     }
     response.items.push(...extra.items); response.sources.push(...extra.sources); response.unavailable.push(...extra.unavailable);
     response.items.sort((a, b) => compareLauncherResults(a, b, input.sort));

@@ -115,8 +115,8 @@ file copies, clipboard file references and dragging to Finder use those document
 folders. Internal chat attachments and save-recovery records remain in the local
 app data folder; they are not shown as ordinary search results.
 
-Press **Command+Shift+Space** on macOS or **Ctrl+Shift+Space** on Windows to
-open the floating mini-bar. Press the shortcut again or **Esc** from its start
+Press **Command+Shift+Space** on macOS or **Ctrl+F8** on Windows to
+open the floating mini-bar. Existing profiles keep their saved shortcut. To change it, open **Settings** and select **Assistant launcher** under **Global** in the overview or sidebar. On Windows, use **Ctrl+Enter** to confirm a form. A Command key mapped to Meta also works when Windows delivers it to LegalWork. Press the shortcut again or **Esc** from its start
 screen to close it. You can also hover over the microphone companion and
 choose its Assistant launcher button. LegalWork must be running; **Settings >
 Assistant launcher > Keep the Assistant available in the background** keeps
@@ -167,7 +167,7 @@ projects and folders open inside the mini-bar where supported; files open in
 their document workspace. Press **Right** for actions such as **Open in app**,
 copying a file or reference, or **Hide**. **Esc** goes back one step. Hidden
 suggestions can be restored through **Hidden items**. Find previous chats with
-**Browse chats**; recently opened items also appear on the start screen. Search
+**Browse chats**. A chat appears after its first message. Recently opened chats with messages can also appear on the start screen. Search
 filters apply to the current search; searches cannot be saved. The mini-bar has
 no separate History or saved-searches screen.
 
@@ -324,7 +324,7 @@ delegated chat returned its final reply. **Idle** means the chat has no active
 turn or confirmed result. Open a job that needs input to answer its question or review its approval.
 
 Select text in Safari or another app and press **Command+Shift+Space** (Windows:
-**Ctrl+Shift+Space**). Choose **Explain**, **Translate** or **Rewrite**, or type
+**Ctrl+F8**). Choose **Explain**, **Translate** or **Rewrite**, or type
 a question and press **Command+Enter** (**Ctrl+Enter** on Windows). In Raycast,
 **Ask LegalWork with Selection** opens the same question composer. Opening the
 mini-bar with a selection starts with that passage and keeps existing chats separate.

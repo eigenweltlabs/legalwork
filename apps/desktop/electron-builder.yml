@@ -170,6 +170,8 @@ linux:
 win:
   icon: resources/icons/icon.ico
   extraResources:
+    - from: resources/helpers/LegalWorkLauncherOrigin.exe
+      to: helpers/LegalWorkLauncherOrigin.exe
     # Keep the signed Microsoft CRT beside the ONNX native addon. These
     # app-local dependencies require neither a system install nor admin rights.
     - from: resources/node

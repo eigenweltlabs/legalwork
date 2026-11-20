@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { prepareWindowsOrigin } from "./windows-origin.mjs";
 
 /** Run a native helper and collect its stdout; a timeout kills it and rejects. */
 export function execHelper(command, args, options = {}) {
@@ -104,7 +105,7 @@ const ownPids = () => new Set([process.pid]);
  */
 export class OriginService {
   /**
-   * @param {{ platform?: string, helperPath?: string | null, exec: (command: string, args: string[], options?: { timeoutMs?: number }) => Promise<string>,
+   * @param {{ platform?: string, helperPath?: string | null, windowsHelperPath?: string, exec: (command: string, args: string[], options?: { timeoutMs?: number }) => Promise<string>,
    *   clipboard: { readText: () => string, writeText: (text: string) => void }, pasteText: (text: string) => Promise<{ pasted: boolean, copied: boolean, error: string | null }>,
    *   isOwnProcess?: (pid: number | null, bundleId: string | null) => boolean, exists?: (path: string) => boolean }} options
    */
@@ -112,6 +113,7 @@ export class OriginService {
     /** @type {"darwin" | "windows" | "linux"} */
     this.platform = options.platform === "darwin" || options.platform === "windows" || options.platform === "linux" ? options.platform : process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
     this.helperPath = options.helperPath ?? null;
+    this.windowsHelperPath = options.windowsHelperPath;
     this.exec = options.exec;
     this.clipboard = options.clipboard;
     this.pasteText = options.pasteText;
@@ -122,6 +124,15 @@ export class OriginService {
     /** Selection outcome prefetched before focus moves away from the recorded app. */
     this.prefetched = null;
   }
+  prepare() {
+    if (this.platform !== "windows" || !this.windowsHelperPath || !this.exists(this.windowsHelperPath) || this.disposed || this.standby) return;
+    this.standby = prepareWindowsOrigin(this.windowsHelperPath);
+  }
+  dispose() {
+    this.disposed = true;
+    this.standby?.dispose();
+    this.standby = null;
+  }
   helperAvailable() { return Boolean(this.helperPath && this.exists(this.helperPath)); }
   capabilities() {
     const helper = this.helperAvailable();
@@ -129,7 +140,7 @@ export class OriginService {
     if (this.platform === "windows") return { origin: true, selection: true, insert: true, windowCapture: true, regionCapture: true, helper: false };
     return { origin: false, selection: false, insert: false, windowCapture: true, regionCapture: true, helper: false };
   }
-  async frontmost() {
+  async frontmost(selection = false) {
     try {
       if (this.platform === "darwin") {
         if (this.helperAvailable()) return parseHelperJson(await this.exec(this.helperPath, ["--frontmost"], { timeoutMs: 4000 }));
@@ -137,25 +148,43 @@ export class OriginService {
         const [name, pid, bundleId] = String(output).trim().split(", ");
         return name ? { ok: true, app: name, pid: Number(pid), bundleId: bundleId ?? "", window: null, accessibility: false } : { ok: false, reason: "none" };
       }
-      if (this.platform === "windows") return parseHelperJson(await this.exec("powershell.exe", windowsHelperArgs(WINDOWS_FRONTMOST_SCRIPT), { timeoutMs: 6000 }));
+      if (this.platform === "windows") {
+        if (this.standby) {
+          const worker = this.standby;
+          this.standby = null;
+          try { return parseHelperJson(await worker.read(selection)); }
+          finally { this.prepare(); }
+        }
+        if (this.windowsHelperPath && this.exists(this.windowsHelperPath)) return parseHelperJson(await this.exec(this.windowsHelperPath, selection ? ["--selection", String(process.pid)] : [], { timeoutMs: 1600 }));
+        return parseHelperJson(await this.exec("powershell.exe", windowsHelperArgs(WINDOWS_FRONTMOST_SCRIPT), { timeoutMs: 6000 }));
+      }
     } catch { return { ok: false, reason: "failed" }; }
     return { ok: false, reason: "unsupported" };
   }
   /** Record the external origin. LegalWork's own windows are never an origin. */
-  async capture() {
+  async capture(selection = false) {
     this.prefetched = null;
-    const front = await this.frontmost();
+    const front = await this.frontmost(selection);
     if (!front?.ok || this.isOwnProcess(Number(front.pid) || null, front.bundleId || null)) { this.invalidate(); return null; }
     const capabilities = this.capabilities();
     this.origin = { id: `origin_${randomBytes(6).toString("hex")}`, app: front.app || null, window: front.window || null, bundleId: front.bundleId || null, pid: Number.isInteger(front.pid) ? Number(front.pid) : null,
       // Windows can read the selection only while the source still has focus: the selection shortcut prefetches it; a plain open offers nothing it cannot deliver.
       capturedAt: Date.now(), supportsSelection: capabilities.selection && Boolean(front.accessibility ?? true) && this.platform !== "windows", supportsInsert: capabilities.insert, platform: this.platform };
+    if (selection && this.platform === "windows" && "selection" in front) {
+      const text = front.selection;
+      const ok = typeof text === "string" && text.length > 0 && text.length <= 200000;
+      this.origin.supportsSelection = ok;
+      /** @type {import("@legalwork/types/launcher").LauncherSelectionResult} */
+      const result = ok ? { ok: true, text, origin: this.origin } : { ok: false, reason: "empty", message: "", origin: this.origin };
+      this.prefetched = { originId: this.origin.id, result, requestedWordAutomation: false };
+    }
     return this.origin;
   }
   current() { return this.origin; }
   invalidate() { this.origin = null; this.prefetched = null; }
   /** An explicit selection shortcut reads the selection as part of the invocation, before the panel takes focus. */
   async prefetchSelection(explicit = false) {
+    if (this.platform === "windows" && this.prefetched?.originId === this.origin?.id && this.prefetched) return this.prefetched.result;
     this.prefetched = null;
     const origin = this.origin;
     if (!origin) return null;

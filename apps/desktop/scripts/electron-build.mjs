@@ -48,6 +48,7 @@ if (!existsSync(resolve(desktopRoot, "node_modules/@ricky0123/vad-web/dist/siler
 }
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--engine-mode", engineMode, "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
+run(nodeCmd, [resolve(__dirname, "build-windows-launcher.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-notifications.mjs")], desktopRoot);
 // Build the server TS → JS so Electron can import it in-process
 run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
