@@ -18,7 +18,8 @@ export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeA
       throw new ApiError(400, "directory_numeric_metric", "Choose a numeric field and specify the currency for monetary aggregates.");
   }
   const records = readRecords(object.id);
-  const requested = new Set([...query.fields, ...(query.filters ?? []).map(f => f.field), ...(query.sort ?? []).map(s => s.field),
+  const filterFields = new Set((query.filters ?? []).map(f => f.field));
+  const requested = new Set([...query.fields, ...filterFields, ...(query.sort ?? []).map(s => s.field),
     ...(query.groupBy ? [query.groupBy] : []), ...(query.metrics ?? []).flatMap(m => m.field ? [m.field] : [])]);
   const related = new Map<string, Map<string, BackOfficeRecord>>();
   for (const key of requested) {
@@ -30,25 +31,44 @@ export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeA
   }
   const indexed = records.map(record => {
     const values: Record<string, WikiValue> = Object.create(null);
+    const relationIds = new Map<string, string[]>();
     for (const key of requested) {
       const f = fields.get(key), v = record.values[key];
       if (!f || v == null) continue;
       if (f.type === "relation") {
-        const names = (Array.isArray(v) ? v : [v]).flatMap(id => {
+        const links = (Array.isArray(v) ? v : [v]).flatMap(id => {
           const linked = f.target && typeof id === "string" ? related.get(f.target)?.get(id) : undefined;
-          return linked && typeof linked.values.name === "string" ? [linked.values.name] : [];
+          return linked && typeof linked.values.name === "string" ? [{ id: linked.id, name: linked.values.name }] : [];
         });
+        const names = links.map(link => link.name);
         values[key] = f.multiple ? names : names[0] ?? null;
+        if (filterFields.has(key)) relationIds.set(key, links.map(link => link.id));
       } else if (typeof v === "object" && !Array.isArray(v)) {
         values[key] = query.currency ? (v.currency === query.currency ? v.amountMinor / 100 : null) : v;
       } else if (Array.isArray(v)) values[key] = v.map(item => typeof item === "string" ? item : item.name);
       else values[key] = v;
     }
-    // Related names and field redactions can change without a revision on this row.
-    const revision = createHash("sha256").update(JSON.stringify(values)).digest("hex");
-    return { path: record.id, type: object.id, revision, updatedAt: Date.parse(record.updatedAt), archived: !!record.archivedAt, values };
+    // Related names and visible identities can change without a revision on this row.
+    const revisionInput = relationIds.size ? [values, [...relationIds]] : values;
+    const revision = createHash("sha256").update(JSON.stringify(revisionInput)).digest("hex");
+    return { path: record.id, type: object.id, revision, updatedAt: Date.parse(record.updatedAt), archived: !!record.archivedAt, values, relationIds };
   });
-  const result = queryIndexedRows(indexed, query, new Set([...fields.keys(), "$id", "$archived"]), (row, field) => field === "$id" ? row.path : field === "$archived" ? row.archived : row.values[field], recordLinks ? ["$id", "$archived"] : [], null);
+  const property = (row: (typeof indexed)[number], field: string) =>
+    field === "$id" ? row.path : field === "$archived" ? row.archived : row.values[field];
+  const result = queryIndexedRows(indexed, query, new Set([...fields.keys(), "$id", "$archived"]), property, recordLinks ? ["$id", "$archived"] : [], null,
+    (row, field, operand) => {
+      const value = property(row, field);
+      const ids = row.relationIds.get(field);
+      const target = fields.get(field)?.target;
+      if (!ids || !target) return value;
+      // Resolve ID operands against the same visible targets used to render relation names.
+      const targets = related.get(target);
+      const isRecordId = (candidate: WikiValue | undefined) => typeof candidate === "string" && targets?.has(candidate);
+      if (Array.isArray(value)) {
+        return value.map((name, index) => isRecordId(Array.isArray(operand) ? operand[index] : operand) ? ids[index] : name);
+      }
+      return isRecordId(operand) ? ids[0] ?? null : value;
+    });
   return {
     ...result,
     rows: recordLinks && !query.groupBy && !query.metrics?.length ? result.rows.map(row => ({

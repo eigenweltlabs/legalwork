@@ -21,13 +21,14 @@ function property(page: WikiPage, field: string): WikiValue | undefined {
   const key = field.startsWith("properties.") ? field.slice(11) : field;
   return Object.hasOwn(page.properties, key) ? page.properties[key] : undefined;
 }
-function matches(actual: WikiValue | undefined, filter: NonNullable<WikiDataQuery["filters"]>[number]) {
+function matches(readValue: (operand: WikiValue | undefined) => WikiValue | undefined, filter: NonNullable<WikiDataQuery["filters"]>[number]) {
   const expected = filter.value;
+  if (filter.op === "in") return Array.isArray(expected) && expected.some(value => equal(readValue(value), value));
+  const actual = readValue(expected);
   switch (filter.op) {
     case "eq": return equal(actual, expected);
     case "ne": return !equal(actual, expected);
     case "exists": return (actual !== undefined && actual !== null) === (expected !== false);
-    case "in": return Array.isArray(expected) && expected.some(value => equal(actual, value));
     case "contains": return Array.isArray(actual) ? actual.some(value => equal(value, expected))
       : typeof actual === "string" && typeof expected === "string" && actual.toLocaleLowerCase().includes(expected.toLocaleLowerCase());
   }
@@ -44,6 +45,7 @@ export function queryIndexedRows<T extends { path: string; revision: string; upd
   pages: T[], query: WikiDataQuery, available: Set<string>,
   property: (row: T, field: string) => WikiValue | undefined,
   sourceFieldsToInclude: string[], emptySum: number | null = 0,
+  filterProperty: (row: T, field: string, operand: WikiValue | undefined) => WikiValue | undefined = property,
 ): WikiDataResult {
   const aggregate = !!query.groupBy || !!query.metrics?.length;
   const metrics = query.metrics?.length ? query.metrics : query.groupBy ? [{ name: "count", op: "count" } satisfies NonNullable<WikiDataQuery["metrics"]>[number]] : [];
@@ -65,7 +67,8 @@ export function queryIndexedRows<T extends { path: string; revision: string; upd
     offset = Number(match[2]);
     if (!Number.isSafeInteger(offset)) throw new ApiError(400, "wiki_invalid_cursor", "Invalid query cursor.");
   }
-  const matching = pages.filter(page => (!query.pageType || page.type === query.pageType) && (query.filters ?? []).every(filter => matches(property(page, filter.field), filter)));
+  const matching = pages.filter(page => (!query.pageType || page.type === query.pageType) && (query.filters ?? []).every(filter =>
+    matches(operand => filterProperty(page, filter.field, operand), filter)));
   let rows: Record<string, WikiValue>[];
   if (query.groupBy || query.metrics?.length) {
     const groups = new Map<string, { value: WikiValue; pages: T[] }>();
