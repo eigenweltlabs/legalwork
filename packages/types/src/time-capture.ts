@@ -10,20 +10,32 @@ export type CaptureAccount = z.infer<typeof captureAccountSchema>;
 export function sameCaptureAccount(a: CaptureAccount, b: CaptureAccount) {
   return a.provider === b.provider && a.account === b.account;
 }
+export const workdayModelSchema = z.object({
+  workspaceId: z.string().min(1).max(200), providerID: z.string().min(1).max(200), modelID: z.string().min(1).max(300),
+});
+export type WorkdayModel = z.infer<typeof workdayModelSchema>;
+export type WorkdayModelOption = WorkdayModel & { label: string };
 export const captureSettingsSchema = z.strictObject({
   calendar: z.boolean(),
   tasks: z.boolean(),
   documents: z.boolean().optional(),
   aiSuggestions: z.boolean().optional(),
+  model: workdayModelSchema.omit({ workspaceId: true }).optional(),
   connections: z.array(captureAccountSchema).max(16).optional(),
+  disabledConnections: z.array(captureAccountSchema).optional(),
   intervalMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
 });
-export function captureEnabled(settings: CaptureSettings) {
+type AccountSelection = Pick<CaptureSettings, "connections" | "disabledConnections">;
+export function captureAccountEnabled(settings: AccountSelection, account: CaptureAccount) {
+  if (settings.connections) return settings.connections.some(choice => sameCaptureAccount(choice, account));
+  return !settings.disabledConnections?.some(choice => sameCaptureAccount(choice, account));
+}
+export function captureEnabled(settings: CaptureSettings, accounts?: CaptureAccount[]) {
   return (
     settings.calendar ||
     settings.tasks ||
     settings.documents === true ||
-    Boolean(settings.connections?.length)
+    (accounts ? accounts.some(account => captureAccountEnabled(settings, account)) : settings.connections === undefined || settings.connections.length > 0)
   );
 }
 export const captureProposalSchema = z.object({
@@ -47,10 +59,6 @@ export const captureProposalSchema = z.object({
   versions: z.array(z.string()).optional(),
 });
 export const privateEntryDraftSchema = z.object({ date: z.iso.date(), values: z.record(z.string(), BackOfficeValueSchema), proposalDigest: z.string().length(64).optional() });
-export const workdayModelSchema = z.object({
-  workspaceId: z.string().min(1).max(200), providerID: z.string().min(1).max(200), modelID: z.string().min(1).max(300),
-});
-export type WorkdayModel = z.infer<typeof workdayModelSchema>;
 const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
 export const workdayWordingSchema = z.array(wordingSchema.extend({ index: z.number().int().nonnegative() }));
 export const captureStateSchema = z.object({

@@ -15,9 +15,9 @@ const widths: Record<RowColumn, number> = {
   activity: 67,
   narrative: 154,
   product: 110,
-  worked: 63,
-  billableWork: 88,
-  nonBillable: 86,
+  worked: 78,
+  billableWork: 150,
+  nonBillable: 172,
   charge: 92,
 };
 
@@ -30,7 +30,7 @@ export function useTimesheetColumns(scope: string) {
     } catch {
       /* Use the default view if storage is unavailable. */
     }
-    return ["worked"];
+    return ["billableWork", "nonBillable"];
   });
   function change(next: RowColumn[]) {
     setHidden(next);
@@ -80,7 +80,7 @@ export function useTimesheetColumns(scope: string) {
               {t(ledgerColumnKeys[field])}
             </label>
           ))}
-          <Button variant="ghost" size="sm" onClick={() => change(["worked"])}>
+          <Button variant="ghost" size="sm" onClick={() => change(["billableWork", "nonBillable"])}>
             <RotateCcw size={13} />
             {t("timesheets.reset_columns")}
           </Button>

@@ -53,7 +53,7 @@ import {
   productOptions,
   rowColumns,
   stopwatchRowCharge,
-  weekDates,
+  adjacentPeriod, periodDates, periodLabels, timePeriods, type TimePeriod,
   workerOptions,
   type RowColumn,
   type RowValues,
@@ -75,6 +75,7 @@ type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" 
 
 type Props = {
   capture?: TimeCaptureSheet;
+  visible?: boolean;
   state: TimesheetState;
   onCommand: (command: TimesheetCommand) => Promise<unknown>;
   initialDraft?: InitialTimesheetDraft;
@@ -190,7 +191,7 @@ function PrivateOriginal({
 }
 
 export function TimesheetLedger({
-  capture,
+  capture, visible = true,
   state,
   onCommand,
   initialDraft,
@@ -220,10 +221,12 @@ export function TimesheetLedger({
   const people = useMemo(() => workerOptions(state), [state.people, state.userId, locale]);
   const person = (id: string) => people.find((p) => p.id === id)?.label ?? id;
   const [ledgerDate, setLedgerDate] = useState(initialDraft?.entry.date ?? initialDate ?? localDate(new Date()));
-  const [period, setPeriod] = useState<"day" | "week">("day");
+  const [period, setPeriod] = useState<TimePeriod>("day");
   const date = capture?.date ?? ledgerDate;
-  const dates = capture?.dates ?? (period === "week" ? weekDates(date) : [date]);
-  const { showBooking, receipt } = useBookingReceipt(date, dates, chooseDate);
+  const dates = capture?.dates ?? periodDates(date, period);
+  const { showBooking, bookings, receipt } = useBookingReceipt(date, chooseDate, visible);
+  const [composerOpen, setComposerOpen] = useState(Boolean(initialDraft));
+  useEffect(() => setComposerOpen(false), [date, visible]);
   function capFor(
     entry: Pick<TimeDraft, "clientId" | "matterId" | "projectId" | "date" | "activity" | "billableMinutes">,
   ) {
@@ -294,11 +297,10 @@ export function TimesheetLedger({
       (sum, row) => {
         workedByDate.set(row.date, (workedByDate.get(row.date) ?? 0) + row.workedMinutes);
         sum.worked += row.workedMinutes;
-        sum.billable += row.workedMinutes - nonBillableWork(row);
         sum.charge += row.billableMinutes;
         return sum;
       },
-      { worked: 0, billable: 0, charge: 0 },
+      { worked: 0, charge: 0 },
     );
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
   const ready = rows.filter((e) => e.status === "confirmed");
@@ -307,6 +309,7 @@ export function TimesheetLedger({
   );
   const copied = rows.find((e) => e.id === selected);
   const focus = (row: string, column: RowColumn) => {
+    if (row === "new") setComposerOpen(true);
     reveal(column);
     requestAnimationFrame(() => {
       const element = host.current?.querySelector<HTMLInputElement>(
@@ -408,6 +411,15 @@ export function TimesheetLedger({
     setError("");
     focus(row, "product");
   }
+  async function send(command: TimesheetCommand) {
+    await onCommand(command);
+    if (command.type !== "create") return;
+    const { entry, workerIds } = command;
+    showBooking({ id: command.requestId, date: entry.date, description: entry.narrative,
+      details: [state.matters.find(matter => matter.id === entry.matterId)?.name,
+        (workerIds ?? [state.userId]).map(person).join(", "), t("timesheets.sheet.worked", { minutes: entry.workedMinutes }),
+        t("timesheets.sheet.charge", { minutes: entry.billableMinutes })].filter(Boolean).join(" · ") });
+  }
   async function run(command: TimesheetCommand) {
     if (!canEdit || pending.current) return false;
     if (!state.supportsTimeAllocations && requiresTimeAllocations(command)) {
@@ -418,7 +430,7 @@ export function TimesheetLedger({
     setBusy(true);
     setError("");
     try {
-      await onCommand(command);
+      await send(command);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("timesheets.ledger.failed"));
@@ -536,7 +548,7 @@ export function TimesheetLedger({
       setProvenance(undefined);
       setDraftChanged(false);
       setParticipants([]);
-      showBooking(entry.date, entry.narrative);
+      setComposerOpen(false);
       setDraft(
         emptyRow(
           date,
@@ -628,6 +640,7 @@ export function TimesheetLedger({
     await capture.act({ type: "draft", key: requestId, date, values: null });
   }
   function resetComposer() {
+    setComposerOpen(false);
     void clearPrivateDraft();
     if (provenance) onDiscardProposal?.();
     setDraftChanged(false);
@@ -821,6 +834,144 @@ export function TimesheetLedger({
           billableMinutes: +activeValues.charge,
         })
       : null;
+  function renderEntry(entry: TimeEntry) {
+    const limit = capFor(entry),
+      editing = edit?.entry.id === entry.id,
+      row = fromDraft(entry, person(entry.workerId), date, state, matters);
+    return (
+      <div key={entry.id}>
+        <div
+          role="row"
+          data-time-row={entry.id}
+          className={"bo-grid-row" + (selected === entry.id ? " bo-row-selected" : "")}
+          aria-selected={selected === entry.id}
+          onClick={() => setSelected(entry.id)}
+          onFocus={(event) => {
+            if (!(event.target instanceof HTMLInputElement && event.target.type === "checkbox"))
+              setSelected(entry.id);
+          }}
+        >
+          <div className="bo-check-cell">
+            <input
+              type="checkbox"
+              aria-label={t("timesheets.ledger.select_row", { name: entry.narrative })}
+              checked={selected === entry.id}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(e) => setSelected(e.currentTarget.checked ? entry.id : "")}
+            />
+          </div>
+          {editing && edit
+            ? editors(entry.id, edit.values)
+            : columns.map((column) => (
+                <div
+                  key={column}
+                  role="gridcell"
+                  tabIndex={0}
+                  className="bo-grid-cell bo-time-value"
+                  data-column={column}
+                  title={String(row[column])}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      startEdit(entry, column);
+                    }
+                  }}
+                  onClick={() => startEdit(entry, column)}
+                >
+                  {showValue(entry, column, row)}
+                </div>
+              ))}
+          <div role="gridcell" className="bo-grid-cell bo-time-state">
+            {limit !== null && (
+              <span
+                className="bo-time-cap-icon"
+                title={t("timesheets.ledger.cap_review", { minutes: limit })}
+              >
+                <AlertTriangle
+                  size={13}
+                  aria-label={t("timesheets.ledger.cap_review", { minutes: limit })}
+                />
+              </span>
+            )}
+            {editing ? (
+              <>
+                <span>{busy ? t("projects.saving") : t("timesheets.ledger.editing")}</span>
+                <button
+                  aria-label={t("timesheets.ledger.cancel")}
+                  onClick={() => {
+                    setEdit(null);
+                    setError("");
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </>
+            ) : canEdit && entry.status === "pending" ? (
+              <>
+                <button
+                  disabled={busy}
+                  title={t("timesheets.ledger.by", { name: person(entry.authorId) })}
+                  onClick={() =>
+                    void run({
+                      type: "confirm",
+                      entries: [{ id: entry.id, revision: entry.revision }],
+                    })
+                  }
+                >
+                  {t("timesheets.ledger.confirm")}
+                </button>
+                <button
+                  disabled={busy}
+                  aria-label={t("timesheets.ledger.decline")}
+                  onClick={() =>
+                    void run({
+                      type: "decline",
+                      entries: [{ id: entry.id, revision: entry.revision }],
+                    })
+                  }
+                >
+                  <X size={13} />
+                </button>
+              </>
+            ) : (
+              <span>{t(entryStatusKeys[entry.status])}</span>
+            )}
+            <button
+              type="button"
+              aria-expanded={history === entry.id}
+              aria-label={t("timesheets.ledger.history")}
+              onClick={() => setHistory(history === entry.id ? "" : entry.id)}
+            >
+              <History size={12} />
+            </button>
+          </div>
+        </div>
+        {history === entry.id && (
+          <>
+            {onOriginal &&
+              entry.workerId === state.userId &&
+              entry.source === "suggestion" &&
+              entry.proposalDigest && (
+                <PrivateOriginal key={entry.proposalDigest} entry={entry} load={onOriginal} />
+              )}
+            {changes(entry, person, locale)}
+            {canEdit &&
+              entry.workerId === state.userId &&
+              ["approved", "invoiced"].includes(entry.status) && (
+                <AdjustmentRequest entry={entry} adjustments={state.adjustments ?? []} submit={run} />
+              )}
+            <Link
+              className="bo-time-original"
+              to={"/back-office/timeEntries?record=" + encodeURIComponent(entry.id)}
+            >
+              {t("timesheets.ledger.signed_history")}
+            </Link>
+          </>
+        )}
+      </div>
+    );
+  }
+  const showComposer = canEdit && (composerOpen || draftChanged || provenance);
   return (
     <div
       ref={host}
@@ -831,7 +982,7 @@ export function TimesheetLedger({
     >
       <div className="bo-view-toolbar bo-time-toolbar">
         {!capture && <><div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
-          {(["day", "week"] as const).map((value) => (
+          {timePeriods.map((value) => (
             <button
               type="button"
               key={value}
@@ -842,7 +993,7 @@ export function TimesheetLedger({
                 setPeriod(value);
               }}
             >
-              {value === "week" ? t("timesheets.ledger.week") : t("timesheets.ledger.day")}
+              {t(periodLabels[value])}
             </button>
           ))}
         </div>
@@ -851,7 +1002,7 @@ export function TimesheetLedger({
             type="button"
             title={t("timesheets.ledger.previous")}
             aria-label={t("timesheets.ledger.previous")}
-            onClick={() => chooseDate(offsetDate(date, period === "day" ? -1 : -7))}
+            onClick={() => chooseDate(adjacentPeriod(date, period, -1))}
           >
             <ChevronLeft size={14} />
           </button>
@@ -865,7 +1016,7 @@ export function TimesheetLedger({
             type="button"
             title={t("timesheets.ledger.next")}
             aria-label={t("timesheets.ledger.next")}
-            onClick={() => chooseDate(offsetDate(date, period === "day" ? 1 : 7))}
+            onClick={() => chooseDate(adjacentPeriod(date, period, 1))}
           >
             <ChevronRight size={14} />
           </button>
@@ -968,8 +1119,6 @@ export function TimesheetLedger({
       <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
           [t("timesheets.ledger.worked_total"), totals.worked],
-          [t("timesheets.ledger.billable"), totals.billable],
-          [t("timesheets.ledger.nonbillable"), totals.worked - totals.billable],
           [t("timesheets.ledger.charge_total"), totals.charge],
         ].map(([key, value]) => (
           <span key={key}>
@@ -1008,145 +1157,12 @@ export function TimesheetLedger({
             {t("timesheets.ledger.status")}
           </div>
         </div>
-        {rows.map((entry) => {
-          const limit = capFor(entry),
-            editing = edit?.entry.id === entry.id,
-            row = fromDraft(entry, person(entry.workerId), date, state, matters);
-          return (
-            <div key={entry.id}>
-              <div
-                role="row"
-                data-time-row={entry.id}
-                className={"bo-grid-row" + (selected === entry.id ? " bo-row-selected" : "")}
-                aria-selected={selected === entry.id}
-                onClick={() => setSelected(entry.id)}
-                onFocus={(event) => {
-                  if (!(event.target instanceof HTMLInputElement && event.target.type === "checkbox"))
-                    setSelected(entry.id);
-                }}
-              >
-                <div className="bo-check-cell">
-                  <input
-                    type="checkbox"
-                    aria-label={t("timesheets.ledger.select_row", { name: entry.narrative })}
-                    checked={selected === entry.id}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(e) => setSelected(e.currentTarget.checked ? entry.id : "")}
-                  />
-                </div>
-                {editing && edit
-                  ? editors(entry.id, edit.values)
-                  : columns.map((column) => (
-                      <div
-                        key={column}
-                        role="gridcell"
-                        tabIndex={0}
-                        className="bo-grid-cell bo-time-value"
-                        data-column={column}
-                        title={String(row[column])}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            startEdit(entry, column);
-                          }
-                        }}
-                        onClick={() => startEdit(entry, column)}
-                      >
-                        {showValue(entry, column, row)}
-                      </div>
-                    ))}
-                <div role="gridcell" className="bo-grid-cell bo-time-state">
-                  {limit !== null && (
-                    <span
-                      className="bo-time-cap-icon"
-                      title={t("timesheets.ledger.cap_review", { minutes: limit })}
-                    >
-                      <AlertTriangle
-                        size={13}
-                        aria-label={t("timesheets.ledger.cap_review", { minutes: limit })}
-                      />
-                    </span>
-                  )}
-                  {editing ? (
-                    <>
-                      <span>{busy ? t("projects.saving") : t("timesheets.ledger.editing")}</span>
-                      <button
-                        aria-label={t("timesheets.ledger.cancel")}
-                        onClick={() => {
-                          setEdit(null);
-                          setError("");
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </>
-                  ) : canEdit && entry.status === "pending" ? (
-                    <>
-                      <button
-                        disabled={busy}
-                        title={t("timesheets.ledger.by", { name: person(entry.authorId) })}
-                        onClick={() =>
-                          void run({
-                            type: "confirm",
-                            entries: [{ id: entry.id, revision: entry.revision }],
-                          })
-                        }
-                      >
-                        {t("timesheets.ledger.confirm")}
-                      </button>
-                      <button
-                        disabled={busy}
-                        aria-label={t("timesheets.ledger.decline")}
-                        onClick={() =>
-                          void run({
-                            type: "decline",
-                            entries: [{ id: entry.id, revision: entry.revision }],
-                          })
-                        }
-                      >
-                        <X size={13} />
-                      </button>
-                    </>
-                  ) : (
-                    <span>{t(entryStatusKeys[entry.status])}</span>
-                  )}
-                  <button
-                    type="button"
-                    aria-expanded={history === entry.id}
-                    aria-label={t("timesheets.ledger.history")}
-                    onClick={() => setHistory(history === entry.id ? "" : entry.id)}
-                  >
-                    <History size={12} />
-                  </button>
-                </div>
-              </div>
-              {history === entry.id && (
-                <>
-                  {onOriginal &&
-                    entry.workerId === state.userId &&
-                    entry.source === "suggestion" &&
-                    entry.proposalDigest && (
-                      <PrivateOriginal key={entry.proposalDigest} entry={entry} load={onOriginal} />
-                    )}
-                  {changes(entry, person, locale)}
-                  {canEdit &&
-                    entry.workerId === state.userId &&
-                    ["approved", "invoiced"].includes(entry.status) && (
-                      <AdjustmentRequest entry={entry} adjustments={state.adjustments ?? []} submit={run} />
-                    )}
-                  <Link
-                    className="bo-time-original"
-                    to={"/back-office/timeEntries?record=" + encodeURIComponent(entry.id)}
-                  >
-                    {t("timesheets.ledger.signed_history")}
-                  </Link>
-                </>
-              )}
-            </div>
-          );
-        })}
-        {capture?.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={onCommand} canEdit={canEdit} />)}
-        {canEdit && (
+        {rows.filter(entry => !bookings.some(item => item.id === entry.groupId)).map(renderEntry)}
+        {capture?.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={send} canEdit={canEdit} />)}
+        {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => focus("new", "matter")}>
+          <Plus size={14} />{t("timesheets.ledger.new")}
+        </Button>}
+        {showComposer && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
             <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
               <button
@@ -1173,7 +1189,7 @@ export function TimesheetLedger({
             </div>
           </div>
         )}
-        {canEdit && (
+        {showComposer && (
           <div className="bo-time-participants">
             {participants.map((item) => (
               <div
@@ -1272,8 +1288,11 @@ export function TimesheetLedger({
             )}
           </div>
         )}
+        {receipt(item => {
+          const created = state.entries.filter(entry => entry.groupId === item.id && entry.workerId === state.userId);
+          return created.length ? created.map(renderEntry) : undefined;
+        }, item => state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date)}
       </div>
-      {receipt}
       {delegated.length > 0 && (
         <details className="bo-time-delegated">
           <summary>

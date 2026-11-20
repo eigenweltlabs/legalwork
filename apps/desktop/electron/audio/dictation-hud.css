@@ -621,19 +621,17 @@ body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch):not(:disa
   border:1px solid var(--border); border-radius:12px; background:var(--surface);
   box-shadow:0 4px 12px rgba(16,24,40,.12); display:flex; flex-direction:column; gap:8px;
 }
-#stopwatch-panel[hidden], #stopwatch-projects[hidden] { display:none }
+#stopwatch-panel[hidden] { display:none }
 body[data-dock=bottom] #stopwatch-panel { max-width:calc(100% - 16px); max-height:calc(100% - 48px); bottom:42px; left:50%; transform:translateX(-50%) }
 body[data-dock=left] #stopwatch-panel { left:44px; top:6px }
 body[data-dock=right] #stopwatch-panel { right:44px; top:6px }
 #stopwatch-panel header { flex:none; display:flex; align-items:center; gap:8px }
 #stopwatch-heading { flex:1; font-weight:600 }
 #stopwatch-panel-time { font-variant-numeric:tabular-nums; color:var(--muted) }
-#stopwatch-project, #stopwatch-confirm, #stopwatch-projects button {
+#stopwatch-confirm, #stopwatch-projects button {
   width:100%; height:auto; min-height:28px; padding:5px 8px; border-radius:6px; font:inherit; text-align:left;
 }
-#stopwatch-project { justify-content:space-between; border:1px solid var(--border); color:var(--ink) }
-#stopwatch-project span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-#stopwatch-projects { overflow:auto; min-height:0; max-height:76px; flex-shrink:1 }
+#stopwatch-projects { overflow:auto; min-height:0; max-height:112px; flex-shrink:1 }
 #stopwatch-projects button { justify-content:flex-start; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 #stopwatch-projects button[aria-pressed=true] { background:var(--hover); color:var(--ink) }
 #stopwatch-confirm { background:var(--primary); color:var(--primary-fg) }

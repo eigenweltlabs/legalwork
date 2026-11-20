@@ -18,8 +18,7 @@
   </aside>
   <aside id="stopwatch-panel" hidden aria-label="Stopwatch">
     <header><strong id="stopwatch-heading"></strong><span id="stopwatch-panel-time" aria-live="off"></span><button id="stopwatch-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button></header>
-    <button id="stopwatch-project" type="button" aria-expanded="false" aria-controls="stopwatch-projects"><span></span><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button>
-    <div id="stopwatch-projects" hidden></div>
+    <div id="stopwatch-projects" role="group"></div>
     <p id="stopwatch-panel-error" role="status"></p>
     <button id="stopwatch-confirm" type="button"></button>
   </aside>

@@ -1,21 +1,39 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { t } from "@/i18n";
 import { formatCalendarDay } from "../calendar/calendar-format";
 
-export function useBookingReceipt(day: string, dates: readonly string[], open: (date: string) => void) {
-  const [booking, setBooking] = useState<{ date: string; description: string; view: string }>();
-  const view = day + "/" + dates.length;
-  useEffect(() => { setBooking(undefined); }, [view]);
-  function showBooking(date: string, description: string) {
-    if (!dates.includes(date)) setBooking({ date, description, view });
+type Booking = { id: string; date: string; description: string; worker?: string; details?: string };
+
+// A save started on an earlier visit may finish after navigating back to the same day.
+export function useBookingReceipt(day: string, open: (date: string, worker?: string) => void, visible = true) {
+  const visit = useMemo(() => ({}), [day, visible]);
+  const active = useRef<object | null>(visit);
+  const [list, setList] = useState<{ visit: object; items: Booking[] }>({ visit, items: [] });
+  useLayoutEffect(() => {
+    active.current = visit;
+    setList({ visit, items: [] });
+    return () => { active.current = null; };
+  }, [visit]);
+  const bookings = list.visit === visit && visible ? list.items : [];
+  function showBooking(item: Booking) {
+    if (active.current !== visit || !visible) return;
+    setList(previous => ({ visit, items: [...previous.items.filter(existing => existing.id !== item.id), item] }));
   }
-  const receipt = booking?.view === view && (
-    <div className="time-booking-receipt" role="status">
-      <span>{t("timesheets.sheet.just_created", { description: booking.description })}</span>
-      <button type="button" onClick={() => open(booking.date)}>{t("timesheets.sheet.view_date", {
-        date: formatCalendarDay(booking.date, { day: "numeric", month: "long", year: "numeric" }),
-      })}</button>
-    </div>
-  );
-  return { showBooking, receipt };
+  function receipt(render: (booking: Booking, index: number) => ReactNode, dateFor: (booking: Booking) => string) {
+    return bookings.length > 0 && <section className="time-booking-receipt" aria-label={t("timesheets.sheet.just_created")}>
+      <strong>{t("timesheets.sheet.just_created")}</strong>
+      {bookings.map((item, index) => {
+        const date = dateFor(item);
+        return (
+          <div key={item.id} className="time-created-entry">
+            {render(item, index) ?? <div>{item.description}{item.details && <small>{item.details}</small>}</div>}
+            {date !== day && <button type="button" className="time-created-date" onClick={() => open(date, item.worker)}>
+              {t("timesheets.sheet.view_date", { date: formatCalendarDay(date, { day: "numeric", month: "long", year: "numeric" }) })}
+            </button>}
+          </div>
+        );
+      })}
+    </section>;
+  }
+  return { showBooking, bookings, receipt };
 }

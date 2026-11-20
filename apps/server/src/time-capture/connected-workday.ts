@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   captureProviders,
-  sameCaptureAccount,
+  captureAccountEnabled,
+  type CaptureSettings,
   type CaptureAccount,
   type CaptureProposal,
 } from "../back-office/timesheet-schema.js";
@@ -220,16 +221,14 @@ export async function accountWorkdayEvidence(
 }
 export async function readConnectedWorkday(
   config: ServerConfig,
-  requested: CaptureAccount[],
+  settings: CaptureSettings,
   date: string,
   signal: AbortSignal,
 ) {
-  if (!requested.length) return [];
+  if (settings.connections?.length === 0) return [];
   const available = await connectedWorkdayAccounts(config),
     output: WorkdayEvidence[] = [];
-  for (const account of available.filter((item) =>
-    requested.some((choice) => sameCaptureAccount(item, choice)),
-  )) {
+  for (const account of available.filter(item => captureAccountEnabled(settings, item))) {
     try {
       signal.throwIfAborted();
       const request = await createConnectorRequest(config, account.provider, account.id);
@@ -254,7 +253,7 @@ export async function readConnectedWorkday(
 export function sourceAvailable(
   proposal: CaptureProposal,
   accounts: CaptureAccount[],
-  settings: { calendar: boolean; tasks: boolean; documents?: boolean; connections?: CaptureAccount[] },
+  settings: Omit<CaptureSettings, "intervalMinutes">,
 ) {
   if (proposal.source === "stopwatch") return true;
   if (proposal.source === "documents") return settings.documents === true;
@@ -264,6 +263,6 @@ export function sourceAvailable(
     (selected) =>
       selected.provider === target.provider &&
       selected.account === target.account &&
-      settings.connections?.some((choice) => sameCaptureAccount(choice, selected)),
+      captureAccountEnabled(settings, selected),
   );
 }

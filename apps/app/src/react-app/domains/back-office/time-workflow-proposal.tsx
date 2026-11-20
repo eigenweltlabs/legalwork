@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { Check, Sparkles, X } from "lucide-react";
+import { Check, Timer, Sparkles, X } from "lucide-react";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
 import {
@@ -145,13 +145,13 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
   return (
     <div ref={host} className="time-workflow-proposal">
       <div role="row" className="bo-grid-row" data-time-proposal={proposal.key}>
-        <div className="bo-check-cell time-proposal-actions">
+        <div className="bo-check-cell"><div className="time-proposal-actions">
+          <button type="button" aria-label={t("timesheets.sheet.decline")} title={t("timesheets.sheet.decline")}
+            disabled={busy} onClick={() => updateSource({ type: "dismiss", key: proposal.key })}><X size={14} /></button>
           <button type="button" aria-label={t("timesheets.sheet.accept")}
             title={t(conflict ? "timesheets.workday.overlap" : "timesheets.sheet.accept")}
             disabled={busy || !canEdit || conflict} onClick={() => void accept()}><Check size={14} /></button>
-          <button type="button" aria-label={t("timesheets.sheet.decline")} title={t("timesheets.sheet.decline")}
-            disabled={busy} onClick={() => updateSource({ type: "dismiss", key: proposal.key })}><X size={14} /></button>
-        </div>
+        </div></div>
         {columns.map((column, index) => (
           <div className="bo-grid-cell bo-time-input-cell" role="gridcell" key={column}>
             <input aria-label={t(ledgerColumnKeys[column])} data-column={column}
@@ -190,11 +190,11 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
             {choices[column] && <datalist id={id + column}>{choices[column]?.map(value => <option key={value} value={value} />)}</datalist>}
           </div>
         ))}
-        <div className="bo-grid-cell"><span>{t("timesheets.ai_tab")}</span></div>
+        <div className="bo-grid-cell"><span>{t(proposal.source === "stopwatch" ? "timesheets.source.stopwatch" : "timesheets.ai_tab")}</span></div>
       </div>
       <div className="time-proposal-details time-workflow-source">
         <button type="button" className="time-proposal-source" onClick={() => capture.openSource(proposal)}>
-          <Sparkles size={13} />{t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}
+          {proposal.source === "stopwatch" ? <Timer size={13} /> : <Sparkles size={13} />}{proposal.source === "stopwatch" ? t(sourceKeys.stopwatch) : t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}
           {proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{project && " · " + project.name}
         </button>
         {conflict && <>

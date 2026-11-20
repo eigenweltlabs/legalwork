@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { captureProposalSchema } from "@legalwork/types/time-capture";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
+import { adjacentPeriod, periodDates } from "../src/react-app/domains/back-office/timesheet-row";
 import { proposalValues, timeRecordDate } from "../src/react-app/domains/back-office/time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, timeCellChanges } from "../src/react-app/domains/back-office/time-record-edits";
 
@@ -50,4 +51,12 @@ test("record sheet edits preserve genuine clocks when the selected service date 
   expect(move).toEqual({ startedAt: nextDay, serviceDate: nextDay, endedAt: null });
   expect(conflictingTimeFields(move, ["serviceDate"])).toEqual(new Set(["startedAt", "serviceDate", "endedAt"]));
   expect(copyTimeRecordValues(values, [], nextDay, "member:worker", true)).toMatchObject({ startedAt: nextDay, serviceDate: nextDay, endedAt: null });
+});
+
+
+test("monthly navigation clamps the service day and includes every day of a leap February", () => {
+  expect(adjacentPeriod("2028-01-31", "month", 1)).toBe("2028-02-29");
+  expect(adjacentPeriod("2027-03-31", "month", -1)).toBe("2027-02-28");
+  const dates = periodDates("2028-02-12", "month");
+  expect([dates[0], dates.at(-1), dates.length]).toEqual(["2028-02-01", "2028-02-29", 29]);
 });

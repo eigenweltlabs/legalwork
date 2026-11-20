@@ -24,7 +24,6 @@ const stopwatchFeedback = document.getElementById("stopwatch-feedback");
 let stopwatch = null;
 let stopwatchLabels;
 const stopwatchPanel = document.getElementById("stopwatch-panel");
-const stopwatchProject = document.getElementById("stopwatch-project");
 const stopwatchProjects = document.getElementById("stopwatch-projects");
 const stopwatchConfirm = document.getElementById("stopwatch-confirm");
 let selectedStopwatchProject = null;
@@ -36,9 +35,9 @@ let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
-    stopwatchTitle: "Stopwatch", stopwatchProject: "Choose project", stopwatchEmpty: "Open or create a project in LegalWork to start timing.",
+    stopwatchTitle: "Stopwatch", stopwatchProject: "Project", noProject: "No project",
     stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
-    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in AI suggestions",
+    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Time tracking",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
     copied: "Couldn’t insert text", copyInstructions: "Copied to clipboard. Select a text field and press {paste} to paste.",
     success: "Text inserted", cancelled: "Cancelled", error: "Dictation needs attention",
@@ -49,9 +48,9 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
-    stopwatchTitle: "Stoppuhr", stopwatchProject: "Projekt auswählen", stopwatchEmpty: "Öffnen oder erstellen Sie ein Projekt in LegalWork, um Zeit zu erfassen.",
+    stopwatchTitle: "Stoppuhr", stopwatchProject: "Projekt", noProject: "Kein Projekt",
     stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
-    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit unter KI-Vorschläge gespeichert",
+    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit in der Zeiterfassung gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
     copied: "Text konnte nicht eingefügt werden", copyInstructions: "In die Zwischenablage kopiert. Wähle ein Textfeld und drücke {paste}, um den Text einzufügen.",
     success: "Text eingefügt", cancelled: "Abgebrochen", error: "Diktat braucht Aufmerksamkeit",
@@ -108,32 +107,29 @@ function renderStopwatch() {
 
 function closeStopwatchPanel() {
   stopwatchPanel.hidden = true;
-  stopwatchProjects.hidden = true;
-  stopwatchProject.setAttribute("aria-expanded", "false");
   setHover(null);
 }
 function renderStopwatchPanel() {
   if (!stopwatch || !stopwatchLabels) return;
   const projects = stopwatch.projects ?? [];
-  const selected = projects.find(project => project.id === selectedStopwatchProject);
-  stopwatchProject.querySelector("span").textContent = selected?.name || stopwatchLabels.stopwatchProject;
-  stopwatchProject.setAttribute("aria-label", stopwatchLabels.stopwatchProject);
+  stopwatchProjects.setAttribute("aria-label", stopwatchLabels.stopwatchProject);
+  if (selectedStopwatchProject && !projects.some(project => project.id === selectedStopwatchProject)) selectedStopwatchProject = null;
   document.getElementById("stopwatch-heading").textContent = stopwatchLabels.stopwatchTitle;
   document.getElementById("stopwatch-close").setAttribute("aria-label", stopwatchLabels.dismiss);
-  const signature = JSON.stringify([projects, selectedStopwatchProject]);
+  const signature = JSON.stringify([projects, selectedStopwatchProject, stopwatchLabels.noProject, stopwatch.busy, stopwatch.unavailable]);
   if (signature !== projectListSignature) {
     projectListSignature = signature;
-    stopwatchProjects.replaceChildren(...projects.map(project => {
+    const choices = [{ id: null, name: stopwatchLabels.noProject }, ...projects];
+    stopwatchProjects.replaceChildren(...choices.map(project => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = project.name;
+      button.disabled = stopwatch.busy || stopwatch.unavailable;
       button.setAttribute("aria-pressed", String(project.id === selectedStopwatchProject));
       button.addEventListener("click", () => {
         awaitingProjectContext = false;
         selectedStopwatchProject = project.id;
-        stopwatchProjects.hidden = true;
-        stopwatchProject.setAttribute("aria-expanded", "false");
-        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, project.id);
+        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, project.id ?? undefined);
         renderStopwatchPanel();
       });
       return button;
@@ -141,31 +137,23 @@ function renderStopwatchPanel() {
   }
   document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
     ? stopwatchLabels.stopwatchFailed
-    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable
-    : !projects.length ? stopwatchLabels.stopwatchEmpty : "";
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : "";
   stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
     : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
-  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.startedAt && !selected && !stopwatch.unavailable);
-  stopwatchProject.disabled = stopwatch.busy || !projects.length;
+  stopwatchConfirm.disabled = stopwatch.busy;
 }
-stopwatchProject.addEventListener("click", () => {
-  stopwatchProjects.hidden = !stopwatchProjects.hidden;
-  stopwatchProject.setAttribute("aria-expanded", String(!stopwatchProjects.hidden));
-});
 document.getElementById("stopwatch-close").addEventListener("click", closeStopwatchPanel);
 stopwatchConfirm.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   pendingStopwatchAction = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
-  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchProject : undefined);
+  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchProject ?? undefined : undefined);
 });
 stopwatchButton.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   if (!stopwatchPanel.hidden) return closeStopwatchPanel();
   awaitingProjectContext = true;
-  selectedStopwatchProject = stopwatch.projectId || stopwatch.suggestedProjectId;
+  selectedStopwatchProject = (stopwatch.startedAt ? stopwatch.projectId : stopwatch.suggestedProjectId) ?? null;
   stopwatchPanel.hidden = false;
-  stopwatchProjects.hidden = Boolean(selectedStopwatchProject);
-  stopwatchProject.setAttribute("aria-expanded", String(!stopwatchProjects.hidden));
   renderStopwatchPanel();
   bridge.action("stopwatch-prepare", stopwatch.version);
 });
@@ -193,15 +181,9 @@ bridge.onState((value) => {
   const previousStopwatch = stopwatch;
   stopwatch = value.stopwatch;
   if (stopwatch && (awaitingProjectContext || previousStopwatch?.version !== stopwatch.version)) {
-    selectedStopwatchProject = stopwatch.projectId || stopwatch.suggestedProjectId;
-    if (awaitingProjectContext && !selectedStopwatchProject && !stopwatchPanel.hidden) {
-      stopwatchProjects.hidden = false;
-      stopwatchProject.setAttribute("aria-expanded", "true");
-    }
+    selectedStopwatchProject = (stopwatch.startedAt ? stopwatch.projectId : stopwatch.suggestedProjectId) ?? null;
     awaitingProjectContext = false;
   }
-  if (stopwatch && !stopwatch.startedAt && !selectedStopwatchProject)
-    selectedStopwatchProject = stopwatch.suggestedProjectId;
   if (!stopwatch) closeStopwatchPanel();
   if (pendingStopwatchAction && previousStopwatch?.busy && !stopwatch?.busy) {
     if (!stopwatch?.failed && !stopwatch?.unavailable && pendingStopwatchAction !== "retry") closeStopwatchPanel();

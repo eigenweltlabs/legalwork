@@ -63,6 +63,28 @@ export function weekDates(value: string) {
   return Array.from({ length: 7 }, (_, index) => offsetDate(monday, index));
 }
 
+export const timePeriods = ["day", "week", "month"] as const;
+export type TimePeriod = (typeof timePeriods)[number];
+export const periodLabels = { day: "timesheets.ledger.day", week: "timesheets.ledger.week", month: "calendar.month" } as const;
+
+export function periodDates(value: string, period: TimePeriod) {
+  if (period === "day") return [value];
+  if (period === "week") return weekDates(value);
+  const first = value.slice(0, 7) + "-01";
+  const last = new Date(first + "T12:00:00");
+  last.setMonth(last.getMonth() + 1, 0);
+  return Array.from({ length: last.getDate() }, (_, index) => offsetDate(first, index));
+}
+
+export function adjacentPeriod(value: string, period: TimePeriod, direction: 1 | -1) {
+  if (period !== "month") return offsetDate(value, direction * (period === "day" ? 1 : 7));
+  const last = new Date(value + "T12:00:00");
+  const day = last.getDate();
+  last.setMonth(last.getMonth() + direction + 1, 0);
+  last.setDate(Math.min(day, last.getDate()));
+  return localDate(last);
+}
+
 export function matterOptions(state: LedgerDirectory) {
   const clients = new Map(state.clients.map((client) => [client.id, client.name]));
   const matches = state.matters.flatMap((matter) => {

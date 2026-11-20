@@ -54,7 +54,7 @@ const savedSchema = z.object({
 type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
   stopwatch: emptyStopwatch(),
-  settings: { calendar: false, tasks: false, intervalMinutes: 0 },
+  settings: { calendar: true, tasks: true, documents: true, intervalMinutes: 0 },
   lastRun: 0,
   days: {},
   originals: {},
@@ -284,7 +284,7 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
         : [];
     const imported = await readConnectedWorkday(
       config,
-      initial.settings.connections ?? [],
+      initial.settings,
       date,
       signal,
     );

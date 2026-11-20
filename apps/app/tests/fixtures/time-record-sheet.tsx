@@ -119,7 +119,12 @@ function button(container: HTMLElement, label: string) {
   return result;
 }
 function blank() {
-  const result = [...host.querySelectorAll<HTMLElement>("[data-record-id]")].at(-1);
+  if (!host.querySelector("[data-sheet-blank]")) {
+    const add = host.querySelector<HTMLButtonElement>(".time-new-entry");
+    assert.ok(add);
+    act(() => add.click());
+  }
+  const result = host.querySelector<HTMLElement>("[data-sheet-blank]");
   assert.ok(result);
   return result;
 }
@@ -127,7 +132,7 @@ async function enter(container: HTMLElement, column: number, text: string) {
   const target = cell(container, column);
   await act(async () => target.click());
   const input = target.querySelector<HTMLInputElement>("input");
-  assert.ok(input, "Enter did not open an input");
+  assert.ok(input, "Enter did not open " + column + " for " + text + " (connected: " + target.isConnected + ")");
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   assert.ok(setter);
   await act(async () => {
@@ -145,6 +150,10 @@ try {
     wording: { [proposal.digest]: { narrative: "Generated private wording", activity: "RES" } } });
   await render(active);
   assert.ok(![...host.querySelectorAll('[role="columnheader"]')].some(header => header.textContent?.includes(t("timesheets.sheet.bill_to"))));
+  assert.equal(host.querySelector("[data-sheet-blank]"), null);
+  assert.ok(host.querySelector(".time-new-entry"));
+  assert.deepEqual([...row(proposal.key).querySelectorAll(".time-proposal-actions button")].map(item => item.getAttribute("aria-label")),
+    [t("timesheets.sheet.decline"), t("timesheets.sheet.accept")]);
   assert.match(cell(row(proposal.key), 3).textContent ?? "", /Generated private wording/);
   assert.equal(privateActions.length, 0);
   assert.equal(writes.length, 0);
@@ -237,7 +246,8 @@ try {
   const transfer = new window.DataTransfer();
   transfer.setData("text/plain", JSON.stringify({ legalworkTimeRow: 1, values: savedRow.values }));
   const paste = new window.ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
-  await act(async () => cell(blank(), 3).dispatchEvent(paste));
+  const pasteTarget = cell(blank(), 3);
+  await act(async () => pasteTarget.dispatchEvent(paste));
   assert.ok(paste.defaultPrevented);
   const copied = [...host.querySelectorAll<HTMLElement>("[data-record-id]")].find(element => element !== blank() && /Before refresh/.test(element.textContent ?? ""));
   assert.ok(copied);
@@ -283,7 +293,10 @@ try {
   const fromEditor = reverseTab();
   await act(async () => firstInput.dispatchEvent(fromEditor));
   assert.equal(fromEditor.defaultPrevented, false);
-  const lastInput = await enter(blank(), 5, "");
+  blank();
+  const finalRow = [...host.querySelectorAll<HTMLElement>("[data-record-id]")].at(-1);
+  assert.ok(finalRow);
+  const lastInput = await enter(finalRow, 5, cell(finalRow, 5).textContent?.trim() ?? "");
   const forwardTab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => lastInput.dispatchEvent(forwardTab));
   assert.equal(forwardTab.defaultPrevented, false);
@@ -323,13 +336,14 @@ try {
   let openedDate = "";
   const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
   await render(origin, [workerContact, current]);
+  const previousCreations = host.querySelectorAll(".time-created-entry").length;
   const offDayId = blank().dataset.recordId;
   assert.ok(offDayId);
   const workDate = await enter(blank(), 0, second);
   await act(async () => workDate.blur());
   assert.equal(blank().dataset.recordId, offDayId);
   assert.ok(privateActions.some(action => action.type === "draft" && action.key === offDayId && action.date === first && action.values?.startedAt === second));
-  assert.equal(host.querySelector(".time-booking-receipt"), null);
+  assert.equal(host.querySelectorAll(".time-created-entry").length, previousCreations);
   const description = await enter(row(offDayId), 3, "Off-day work");
   await act(async () => description.blur());
   await act(async () => cell(row(offDayId), 2).click());
@@ -344,9 +358,10 @@ try {
   assert.equal(writes.length, 9);
   assert.equal(writes.at(-1)?.values.startedAt, second);
   assert.equal(writes.at(-1)?.values.client, primary, "the only billing client was assigned without user input");
-  assert.equal(visible(offDayId), false);
+  assert.ok(row(offDayId).closest(".time-booking-receipt"));
   assert.notEqual(blank().dataset.recordId, offDayId);
-  const receipt = host.querySelector<HTMLButtonElement>(".time-booking-receipt button");
+  assert.equal(host.querySelectorAll(".time-created-entry").length, previousCreations + 1);
+  const receipt = row(offDayId).closest(".time-created-entry")?.querySelector<HTMLButtonElement>(".time-created-date");
   assert.ok(receipt);
   assert.match(receipt.parentElement?.textContent ?? "", /Off-day work/);
   await act(async () => receipt.click());

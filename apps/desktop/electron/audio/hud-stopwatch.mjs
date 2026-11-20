@@ -47,7 +47,7 @@ export class HudStopwatch {
     this.state = state;
     if (state && this.retry && (state.profileId !== this.retry.profileId ||
         (this.retry.action.type === "assign"
-          ? state.active?.id === this.retry.action.id && state.active?.projectId === this.retry.action.projectId
+          ? state.active?.id === this.retry.action.id && state.active?.projectId === (this.retry.action.projectId ?? null)
           : state.active?.id === this.retry.action.id || state.lastStopped?.id === this.retry.action.id)))
       this.retry = null;
   }
@@ -103,7 +103,7 @@ export class HudStopwatch {
       try { this.update(await this.request()); } catch { this.update(null); }
       this.failed = this.state?.profileId === profileId &&
         (type === "start" ? this.state.active?.id !== action.id
-          : type === "assign" ? this.state.active?.projectId !== action.projectId
+          : type === "assign" ? this.state.active?.id !== action.id || this.state.active.projectId !== (action.projectId ?? null)
           : this.state.lastStopped?.id !== action.id);
     } finally {
       if (type === "stop" && this.state?.profileId === profileId && this.state.lastStopped?.id === action.id)

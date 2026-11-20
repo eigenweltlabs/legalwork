@@ -2,18 +2,20 @@ import { sourceKeys } from "./timesheet-labels";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, Settings2, Sparkles, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, Settings, Sparkles, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 import { Button } from "@/components/ui/button";
 import type { TimeCaptureSheet } from "./time-record-sheet";
-import { offsetDate, weekDates } from "./timesheet-row";
+import { adjacentPeriod, periodDates, periodLabels, timePeriods, type TimePeriod } from "./timesheet-row";
 import {
   captureEnabled,
+  captureAccountEnabled,
   sameCaptureAccount,
   type CaptureAction,
   type CaptureState,
-  type WorkdayModel,
+  type WorkdayModelOption,
   type CaptureProposal,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
@@ -35,13 +37,13 @@ export function TimesheetWorkday({
   ledgerDirty = false,
   visible = true,
   initialDate,
-  model,
+  models = [],
   onDateChange,
   children,
 }: {
   children?: (capture: TimeCaptureSheet) => ReactNode;
   initialDate?: string;
-  model?: WorkdayModel;
+  models?: WorkdayModelOption[];
   onDateChange?: (value: string) => void;
   client: LegalworkServerClient;
   directory: BackOfficeState;
@@ -54,11 +56,11 @@ export function TimesheetWorkday({
   const [date, setDate] = useState(() => initialDate ?? calendarDay(new Date())),
     [error, setError] = useState(""),
     [running, setRunning] = useState(false);
-  const [period, setPeriod] = useState<"day" | "week">("day");
+  const [period, setPeriod] = useState<TimePeriod>("day");
   const [wording, setWording] = useState<CaptureState["wording"]>();
   const [runResult, setRunResult] = useState<{ date: string; count: number }>();
   const [refreshing, setRefreshing] = useState(false);
-  const dates = period === "week" ? weekDates(date) : [date];
+  const dates = periodDates(date, period);
   const navigate = useNavigate(),
     cache = useQueryClient();
   useEffect(() => {
@@ -76,8 +78,12 @@ export function TimesheetWorkday({
   const key = [...queryPrefix, { ...identity, date: dates[0] }, period];
   const query = useQuery<CaptureState>({
     queryKey: key,
-    queryFn: async () => {
-      const days = await Promise.all(dates.map(date => client.privateWorkday({ ...identity, date })));
+    queryFn: async ({ signal }) => {
+      const days: CaptureState[] = [];
+      for (let i = 0; i < dates.length; i += 7) {
+        signal.throwIfAborted();
+        days.push(...await Promise.all(dates.slice(i, i + 7).map(date => client.privateWorkday({ ...identity, date }, undefined, signal))));
+      }
       return { ...days[0], proposals: days.flatMap(day => day.proposals), drafts: days.reduce<CaptureState["drafts"]>((all, day) => ({ ...all, ...day.drafts }), {}) };
     },
     enabled: local,
@@ -149,7 +155,14 @@ export function TimesheetWorkday({
 
   const data = query.data, settings = data?.settings;
   const aiEnabled = settings?.aiSuggestions === true;
-  const refreshKey = visible && local && settings && captureEnabled(settings)
+  const modelKey = (item: { providerID: string; modelID: string }) => JSON.stringify([item.providerID, item.modelID]);
+  const preferred = settings?.model;
+  const eigenwelt = models.filter(item => item.providerID === "eigenwelt");
+  const automatic = ["haiku", "luna"].map(name => eigenwelt.find(item =>
+    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean);
+  const selectedModel = preferred ? models.find(item => modelKey(item) === modelKey(preferred)) : automatic;
+  const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
+  const refreshKey = visible && local && aiEnabled && settings && captureEnabled(settings, data?.connections)
     ? JSON.stringify([identity, date, period, settings, aiEnabled ? model : null, aiEnabled && data?.modelReady])
     : null;
   const prepareView = useEffectEvent(async (signal: AbortSignal) => {
@@ -169,7 +182,7 @@ export function TimesheetWorkday({
 
   const shown = data?.proposals.filter(
         (p) =>
-          (aiEnabled || p.source === "stopwatch" || p.parentDigest || data.drafts[p.key]) &&
+          (aiEnabled || p.source === "stopwatch") &&
           !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
           !state.entries.some(
             (e) =>
@@ -216,8 +229,8 @@ export function TimesheetWorkday({
     <section className={"bo-workday" + (children ? " time-unified" : "")}>
       <div className="bo-workday-controls">
         <div className="time-sheet-period">
-          <Button size="icon-sm" variant="ghost" aria-label={t(period === "day" ? "calendar.previous_day" : "calendar.previous_week")}
-            onClick={() => selectDate(offsetDate(date, period === "day" ? -1 : -7))}><ChevronLeft size={16} /></Button>
+          <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
+            onClick={() => selectDate(adjacentPeriod(date, period, -1))}><ChevronLeft size={16} /></Button>
           <label>
             <CalendarDays size={14} />
             <input
@@ -227,96 +240,101 @@ export function TimesheetWorkday({
               onChange={(e) => selectDate(e.target.value)}
             />
           </label>
-          <Button size="icon-sm" variant="ghost" aria-label={t(period === "day" ? "calendar.next_day" : "calendar.next_week")}
-            onClick={() => selectDate(offsetDate(date, period === "day" ? 1 : 7))}><ChevronRight size={16} /></Button>
+          <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.next" : period === "week" ? "calendar.next_week" : "calendar.next_day")}
+            onClick={() => selectDate(adjacentPeriod(date, period, 1))}><ChevronRight size={16} /></Button>
         </div>
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
-        {children && <div className="time-sheet-period">{(["day", "week"] as const).map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(value === "day" ? "timesheets.ledger.day" : "timesheets.ledger.week")}</Button>)}</div>}
+        {children && <div className="time-sheet-period">{timePeriods.map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(periodLabels[value])}</Button>)}</div>}
         <span className="bo-workday-toolbar-space" />
         <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
           aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
-          title={model ? t("timesheets.model_hint", { model: model.modelID }) : undefined}
           onClick={() => settings && void act({ type: "settings", settings: { ...settings, aiSuggestions: !aiEnabled } })}>
           <Sparkles size={14} />{t("timesheets.ai_tab")} · {t(aiEnabled ? "common.on" : "common.off")}
         </Button>
-      </div>
-      <small className="time-model-hint">{!local ? t("timesheets.local_only") : settings && (
-        !captureEnabled(settings) ? t("timesheets.enable_source") : model ? t("timesheets.model_hint", { model: model.modelID }) :
-        !data?.modelReady ? t("timesheets.no_model") : null
-      )}</small>
-      <div className="time-sheet-tools">
-      {settings && (
-        <details>
-          <summary>
-            <Settings2 size={14} /><ChevronDown size={12} className="time-detail-chevron" />
-            {t("timesheets.sources")}
-          </summary>
-          <LayoutStack className="mt-3">
-            <TimeSettingsGroup>
-              {(["calendar", "tasks", "documents"] as const).map((source) => {
-                const label = t(sourceKeys[source]);
-                return (
-                  <TimeSwitch
-                    key={source}
-                    label={label}
-                    checked={Boolean(settings[source])}
-                    disabled={running}
-                    onChange={(checked) =>
-                      void act({ type: "settings", settings: { ...settings, [source]: checked } })
-                    }
-                  />
-                );
-              })}
-              {data?.connections.map((account) => {
-                const enabled =
-                  settings.connections?.some((item) => sameCaptureAccount(item, account)) ?? false;
-                return (
-                  <TimeSwitch
-                    key={account.provider + account.account}
-                    label={t(sourceKeys[account.provider])}
-                    disabled={running}
-                    checked={enabled}
-                    onChange={(checked) => {
-                      const others = (settings.connections ?? []).filter(
-                        (item) => !sameCaptureAccount(item, account),
-                      );
-                      void act({
-                        type: "settings",
-                        settings: {
-                          ...settings,
-                          connections: checked ? [...others, account] : others,
-                        },
-                      });
+        <Popover>
+          <PopoverTrigger render={<Button type="button" size="icon-sm" variant="ghost" disabled={!settings} aria-label={t("timesheets.ai_settings")} />}>
+            <Settings size={16} />
+          </PopoverTrigger>
+          {settings && <PopoverContent align="end" className="w-[min(26rem,92vw)] max-h-[75vh] overflow-y-auto">
+            <LayoutStack>
+              <TimeSettingsGroup title={t("timesheets.ai_settings")}>
+                <TimeSetting title={t("timesheets.ai_model")}
+                  description={!model && !data?.modelReady ? t("timesheets.no_model") : undefined}>
+                  <TimeSelect label={t("timesheets.ai_model")} value={preferred ? modelKey(preferred) : "auto"}
+                    disabled={running} options={[
+                      { id: "auto", name: [t("timesheets.ai_automatic"), automatic?.label].filter(Boolean).join(" · ") },
+                      ...(preferred && !selectedModel ? [{ id: modelKey(preferred), name: preferred.modelID }] : []),
+                      ...models.map(item => ({ id: modelKey(item), name: item.label })),
+                    ]} onChange={value => {
+                      const choice = models.find(item => modelKey(item) === value);
+                      void act({ type: "settings", settings: { ...settings,
+                        model: choice && { providerID: choice.providerID, modelID: choice.modelID } } });
+                    }} />
+                </TimeSetting>
+              </TimeSettingsGroup>
+              <TimeSettingsGroup title={t("timesheets.sources")}>
+                {(["calendar", "tasks", "documents"] as const).map((source) => {
+                  const label = t(sourceKeys[source]);
+                  return (
+                    <TimeSwitch
+                      key={source}
+                      label={label}
+                      checked={Boolean(settings[source])}
+                      disabled={running}
+                      onChange={(checked) =>
+                        void act({ type: "settings", settings: { ...settings, [source]: checked } })
+                      }
+                    />
+                  );
+                })}
+                {data?.connections.map((account) => {
+                  const enabled = captureAccountEnabled(settings, account);
+                  return (
+                    <TimeSwitch
+                      key={account.provider + account.account}
+                      label={t(sourceKeys[account.provider])}
+                      disabled={running}
+                      checked={enabled}
+                      onChange={(checked) => {
+                        const list = settings.connections ?? settings.disabledConnections ?? [];
+                        const others = list.filter(item => !sameCaptureAccount(item, account));
+                        const selection = settings.connections
+                          ? { connections: checked ? [...others, account] : others }
+                          : { disabledConnections: checked ? others : [...others, account] };
+                        void act({ type: "settings", settings: { ...settings, ...selection } });
+                      }}
+                    />
+                  );
+                })}
+                <TimeSetting title={<label htmlFor="time-source-schedule">{t("timesheets.schedule")}</label>}>
+                  <TimeSelect
+                    id="time-source-schedule"
+                    label={t("timesheets.schedule")}
+                    disabled={running || !data?.modelReady || !aiEnabled}
+                    value={String(settings.intervalMinutes)}
+                    options={[
+                      { id: "0", name: t("timesheets.on_demand") },
+                      ...[15, 30, 60].map((n) => ({ id: String(n), name: n + " min" })),
+                    ]}
+                    onChange={(value) => {
+                      const interval = Number(value);
+                      if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
+                        void act({ type: "settings", settings: { ...settings, intervalMinutes: interval } });
                     }}
                   />
-                );
-              })}
-              <TimeSetting title={<label htmlFor="time-source-schedule">{t("timesheets.schedule")}</label>}>
-                <TimeSelect
-                  id="time-source-schedule"
-                  label={t("timesheets.schedule")}
-                  disabled={running || !data?.modelReady || !aiEnabled}
-                  value={String(settings.intervalMinutes)}
-                  options={[
-                    { id: "0", name: t("timesheets.on_demand") },
-                    ...[15, 30, 60].map((n) => ({ id: String(n), name: n + " min" })),
-                  ]}
-                  onChange={(value) => {
-                    const interval = Number(value);
-                    if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
-                      void act({ type: "settings", settings: { ...settings, intervalMinutes: interval } });
-                  }}
-                />
-              </TimeSetting>
-            </TimeSettingsGroup>
-          </LayoutStack>
+                </TimeSetting>
+              </TimeSettingsGroup>
+            </LayoutStack>
           <p>{t("timesheets.sources_hint")}</p>
           <div className="bo-workday-links">
             <Link to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
             <Link to="/workflows">{t("timesheets.workflow_settings")}</Link>
           </div>
-        </details>
-      )}
+          </PopoverContent>}
+        </Popover>
+      </div>
+      {!local && <small>{t("timesheets.local_only")}</small>}
+      <div className="time-sheet-tools">
       {data && (shown.some(p => p.date === date && p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
         <details className="bo-workday-timeline">
         <summary><CalendarDays size={14} /><ChevronDown size={12} className="time-detail-chevron" />{t("timesheets.timeline")}</summary>
@@ -331,7 +349,7 @@ export function TimesheetWorkday({
       )}
       </div>
       {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
-      {!running && runResult?.date === date && <p role="status">{t("timesheets.run_result", { count: runResult.count })}</p>}
+      {aiEnabled && !running && runResult?.date === date && <p role="status">{t("timesheets.run_result", { count: runResult.count })}</p>}
       {(running || refreshing) && <p role="status">{t("timesheets.preparing")}</p>}
       {selected && (
         <WorkdayCorrectionForm

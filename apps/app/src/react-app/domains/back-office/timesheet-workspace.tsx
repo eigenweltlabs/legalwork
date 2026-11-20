@@ -14,7 +14,7 @@ import {
   type TimeDraft,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
-import { captureChargeMinutes, type CaptureProposal, type WorkdayModel } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal, type WorkdayModelOption } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
@@ -43,12 +43,12 @@ export function TimesheetWorkspace({
   directory,
   page,
   renderRecords,
-  workdayModel,
+  workdayModels,
 }: {
   client: LegalworkServerClient;
   directory: BackOfficeState;
   page: keyof typeof timeRoutes;
-  workdayModel?: WorkdayModel;
+  workdayModels?: WorkdayModelOption[];
   renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
@@ -210,8 +210,8 @@ export function TimesheetWorkspace({
       )}
       {state && !recordsOnly && (page === "timesheets" || page === "timesheet-workday" || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={page !== "timesheets" && page !== "timesheet-workday"}>
-          <TimesheetWorkday visible={page === "timesheets" || page === "timesheet-workday"} ledgerDirty={ledgerDirty} model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
-          {capture => <TimesheetLedger
+          <TimesheetWorkday visible={page === "timesheets" || page === "timesheet-workday"} ledgerDirty={ledgerDirty} models={workdayModels} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+          {capture => <TimesheetLedger visible={page === "timesheets" || page === "timesheet-workday"}
             capture={capture}
             onOriginal={
               isLoopbackLegalworkServerUrl(client.baseUrl)
@@ -244,7 +244,7 @@ export function TimesheetWorkspace({
         </div>
       )}
       {state && recordsOnly && (page === "timesheets" || page === "timesheet-workday") && (
-        <TimesheetWorkday model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+        <TimesheetWorkday models={workdayModels} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
           {capture => <TimeRecordSheet client={client} directory={directory} state={state} capture={capture} />}
         </TimesheetWorkday>
       )}

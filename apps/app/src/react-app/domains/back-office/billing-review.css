@@ -113,7 +113,6 @@
   flex-wrap: wrap;
   gap: 12px;
 }
-.bo-billing-wording-actions { display: inline-flex; align-items: center; gap: 4px; }
 .bo-billing-subrow strong,
 .bo-billing-rules h2 {
   font-weight: 600;

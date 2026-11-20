@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
-import type { CaptureAction, CaptureProposal } from "@legalwork/types/time-capture";
+import type { CaptureAction, CaptureProposal, CaptureSettings } from "@legalwork/types/time-capture";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><body><div id='root'></div></body></html>");
@@ -94,6 +94,11 @@ const send = async (command: TimesheetCommand) => {
 };
 const root = createRoot(document.getElementById("root")!);
 const area = (row: string) => {
+  if (row === "new" && !document.querySelector('[data-time-row="new"]')) {
+    const add = document.querySelector<HTMLButtonElement>(".time-new-entry");
+    assert.ok(add);
+    act(() => add.click());
+  }
   const result = document.querySelector<HTMLElement>('[data-time-row="' + row + '"]');
   assert.ok(result);
   return result;
@@ -127,6 +132,8 @@ async function clip(element: Element, type: string, clipboard: DataTransfer) {
   });
 }
 try {
+  // Exercise the optional recorded-time allocations throughout the keyboard tests.
+  localStorage.setItem("legalwork.timesheet.columns." + state.scope + ":" + state.userId, JSON.stringify(["worked"]));
   const suggestionId = crypto.randomUUID();
   await act(async () =>
     root.render(
@@ -240,7 +247,7 @@ try {
   assert.equal(fresh.entry.workProductTitle, "Memo");
   assert.equal(fresh.entry.date, "2026-11-14");
   assert.equal(cell("new", "date").value, "2026-11-13");
-  const receiptLink = document.querySelector<HTMLButtonElement>(".time-booking-receipt button");
+  const receiptLink = document.querySelector<HTMLButtonElement>(".time-created-date");
   assert.ok(receiptLink);
   assert.match(receiptLink.parentElement?.textContent ?? "", /Separate brief/);
   await act(async () => receiptLink.click());
@@ -330,7 +337,7 @@ try {
   assert.ok(resized?.type === "update");
   assert.equal(resized.entry.startAt, undefined);
   // A shared meeting can be logged for both workers in a weekly list.
-  const weekButton = document.querySelector<HTMLButtonElement>('.bo-time-period button:last-child');
+  const weekButton = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-period button")].find(button => button.textContent === "Week");
   assert.ok(weekButton);
   await act(async () => weekButton.click());
   assert.equal(document.querySelectorAll(".bo-time-week button").length, 7);
@@ -578,11 +585,12 @@ try {
   await act(async () => cache.invalidateQueries({ queryKey: ["private-stopwatch"] }));
   for (let i = 0; i < 20 && workdayReads === initialReads; i++) await settle();
   assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
-  const sourceSwitch = document.querySelector<HTMLElement>('.bo-workday details [role="switch"]');
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
+  const sourceSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
   assert.ok(sourceSwitch);
   assert.equal(sourceSwitch.dataset.size, "default");
   assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
-  assert.equal(sourceSwitch.closest<HTMLElement>(".bo-theme")?.style.getPropertyValue("--t-corner-shape"), "round");
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
   const proposalRow = document.querySelector('[data-time-proposal]');
   assert.ok(proposalRow);
   const proposedText = proposalRow.querySelector<HTMLInputElement>('[data-column="narrative"]');
@@ -733,15 +741,15 @@ try {
     sync: { enabled: false, cursor: 0, pending: 0, error: null },
   };
   const { t } = await import("../../src/i18n");
-  const selectedModel = { workspaceId: "synthetic", providerID: "existing", modelID: "test-sonnet" };
+  const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
   const unedited = { ...exact, key: crypto.randomUUID(), digest: "7".repeat(64), startAt: null, endAt: null };
   let workdayProposals = [exact, partial, inlineTimer, unedited];
-  let workdaySettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 as const };
+  let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 as const };
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
     privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
       if (action) workdayActions.push(action);
-      if (action?.type === "settings") workdaySettings = { ...workdaySettings, calendar: action.settings.calendar, aiSuggestions: Boolean(action.settings.aiSuggestions) };
+      if (action?.type === "settings") workdaySettings = action.settings;
       if (action?.type === "reconcile") workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
         ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
@@ -757,7 +765,7 @@ try {
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
   const renderWorkday = () => act(async () => root.render(
     <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
-      <TimesheetWorkday client={workdayClient} model={selectedModel} directory={workdayDirectory} state={weeklyState}
+      <TimesheetWorkday client={workdayClient} models={[{ ...selectedModel, label: "Haiku" }, { ...selectedModel, modelID: "luna", label: "Luna" }]} directory={workdayDirectory} state={weeklyState}
         initialDate={base.date} onDraft={() => {}}>
         {captureSheet => <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />}
       </TimesheetWorkday>
@@ -769,9 +777,9 @@ try {
     assert.ok(control);
     return control;
   };
-  for (let i = 0; i < 20 && !workdayActions.some(action => action.type === "refresh"); i++) await settle();
+  for (let i = 0; i < 20 && aiSwitch().disabled; i++) await settle();
   assert.equal(aiSwitch().getAttribute("aria-checked"), "false");
-  assert.ok(workdayActions.some(action => action.type === "refresh" && !action.model));
+  assert.equal(workdayActions.some(action => action.type === "refresh"), false);
   assert.equal(workdayActions.some(action => action.type === "refresh" && action.model), false);
   await act(async () => aiSwitch().click());
   assert.equal(aiSwitch().getAttribute("aria-checked"), "true");
@@ -868,12 +876,34 @@ try {
   const thursday = document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")[3];
   assert.ok(thursday);
   await act(async () => thursday.click());
-  const calendarSwitch = document.querySelector<HTMLElement>('.bo-workday details [role="switch"]');
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
+  const modelSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Model"]');
+  assert.ok(modelSelect);
+  assert.match(modelSelect.textContent ?? "", /Automatic.*Haiku/);
+  await act(async () => modelSelect.click());
+  const luna = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === "Luna");
+  assert.ok(luna);
+  await act(async () => {
+    luna.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    luna.click();
+  });
+  await settle();
+  assert.deepEqual(workdaySettings.model, { providerID: "eigenwelt", modelID: "luna" });
+  assert.ok(workdayActions.some(action => action.type === "refresh" && action.model?.modelID === "luna"));
+  const calendarSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
   assert.ok(calendarSwitch);
   await act(async () => calendarSwitch.click());
   for (let i = 0; i < 20 && suggestionRow(partial); i++) await settle();
   assert.equal(suggestionRow(partial), null, "a source disabled on Thursday disappears from Wednesday");
   assert.ok(suggestionRow(inlineTimer), "the stopwatch source stays available");
+  const settingsButton = document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]');
+  await act(async () => settingsButton?.click());
+  const month = [...document.querySelectorAll<HTMLButtonElement>(".time-sheet-period button")].find(button => button.textContent === "Month");
+  assert.ok(month);
+  await act(async () => month.click());
+  assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next month"]')?.click());
+  assert.equal(document.querySelectorAll(".bo-time-month button").length, 31);
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

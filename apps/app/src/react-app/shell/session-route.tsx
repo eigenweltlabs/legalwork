@@ -2855,8 +2855,11 @@ export function SessionRoute() {
       }}
       mainView={
         backOfficePage ? (client ? <BackOfficePage client={client}
-          workdayModel={selectedWorkspaceId && hasUsableModel && local.prefs.defaultModel
-            ? { workspaceId: selectedWorkspaceId, providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : undefined} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+          workdayModels={selectedWorkspaceId ? (accessProviders ?? []).flatMap(provider =>
+            Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
+              workspaceId: selectedWorkspaceId, providerID: provider.id, modelID,
+              label: model.name || modelID,
+            }))) : []} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}

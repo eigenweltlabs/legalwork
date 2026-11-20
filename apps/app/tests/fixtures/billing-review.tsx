@@ -158,10 +158,10 @@ try {
   await click(match("Approve selection"));
   assert.deepEqual(calls.at(-1), { type: "approve", entries: [{ id: "a", revision: 2 }] });
   await click(field('input[aria-label="Select all eligible positions"]'));
-  const charge = host.querySelector<HTMLButtonElement>('button[aria-label="Charge (min)"]');
+  const charge = host.querySelector<HTMLButtonElement>('button[aria-label="Billable (min)"]');
   assert.ok(charge);
   await click(charge);
-  const minutes = field('input[aria-label="Charge (min)"]');
+  const minutes = field('input[aria-label="Billable (min)"]');
   await write(minutes, "20");
   await key(minutes, "Enter");
   assert.equal(calls.length, 1);
@@ -364,8 +364,8 @@ try {
   assert.match(host.textContent ?? "", /permitted maximum is 120/i);
   await click(field('input[aria-label="Select all eligible positions"]'));
   assert.ok(match("Approve selection").disabled);
-  await click(host.querySelector<HTMLButtonElement>('button[aria-label="Charge (min)"]')!);
-  await write(field('input[aria-label="Charge (min)"]'), "120");
+  await click(host.querySelector<HTMLButtonElement>('button[aria-label="Billable (min)"]')!);
+  await write(field('input[aria-label="Billable (min)"]'), "120");
   const capReason = field('input[aria-label="Reason for charge adjustment"]');
   await write(capReason, "Client time limit");
   await key(capReason, "Enter");

@@ -579,6 +579,20 @@ export function BillingReview({
                                     <div className="bo-billing-wording-actions">
                                       <Button
                                         size="sm"
+                                        variant="ghost"
+                                        disabled={pending}
+                                        onClick={() =>
+                                          void send({
+                                            type: "declineSuggestion",
+                                            id: e.id,
+                                            revision: e.revision,
+                                          }).catch(() => {})
+                                        }
+                                      >
+                                        {t("back_office.billing.dismiss")}
+                                      </Button>
+                                      <Button
+                                        size="sm"
                                         variant="outline"
                                         disabled={pending}
                                         onClick={() => {
@@ -593,20 +607,6 @@ export function BillingReview({
                                         }}
                                       >
                                         {t("back_office.billing.apply")}
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        disabled={pending}
-                                        onClick={() =>
-                                          void send({
-                                            type: "declineSuggestion",
-                                            id: e.id,
-                                            revision: e.revision,
-                                          }).catch(() => {})
-                                        }
-                                      >
-                                        {t("back_office.billing.dismiss")}
                                       </Button>
                                     </div>
                                   )}

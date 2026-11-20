@@ -162,7 +162,8 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
       "workday?" +
       new URLSearchParams({ date, profileId, scope: "local", user: "local", principal: "" });
     const result = captureStateSchema.parse(await (await api(workday)).json());
-    expect(result.settings.calendar).toBe(false);
+    expect(result.settings).toMatchObject({ calendar: true, tasks: true, documents: true });
+    expect(result.settings.aiSuggestions).not.toBe(true);
     expect(result.proposals).toHaveLength(1);
     expect(result.proposals[0]).toMatchObject({
       source: "stopwatch",

@@ -75,7 +75,7 @@ test("project reassignment reconciles a lost reply and prevents a stale stop", a
   const watch = new HudStopwatch(async action => {
     if (action) {
       writes.push(action);
-      state.active.projectId = action.projectId;
+      state.active.projectId = action.projectId ?? null;
       throw Error("Lost reply after committed assignment");
     }
     return structuredClone(state);
@@ -89,4 +89,7 @@ test("project reassignment reconciles a lost reply and prevents a stale stop", a
   assert.equal(observed.at(-1).failed, false);
   await watch.act("stop", oldVersion);
   assert.equal(writes.length, 1);
+  await watch.act("assign", watch.version);
+  assert.equal(observed.at(-1).projectId, null);
+  assert.equal(observed.at(-1).failed, false);
 });

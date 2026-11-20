@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, X, Plus, Sparkles, Info, Copy, History } from "lucide-react";
+import { Check, X, Plus, Timer, Sparkles, Info, Copy, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { z, BackOfficeRecordSchema, BackOfficeViewSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { CaptureAction, CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
@@ -61,9 +61,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   const [hiddenProposals, hideProposals] = useState<Set<string>>(new Set());
   const [source, setSource] = useState<string>();
   const [person, setPerson] = useState(self);
-  const bookedWorker = useRef<BackOfficeValue | undefined>(undefined);
-  const { showBooking, receipt } = useBookingReceipt(capture.date, capture.dates, target => {
-    if (person && person !== bookedWorker.current) setPerson("");
+  const [composerId, setComposerId] = useState<string>();
+  const grid = useRef<HTMLDivElement>(null);
+  useEffect(() => setComposerId(undefined), [capture.date]);
+  const { showBooking, bookings, receipt } = useBookingReceipt(capture.date, (target, worker) => {
+    if (person && person !== worker) setPerson("");
     capture.selectDate(target);
   });
   const copied = useRef<TimeRecordValues>(undefined);
@@ -75,6 +77,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   currentCapture.current = capture;
   const blankId = blankIds.current.get(capture.date) ?? crypto.randomUUID();
   blankIds.current.set(capture.date, blankId);
+  useLayoutEffect(() => {
+    if (composerId === blankId) grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
+  }, [composerId, blankId]);
   const raw = directory.model.objects.find(object => object.id === "timeEntries" && !object.archived);
   useEffect(() => {
     for (const record of directory.records) {
@@ -128,12 +133,13 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   const visible = stored.filter(isVisible);
   const proposals = capture.proposals.filter(proposal => !known.has(proposal.key) && !hiddenProposals.has(proposal.key));
   const proposalMap = new Map(proposals.map(proposal => [proposal.key, proposal]));
+  const createdIds = new Set(bookings.map(item => item.id));
   const entries = new Map(visible.map(record => [record.id, record]));
   for (const record of stored) {
     const pending = edits.updates.get(record.id);
     if (!pending) continue;
     const overlay = { ...record, values: Object.assign({}, record.values, ...pending.map(edit => edit.values)) };
-    if (entries.has(record.id) || isVisible(overlay)) entries.set(record.id, overlay);
+    if (entries.has(record.id) || createdIds.has(record.id) || isVisible(overlay)) entries.set(record.id, overlay);
   }
   for (const [id, draft] of Object.entries(capture.drafts)) {
     if (!draft.proposalDigest && !draft.values.workflow && !known.has(id) && capture.dates.includes(draft.date)) {
@@ -154,12 +160,13 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     entries.set(proposal.key, candidate);
   }
   const blank = row(blankId, { name: "", billingNarrative: "", status: "Draft", timekeeper: self, recordedMinutes: null, billableMinutes: null, startedAt: capture.date, serviceDate: capture.date });
+  const showBlank = composerId === blankId || entries.has(blankId);
   const blankRow = entries.get(blankId) ?? blank;
   entries.delete(blankId);
   for (const id of entries.keys()) if (!order.current.has(id)) order.current.set(id, order.current.size);
-  const rows = [...entries.values()].sort((a, b) => (order.current.get(a.id) ?? 0) - (order.current.get(b.id) ?? 0));
+  const rows = [...entries.values()].filter(record => !createdIds.has(record.id)).sort((a, b) => (order.current.get(a.id) ?? 0) - (order.current.get(b.id) ?? 0));
   const choices = members.map(member => ({ ...row(memberPrefix + member.userId, { name: member.userId === directory.permissions.userId ? t("timesheets.ledger.me") : member.name || member.email || member.userId }), objectId: "@time-member" }));
-  const records = [...directory.records.filter(record => record.objectId !== "timeEntries"), ...choices, ...rows, blankRow];
+  const records = [...directory.records.filter(record => record.objectId !== "timeEntries"), ...choices, ...rows, ...(showBlank ? [blankRow] : [])];
   const openRecord = (record: BackOfficeRecord) => { if (!record.objectId.startsWith("@")) navigate("/back-office/" + record.objectId + "?record=" + record.id); };
 
   function enqueue(id: string, task: () => Promise<void>) {
@@ -335,11 +342,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
       edits.drafts.delete(id);
       edits.draftErrors.delete(id);
       if (accepted) hideProposals(previous => new Set(previous).add(id));
-      const bookedDate = serviceDate(saved.values);
-      if (currentCapture.current.date === capture.date && !capture.dates.includes(bookedDate)) {
-        bookedWorker.current = fieldValue(pending.record, "timekeeper");
-        showBooking(bookedDate, String(saved.values.billingNarrative ?? saved.values.name));
-      }
+      const worker = fieldValue(pending.record, "timekeeper");
+      showBooking({ id: saved.id, date: serviceDate(saved.values), worker: typeof worker === "string" ? worker : undefined,
+        description: String(saved.values.billingNarrative ?? saved.values.name) });
       await acknowledge(saved);
       if (later && later !== pending && !pending.proposal) addUpdate(saved, differentTimeValues(pending.record.values, later.record.values));
       if (!accepted && currentCapture.current.privateAvailable) await currentCapture.current.act({ type: "draft", key: id, date: pending.date, values: null });
@@ -430,7 +435,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   }
   const unsaved = edits.updates.size > 0 || [...edits.drafts.values()].some(draft => !draft.proposal && !known.has(draft.record.id)) ||
     Object.entries(capture.drafts).some(([id, draft]) => !draft.proposalDigest && !draft.values.workflow && !known.has(id));
-  return <div className="time-record-sheet" onCopy={event => {
+  return <div ref={grid} className="time-record-sheet" onCopy={event => {
     if (!copied.current || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || window.getSelection()?.toString()) return;
     event.clipboardData.setData("text/plain", JSON.stringify({ legalworkTimeRow: 1, values: copyTimeRecordValues(copied.current, object.fields, capture.date, self, directory.permissions.finance) }));
     event.preventDefault();
@@ -455,7 +460,18 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
         const saved = z.object({ view: BackOfficeViewSchema }).parse(await client.backOffice("/views", { method: "POST", body: { ...view, expected } })).view;
         void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }); return saved;
       }}
-      sheet={{ columns: columnIds, blankId, fieldValue,
+      sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: bookings.length,
+        afterRows: render => <>
+          {directory.permissions.edit && roster.data && !showBlank &&
+            <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => setComposerId(blankId)}><Plus size={14} />{t("timesheets.ledger.new")}</Button>}
+          {receipt((item, index) => {
+            const record = entries.get(item.id) ?? known.get(item.id);
+            return record && render(record, index);
+          }, item => {
+            const record = entries.get(item.id) ?? known.get(item.id);
+            return record ? serviceDate(record.values) : item.date;
+          })}
+        </>,
         allowedRelationIds: (record, field) => field === "client" ? billingClients(record.values.matter) : undefined, widths: { startedAt: 130, timekeeper: 140, matter: 200, client: 170, billingNarrative: 340, recordedMinutes: 120, billableMinutes: 120 },
         onFocus: record => { copied.current = record.id !== blankId && !proposalMap.has(record.id) ? record.values : undefined; },
         trailing: record => record.revision > 0 ? <button title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => openRecord(record)}><History size={13} /></button> : null,
@@ -465,8 +481,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           if (proposal) {
             const blocked = capture.overlaps.has(record.id);
             return <div className="time-proposal-actions">
-              <button aria-label={t("timesheets.sheet.accept")} title={t(blocked ? "timesheets.workday.overlap" : "timesheets.sheet.accept")} disabled={blocked || edits.saving.has(record.id)} onClick={() => accept(record, proposal)}><Check size={14} /></button>
               <button aria-label={t("timesheets.sheet.decline")} title={t("timesheets.sheet.decline")} disabled={edits.saving.has(record.id)} onClick={() => finishProposal(proposal, { type: "dismiss", key: record.id })}><X size={14} /></button>
+              <button aria-label={t("timesheets.sheet.accept")} title={t(blocked ? "timesheets.workday.overlap" : "timesheets.sheet.accept")} disabled={blocked || edits.saving.has(record.id)} onClick={() => accept(record, proposal)}><Check size={14} /></button>
             </div>;
           }
           return record.id === blankId ? <button aria-label={t("back_office.add_new")} onClick={event => event.currentTarget.closest("[role=row]")?.querySelector<HTMLElement>("[role=gridcell]")?.click()}><Plus size={14} /></button> : <button aria-label={t("timesheets.sheet.copy_row")} title={t("timesheets.sheet.copy_row")} onClick={() => { copied.current = record.values; duplicate(record.values); }}><Copy size={13} /></button>;
@@ -482,7 +498,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           const matches = proposal && fieldValue(record, "timekeeper") === self && record.values.matter ? stored.filter(entry => isOwn(entry) &&
             serviceDate(entry.values) === serviceDate(record.values) && entry.values.matter === record.values.matter) : [];
           return <div className="time-proposal-details">
-            {proposal && <><button className="time-proposal-source" onClick={() => setSource(source === record.id ? undefined : record.id)}><Sparkles size={13} />{t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}{proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{proposal.projectId && " · " + (state.projects.find(project => project.id === proposal.projectId)?.name ?? "")}</button>
+            {proposal && <><button className="time-proposal-source" onClick={() => setSource(source === record.id ? undefined : record.id)}>{proposal.source === "stopwatch" ? <Timer size={13} /> : <Sparkles size={13} />}{proposal.source === "stopwatch" ? t(sourceKeys.stopwatch) : t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}{proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{proposal.projectId && " · " + (state.projects.find(project => project.id === proposal.projectId)?.name ?? "")}</button>
               {capture.overlaps.has(record.id) && <span className="bo-error">{t("timesheets.workday.overlap")} <Button size="xs" variant="ghost" onClick={() => capture.openSource(proposal)}>{t("timesheets.workday.correct")}</Button></span>}
               {directory.permissions.edit && matches.length > 0 && <select aria-label={t("timesheets.sheet.reconcile")} value="" disabled={edits.saving.has(record.id)} onChange={event => {
                 const match = matches.find(entry => entry.id === event.target.value);
@@ -520,7 +536,6 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           </div>;
         },
       }} />
-    {receipt}
     <div className="time-sheet-footer"><span>{t("timesheets.sheet.keyboard")}</span></div>
   </div>;
 }

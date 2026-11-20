@@ -131,6 +131,8 @@ export function RecordGrid({
     fieldValue?: (record: BackOfficeRecord, fieldId: string) => BackOfficeValue | undefined;
     trailing?: (record: BackOfficeRecord) => ReactNode;
     blankId: string;
+    appendedRowCount?: number;
+    afterRows?: (render: (record: BackOfficeRecord, index: number) => ReactNode) => ReactNode;
     leading?: (record: BackOfficeRecord) => ReactNode;
     details?: (record: BackOfficeRecord, columns: readonly string[]) => ReactNode;
   };
@@ -440,12 +442,13 @@ export function RecordGrid({
     row: number,
     column: number,
   ) => {
+    const rowCount = rows.length + (sheet?.appendedRowCount ?? 0);
     if (sheet && event.key === "Tab") {
       const position = row * visibleFields.length + column + (event.shiftKey ? -1 : 1);
       const targetRow = Math.floor(position / visibleFields.length), targetColumn = position % visibleFields.length;
-      if (targetRow < 0 || targetRow >= rows.length) {
+      if (targetRow < 0 || targetRow >= rowCount) {
         // The last cell can commit a complete draft and add a new blank row.
-        if (targetRow === rows.length && event.target instanceof HTMLInputElement) {
+        if (targetRow === rowCount && event.target instanceof HTMLInputElement) {
           requestAnimationFrame(() => {
             const next = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`)
               ?? scroll.current?.querySelector<HTMLElement>(`[data-sheet-blank]:not([data-record-id="${sheet.blankId}"]) [data-col="0"]`);
@@ -456,7 +459,7 @@ export function RecordGrid({
       }
       event.preventDefault();
       editCell(null);
-      if (windowed) rowWindow.scrollToIndex(targetRow);
+      if (windowed && targetRow < rows.length) rowWindow.scrollToIndex(targetRow);
       requestAnimationFrame(() => {
         const cell = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`);
         cell?.focus(); cell?.click();
@@ -476,7 +479,7 @@ export function RecordGrid({
     if (shift) {
       event.preventDefault();
       const targetRow = row + shift[0], targetColumn = column + shift[1];
-      if (targetRow < 0 || targetRow >= rows.length || targetColumn < 0 || targetColumn >= visibleFields.length) return;
+      if (targetRow < 0 || targetRow >= rowCount || targetColumn < 0 || targetColumn >= visibleFields.length) return;
       const selector = `[data-row="${targetRow}"][data-col="${targetColumn}"]`;
       const cell = scroll.current?.querySelector<HTMLElement>(selector);
       if (cell) cell.focus();
@@ -513,11 +516,11 @@ export function RecordGrid({
   }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
-      measure={windowed ? rowWindow.measureElement : undefined} template={template}
+      measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
       allowedRelationIds={sheet?.allowedRelationIds}
-      canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length - 1 || column < visibleFields.length - 1 : undefined}
+      canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length + (sheet.appendedRowCount ?? 0) - 1 || column < visibleFields.length - 1 : undefined}
       editing={editing?.record === record.id ? editing : undefined}
       onEdit={editCell} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
@@ -544,7 +547,7 @@ export function RecordGrid({
             >
               {activeView?.name ||
                 t("back_office.all_records", { name: object.plural })}
-              <span className="bo-view-count">· {rows.filter(row => row.id !== sheet?.blankId).length}</span>
+              <span className="bo-view-count">· {rows.filter(row => row.id !== sheet?.blankId).length + (sheet?.appendedRowCount ?? 0)}</span>
             </Button>
           }
         >
@@ -902,6 +905,7 @@ export function RecordGrid({
               ? rowWindow.getVirtualItems().map(item => renderRow(rows[item.index], item.index, item.start - 32))
               : rows.map((record, index) => renderRow(record, index))}
           </div>
+          {sheet?.afterRows?.((record, index) => renderRow(record, rows.length + index))}
           {!sheet && !rows.length && (
             <div className="bo-empty">
               <Columns3 size={26} />

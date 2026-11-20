@@ -168,6 +168,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
       await r.arrayBuffer();
       return r.status;
     };
+    await settings(false);
     expect(await write("Before.md", "OFF")).toBe(200);
     await settings(true);
     expect(await write("Existing.md", "private sample")).toBe(200);
@@ -271,7 +272,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
     expect(stale.status).toBe(409);
     profileId = await getProfileId();
     const newProfile = await workday({ type: "calendar" });
-    expect(newProfile.settings.documents).not.toBe(true);
+    expect(newProfile.settings.documents).toBe(true);
     expect(newProfile.proposals).toEqual([]);
     await writeEigenweltConnection(config, { account: null, platformURL: null });
     profileId = await getProfileId();

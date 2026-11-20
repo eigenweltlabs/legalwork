@@ -37,7 +37,8 @@ test("mail opt-in reads sent subjects for the local date without bodies, recipie
     projectId: null,
   });
   const proposal = result[0]!.proposal;
-  expect(sourceAvailable(proposal, [account("gmail")], { calendar: true, tasks: true })).toBe(false);
+  expect(sourceAvailable(proposal, [account("gmail")], { calendar: true, tasks: true })).toBe(true);
+  expect(sourceAvailable(proposal, [account("gmail")], { calendar: false, tasks: false, disabledConnections: [account("gmail")] })).toBe(false);
   expect(
     sourceAvailable(proposal, [], { calendar: false, tasks: false, connections: [account("gmail")] }),
   ).toBe(false);
