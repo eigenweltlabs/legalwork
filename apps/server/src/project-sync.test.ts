@@ -27,6 +27,7 @@ import {
   resolveProjectSync,
   runProjectSync,
   saveProjectSyncSettings,
+  signOutOfFirmProjects,
   startProjectSyncTimer,
   stopProjectSync,
   type ProjectSyncPlatform,
@@ -35,6 +36,7 @@ import { ReviewStore } from "./reviews/storage.js";
 import { registerLocalProject } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
 import * as taskSync from "./task-sync.js";
+import { withSignOutSync } from "./signout-sync.js";
 import type { RecorderBridge, ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ORG = "org_kanzlei";
@@ -1175,6 +1177,105 @@ test("team project configuration shares folder references and setup status even 
   await runProjectSync(owner.config, { platform });
   expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
   expect((await readProjectDetails(akte.path)).remote).not.toHaveProperty("context");
+});
+
+test("sign-out uploads local edits without pulling projects or downloading remote changes", async () => {
+  const { platform } = fakeFirm(), owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+  const original = await localProject(owner.config, "Shared matter");
+  await write(original, "contract.txt", "Original");
+  await saveProjectSyncSettings(owner.config, original, settings({ access: "org" }));
+  await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+  const [copy] = projectsOf(member.config);
+  await write(copy, "local.txt", "Unsent local work");
+  await write(original, "remote.txt", "New remote document");
+  await runProjectSync(owner.config, { platform });
+  const lists = spyOn(platform, "listProjects"), storage = platform.storage;
+  let downloads = 0;
+  const uploadOnlyPlatform: ProjectSyncPlatform = { ...platform, storage: (...args) => {
+    const remote = storage(...args);
+    return { ...remote, read: async () => { downloads++; throw new Error("Unexpected download"); }, download: async () => { downloads++; throw new Error("Unexpected download"); } };
+  } };
+  try {
+    expect(await signOutOfFirmProjects(member.config, { platform: uploadOnlyPlatform })).toEqual({ ok: true, removed: 1 });
+    expect(lists).not.toHaveBeenCalled();
+    expect(downloads).toBe(0);
+    expect(projectsOf(member.config)).toEqual([]);
+    await runProjectSync(owner.config, { platform });
+    expect(await read(original, "local.txt")).toBe("Unsent local work");
+  } finally { lists.mockRestore(); }
+});
+
+test("sign-out preserves migrated content and support when download ownership is missing", async () => {
+  const { platform } = fakeFirm(), owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+  const original = await localProject(owner.config, "Shared matter");
+  await write(original, "contract.txt", "Preserved contract");
+  await saveProjectSyncSettings(owner.config, original, settings({ access: "org" }));
+  await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+  const [copy] = projectsOf(member.config), store = await projectSyncStore(member.config);
+  const legacy = join(member.dir, "Documents", "LegalWork", "Projects", "Legacy matter");
+  await mkdir(legacy, { recursive: true });
+  await cp(workspaceContentPath(copy), legacy, { recursive: true });
+  const home = copy.path;
+  copy.contentPath = legacy;
+  store.releaseCopy(copy.id);
+  expect(await signOutOfFirmProjects(member.config, { platform })).toEqual({ ok: true, removed: 1 });
+  expect(projectsOf(member.config)).toEqual([]);
+  expect(await readFile(join(legacy, "contract.txt"), "utf8")).toBe("Preserved contract");
+  expect((await stat(home)).isDirectory()).toBe(true);
+  expect(store.ownedCopy(copy.id)).toBeNull();
+  expect(store.linkByWorkspace(copy.id)).toBeNull();
+});
+
+test("sign-out cancels an in-flight download before cleanup and suppresses background rounds", async () => {
+  const { platform } = fakeFirm(), owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+  const original = await localProject(owner.config, "Shared matter");
+  await write(original, "contract.txt", "Original");
+  await saveProjectSyncSettings(owner.config, original, settings({ access: "org" }));
+  await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+  const [copy] = projectsOf(member.config);
+  await write(original, "new.txt", "Remote download");
+  await runProjectSync(owner.config, { platform });
+  let started = () => {}, cancelled = false;
+  const downloading = new Promise<void>(resolve => { started = resolve; });
+  const storage = platform.storage;
+  const downloadingPlatform: ProjectSyncPlatform = { ...platform, storage: (client, ...args) => ({
+    ...storage(client, ...args),
+    download: async () => {
+      started();
+      const signal = client.signal;
+      if (!signal) throw new Error("Missing download cancellation signal");
+      await new Promise<never>((_, reject) => signal.addEventListener("abort", () => { cancelled = true; reject(signal.reason); }, { once: true }));
+      throw new Error("Unreachable");
+    },
+  }) };
+  const round = runProjectSync(member.config, { platform: downloadingPlatform });
+  await downloading;
+  await withSignOutSync(member.config, async () => {
+    expect(await signOutOfFirmProjects(member.config, { platform })).toEqual({ ok: true, removed: 1 });
+    expect(cancelled).toBe(true);
+    expect(await runProjectSync(member.config, { platform })).toMatchObject({ ran: false });
+    expect(projectsOf(member.config)).toEqual([]);
+    expect(await stat(copy.path).catch(() => null)).toBeNull();
+  });
+  await round;
+});
+
+test("sign-out keeps an unowned copy and its unsent edits when an upload is refused", async () => {
+  const { platform } = fakeFirm(), owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+  const original = await localProject(owner.config, "Shared matter");
+  await write(original, "contract.txt", "Original");
+  await saveProjectSyncSettings(owner.config, original, settings({ access: "org" }));
+  await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+  const [copy] = projectsOf(member.config);
+  await write(copy, "contract.txt", "My unsent edit");
+  await write(original, "contract.txt", "Colleague's edit");
+  await runProjectSync(owner.config, { platform });
+  const store = await projectSyncStore(member.config);
+  store.releaseCopy(copy.id);
+  expect(await signOutOfFirmProjects(member.config, { platform })).toEqual({ ok: false, pending: 1 });
+  expect(await read(copy, "contract.txt")).toBe("My unsent edit");
+  expect(store.linkByWorkspace(copy.id)).not.toBeNull();
+  expect(projectsOf(member.config)).toContain(copy);
 });
 
 for (const retry of [false, true]) test(`removing a migrated downloaded copy cleans both owned locations despite a stale projects override (retry: ${retry})`, async () => {

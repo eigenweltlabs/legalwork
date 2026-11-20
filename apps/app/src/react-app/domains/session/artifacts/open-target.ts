@@ -114,7 +114,7 @@ function textWithoutRedundantMarkdownLinkLabels(text: string) {
 
 function targetFromFile(path: string, confidence: number, reason: string): OpenTarget | null {
   const normalized = normalizePath(path).replace(/[.,;:]+$/, "");
-  if (!normalized || normalized.length > 500 || !normalized.includes(".")) return null;
+  if (!normalized || normalized.length > 500 || (!normalized.includes(".") && reason !== "attachment")) return null;
   return {
     id: `file:${normalized.toLowerCase()}`,
     kind: "file",

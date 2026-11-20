@@ -31,13 +31,12 @@ afterEach(async () => {
   else process.env.EIGENWELT_PLATFORM_URL = originalURL;
 });
 
-async function fixture() {
+async function fixture(platformURL = "http://127.0.0.1:55499") {
   const root = await mkdtemp(join(tmpdir(), "legalwork-bo-accounts-"));
   const config = backOfficeTestConfig(root, { hostToken: "fixture-host" });
   fixtures.push({ root, config });
   if (runtimeDbPath(config) !== join(root, "runtime.sqlite"))
     throw new Error("Account fixtures must use their temporary runtime database, never an environment override.");
-  const platformURL = "http://127.0.0.1:55499";
   process.env.EIGENWELT_PLATFORM_URL = platformURL;
   const snapshot = (records: BackOfficeRecord[] = [], accepted: string[] = []): BackOfficeSnapshot => ({ protocol: 1, model: defaultBackOfficeModel(), records, accepted, conflicts: [], views: [], cursor: 1 });
   const backend: { enabled: boolean; revision: number; finance: string[]; respond: ((init?: RequestInit) => Promise<Response>) | null } = { enabled: true, revision: 1, finance: ["alice"], respond: null };
@@ -63,6 +62,25 @@ async function fixture() {
   const oldHead = store.journal.storage.heads().at(-1)!;
   return { config, store, alice: access.actor, original, snapshot, signIn, backend, requests, oldHead, platformURL };
 }
+
+test("a shared-to-regional route upgrade preserves the replica, queued drafts and their author", async () => {
+  const { store, config, alice, original, requests } = await fixture("https://platform.eigenweltlabs.com");
+  store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { email: "pending@example.test" } });
+  const pending = store.pending("firm", 100, alice);
+  const requestId = await claimEigenweltRefreshRequest(config, "refresh-alice");
+  if (!requestId) throw new Error("Missing fixture refresh request");
+  expect(await writeEigenweltConnectionIfCurrent(config, {
+    regionalPlatformURL: "https://eu.platform.eigenweltlabs.com", platformToken: "regional-token", refreshToken: "regional-refresh",
+  }, { refreshToken: "refresh-alice", refreshRequestId: requestId })).toBe(true);
+  const returning = (await backOfficeAccess(config, true)).actor;
+  expect(returning.principalKey).toBe(alice.principalKey);
+  expect(returning.replicaId).toBe(alice.replicaId);
+  expect(store.pending("firm", 100, returning)).toEqual(pending);
+  expect(store.raw("firm", original.id)?.values.email).toBe("pending@example.test");
+  await backOfficePlatform(config, [], returning.principalKey);
+  expect(requests.at(-1)?.url).toBe("https://eu.platform.eigenweltlabs.com/api/back-office");
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
 
 test("receiving a snapshot while an authored field is queued does not retire the picker's replica", async () => {
   const { store, alice, original, snapshot } = await fixture();
@@ -106,6 +124,27 @@ test("sign-out prunes managed data without requiring another sync or touching lo
   expect(store.journal.storage.key(oldHead.streamId)).toBeNull();
   expect((await backOfficeAccess(config)).scope).toBe("local");
   expect(store.records("local", { userId: "local", model: true, edit: true, finance: true })[0].values.name).toBe("Local work");
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
+
+test("sign-out uploads directory edits without paging or applying incoming records", async () => {
+  const { store, config, alice, original, backend, snapshot } = await fixture();
+  store.saveRecord("firm", alice, { objectId: "people", revision: 0, values: { name: "Local draft" } });
+  const operation = store.pending("firm", 100, alice)[0].change.id;
+  let calls = 0;
+  backend.respond = async init => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    expect(body.changes.map((change: { id: string }) => change.id)).toEqual([operation]);
+    return Response.json({ ...snapshot([], [operation]), page: { access: "a".repeat(64), reset: false, next: crypto.randomUUID(), latest: 10 } });
+  };
+  expect(await signOutBackOffice(config, { force: false, apply: false })).toBe(0);
+  expect(calls).toBe(1);
+  expect(store.raw("firm", original.id)).not.toBeNull();
+  expect(store.accountPendingCount("firm", alice)).toBe(0);
+  expect(await signOutBackOffice(config, { force: true, apply: true, skipSync: true })).toBe(0);
+  expect(calls).toBe(1);
+  expect(store.raw("firm", original.id)).toBeNull();
   expect(store.checkIntegrity().locallyVerified).toBe(true);
 });
 

@@ -1,4 +1,4 @@
-import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
+import { eigenweltConnectionIdentityUrl, eigenweltConnectionPlatformUrl, eigenweltRefreshPlatformUrl } from "./eigenwelt-endpoints.js";
 /** Desktop refresh recovery. The request ID is saved before sending and kept
  * until the rotated credentials are saved, so retries survive sleep/restarts. */
 import {
@@ -14,6 +14,7 @@ import {
 import {
   applyEigenweltPaidManifestModels, applyEigenweltSystemOne,
   clearCachedEigenweltPaidManifest, parseManifestModels,
+  refreshEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "./types.js";
 
@@ -104,27 +105,36 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
     try { platformURL = validateEigenweltPlatformUrl(payload.platformURL); }
     catch { console.warn("[eigenwelt-refresh] ignored untrusted platform URL"); }
     // Optional metadata must not change the issuer of rotated credentials.
-    if (platformURL !== eigenweltConnectionPlatformUrl(conn)) platformURL = undefined;
+    if (platformURL !== eigenweltConnectionIdentityUrl(conn)) platformURL = undefined;
   }
+  const sameAccount = !account || (account.userId === conn.account?.userId && account.orgId === conn.account?.orgId);
+  const regionalPlatformURL = sameAccount ? eigenweltRefreshPlatformUrl(conn, payload.platformToken) : undefined;
+  if (regionalPlatformURL && conn.platformURL === null) platformURL = eigenweltConnectionIdentityUrl(conn);
   // Narrow before the async closure, without asserting/casting the payload.
   const platformToken = payload.platformToken;
   const refreshToken = payload.refreshToken;
   const expiresAt = payload.accessTokenExpiresAt;
   const models = payload.models;
   const systemOne = payload.systemOne;
+  let upgraded = false;
   await withEigenweltConnectionLock(config, async () => {
     const saved = await writeEigenweltConnectionIfCurrent(config, {
       platformToken, refreshToken, accessTokenExpiresAt: expiresAt,
       refreshRequestId: null, refreshError: null,
       ...(entitlements ? { entitlements } : {}), ...(account ? { account } : {}),
       ...(platformURL ? { platformURL } : {}),
+      ...(regionalPlatformURL ? { regionalPlatformURL } : {}),
     }, expected);
     if (!saved) return;
+    upgraded = Boolean(regionalPlatformURL);
     if (Array.isArray(models)) {
       await applyEigenweltPaidManifestModels(config, parseManifestModels(models)).catch(() => undefined);
     }
     await applyEigenweltSystemOne(config, systemOne).catch(() => undefined);
   });
+  // Fetch authoritative regional gateway URLs around the existing paid key.
+  // Do not guess replacements or hold the connection lock during network I/O.
+  if (upgraded) await refreshEigenweltPaidManifest(config).catch(() => undefined);
   return latestToken(config);
 }
 

@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import * as systemOne from "./systemone.js";
-import { withEigenweltConnectionLock } from "./eigenwelt-connection-store.js";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { readEigenweltConnection, withEigenweltConnectionLock, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { projectSyncStore } from "./project-sync-store.js";
+import { runProjectSync } from "./project-sync.js";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
@@ -154,4 +157,71 @@ test("account publication can refresh credentials without waiting on its own acc
     expect(result.status).toBe(200);
     expect(readinessRead).toBe(true);
   } finally { settings.mockRestore(); }
+});
+
+test("the account API signs out while preserving an old project without ownership records", async () => {
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
+  const requests: string[] = [];
+  const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    requests.push(`${request.method} ${new URL(request.url).pathname}`);
+    return Response.json({});
+  } });
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${platform.port}`;
+  const home = join(temporary, "managed", "legacy"), content = join(temporary, "Documents", "Legacy matter");
+  await mkdir(home, { recursive: true }); await mkdir(content, { recursive: true });
+  await writeFile(join(content, "contract.txt"), "Preserved document");
+  await writeFile(join(home, "history.txt"), "Preserved local history");
+  config.projectsDirectory = join(temporary, "managed");
+  config.workspaces.push({ id: "legacy", name: "Legacy matter", path: home, contentPath: content, workspaceType: "local", preset: "default" });
+  const store = await projectSyncStore(config), projectId = crypto.randomUUID();
+  store.saveLink({ workspaceId: "legacy", projectId, orgId: "firm", origin: "remote", role: "member", ownerUserId: "owner", settings: { access: "org", memberIds: [], scope: { documents: true, notes: false, tasks: false, recordings: false, metadata: false, reviews: false, calendar: false } }, confirmed: true, remoteUpdatedAt: null, filesReconciledAt: null, state: "active", allowDeletions: false, lastSyncAt: null, lastError: null, report: null });
+  const file = await stat(join(content, "contract.txt"));
+  store.fileBase(projectId).put("contract.txt", { path: "contract.txt", sha256: createHash("sha256").update("Preserved document").digest("hex"), size: file.size, mtimeMs: file.mtimeMs });
+  try {
+    await writeEigenweltConnection(config, { platformURL: `http://127.0.0.1:${platform.port}`, platformToken: "test-access", accessTokenExpiresAt: Date.now() + 3_600_000, account: { userId: "member", orgId: "firm", orgName: "Test firm", userName: "Test member", userEmail: null } });
+    const response = await call("PUT", "/workspace/ws_a/eigenwelt/connection", { disconnect: true });
+    expect(response.status).toBe(200);
+    expect((await readEigenweltConnection(config)).account).toBeNull();
+    expect(config.workspaces.some(workspace => workspace.id === "legacy")).toBe(false);
+    expect(await readFile(join(content, "contract.txt"), "utf8")).toBe("Preserved document");
+    expect(await readFile(join(home, "history.txt"), "utf8")).toBe("Preserved local history");
+    expect(requests.some(request => request.startsWith("GET /api/projects") || request.startsWith("GET /api/tasks"))).toBe(false);
+  } finally {
+    platform.stop(true);
+    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+  }
+});
+
+test("sign-in discovers shared projects without waiting for a background notification or timer", async () => {
+  // Clear the startup round while signed out; the fallback timer is a minute away.
+  await runProjectSync(config);
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL, projectId = crypto.randomUUID();
+  const scope = { documents: false, notes: false, tasks: false, recordings: false, metadata: false, reviews: false, calendar: false };
+  const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    if (new URL(request.url).pathname === "/api/projects") return Response.json({
+      projects: [{ id: projectId, name: "Shared fixture", ownerUserId: "owner", role: "member", access: "org", memberIds: [], scope, fields: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }], nextCursor: null,
+    });
+    return Response.json({});
+  } });
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${platform.port}`;
+  try {
+    const response = await call("PUT", "/workspace/ws_a/eigenwelt/connection", {
+      platformURL: process.env.EIGENWELT_PLATFORM_URL, platformToken: "test-access", accessTokenExpiresAt: Date.now() + 3_600_000,
+      account: { userId: "member", orgId: "firm", orgName: "Test firm", userName: "Test member", userEmail: null },
+    });
+    expect(response.status).toBe(200);
+    const store = await projectSyncStore(config);
+    for (let attempt = 0; attempt < 150 && !store.linkByProject(projectId); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    const copy = store.linkByProject(projectId);
+    expect(copy?.role).toBe("member");
+    const list = await (await call("GET", "/workspaces")).json();
+    expect(list.items.some((workspace: { id: string }) => workspace.id === copy?.workspaceId)).toBe(true);
+  } finally {
+    await writeEigenweltConnection(config, { account: null, platformToken: null, refreshToken: null });
+    await runProjectSync(config);
+    platform.stop(true);
+    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+  }
 });

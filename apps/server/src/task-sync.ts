@@ -1,4 +1,5 @@
 import { announceSyncChange } from "./app-sync-events.js";
+import { isSigningOut, syncDownloadSignal, syncUploadSignal } from "./signout-sync.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
   intakeCreateTask,
@@ -234,6 +235,7 @@ async function pushOutbox(
   // successful round for that task.
   const refused = new Map<string, string>();
   for (const entry of store.listOutbox()) {
+    client.signal?.throwIfAborted();
     if (blocked.has(entry.taskId)) continue;
     const task = store.getTask(entry.taskId);
     if (!task) {
@@ -358,7 +360,7 @@ async function pullChanges(
   return { pulled, hidden: hiddenIds.size, cursor: newest === null ? since : justBefore(newest) };
 }
 
-const rounds = new Map<string, Promise<TaskSyncResult>>();
+const rounds = new Map<string, { promise: Promise<TaskSyncResult>; controller: AbortController; uploadOnly: boolean }>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
 
 function keyOf(config: ServerConfig): string {
@@ -371,19 +373,28 @@ function keyOf(config: ServerConfig): string {
  */
 export function runTaskSync(
   config: ServerConfig,
-  options: { platform?: TaskSyncPlatform } = {},
+  options: { platform?: TaskSyncPlatform; uploadOnly?: boolean } = {},
 ): Promise<TaskSyncResult> {
   const key = keyOf(config);
   const inFlight = rounds.get(key);
-  if (inFlight) return inFlight;
-  const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
-    if (rounds.get(key) === round) rounds.delete(key);
+  if (isSigningOut(config) && !options.uploadOnly) return inFlight?.promise ?? Promise.resolve({ ran: false, orgId: null, pushed: 0, failed: 0, pulled: 0, hidden: 0, error: null });
+  if (inFlight) {
+    if (options.uploadOnly && !inFlight.uploadOnly) {
+      inFlight.controller.abort();
+      return inFlight.promise.then(() => runTaskSync(config, options));
+    }
+    return inFlight.promise;
+  }
+  const controller = new AbortController(), uploadOnly = options.uploadOnly === true;
+  const signal = AbortSignal.any([controller.signal, uploadOnly ? syncUploadSignal(config) : syncDownloadSignal(config)]);
+  const round = runRound(config, options.platform ?? REAL_PLATFORM, uploadOnly, signal).finally(() => {
+    if (rounds.get(key)?.promise === round) rounds.delete(key);
   });
-  rounds.set(key, round);
+  rounds.set(key, { promise: round, controller, uploadOnly });
   return round;
 }
 
-async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promise<TaskSyncResult> {
+async function runRound(config: ServerConfig, platform: TaskSyncPlatform, uploadOnly: boolean, signal: AbortSignal): Promise<TaskSyncResult> {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -398,7 +409,7 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
   result.ran = true;
   let client: IntakeClient;
   try {
-    client = requireIntakeClient(connection);
+    client = { ...requireIntakeClient(connection), signal };
   } catch (error) {
     result.error = messageOf(error);
     store.setSyncState({ ...state, lastError: result.error });
@@ -414,16 +425,18 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     state.lastPushAt = now;
     if (push.abort !== null) throw push.abort;
 
-    const pull = await pullChanges(platform, client, store, orgId, cursor, connection.account?.userId ?? null);
-    result.pulled = pull.pulled;
-    result.hidden = pull.hidden;
-    cursor = pull.cursor;
-    state.lastPullAt = now;
+    if (!uploadOnly) {
+      const pull = await pullChanges(platform, client, store, orgId, cursor, connection.account?.userId ?? null);
+      result.pulled = pull.pulled;
+      result.hidden = pull.hidden;
+      cursor = pull.cursor;
+      state.lastPullAt = now;
 
-    try {
-      store.replaceMembers(orgId, await platform.listMembers(client));
-    } catch {
-      // The cached list still names the colleagues; the next round retries.
+      try {
+        store.replaceMembers(orgId, await platform.listMembers(client));
+      } catch {
+        // The cached list still names the colleagues; the next round retries.
+      }
     }
   } catch (error) {
     result.error = messageOf(error);
@@ -455,7 +468,7 @@ export async function signOutOfFirmTasks(
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
   if (orgId === null) return { ok: true, removed: 0 };
-  await runTaskSync(config, { platform: options.platform }).catch(() => undefined);
+  await runTaskSync(config, { platform: options.platform, uploadOnly: true }).catch(() => undefined);
   const store = await taskStore(config);
   const pending = store.pendingFor(orgId);
   if (pending > 0 && !options.force) return { ok: false, pending };
