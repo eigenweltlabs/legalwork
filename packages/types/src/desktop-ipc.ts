@@ -839,7 +839,7 @@ export type DesktopCommandMap = {
   launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
   launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end" | "context" | "invoke" | "reset-position", payload?: { height?: number; route?: string; conversationId?: string; context?: LauncherWorkspaceContext | null; invocation?: LauncherInvocation }]; result: LauncherWindowState };
   launcherOriginGet: { args: []; result: LauncherOrigin | null };
-  launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
+  launcherOriginSelection: { args: [originId: string, explicit?: boolean]; result: LauncherSelectionResult };
   launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
   launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
   launcherClipboardWrite: { args: [text: string]; result: void };

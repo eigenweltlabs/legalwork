@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OriginService, originMatches, parseHelperJson } from "./origin-service.mjs";
+import { execHelper, OriginService, originMatches, parseHelperJson } from "./origin-service.mjs";
 
 function service(platform, responses, pasteResult = { pasted: true, copied: true, error: null }) {
   const calls = [];
@@ -28,7 +28,7 @@ test("the origin is captured before the panel, LegalWork itself is never an orig
   assert.deepEqual(await origins.selection("origin_unknown"), { ok: false, reason: "no-origin", message: "The source app was not recorded.", origin: null });
   const selection = await origins.selection(origin.id);
   assert.deepEqual(selection, { ok: true, text: "Clause 4", origin });
-  assert.deepEqual(calls.at(-1), ["/helper", "--selected-text", "42"]);
+  assert.deepEqual(calls.at(-1)?.slice(0, 3), ["/helper", "--selected-text", "42"]);
   assert.deepEqual(await origins.selection(origin.id), { ok: false, reason: "changed", message: "", origin });
 });
 
@@ -61,13 +61,18 @@ test("insertion requires the validated destination; a changed document copies in
 });
 
 test("on Windows a plain open never advertises the selection; the selection shortcut reads it before the panel and then offers it", async () => {
-  const { service: origins } = service("windows", [front(7, "Lease.docx", "WINWORD"), JSON.stringify({ ok: true, text: "Clause 9" })]);
+  const { service: origins, calls } = service("windows", [front(7, "Lease.docx", "WINWORD"), JSON.stringify({ ok: true, text: "Clause 9" })]);
   const origin = await origins.capture();
   assert.equal(origin.supportsSelection, false);
   const plain = await origins.selection(origin.id);
   assert.equal(plain.ok, false);
   assert.equal(plain.ok === false && plain.reason, "changed");
   assert.deepEqual(await origins.prefetchSelection(), { ok: true, text: "Clause 9", origin });
+  const args = calls.at(-1);
+  assert.equal(args.at(-2), "-EncodedCommand");
+  const script = Buffer.from(args.at(-1), "base64").toString("utf16le");
+  assert.match(script, /\} -TargetPid 7$/);
+  assert.match(script, /& \{\s*param\(\[int\]\$TargetPid\)/);
   assert.equal(origin.supportsSelection, true);
   assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Clause 9", origin });
 });
@@ -92,4 +97,42 @@ test("a failed selection prefetch remains the answer after focus changes and lea
   assert.deepEqual(await origins.selection(origin.id), outcome);
   assert.equal(calls.filter(([, action]) => action === "--selected-text").length, 1);
   assert.equal(clipboard.readText(), "Synthetic clipboard sentinel");
+});
+
+test("an oversized native selection yields an explicit error instead of partial text", async () => {
+  const { service: origins } = service("windows", [front(7, "Synthetic.docx"), JSON.stringify({ ok: true, text: "x".repeat(200_001) })]);
+  const origin = await origins.capture();
+  await origins.prefetchSelection();
+  assert.deepEqual(await origins.selection(origin.id), { ok: false, reason: "too-large", message: "", origin });
+});
+
+test("helper output preserves a Unicode character split across pipe reads", async () => {
+  const script = 'process.stdout.write(Buffer.from([0xe2])); setTimeout(() => process.stdout.write(Buffer.from([0x82, 0xac])), 30);';
+  assert.equal(await execHelper(process.execPath, ["-e", script]), "€");
+});
+
+test("Word uses silent preflight on ordinary open and opts in only on an explicit request", async () => {
+  const permission = JSON.stringify({ ok: false, reason: "word-automation" });
+  const { service: origins, calls, clipboard } = service("darwin", [front(42, "Synthetic.docx"), permission, permission]);
+  const origin = await origins.capture();
+  await origins.prefetchSelection();
+  assert.equal((await origins.selection(origin.id)).ok, false);
+  assert.deepEqual(calls[1].slice(0, 3), ["/helper", "--selected-text", "42"]);
+  assert.match(calls[1][3], /^[a-f0-9]{64}$/);
+  assert.equal(calls[1].length, 4);
+  assert.equal(calls.length, 2);
+  await origins.selection(origin.id, true);
+  assert.deepEqual(calls[2], [...calls[1], "--allow-word-automation"]);
+  assert.equal((await origins.selection(origin.id, true)).ok, false);
+  assert.equal(calls.length, 3);
+  assert.equal(clipboard.readText(), "previous");
+});
+
+test("an already authorized Word selection comes back literally from a passive read", async () => {
+  const text = "  Synthetic contract clause.  ";
+  const { service: origins, calls } = service("darwin", [front(42, "Synthetic.docx"), JSON.stringify({ ok: true, text })]);
+  const origin = await origins.capture();
+  await origins.prefetchSelection();
+  assert.deepEqual(await origins.selection(origin.id), { ok: true, text, origin });
+  assert.equal(calls[1].includes("--allow-word-automation"), false);
 });

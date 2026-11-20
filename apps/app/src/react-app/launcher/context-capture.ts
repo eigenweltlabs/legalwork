@@ -18,6 +18,8 @@ const selectionErrorKeys = {
   empty: "launcher.capture.selection_empty",
   changed: "launcher.capture.selection_changed",
   denied: "launcher.capture.selection_denied",
+  "too-large": "launcher.capture.selection_too_large",
+  "word-automation": "launcher.capture.word_automation",
   failed: "launcher.capture.selection_failed",
 } satisfies Record<Extract<LauncherSelectionResult, { ok: false }>["reason"], TranslationKey>;
 
@@ -26,10 +28,10 @@ const MAX_CAPTURE_BYTES = 20 * 1024 * 1024;
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 12)}`;
 
 /** Read the selection against the recorded origin. Unavailable context is reported, never replaced by LegalWork's own input. */
-export async function captureSelection(origin: LauncherOrigin | null): Promise<CaptureOutcome> {
+export async function captureSelection(origin: LauncherOrigin | null, explicit = false): Promise<CaptureOutcome> {
   if (!isDesktopRuntime()) return { ok: false, message: t("launcher.capture.desktop_only") };
   if (!origin) return { ok: false, message: t("launcher.capture.no_origin") };
-  const result = await launcherOriginSelection(origin.id);
+  const result = await launcherOriginSelection(origin.id, explicit);
   if (!result.ok) return { ok: false, message: t(selectionErrorKeys[result.reason]) };
   if (!result.text.trim()) return { ok: false, message: t("launcher.capture.selection_empty") };
   return { ok: true, item: { id: id("sel"), type: "selection", text: result.text, sourceApp: result.origin.app, sourceWindow: result.origin.window, capturedAt: Date.now() } };
@@ -38,6 +40,7 @@ export async function captureClipboard(): Promise<CaptureOutcome> {
   let text = "", capturedAt = Date.now();
   if (isDesktopRuntime()) ({ text, capturedAt } = await launcherClipboardRead());
   else { try { text = await navigator.clipboard.readText(); } catch { return { ok: false, message: t("launcher.capture.clipboard_denied") }; } }
+  if (text.length > 200_000) return { ok: false, message: t("launcher.capture.clipboard_too_large") };
   if (!text.trim()) return { ok: false, message: t("launcher.capture.clipboard_empty") };
   return { ok: true, item: { id: id("clip"), type: "clipboard", text, capturedAt } };
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
+import { captureClipboard } from "../src/react-app/launcher/context-capture";
 import { canCopyLauncherResult, copyLauncherText, isDesktopLauncherServer, launcherClipboardText, launcherLocalPaths } from "../src/react-app/launcher/launcher-clipboard";
 
 const item = (kind: LauncherSearchResult["kind"]): LauncherSearchResult => ({ id: "one", kind, workspaceId: "w", sourceId: "w", title: "Title", updatedAt: 0, match: "recent", score: 1, actions: ["open"] });
@@ -110,4 +111,18 @@ test("migrated project clipboard references use the document root, not the engin
     listWorkspaces: async () => ({ items: [{ id: "w", name: "Matter", path: "/local/engine", contentPath: "/documents/matter", preset: "starter", workspaceType: "local" }] }),
     launcherFolders: unused, launcherFolderFile: unused,
   })).toEqual(["/documents/matter/Contracts/Notes.md"]);
+});
+
+test("clipboard capture preserves the full passage or reports the limit before attaching it", async () => {
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let passage = " a".repeat(100_000);
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { readText: async () => passage } } });
+  try {
+    expect(await captureClipboard()).toMatchObject({ ok: true, item: { text: passage } });
+    passage += "x";
+    expect(await captureClipboard()).toMatchObject({ ok: false, message: expect.stringMatching(/200[,.]000/) });
+  } finally {
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  }
 });

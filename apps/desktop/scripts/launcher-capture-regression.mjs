@@ -35,7 +35,12 @@ function finish(code) {
 
 app.whenReady().then(async () => {
   console.log("Electron capture fixture is ready.");
-  const thumbnail = nativeImage.createFromBitmap(Buffer.alloc(80 * 60 * 4, 255), { width: 80, height: 60 });
+  const pixels = Buffer.alloc(80 * 60 * 4, 255);
+  for (let index = 0; index < 80 * 60; index++) {
+    pixels[index * 4] = index % 80;
+    pixels[index * 4 + 1] = Math.floor(index / 80);
+  }
+  const thumbnail = nativeImage.createFromBitmap(pixels, { width: 80, height: 60 });
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   // Both images and titles are synthetic. The fixture never reads the real screen.
   systemPreferences.getMediaAccessStatus = () => "granted";
@@ -46,13 +51,19 @@ app.whenReady().then(async () => {
 
   const regional = capture.captureRegion();
   const overlay = await findFixtureWindow("region-overlay.html");
-  await overlay.webContents.executeJavaScript(`window.regionOverlay.select({ x: 0, y: 0, width: ${display.bounds.width}, height: ${display.bounds.height} })`);
+  const { width, height } = display.bounds;
+  const from = { x: Math.floor(width / 4), y: Math.floor(height / 4) };
+  const to = { x: Math.floor(3 * width / 4), y: Math.floor(3 * height / 4) };
+  overlay.focus();
+  overlay.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...from });
+  overlay.webContents.sendInputEvent({ type: "mouseMove", modifiers: ["leftButtonDown"], ...to });
+  overlay.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...to });
   const region = await regional;
   assert.equal(region.ok, true);
-  assert.equal(region.capture.dataUrl, thumbnail.toDataURL());
-  assert.equal(region.capture.width, 80);
-  assert.equal(region.capture.height, 60);
-  console.log("PASS native region completion with synthetic pixels.");
+  const x = Math.floor(from.x * 80 / width), y = Math.floor(from.y * 60 / height);
+  const cropped = thumbnail.crop({ x, y, width: Math.ceil(to.x * 80 / width) - x, height: Math.ceil(to.y * 60 / height) - y });
+  assert.equal(region.capture.dataUrl, cropped.toDataURL());
+  console.log("PASS native pointer drag returns the selected rectangle with synthetic pixels.");
 
   const cancelled = capture.captureRegion();
   const cancelOverlay = await findFixtureWindow("region-overlay.html");
@@ -84,6 +95,11 @@ app.whenReady().then(async () => {
     assert.equal(result.ok, true, `Synthetic Chromium AX read failed: ${result.reason}`);
     assert.equal(result.text, "  Synthetic selected clause.  ");
     console.log("PASS native Chromium text selection preserves leading and trailing spaces.");
+    await fixture.webContents.executeJavaScript('document.querySelector("textarea").value = "x".repeat(200_001); document.querySelector("textarea").select();');
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const oversized = await promisify(execFile)(helper, ["--selected-text", String(process.pid)], { timeout: 8000 });
+    assert.deepEqual(JSON.parse(oversized.stdout), { ok: false, reason: "too-large" });
+    console.log("PASS oversized native text is rejected without shortening it.");
   }
 }).then(() => finish(0)).catch(error => {
   console.error(error.message);

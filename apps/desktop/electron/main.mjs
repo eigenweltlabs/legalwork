@@ -2844,7 +2844,7 @@ const desktopCommandHandlers = {
       return originService.current();
   },
   "launcherOriginSelection": async (event, ...args) => {
-      return originService.selection(String(args[0] ?? ""));
+      return originService.selection(String(args[0] ?? ""), args[1] === true);
   },
   "launcherOriginInsert": async (event, ...args) => {
       // Insertion is a fresh user action: hide the panel first so focus can return to the destination.

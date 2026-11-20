@@ -340,10 +340,15 @@ connected model, including a provider connected with your own key. **Esc**
 returns to your question. If the project has no model, **Connect a provider**
 opens AI settings before a chat is created. The selection chip identifies the source
 app and shows an excerpt. Expand it to read the full selection or remove it before
-sending. To bring in another selection, use **+ > Add selection**. If the app
+sending. Each selection or clipboard attachment can hold up to 200,000 characters.
+If a passage exceeds that limit, select a shorter passage before sending. To bring in another selection, use **+ > Add selection**. If the app
 does not share its selection, copy the text there and use **+ > Paste clipboard**.
 On macOS, allow LegalWork under **System Settings > Privacy & Security > Accessibility**
-to read selected text from other apps.
+to read selected text from other apps. If Microsoft Word needs separate access,
+use **+ > Add selection** or the dedicated selection shortcut to request
+Automation permission. macOS lists it under **System Settings > Privacy &
+Security > Automation**. If you prefer, copy the passage in Word and choose
+**+ > Paste clipboard**.
 
 ### Capture a screenshot
 

@@ -118,7 +118,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    NSAppleEventsUsageDescription: LegalWork uses System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
+    NSAppleEventsUsageDescription: LegalWork uses Microsoft Word to read selected text when you request it, System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSUserActivityTypes:
       - INSendMessageIntent
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.

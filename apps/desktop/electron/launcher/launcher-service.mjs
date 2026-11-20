@@ -161,7 +161,7 @@ export class LauncherService {
       const needsOrigin = !this.options.window.isFocused();
       if (needsOrigin) await this.options.origin.capture();
       if (this.opening !== opening) return;
-      if (needsOrigin && (payload.captureSelection || !payload.workspaceContext && invocation.action === "open")) await this.options.origin.prefetchSelection();
+      if (needsOrigin && (payload.captureSelection || !payload.workspaceContext && invocation.action === "open")) await this.options.origin.prefetchSelection(payload.captureSelection === true && invocation.source === "shortcut");
     });
     try {
       await this.preparing;

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreAudio
+import CryptoKit
 import Darwin
 import Foundation
 import IOKit.hid
@@ -416,7 +417,60 @@ private func runFrontmostMode() -> Never {
     exit(0)
 }
 
-private func runSelectedTextMode(_ pidText: String?) -> Never {
+private let wordSelectionGet = AEEventID(kAEGetData)
+private let wordSelectionSuite = AEEventClass(kAECoreSuite)
+
+private func wordCode(_ value: String) -> OSType {
+    value.utf8.reduce(0) { ($0 << 8) | OSType($1) }
+}
+
+// Word.sdef's read-only property chain. No script evaluation, launch, editing,
+// Copy command, or general pasteboard access is involved.
+private func readWordSelection(pid: pid_t, captions: Set<String>, allowPrompt: Bool, isSameDocument: () -> Bool) -> (text: String?, reason: String) {
+    guard isSameDocument() else { return (nil, "changed") }
+    let target = NSAppleEventDescriptor(processIdentifier: pid)
+    let preflight = AEDeterminePermissionToAutomateTarget(target.aeDesc, wordSelectionSuite, wordSelectionGet, false)
+    let permission: OSStatus
+    if preflight == OSStatus(errAEEventWouldRequireUserConsent), allowPrompt, isSameDocument() {
+        permission = AEDeterminePermissionToAutomateTarget(target.aeDesc, wordSelectionSuite, wordSelectionGet, true)
+    } else {
+        permission = preflight
+    }
+    guard permission == noErr else { return (nil, "word-automation") }
+    guard isSameDocument() else { return (nil, "changed") }
+
+    func property(_ name: String, of container: NSAppleEventDescriptor) -> NSAppleEventDescriptor? {
+        let specifier = NSAppleEventDescriptor.record()
+        specifier.setDescriptor(NSAppleEventDescriptor(typeCode: typeProperty), forKeyword: AEKeyword(keyAEDesiredClass))
+        specifier.setDescriptor(NSAppleEventDescriptor(enumCode: OSType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
+        specifier.setDescriptor(NSAppleEventDescriptor(typeCode: wordCode(name)), forKeyword: AEKeyword(keyAEKeyData))
+        specifier.setDescriptor(container, forKeyword: AEKeyword(keyAEContainer))
+        return specifier.coerce(toDescriptorType: typeObjectSpecifier)
+    }
+
+    func read(_ specifier: NSAppleEventDescriptor) throws -> String? {
+        let event = NSAppleEventDescriptor(eventClass: wordSelectionSuite, eventID: wordSelectionGet, targetDescriptor: target, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        event.setParam(specifier, forKeyword: keyDirectObject)
+        let reply = try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 1)
+        guard reply.paramDescriptor(forKeyword: keyErrorNumber)?.int32Value ?? 0 == 0 else { return nil }
+        return reply.paramDescriptor(forKeyword: keyDirectObject)?.stringValue
+    }
+
+    guard let window = property("1004", of: NSAppleEventDescriptor.null()),
+          let caption = property("1065", of: window),
+          let selection = property("sele", of: window),
+          let content = property("1650", of: selection)
+    else { return (nil, "unsupported") }
+    do {
+        guard let name = try read(caption), captions.contains(name), isSameDocument() else { return (nil, "changed") }
+        let text = try read(content)
+        guard try read(caption) == name, isSameDocument() else { return (nil, "changed") }
+        if let text { return (text.isEmpty ? nil : text, "empty") }
+        return (nil, "unsupported")
+    } catch { return (nil, "unsupported") }
+}
+
+private func runSelectedTextMode(_ pidText: String?, expectedWindow: String?, allowWordPrompt: Bool) -> Never {
     guard let pidText, let pid = Int32(pidText) else { emitJSON([("ok", "false"), ("reason", jsonString("no-origin"))]); exit(0) }
     guard AXIsProcessTrusted() else { emitJSON([("ok", "false"), ("reason", jsonString("denied"))]); exit(0) }
     // Accessibility reads a background app's focused element, so the panel may keep focus while the selection is read.
@@ -464,16 +518,30 @@ private func runSelectedTextMode(_ pidText: String?) -> Never {
                 supported = true
             }
             if let ranges = attribute(element, "AXSelectedTextRanges") as? [CFTypeRef] {
-                let text = ranges.prefix(16).compactMap { string(for: $0, in: element, attribute: "AXStringForRange") }
-                    .filter { !$0.isEmpty }.joined(separator: "\n")
-                if !text.isEmpty { return (text, true, false) }
-                supported = true
+                let parts = ranges.compactMap { string(for: $0, in: element, attribute: "AXStringForRange") }
+                if parts.count == ranges.count {
+                    let text = parts.filter { !$0.isEmpty }.joined(separator: "\n")
+                    if !text.isEmpty { return (text, true, false) }
+                    supported = true
+                }
             }
             current = attribute(element, kAXParentAttribute)
         }
         return (nil, supported, false)
     }
 
+    let isWord = sourceApp.bundleIdentifier == "com.microsoft.Word"
+    func matchesRecordedWordWindow() -> Bool {
+        guard isWord, let expectedWindow else { return true }
+        guard let focused = attribute(application, kAXFocusedWindowAttribute), CFGetTypeID(focused) == AXUIElementGetTypeID(),
+              let title = attribute(focused as! AXUIElement, kAXTitleAttribute) as? String
+        else { return false }
+        return SHA256.hash(data: Data(title.utf8)).map { String(format: "%02x", $0) }.joined() == expectedWindow
+    }
+    guard matchesRecordedWordWindow() else {
+        emitJSON([("ok", "false"), ("reason", jsonString("changed"))])
+        exit(0)
+    }
     _ = attribute(application, kAXRoleAttribute)
     var selection = readSelection()
     if !selection.supported && !selection.secure {
@@ -511,10 +579,61 @@ private func runSelectedTextMode(_ pidText: String?) -> Never {
             }
         }
     }
-    if let text = selection.text {
-        emitJSON([("ok", "true"), ("text", jsonString(String(decoding: text.utf16.prefix(200_000), as: UTF16.self)))])
+    var wordFailure: String?
+    if selection.text == nil, !selection.secure, isWord, expectedWindow != nil, matchesRecordedWordWindow(),
+       let value = attribute(application, kAXFocusedWindowAttribute), CFGetTypeID(value) == AXUIElementGetTypeID(),
+       let title = attribute(value as! AXUIElement, kAXTitleAttribute) as? String {
+        let window = value as! AXUIElement
+        let document = attribute(window, kAXDocumentAttribute) as? String
+        func isSameDocument() -> Bool {
+            guard !sourceApp.isTerminated,
+                  let current = attribute(application, kAXFocusedWindowAttribute), CFEqual(current, window),
+                  attribute(window, kAXSubroleAttribute) as? String == kAXStandardWindowSubrole,
+                  attribute(window, kAXTitleAttribute) as? String == title,
+                  attribute(window, kAXDocumentAttribute) as? String == document,
+                  attribute(window, kAXModalAttribute) as? Bool != true,
+                  (attribute(window, "AXSheets") as? [AXUIElement] ?? []).isEmpty,
+                  !(attribute(window, kAXChildrenAttribute) as? [AXUIElement] ?? []).contains(where: {
+                      attribute($0, kAXRoleAttribute) as? String == kAXSheetRole || attribute($0, kAXModalAttribute) as? Bool == true
+                  }),
+                  let windows = attribute(application, kAXWindowsAttribute) as? [AXUIElement],
+                  windows.filter({ attribute($0, kAXTitleAttribute) as? String == title }).count == 1,
+                  let focus = attribute(application, kAXFocusedUIElementAttribute), CFGetTypeID(focus) == AXUIElementGetTypeID()
+            else { return false }
+            let element = focus as! AXUIElement
+            guard attribute(element, kAXSubroleAttribute) as? String != kAXSecureTextFieldSubrole else { return false }
+            func containsEditor(_ element: AXUIElement, depth: Int) -> Bool {
+                let role = attribute(element, kAXRoleAttribute) as? String
+                if role == kAXLayoutAreaRole { return true }
+                guard depth > 0, [kAXScrollAreaRole, kAXSplitGroupRole, kAXGroupRole].contains(role) else { return false }
+                return (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).prefix(8)
+                    .contains { containsEditor($0, depth: depth - 1) }
+            }
+            let role = attribute(element, kAXRoleAttribute) as? String
+            // Word can report focus on the editor's split group. Require a
+            // document URL before using that broader focus signal.
+            return containsEditor(element, depth: role == kAXSplitGroupRole && document != nil ? 3 : 1)
+        }
+        if isSameDocument() {
+            var captions: Set<String> = [title]
+            if let document, let url = URL(string: document), url.isFileURL {
+                captions.insert(url.lastPathComponent)
+            }
+            let word = readWordSelection(pid: pid, captions: captions, allowPrompt: allowWordPrompt, isSameDocument: isSameDocument)
+            selection.text = word.text
+            wordFailure = word.reason
+        }
+    }
+    if !matchesRecordedWordWindow() {
+        emitJSON([("ok", "false"), ("reason", jsonString("changed"))])
+    } else if let text = selection.text {
+        if text.utf16.count > 200_000 {
+            emitJSON([("ok", "false"), ("reason", jsonString("too-large"))])
+        } else {
+            emitJSON([("ok", "true"), ("text", jsonString(text))])
+        }
     } else {
-        emitJSON([("ok", "false"), ("reason", jsonString(selection.supported ? "empty" : "unsupported"))])
+        emitJSON([("ok", "false"), ("reason", jsonString(wordFailure ?? (selection.supported ? "empty" : "unsupported")))])
     }
     exit(0)
 }
@@ -539,7 +658,9 @@ private let modeArguments = CommandLine.arguments.dropFirst()
 if let mode = modeArguments.first {
     switch mode {
     case "--frontmost": runFrontmostMode()
-    case "--selected-text": runSelectedTextMode(modeArguments.dropFirst().first)
+    case "--selected-text":
+        let arguments = Array(modeArguments.dropFirst())
+        runSelectedTextMode(arguments.first, expectedWindow: arguments.dropFirst().first, allowWordPrompt: arguments.dropFirst(2).first == "--allow-word-automation")
     case "--activate": runActivateMode(modeArguments.dropFirst().first)
     case "--check": runInputMonitoringCheck()
     case "--request": runInputMonitoringRequest()

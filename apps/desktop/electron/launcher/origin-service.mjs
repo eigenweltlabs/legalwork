@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 
 /** Run a native helper and collect its stdout; a timeout kills it and rejects. */
@@ -8,7 +8,8 @@ export function execHelper(command, args, options = {}) {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdout = "";
     const timer = setTimeout(() => { child.kill(); reject(new Error(`${command} timed out`)); }, options.timeoutMs ?? 5000);
-    child.stdout.on("data", chunk => { stdout += String(chunk); });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", chunk => { stdout += chunk; });
     child.once("error", error => { clearTimeout(timer); reject(error); });
     child.once("close", () => { clearTimeout(timer); resolve(stdout); });
   });
@@ -39,10 +40,12 @@ Add-Type -AssemblyName UIAutomationTypes
 try {
   $element = [System.Windows.Automation.AutomationElement]::FocusedElement
   if ($null -eq $element) { '{"ok":false,"reason":"unsupported"}'; exit 0 }
+  if ($element.Current.IsPassword) { '{"ok":false,"reason":"unsupported"}'; exit 0 }
   if ($element.Current.ProcessId -ne $TargetPid) { '{"ok":false,"reason":"changed"}'; exit 0 }
   $pattern = $null
   if (-not $element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) { '{"ok":false,"reason":"unsupported"}'; exit 0 }
-  $text = ($pattern.GetSelection() | ForEach-Object { $_.GetText(200000) }) -join ""
+  $text = ($pattern.GetSelection() | ForEach-Object { $_.GetText(200001) }) -join ""
+  if ($text.Length -gt 200000) { '{"ok":false,"reason":"too-large"}'; exit 0 }
   if (-not $text) { '{"ok":false,"reason":"empty"}'; exit 0 }
   @{ ok = $true; text = $text } | ConvertTo-Json -Compress
 } catch { '{"ok":false,"reason":"failed"}' }
@@ -67,6 +70,16 @@ Start-Sleep -Milliseconds 120
 $foregroundProcessId = [uint32]0; [LegalWorkActivate]::GetWindowThreadProcessId([LegalWorkActivate]::GetForegroundWindow(), [ref]$foregroundProcessId) | Out-Null
 @{ ok = ([int]$foregroundProcessId -eq $TargetPid); reason = $(if ([int]$foregroundProcessId -eq $TargetPid) { "" } else { "changed" }) } | ConvertTo-Json -Compress
 `;
+
+/** Invoke a script block so PowerShell binds its PID parameter before executing the body. */
+function windowsHelperArgs(script, pid = null) {
+  const invocation = pid === null ? script : `& {
+${script}
+} -TargetPid ${Number(pid)}`;
+  const command = `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+${invocation}`;
+  return ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
+}
 
 /** The last JSON object a helper printed, or null for anything else. */
 export function parseHelperJson(output) {
@@ -124,7 +137,7 @@ export class OriginService {
         const [name, pid, bundleId] = String(output).trim().split(", ");
         return name ? { ok: true, app: name, pid: Number(pid), bundleId: bundleId ?? "", window: null, accessibility: false } : { ok: false, reason: "none" };
       }
-      if (this.platform === "windows") return parseHelperJson(await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_FRONTMOST_SCRIPT], { timeoutMs: 6000 }));
+      if (this.platform === "windows") return parseHelperJson(await this.exec("powershell.exe", windowsHelperArgs(WINDOWS_FRONTMOST_SCRIPT), { timeoutMs: 6000 }));
     } catch { return { ok: false, reason: "failed" }; }
     return { ok: false, reason: "unsupported" };
   }
@@ -142,39 +155,54 @@ export class OriginService {
   current() { return this.origin; }
   invalidate() { this.origin = null; this.prefetched = null; }
   /** An explicit selection shortcut reads the selection as part of the invocation, before the panel takes focus. */
-  async prefetchSelection() {
+  async prefetchSelection(explicit = false) {
     this.prefetched = null;
     const origin = this.origin;
     if (!origin) return null;
-    const result = await this.readSelection(origin);
+    const result = await this.readSelection(origin, explicit);
     if (this.origin?.id === origin.id) {
-      this.prefetched = { originId: origin.id, result };
+      this.prefetched = { originId: origin.id, result, requestedWordAutomation: explicit };
       if (result.ok) origin.supportsSelection = true;
     }
     return result;
   }
   /** @returns {Promise<import("@legalwork/types/launcher").LauncherSelectionResult>} */
-  async selection(originId) {
+  async selection(originId, explicit = false) {
     const origin = this.origin;
     if (!origin || origin.id !== originId) return { ok: false, reason: "no-origin", message: "The source app was not recorded.", origin: null };
-    if (this.prefetched?.originId === originId) return this.prefetched.result;
+    if (this.prefetched?.originId === originId) {
+      const { result, requestedWordAutomation } = this.prefetched;
+      if (result.ok || result.reason !== "word-automation" || !explicit || requestedWordAutomation) return result;
+    }
     if (this.platform === "windows") return { ok: false, reason: "changed", message: "On Windows the selection is read by the selection shortcut before the panel opens. Select the text and use that shortcut.", origin };
-    return this.readSelection(origin);
+    const result = await this.readSelection(origin, explicit);
+    if (this.origin?.id !== origin.id) return { ok: false, reason: "changed", message: "", origin };
+    if (explicit) this.prefetched = { originId, result, requestedWordAutomation: true };
+    return result;
   }
   /**
    * Read the selection of the recorded origin from the platform.
    * @param {import("@legalwork/types/launcher").LauncherOrigin} origin
    * @returns {Promise<import("@legalwork/types/launcher").LauncherSelectionResult>}
    */
-  async readSelection(origin) {
+  async readSelection(origin, explicit = false) {
     if (!this.capabilities().selection) return { ok: false, reason: "unsupported", message: "Reading a selection is not supported on this system.", origin };
     try {
       let result = null;
-      if (this.platform === "darwin" && this.helperAvailable()) result = parseHelperJson(await this.exec(this.helperPath, ["--selected-text", String(origin.pid)], { timeoutMs: 5000 }));
-      else if (this.platform === "windows") result = parseHelperJson(await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SELECTION_SCRIPT, "-TargetPid", String(origin.pid)], { timeoutMs: 8000 }));
+      if (this.platform === "darwin" && this.helperAvailable()) {
+        const args = ["--selected-text", String(origin.pid)];
+        const word = origin.bundleId === "com.microsoft.Word" && origin.window;
+        if (word) args.push(createHash("sha256").update(word).digest("hex"));
+        if (word && explicit) args.push("--allow-word-automation");
+        result = parseHelperJson(await this.exec(this.helperPath, args, { timeoutMs: word && explicit ? 90_000 : 5000 }));
+      }
+      else if (this.platform === "windows") result = parseHelperJson(await this.exec("powershell.exe", windowsHelperArgs(WINDOWS_SELECTION_SCRIPT, origin.pid), { timeoutMs: 8000 }));
       else return { ok: false, reason: "unsupported", message: "The native helper is not installed; the selection cannot be read.", origin };
-      if (result?.ok && typeof result.text === "string" && result.text) return { ok: true, text: result.text, origin };
-      const reason = /** @type {"empty" | "changed" | "denied" | "unsupported" | "failed"} */ (["empty", "changed", "denied", "unsupported", "failed"].includes(result?.reason) ? result.reason : "failed");
+      if (result?.ok && typeof result.text === "string" && result.text) {
+        if (result.text.length > 200_000) return { ok: false, reason: "too-large", message: "", origin };
+        return { ok: true, text: result.text, origin };
+      }
+      const reason = /** @type {"empty" | "changed" | "denied" | "unsupported" | "too-large" | "word-automation" | "failed"} */ (["empty", "changed", "denied", "unsupported", "too-large", "word-automation", "failed"].includes(result?.reason) ? result.reason : "failed");
       return { ok: false, reason, message: "", origin };
     } catch { return { ok: false, reason: "failed", message: "The selection could not be read.", origin }; }
   }
@@ -185,7 +213,7 @@ export class OriginService {
         await this.exec("/usr/bin/osascript", ["-e", `tell application "System Events" to set frontmost of (first application process whose unix id is ${Number(origin.pid)}) to true`], { timeoutMs: 4000 });
         return true;
       }
-      if (this.platform === "windows") return parseHelperJson(await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACTIVATE_SCRIPT, "-TargetPid", String(origin.pid)], { timeoutMs: 8000 }))?.ok === true;
+      if (this.platform === "windows") return parseHelperJson(await this.exec("powershell.exe", windowsHelperArgs(WINDOWS_ACTIVATE_SCRIPT, origin.pid), { timeoutMs: 8000 }))?.ok === true;
     } catch { return false; }
     return false;
   }

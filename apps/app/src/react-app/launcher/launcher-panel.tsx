@@ -697,7 +697,7 @@ export function LauncherPanel() {
     } finally { captureInFlight.current = false; }
   };
   const captureActions = {
-    selection: () => captureIntoDraft(() => captureSelection(useLauncherStore.getState().origin)),
+    selection: () => captureIntoDraft(() => captureSelection(useLauncherStore.getState().origin, true)),
     clipboard: () => captureIntoDraft(captureClipboard),
     window: () => captureScreenshot("window"),
     region: () => captureScreenshot("region"),

@@ -215,7 +215,7 @@ export const LauncherOriginSchema = z.object({
 export type LauncherOrigin = z.infer<typeof LauncherOriginSchema>;
 export const LauncherSelectionResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), text: z.string(), origin: LauncherOriginSchema }),
-  z.object({ ok: z.literal(false), reason: z.enum(["no-origin", "unsupported", "empty", "changed", "denied", "failed"]), message: z.string(), origin: LauncherOriginSchema.nullable() }),
+  z.object({ ok: z.literal(false), reason: z.enum(["no-origin", "unsupported", "empty", "changed", "denied", "too-large", "word-automation", "failed"]), message: z.string(), origin: LauncherOriginSchema.nullable() }),
 ]);
 export type LauncherSelectionResult = z.infer<typeof LauncherSelectionResultSchema>;
 export const LauncherInsertResultSchema = z.discriminatedUnion("ok", [
