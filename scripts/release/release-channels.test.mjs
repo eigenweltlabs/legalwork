@@ -7,12 +7,39 @@ import { pinManifest } from "./refresh-alpha-feeds.mjs";
 const { parse } = createRequire(new URL("../../apps/desktop/package.json", import.meta.url))("yaml");
 const workflow = (name) => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
 
-test("dev merges share one signed producer and coalesce obsolete queued alpha builds", () => {
+test("dev merges cancel obsolete alpha runs while manual diagnostics stay isolated", () => {
+  const config = workflow("alpha-macos-aarch64");
+  const concurrency = (event, { signing_test = false, ref = "refs/heads/dev", sha = "old-merge" } = {}) => {
+    const evaluate = (expression) => Function("github", "inputs", "format", `return ${expression};`)(
+      { event_name: event, ref, sha }, { signing_test }, (pattern, value) => pattern.replace("{0}", value));
+    const cancel = config.concurrency["cancel-in-progress"];
+    return {
+      group: config.concurrency.group.replace(/\$\{\{(.*?)\}\}/g, (_, expression) => evaluate(expression)),
+      cancel: typeof cancel === "string" ? evaluate(cancel.slice(3, -2)) : cancel,
+    };
+  };
+  const previous = concurrency("push");
+  const latest = concurrency("push", { sha: "new-merge" });
+  assert.equal(latest.group, previous.group);
+  assert.equal(latest.cancel, true);
+
+  const manual = concurrency("workflow_dispatch");
+  assert.equal(manual.group, latest.group);
+  assert.equal(manual.cancel, false);
+  const diagnostic = concurrency("workflow_dispatch", { signing_test: true });
+  assert.notEqual(diagnostic.group, latest.group);
+  assert.equal(diagnostic.cancel, false);
+  assert.notEqual(concurrency("workflow_dispatch", { signing_test: true, ref: "refs/heads/benchmark" }).group, diagnostic.group);
+  const windows = workflow("alpha-windows-x64");
+  assert.notEqual(windows.concurrency.group, latest.group);
+  assert.equal(windows.concurrency["cancel-in-progress"], false);
+});
+
+test("dev merges share one signed producer and publish complete immutable alpha releases", () => {
   for (const name of ["alpha-macos-aarch64", "alpha-windows-x64"]) {
     const config = workflow(name);
     if (name === "alpha-macos-aarch64") assert.deepEqual(config.on.push.branches, ["dev"]);
     else assert.equal(config.on.push, undefined);
-    assert.equal(config.concurrency["cancel-in-progress"], false);
     assert.doesNotMatch(config.concurrency.group, /github.sha/);
     assert.equal(config.on.workflow_dispatch.inputs.sandbox_tests.default, false);
     assert.match(config.jobs["sandbox-runtime"].with.run_tests, /github.event_name == 'workflow_dispatch'/);

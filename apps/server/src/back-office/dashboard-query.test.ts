@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { ViewPreviewSchema, type BackOfficeDataQuery } from "@legalwork/types/views";
-import { backOfficeRecordUrl, BackOfficeModelSchema, defaultBackOfficeModel, isInternalBackOfficeObject } from "./schema.js";
+import { backOfficeRecordUrl, BackOfficeModelSchema, BackOfficeRecordSchema, defaultBackOfficeModel, isInternalBackOfficeObject, type BackOfficeRecord } from "./schema.js";
 import { queryDirectoryRecords } from "./dashboard-query.js";
 import { closeBackOfficeStoreForTests } from "./store.js";
 import { startServer } from "../server.js";
@@ -98,6 +98,37 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
     expect((await rejected({...summary, directoryId:"different"})).status).toBe(409);
     expect((await rejected({...summary, objectId:"projectLinks"})).status).toBe(403);
     expect((await rejected({...summary, currency:undefined})).status).toBe(400);
+
+    const create = async (objectId: string, values: BackOfficeRecord["values"]) =>
+      z.object({ record: BackOfficeRecordSchema }).parse(JSON.parse(
+        await crm.tool.legalwork_back_office_save.execute({ objectId, revision: 0, values }),
+      )).record;
+    const matter = await create("matters", { name: "Contract review" });
+    const sameName = await create("matters", { name: "Contract review" });
+    const billing = {
+      ...binding, objectId: "invoices", fields: ["name", "matter", "netTotal"], currency: "EUR",
+      filters: [{ field: "matter", op: "eq", value: matter.id }],
+    } satisfies BackOfficeDataQuery;
+    const invoice = await create("invoices", { name: "Invoice 1", matter: matter.id, netTotal: { currency: "EUR", amountMinor: 58000 } });
+    await create("invoices", { name: "Invoice 2", matter: sameName.id, netTotal: { currency: "EUR", amountMinor: 10000 } });
+    const time = await create("timeEntries", { name: "Review", matter: matter.id, invoice: invoice.id, billableMinutes: 120 });
+    const claim = await create("claims", { name: "Related claim", parentMatter: matter.id });
+    expect((await query(billing)).rows).toEqual([{
+      $id: invoice.id, $archived: false, $url: backOfficeRecordUrl(invoice),
+      name: "Invoice 1", matter: "Contract review", netTotal: 580,
+    }]);
+    expect((await query({ ...billing, filters: [{ field: "matter", op: "eq", value: "Contract review" }] })).total).toBe(2);
+    expect((await query({ ...billing, objectId: "timeEntries", fields: ["billableMinutes"] })).rows[0])
+      .toMatchObject({ $id: time.id, billableMinutes: 120 });
+    expect((await query({
+      ...billing, objectId: "claims", fields: ["parentMatter"],
+      filters: [{ field: "parentMatter", op: "in", value: ["No matching name", matter.id] }],
+    })).rows[0]).toMatchObject({ $id: claim.id, parentMatter: "Contract review" });
+    await crm.tool.legalwork_back_office_save.execute({ id: matter.id, objectId: "matters", revision: matter.revision, values: { name: "Updated contract review" } });
+    expect((await query(billing)).rows[0]).toMatchObject({ $id: invoice.id, matter: "Updated contract review" });
+    expect((await query({
+      ...billing, fields: ["billed"], metrics: [{ name: "billed", op: "sum", field: "netTotal" }],
+    })).rows).toEqual([{ billed: 580 }]);
   } finally {
     for (const plugin of plugins) await plugin.close();
     await server.stop();
@@ -114,4 +145,32 @@ test("financial models and fields cannot be queried by an unprivileged viewer", 
   expect(() => read(q)).toThrow("unavailable");
   expect(() => read({ ...q, objectId:"matters", fields:["claimValue"] })).toThrow("available fields");
   expect(() => read({ ...q, objectId:"matters", fields:["name"], filters:[{field:"claimValue",op:"exists"}] })).toThrow("available fields");
+});
+
+test("relation filters match visible target IDs and names without changing projected values", () => {
+  const makeRecord = (objectId: string, values: BackOfficeRecord["values"]) => BackOfficeRecordSchema.parse({
+    id: crypto.randomUUID(), objectId, values, ownerId: "lawyer",
+    revision: 1, schemaRevision: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), archivedAt: null,
+  });
+  const alice = makeRecord("clients", { name: "Alice" });
+  const bob = makeRecord("clients", { name: "Bob" });
+  const hidden = makeRecord("clients", { name: "Hidden" });
+  const both = makeRecord("matters", { name: "Both clients", clients: [alice.id, bob.id, hidden.id] });
+  const one = makeRecord("matters", { name: "One client", clients: [alice.id] });
+  const actor = { userId: "lawyer", model: false, edit: false, finance: false };
+  const readRecords = (objectId: string) => objectId === "clients" ? [alice, bob] : [both, one];
+  const filter = (op: "contains" | "eq" | "in" | "ne", value: string | (string | string[])[]) =>
+    queryDirectoryRecords(defaultBackOfficeModel(), actor, readRecords, {
+      source: "backOffice", directoryId: "team:test", objectId: "matters", fields: ["name", "clients"],
+      filters: [{ field: "clients", op, value }],
+    }).rows;
+
+  const visible = [{ name: "Both clients", clients: ["Alice", "Bob"] }];
+  expect(filter("contains", bob.id)).toEqual(visible);
+  expect(filter("contains", "Bob")).toEqual(visible);
+  expect(filter("eq", [alice.id, "Bob"])).toEqual(visible);
+  expect(filter("in", [[alice.id, "Bob"]])).toEqual(visible);
+  expect(filter("ne", [alice.id, bob.id])).toEqual([{ name: "One client", clients: ["Alice"] }]);
+  expect(filter("contains", hidden.id)).toEqual([]);
+  expect(filter("contains", "Hidden")).toEqual([]);
 });

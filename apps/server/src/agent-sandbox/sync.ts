@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readEigenweltConnection, type EigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { sandboxSettingsSchema, type SandboxSettings } from "./settings-schema.js";
@@ -38,7 +39,7 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
       setSandboxSyncStatus(config, "syncing");
       const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
       const state = row.sandboxSync?.account === account ? row.sandboxSync : undefined;
-      const url = `${connection.platformURL}/api/desktop/settings`;
+      const url = `${eigenweltConnectionPlatformUrl(connection)}/api/desktop/settings`;
       const headers = { Authorization: `Bearer ${connection.platformToken}`, "Content-Type": "application/json" };
       let response = await request(url, { headers, signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error("Settings sync unavailable");

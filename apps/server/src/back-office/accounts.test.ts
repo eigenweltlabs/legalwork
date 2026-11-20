@@ -31,13 +31,12 @@ afterEach(async () => {
   else process.env.EIGENWELT_PLATFORM_URL = originalURL;
 });
 
-async function fixture() {
+async function fixture(platformURL = "http://127.0.0.1:55499") {
   const root = await mkdtemp(join(tmpdir(), "legalwork-bo-accounts-"));
   const config = backOfficeTestConfig(root, { hostToken: "fixture-host" });
   fixtures.push({ root, config });
   if (runtimeDbPath(config) !== join(root, "runtime.sqlite"))
     throw new Error("Account fixtures must use their temporary runtime database, never an environment override.");
-  const platformURL = "http://127.0.0.1:55499";
   process.env.EIGENWELT_PLATFORM_URL = platformURL;
   const snapshot = (records: BackOfficeRecord[] = [], accepted: string[] = []): BackOfficeSnapshot => ({ protocol: 1, model: defaultBackOfficeModel(), records, accepted, conflicts: [], views: [], cursor: 1 });
   const backend: { enabled: boolean; revision: number; finance: string[]; respond: ((init?: RequestInit) => Promise<Response>) | null } = { enabled: true, revision: 1, finance: ["alice"], respond: null };
@@ -63,6 +62,25 @@ async function fixture() {
   const oldHead = store.journal.storage.heads().at(-1)!;
   return { config, store, alice: access.actor, original, snapshot, signIn, backend, requests, oldHead, platformURL };
 }
+
+test("a shared-to-regional route upgrade preserves the replica, queued drafts and their author", async () => {
+  const { store, config, alice, original, requests } = await fixture("https://platform.eigenweltlabs.com");
+  store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { email: "pending@example.test" } });
+  const pending = store.pending("firm", 100, alice);
+  const requestId = await claimEigenweltRefreshRequest(config, "refresh-alice");
+  if (!requestId) throw new Error("Missing fixture refresh request");
+  expect(await writeEigenweltConnectionIfCurrent(config, {
+    regionalPlatformURL: "https://eu.platform.eigenweltlabs.com", platformToken: "regional-token", refreshToken: "regional-refresh",
+  }, { refreshToken: "refresh-alice", refreshRequestId: requestId })).toBe(true);
+  const returning = (await backOfficeAccess(config, true)).actor;
+  expect(returning.principalKey).toBe(alice.principalKey);
+  expect(returning.replicaId).toBe(alice.replicaId);
+  expect(store.pending("firm", 100, returning)).toEqual(pending);
+  expect(store.raw("firm", original.id)?.values.email).toBe("pending@example.test");
+  await backOfficePlatform(config, [], returning.principalKey);
+  expect(requests.at(-1)?.url).toBe("https://eu.platform.eigenweltlabs.com/api/back-office");
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
 
 test("receiving a snapshot while an authored field is queued does not retire the picker's replica", async () => {
   const { store, alice, original, snapshot } = await fixture();

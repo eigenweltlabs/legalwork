@@ -48,7 +48,7 @@ export function backOfficeTools(ctx: Plugin.Context) {
     }),
     nativeTool(ctx, {
       name: "legalwork_back_office_query",
-      description: "Read a bounded table or calculate full-directory aggregates on any accessible default or custom model. Continue a paged read using nextCursor. For a live OpenUI dashboard, use the original binding without a cursor. For money aggregates, set currency to an ISO code. Fields use discovered IDs. Relation values are readable names. Individual record rows include $id, $archived and $url for citations. Use metrics for totals across all matching rows. With groupBy or metrics, fields and sort use the grouping field and metric aliases.",
+      description: "Read a bounded table or calculate full-directory aggregates on any accessible default or custom model. Continue a paged read using nextCursor. For a live OpenUI dashboard, use the original binding without a cursor. For money aggregates, set currency to an ISO code. Fields use discovered IDs. Filter relations by stable record ID or readable name. Use eq for a single relation and contains for a member of a multi-relation. Returned relation values are readable names. Individual record rows include $id, $archived and $url for citations. Use metrics for totals across all matching rows. With groupBy or metrics, fields and sort use the grouping field and metric aliases.",
       schema: BackOfficeQueryPageSchema,
       outputSchema: z.json(),
       execute: args => call("/dashboard-query?links=1", "POST", args),

@@ -124,9 +124,14 @@ these timings for a routing benchmark, then measure real PR readiness after roll
 | DOCX interoperability | Document artifacts, DOCX tests/fixtures, dependency changes and its workflow. |
 | legalwork-ui-mcp | That package, shared dependencies or its workflow. Publishing still requires its package tag. |
 | DCO | Every PR update: sign-offs depend on commits, not file paths. |
-| Alpha Channel (Mac and Windows) | Dev pushes affecting the shipped app or its build inputs; explicit manual runs remain available. README/architecture notes alone do not build alpha binaries. Bundled user-guide changes do affect the app. |
+| Alpha Channel (Mac and Windows) | New dev pushes cancel older running and queued alpha builds. Shipped app or build input changes build an alpha; explicit manual runs remain available. README/architecture notes alone do not build alpha binaries unless an earlier unpublished app change still needs a build. Bundled user-guide changes do affect the app. |
 | Refresh alpha update feeds | Relevant release events, explicit requests, or an alpha run that actually completed a publication job. Skipped alpha builds do not refresh feeds. |
 | Download Stats | Its existing six-hour schedule or an explicit request. This collects analytics rather than testing code. |
+
+Manual alpha runs wait for an existing run in their group. Nonpublishing signing
+and cache diagnostics use a separate group per branch, so dev merges leave them running.
+Each new push checks for unpublished app changes since the last alpha that
+successfully published all three targets, including changes from canceled runs.
 
 The required workflow reports skipped jobs so both required checks resolve. `Selected checks passed` reports
 failures and cancellations in any selected job, including failed prerequisites.

@@ -164,6 +164,7 @@ describe("eigenwelt-connection-store", () => {
       entitlements: null,
       account: null,
       platformURL: null,
+      regionalPlatformURL: null,
       platformToken: null,
       refreshToken: null,
       refreshRequestId: null,
