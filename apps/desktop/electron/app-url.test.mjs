@@ -6,6 +6,54 @@ import { createAppUrlMatcher, guardIpcMain, isAllowedPreviewNavigation } from ".
 import { BROWSER_PRELOAD_CHANNELS } from "./browser-panel.mjs";
 
 const macRoot = "/Applications/LegalWork.app/Contents/Resources/app-dist";
+const isAppUrl = createAppUrlMatcher({ appRoot: macRoot });
+const appFrame = { url: `file://${macRoot}/index.html`, parent: null };
+const frameNavigation = (url, parent = appFrame, initiator = parent, currentUrl = "") => ({ url, frame: { url: currentUrl, parent }, initiator });
+
+test("saved-card payments can load Stripe frames directly inside the app", () => {
+  for (const url of ["https://js.stripe.com/v3/controller.html", "https://b.js.stripe.com/controller.html", "https://hooks.stripe.com/3d_secure"]) {
+    assert.equal(isAllowedPreviewNavigation(frameNavigation(url), { isAppUrl }), true, url);
+    assert.equal(isAllowedPreviewNavigation(frameNavigation(url)), false, "payment frames require an app URL matcher");
+  }
+  const isDevAppUrl = createAppUrlMatcher({ devServerUrl: "http://localhost:5182", appRoot: macRoot });
+  assert.equal(isAllowedPreviewNavigation(frameNavigation("https://js.stripe.com/v3/controller.html", { url: "http://localhost:5182/", parent: null }), { isAppUrl: isDevAppUrl }), true);
+});
+
+test("Stripe-owned payment frames can load nested bank verification and metrics", () => {
+  const stripeFrame = { url: "https://js.stripe.com/v3/controller.html", parent: appFrame };
+  const verificationFrame = { url: "https://hooks.stripe.com/3d_secure", parent: stripeFrame };
+  const bankFrame = { url: "https://bank.example/challenge", parent: verificationFrame };
+  for (const parent of [stripeFrame, verificationFrame, bankFrame]) {
+    assert.equal(isAllowedPreviewNavigation(frameNavigation("https://bank.example/verification", parent), { isAppUrl }), true);
+    assert.equal(isAllowedPreviewNavigation(frameNavigation("https://m.stripe.network/inner.html", parent), { isAppUrl }), true);
+    assert.equal(isAllowedPreviewNavigation(frameNavigation("http://bank.example/verification", parent), { isAppUrl }), false);
+  }
+});
+
+test("payment exceptions cannot be used by previews or unrelated remote pages", () => {
+  const stripeUrl = "https://js.stripe.com/v3/controller.html";
+  for (const url of ["about:srcdoc", "blob:null/preview", "https://example.com/", "https://js.stripe.com.evil.example/"]) {
+    const previewFrame = { url, parent: appFrame };
+    const nestedFrame = { url: "about:blank", parent: previewFrame };
+    const stripeInPreview = { url: stripeUrl, parent: previewFrame };
+    for (const parent of [previewFrame, nestedFrame, stripeInPreview]) {
+      assert.equal(isAllowedPreviewNavigation(frameNavigation(stripeUrl, parent), { isAppUrl }), false, url);
+      assert.equal(isAllowedPreviewNavigation(frameNavigation("https://bank.example/challenge", parent), { isAppUrl }), false, url);
+    }
+  }
+  assert.equal(isAllowedPreviewNavigation(frameNavigation(stripeUrl, { url: "https://example.com/", parent: null }), { isAppUrl }), false);
+  for (const url of ["about:srcdoc", "blob:null/preview", "about:blank"]) {
+    assert.equal(isAllowedPreviewNavigation(frameNavigation(stripeUrl, appFrame, { url, parent: appFrame }, url), { isAppUrl }), false, "preview self-navigation must stay blocked");
+  }
+  assert.equal(isAllowedPreviewNavigation(frameNavigation(stripeUrl, appFrame, null), { isAppUrl }), false);
+  assert.equal(isAllowedPreviewNavigation(frameNavigation(stripeUrl, appFrame, null, stripeUrl), { isAppUrl }), true, "Stripe controllers can reload themselves");
+});
+
+test("payment frame URLs require HTTPS, Stripe ownership, and the standard port", () => {
+  for (const url of ["https://example.com/", "http://js.stripe.com/", "https://js.stripe.com.evil.example/", "https://evilstripe.com/", "https://js.stripe.com:444/", "https://synthetic-user@js.stripe.com/", "javascript:void(0)", "data:text/html,test", "not a url"]) {
+    assert.equal(isAllowedPreviewNavigation(frameNavigation(url), { isAppUrl }), false, url);
+  }
+});
 
 test("preview navigation stays offline while PDFium can load its own internal stream", () => {
   const viewer = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
@@ -80,8 +128,9 @@ test("guarded handlers run only for app pages", async () => {
 
   assert.equal(await ipc.handlers.get("legalwork:desktop")(appEvent, 21), 42);
   assert.throws(() => ipc.handlers.get("legalwork:desktop")(otherEvent, 21), /outside LegalWork/);
+  assert.throws(() => ipc.handlers.get("legalwork:desktop")({ senderFrame: { url: "https://js.stripe.com/v3/controller.html" } }, 21), /outside LegalWork/);
   assert.throws(() => ipc.handlers.get("legalwork:desktop")({ senderFrame: null }, 21), /outside LegalWork/);
-  assert.deepEqual(rejected, ["legalwork:desktop", "legalwork:desktop"]);
+  assert.deepEqual(rejected, ["legalwork:desktop", "legalwork:desktop", "legalwork:desktop"]);
 });
 
 test("guarded listeners ignore other pages, open channels accept everyone", () => {

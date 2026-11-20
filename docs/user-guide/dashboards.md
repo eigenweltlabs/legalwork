@@ -17,6 +17,8 @@ To chart a CSV, attach the file in chat and ask for the comparisons you want. Th
 
 Ask in a project chat or the Assistant, for example, “Chart all my matters by practice area and value in dispute.” The agent can use any accessible Back Office model, including models your firm adds. A dashboard can combine several models in separate charts or tables. Grouped counts and totals cover all matching records even when the register displays only a page. Monetary totals use a specified currency.
 
+To scope a dashboard to the current project, ask for “EUR invoices and time entries for the linked matter.” The dashboard can use the linked record's ID so the filter keeps working if the matter is renamed. Tables still show the current matter name.
+
 A saved live dashboard reads the original directory with the current viewer’s permissions. Local records work offline. Changes appear while the dashboard is open, and **Refresh data** requests an immediate update. A different local directory cannot supply the original records.
 
 ## Assistant briefings and embedded charts

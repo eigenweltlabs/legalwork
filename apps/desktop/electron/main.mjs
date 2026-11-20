@@ -1891,7 +1891,7 @@ async function openAppWindow(event, route, title = "") {
     secondaryWindows.delete(sessionWindow);
   });
 
-  guardPreviewNavigation(sessionWindow.webContents);
+  guardPreviewNavigation(sessionWindow.webContents, { isAppUrl });
   sessionWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
   sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
@@ -3196,7 +3196,7 @@ async function createMainWindow() {
     }, 1_000);
   });
 
-  guardPreviewNavigation(mainWindow.webContents);
+  guardPreviewNavigation(mainWindow.webContents, { isAppUrl });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
 
   mainWindow.webContents.on("will-navigate", (event, url) => {

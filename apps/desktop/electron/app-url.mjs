@@ -78,19 +78,61 @@ export function guardIpcMain(ipcMain, { isTrustedUrl, openChannels = [], onRejec
  * CSP blocks subresources, but does not stop a frame navigating itself to a URL.
  * Browser-panel webContents are deliberately separate and do not use this guard.
  * @param {import("electron").WebContents} contents
+ * @param {{isAppUrl?: (url: string) => boolean}} options
  */
-export function guardPreviewNavigation(contents) {
+export function guardPreviewNavigation(contents, options = {}) {
   contents.on("will-frame-navigate", (event) => {
-    if (!isAllowedPreviewNavigation(event)) event.preventDefault();
+    if (!isAllowedPreviewNavigation(event, options)) event.preventDefault();
   });
 }
 
-/** @param {{url: string, isMainFrame?: boolean, frame?: {parent?: {url: string}}}} event */
-export function isAllowedPreviewNavigation(event) {
+/** @typedef {{url: string, parent?: NavigationFrame | null}} NavigationFrame */
+
+/**
+ * @param {{url: string, isMainFrame?: boolean, frame?: {url?: string, parent?: NavigationFrame | null} | null, initiator?: NavigationFrame | null}} event
+ * @param {{isAppUrl?: (url: string) => boolean}} options
+ */
+export function isAllowedPreviewNavigation(event, { isAppUrl = () => false } = {}) {
   if (event.isMainFrame) return true;
   if (event.url === "about:blank" || event.url === "about:srcdoc" || event.url.startsWith("blob:")) return true;
+  if (isAllowedPaymentNavigation(event, isAppUrl)) return true;
   // PDFium loads its internal stream in a child of Chromium's trusted PDF
   // viewer. Permit only that parent and destination, not arbitrary extensions.
   const pdfViewer = "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/";
   return event.frame?.parent?.url === `${pdfViewer}index.html` && event.url.startsWith(pdfViewer);
+}
+
+/** @param {string | undefined} url */
+function paymentUrl(url) {
+  try {
+    const target = new URL(url);
+    return target.protocol === "https:" && !target.username && !target.password && !target.port ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+/** @param {URL | null} url */
+function isStripeFrameUrl(url) {
+  return !!url && (url.hostname === "js.stripe.com" || url.hostname.endsWith(".js.stripe.com") || url.hostname === "hooks.stripe.com");
+}
+
+/**
+ * Stripe.js mounts controllers directly under the app. Their descendants load
+ * metrics and bank-owned 3DS challenges. A preview must never establish this
+ * exception, even if it contains a Stripe URL further down its frame tree.
+ * @param {{url: string, frame?: {url?: string, parent?: NavigationFrame | null} | null, initiator?: NavigationFrame | null}} event
+ * @param {(url: string) => boolean} isAppUrl
+ */
+function isAllowedPaymentNavigation(event, isAppUrl) {
+  const target = paymentUrl(event.url);
+  let parent = event.frame?.parent;
+  if (!target || !parent) return false;
+  if (!parent.parent) {
+    const appInitiated = event.initiator && !event.initiator.parent && isAppUrl(event.initiator.url);
+    return isAppUrl(parent.url) && isStripeFrameUrl(target) &&
+      (!!appInitiated || isStripeFrameUrl(paymentUrl(event.frame?.url)));
+  }
+  while (parent.parent?.parent) parent = parent.parent;
+  return !!parent.parent && isAppUrl(parent.parent.url) && isStripeFrameUrl(paymentUrl(parent.url));
 }
