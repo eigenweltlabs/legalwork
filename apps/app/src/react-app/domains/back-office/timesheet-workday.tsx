@@ -1,3 +1,4 @@
+import { documentDraftWording } from "./time-record-values";
 import { sourceKeys } from "./timesheet-labels";
 import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +9,8 @@ import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-s
 import { LayoutStack } from "../settings/settings-layout";
 import { Button } from "@/components/ui/button";
 import type { TimeCaptureSheet } from "./time-record-sheet";
-import { adjacentPeriod, periodDates, periodLabels, timePeriods, type TimePeriod } from "./timesheet-row";
+import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
+import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
 import {
   captureEnabled,
   captureAccountEnabled,
@@ -58,7 +60,6 @@ export function TimesheetWorkday({
     [running, setRunning] = useState(false);
   const [period, setPeriod] = useState<TimePeriod>("day");
   const [wording, setWording] = useState<CaptureState["wording"]>();
-  const [runResult, setRunResult] = useState<{ date: string; count: number }>();
   const [refreshing, setRefreshing] = useState(false);
   const dates = periodDates(date, period);
   const navigate = useNavigate(),
@@ -113,11 +114,9 @@ export function TimesheetWorkday({
       if (signal?.aborted) return false;
       if (action.type === "refresh") {
         setWording(generated);
-        setRunResult(generated && { date: targetDate, count: Object.keys(generated).length });
       }
       if (action.type === "settings" || action.type === "calendar") {
         setWording(undefined);
-        setRunResult(undefined);
       }
       if (action.type === "settings") {
         await cache.cancelQueries({ queryKey: scopeKey });
@@ -172,7 +171,6 @@ export function TimesheetWorkday({
   });
   useEffect(() => {
     setWording(undefined);
-    setRunResult(undefined);
     setRefreshing(false);
     if (!refreshKey) return;
     const controller = new AbortController();
@@ -182,7 +180,7 @@ export function TimesheetWorkday({
 
   const shown = data?.proposals.filter(
         (p) =>
-          (aiEnabled || p.source === "stopwatch") &&
+          dates.includes(p.date) && (aiEnabled || p.source === "stopwatch") &&
           !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
           !state.entries.some(
             (e) =>
@@ -192,6 +190,13 @@ export function TimesheetWorkday({
               e.workerId === identity.user,
           ),
       ) ?? [];
+  const draftWording: NonNullable<CaptureState["wording"]> = {};
+  if (aiEnabled) {
+    for (const proposal of shown) {
+      const suggestion = documentDraftWording(proposal, wording?.[proposal.digest], state);
+      if (suggestion) draftWording[proposal.digest] = suggestion;
+    }
+  }
   const selected = shown.find((p) => p.key === editing);
   const bookedEntries = state.entries.filter(
     (e) =>
@@ -215,15 +220,16 @@ export function TimesheetWorkday({
       ? [{ startAt: values.startedAt, endAt: values.endedAt }]
       : [],
   ) : bookedEntries);
-  function selectDate(next: string) {
-    if (!next || next === date) return;
+  function selectDate(next: string, openDay = false) {
+    if (!next || (next === date && !openDay)) return;
     if (ledgerDirty) {
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
     setError("");
+    if (openDay) setPeriod("day");
     setDate(next);
-    onDateChange?.(next);
+    if (next !== date) onDateChange?.(next);
   }
   return (
     <section className={"bo-workday" + (children ? " time-unified" : "")}>
@@ -244,7 +250,7 @@ export function TimesheetWorkday({
             onClick={() => selectDate(adjacentPeriod(date, period, 1))}><ChevronRight size={16} /></Button>
         </div>
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
-        {children && <div className="time-sheet-period">{timePeriods.map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(periodLabels[value])}</Button>)}</div>}
+        {children && <TimesheetPeriodSwitch period={period} onChange={setPeriod} />}
         <span className="bo-workday-toolbar-space" />
         <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
           aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
@@ -349,7 +355,6 @@ export function TimesheetWorkday({
       )}
       </div>
       {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
-      {aiEnabled && !running && runResult?.date === date && <p role="status">{t("timesheets.run_result", { count: runResult.count })}</p>}
       {(running || refreshing) && <p role="status">{t("timesheets.preparing")}</p>}
       {selected && (
         <WorkdayCorrectionForm
@@ -361,7 +366,7 @@ export function TimesheetWorkday({
           close={() => setEditing("")}
         />
       )}
-      {children?.({ proposals: shown, wording: aiEnabled ? wording : undefined, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
+      {children?.({ proposals: shown, wording: draftWording, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
       {data && !children && (
         <div className="bo-workday-list">
           {!shown.length ? (

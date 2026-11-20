@@ -110,6 +110,8 @@ export function BillingReview({
   const [dates, setDates] = useState(() =>
     reviewPeriod(initialDate ? new Date(initialDate + "T12:00:00") : new Date()),
   );
+  const [allUnbilled, setAllUnbilled] = useState(false);
+  const throughEndDate = mode === "approved" && allUnbilled;
   const [matter, setMatter] = useState("");
   const [billTo, setBillTo] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
@@ -139,7 +141,8 @@ export function BillingReview({
   );
   const all = state.entries.filter(
     (e) =>
-      (!dates.from || dates.from <= e.date) &&
+      (throughEndDate || !dates.from || dates.from <= e.date) &&
+      (!throughEndDate || (e.billable && !e.nonHourlyApproval && !e.legacy)) &&
       (!dates.to || e.date <= dates.to) &&
       (!matter || matter === e.matterId) &&
       (!billTo || billTo === e.clientId),
@@ -306,7 +309,8 @@ export function BillingReview({
           {t("back_office.billing.from")}
           <input
             type="date"
-            value={dates.from}
+            disabled={throughEndDate}
+            value={throughEndDate ? "" : dates.from}
             onChange={(e) => {
               setDates({ ...dates, from: e.target.value });
               reset();
@@ -324,6 +328,13 @@ export function BillingReview({
             }}
           />
         </label>
+        {mode === "approved" && <label>
+          <input type="checkbox" checked={allUnbilled} onChange={e => {
+            setAllUnbilled(e.target.checked);
+            reset();
+          }} />
+          {t("back_office.billing.all_unbilled")}
+        </label>}
         <select
           aria-label={t("back_office.billing.client")}
           value={billTo}

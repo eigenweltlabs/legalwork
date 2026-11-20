@@ -193,6 +193,18 @@ try {
   await draw({ ...actor, entries: [{ ...row, status: "approved" }] });
 
   await select("View", "approved");
+  const prior = { ...row, date: "2001-09-01", id: "earlier", narrative: "Earlier approved work", status: "approved" as const };
+  await draw({ ...actor, entries: [prior, { ...prior, id: "issued", narrative: "Previously issued work", status: "invoiced" },
+    { ...prior, id: "future", date: "2099-11-30", narrative: "After cutoff" }, { ...row, status: "approved" }] });
+  const unbilled = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All unbilled time"))?.querySelector("input");
+  assert.ok(unbilled);
+  assert.ok(!host.textContent?.includes(prior.narrative));
+  await click(unbilled);
+  assert.ok(host.textContent?.includes(prior.narrative));
+  assert.ok(!host.textContent?.includes("Previously issued work"));
+  assert.ok(!host.textContent?.includes("After cutoff"));
+  await click(unbilled);
+  assert.ok(!host.textContent?.includes(prior.narrative));
   await click(field('input[aria-label="Select all eligible positions"]'));
   await click(match("Preview invoice"));
   assert.equal(calls.length, 2, "preview must not issue");

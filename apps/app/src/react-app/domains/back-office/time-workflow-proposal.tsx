@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from "react";
+import { proposalAssignment } from "./time-record-values";
 import { Check, Timer, Sparkles, X } from "lucide-react";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
@@ -24,10 +25,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
 }) {
   const id = useId(), host = useRef<HTMLDivElement>(null);
   const matters = matterOptions(state), people = workerOptions(state);
-  const project = state.projects.find(project => project.id === proposal.projectId);
-  const matter = state.matters.find(matter => matter.id === proposal.matterId)
-    ?? (project?.matterIds.length === 1 ? state.matters.find(matter => matter.id === project.matterIds[0]) : undefined);
-  const clientId = matter?.clientIds.length === 1 ? matter.clientIds[0] : "";
+  const { project, matter, clientId, policy: initialPolicy } = proposalAssignment(proposal, state);
   const stopwatch = proposal.source === "stopwatch";
   const duration = captureChargeMinutes(proposal);
   function policyFor(values: RowValues) {
@@ -36,12 +34,11 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
       values.date, assigned ? assigned.projectId : project?.id);
   }
   const [edited, setValues] = useState<RowValues>(() => {
-    const policy = resolveTimePolicy(state.policies, clientId, matter?.id ?? "", proposal.date, project?.id);
     const initial = fromDraft({
       date: proposal.date, activity: proposal.activity, projectId: project?.id, matterId: matter?.id, clientId,
       narrative: stopwatch && !proposal.parentDigest ? "" : proposal.narrative,
       workedMinutes: proposal.workedMinutes ?? undefined,
-      billableMinutes: duration === null || stopwatch ? undefined : proposedCharge(duration, policy),
+      billableMinutes: duration === null || stopwatch ? undefined : proposedCharge(duration, initialPolicy),
     }, people.find(person => person.id === state.userId)?.label ?? "", proposal.date, state, matters);
     const saved = capture.drafts[proposal.key];
     if (saved?.proposalDigest !== proposal.digest || !saved.values.workflow) return initial;

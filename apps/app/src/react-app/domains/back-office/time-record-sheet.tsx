@@ -25,7 +25,7 @@ const membersSchema = z.object({ members: z.array(z.object({ userId: z.string(),
 const responseSchema = z.object({ record: BackOfficeRecordSchema });
 const billingFields = ["matter", "client", "billableMinutes"];
 const changesBilling = (values: TimeRecordValues) => billingFields.some(field => Object.hasOwn(values, field));
-const columnIds = ["startedAt", "timekeeper", "matter", "billingNarrative", "recordedMinutes", "billableMinutes"];
+const columnIds = ["startedAt", "timekeeper", "matter", "billingNarrative", "recordedMinutes", "billableMinutes", "status"];
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const serviceDate = (values: TimeRecordValues) => timeRecordDate(values.startedAt, values.serviceDate);
 
@@ -35,7 +35,7 @@ export type TimeCaptureSheet = {
   drafts: CaptureState["drafts"];
   date: string;
   dates: string[];
-  selectDate: (date: string) => void;
+  selectDate: (date: string, openDay?: boolean) => void;
   overlaps: ReadonlySet<string>;
   linkableRecords?: readonly BackOfficeRecord[];
   privateAvailable: boolean;
@@ -68,7 +68,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   useEffect(() => setComposerId(undefined), [capture.date]);
   const { showBooking, bookings, receipt } = useBookingReceipt(capture.date, (target, worker) => {
     if (person && person !== worker) setPerson("");
-    capture.selectDate(target);
+    capture.selectDate(target, true);
   });
   const copied = useRef<TimeRecordValues>(undefined);
   const blankIds = useRef(new Map<string, string>());
@@ -456,7 +456,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
       if (value.success) { event.preventDefault(); duplicate(value.data.values); }
     } catch { /* Ordinary text remains available to the focused editor. */ }
   }}>
-    <TimesheetWeekTotals dates={capture.dates} date={capture.date} totalsByDate={byDate} onDateChange={capture.selectDate} />
+    <TimesheetWeekTotals dates={capture.dates} date={capture.date} totalsByDate={byDate} onDateChange={day => capture.selectDate(day, true)} />
     <div className="time-sheet-summary">
       {members.length > 1 ? <select aria-label={t("timesheets.ledger.workers")} value={person} onChange={event => { setPerson(event.target.value); setComposerId(undefined); }}>
         <option value="">{t("timesheets.sheet.all_people")}</option>
@@ -516,7 +516,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           const matches = proposal && fieldValue(record, "timekeeper") === self && record.values.matter ? stored.filter(entry => isOwn(entry) &&
             serviceDate(entry.values) === serviceDate(record.values) && entry.values.matter === record.values.matter) : [];
           return <div className="time-proposal-details">
-            {proposal && <><button className="time-proposal-source" onClick={() => setSource(source === record.id ? undefined : record.id)}>{proposal.source === "stopwatch" ? <Timer size={13} /> : <Sparkles size={13} />}{proposal.source === "stopwatch" ? t(sourceKeys.stopwatch) : t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}{proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{proposal.projectId && " · " + (state.projects.find(project => project.id === proposal.projectId)?.name ?? "")}</button>
+            {proposal && <><button className="time-proposal-source" onClick={() => setSource(source === record.id ? undefined : record.id)}>{proposal.source === "stopwatch" ? <Timer size={13} /> : <Sparkles size={13} />}{proposal.source === "stopwatch" ? t(sourceKeys.stopwatch) : t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}{proposal.source === "documents" && " · " + proposal.activity}{proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{proposal.projectId && " · " + (state.projects.find(project => project.id === proposal.projectId)?.name ?? "")}</button>
               {capture.overlaps.has(record.id) && <span className="bo-error">{t("timesheets.workday.overlap")} <Button size="xs" variant="ghost" onClick={() => capture.openSource(proposal)}>{t("timesheets.workday.correct")}</Button></span>}
               {directory.permissions.edit && matches.length > 0 && <select aria-label={t("timesheets.sheet.reconcile")} value="" disabled={edits.saving.has(record.id)} onChange={event => {
                 const match = matches.find(entry => entry.id === event.target.value);
@@ -554,6 +554,5 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           </div>;
         },
       }} />
-    <div className="time-sheet-footer"><span>{t("timesheets.sheet.keyboard")}</span></div>
   </div>;
 }

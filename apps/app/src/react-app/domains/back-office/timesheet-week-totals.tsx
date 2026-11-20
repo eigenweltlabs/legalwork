@@ -1,6 +1,15 @@
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { offsetDate, weekDates, type TimeTotals } from "./timesheet-row";
+import { offsetDate, periodLabels, timePeriods, weekDates, type TimePeriod, type TimeTotals } from "./timesheet-row";
+
+export function TimesheetPeriodSwitch({ period, onChange }: { period: TimePeriod; onChange: (period: TimePeriod) => void }) {
+  return (
+    <div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
+      {timePeriods.map(value => <button key={value} type="button" aria-pressed={period === value}
+        onClick={() => onChange(value)}>{t(periodLabels[value])}</button>)}
+    </div>
+  );
+}
 
 export function TimesheetWeekTotals({ dates, date, totalsByDate, onDateChange }: {
   dates: readonly string[];
@@ -36,10 +45,9 @@ export function TimesheetWeekTotals({ dates, date, totalsByDate, onDateChange }:
                 return (
                   <td key={day}>
                     <button type="button" aria-pressed={day === date}
-                      aria-label={`${fullDate.format(localDay)}. ${recorded}. ${billable}.`} onClick={() => onDateChange(day)}>
+                      title={`${recorded} · ${billable}`} aria-label={`${fullDate.format(localDay)}. ${recorded}. ${billable}.`} onClick={() => onDateChange(day)}>
                       <time dateTime={day}>{localDay.getDate()}</time>
-                      <span>{recorded}</span>
-                      <span>{billable}</span>
+                      <span>{totals?.worked ?? 0} · {totals?.charge ?? 0}</span>
                     </button>
                   </td>
                 );

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { captureProposalSchema } from "@legalwork/types/time-capture";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { adjacentPeriod, periodDates } from "../src/react-app/domains/back-office/timesheet-row";
-import { proposalValues, timeRecordDate } from "../src/react-app/domains/back-office/time-record-values";
+import { documentDraftWording, proposalValues, timeRecordDate } from "../src/react-app/domains/back-office/time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, timeCellChanges } from "../src/react-app/domains/back-office/time-record-edits";
 
 const state = TimesheetStateSchema.parse({ userId: "worker", scope: "local", canManage: true, canReview: true,
@@ -22,6 +22,20 @@ test("stopwatch rows infer both minute fields from exact elapsed time and the ef
     expect(proposalValues(proposal, { ...nearestState, policies: nearestState.policies.map(policy => ({ ...policy, incrementMinutes: 6 })) }).recordedMinutes).toBe(Math.round(seconds / 360) * 6);
     expect(proposal).toEqual(original);
   }
+});
+
+test("document drafts use save activity, effective wording rules and the reviewed worker correction", () => {
+  const doc = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "a".repeat(64), date: "2026-11-18", source: "documents",
+    projectId: "project", activity: "DFT", narrative: "Recourse.docx", workedMinutes: null, startAt: null, endAt: null, dismissed: false });
+  const rules = { ...state, policies: [{ scope: "client", targetId: "client", effectiveFrom: doc.date, revision: 1,
+    language: "English", actionWords: { MOD: "Updating" }, narrativeCorrections: { Recourse: "Revision" } }] } satisfies typeof state;
+  expect(documentDraftWording(doc, undefined, rules)).toEqual({ activity: "DFT", narrative: "Drafting Revision" });
+  const amend = { ...doc, activity: "MOD" };
+  expect(documentDraftWording(amend, { activity: "MOD", narrative: "Amending the Recourse" }, rules)?.narrative).toBe("Updating the Revision");
+  expect(documentDraftWording(amend, { activity: "DFT", narrative: "Drafting appeal" }, rules)?.narrative).toBe("Updating Revision");
+  expect(documentDraftWording({ ...doc, date: "2026-10-01" }, undefined, rules)?.narrative).toBe("Drafting Recourse");
+  expect(documentDraftWording({ ...amend, parentDigest: doc.digest, narrative: "Edited by the worker" }, { activity: "DFT", narrative: "Old model wording" }, rules)).toBeUndefined();
+  expect(doc.narrative).toBe("Recourse.docx");
 });
 
 test("date-only service dates stay on their selected day across time zones", () => {

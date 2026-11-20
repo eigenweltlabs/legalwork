@@ -52,7 +52,7 @@ import {
   productOptions,
   rowColumns,
   stopwatchRowCharge,
-  adjacentPeriod, periodDates, periodLabels, periodTimeTotals, timePeriods, type TimePeriod,
+  adjacentPeriod, periodDates, periodTimeTotals, type TimePeriod,
   workerOptions,
   type RowColumn,
   type RowValues,
@@ -60,7 +60,7 @@ import {
 import { AdjustmentRequest } from "./timesheet-adjustment";
 import { useTimesheetColumns } from "./timesheet-columns";
 import { useBookingReceipt } from "./time-booking-receipt";
-import { TimesheetWeekTotals } from "./timesheet-week-totals";
+import { TimesheetPeriodSwitch, TimesheetWeekTotals } from "./timesheet-week-totals";
 import "./timesheet-ledger.css";
 
 export type InitialTimesheetDraft = {
@@ -223,7 +223,7 @@ export function TimesheetLedger({
   const [period, setPeriod] = useState<TimePeriod>("day");
   const date = capture?.date ?? ledgerDate;
   const dates = capture?.dates ?? periodDates(date, period);
-  const { showBooking, bookings, receipt } = useBookingReceipt(date, chooseDate, visible);
+  const { showBooking, bookings, receipt } = useBookingReceipt(date, day => chooseDate(day, true), visible);
   const [composerOpen, setComposerOpen] = useState(Boolean(initialDraft));
   useEffect(() => setComposerOpen(false), [date, visible]);
   function capFor(
@@ -309,16 +309,17 @@ export function TimesheetLedger({
       if (element.tagName === "INPUT" && element.type === "text") element.select();
     });
   };
-  function chooseDate(next: string) {
-    if (!next || next === date) return;
+  function chooseDate(next: string, openDay = false) {
+    if (!next || (next === date && !openDay)) return;
     if (edit || draftChanged || provenance) {
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
-    if (capture) capture.selectDate(next);
+    if (capture) capture.selectDate(next, openDay);
     else {
+      if (openDay) setPeriod("day");
       setLedgerDate(next);
-      onDateChange?.(next);
+      if (next !== date) onDateChange?.(next);
     }
     setShareRevisions(new Map());
     setDraft((current) => (current.date === date ? { ...current, date: next } : current));
@@ -972,22 +973,11 @@ export function TimesheetLedger({
       onPaste={clipboardPaste}
     >
       <div className="bo-view-toolbar bo-time-toolbar">
-        {!capture && <><div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
-          {timePeriods.map((value) => (
-            <button
-              type="button"
-              key={value}
-              aria-pressed={value === period}
-              onClick={() => {
-                if (edit) return setError(t("timesheets.ledger.finish_edit"));
-                setShareRevisions(new Map());
-                setPeriod(value);
-              }}
-            >
-              {t(periodLabels[value])}
-            </button>
-          ))}
-        </div>
+        {!capture && <><TimesheetPeriodSwitch period={period} onChange={value => {
+          if (edit) return setError(t("timesheets.ledger.finish_edit"));
+          setShareRevisions(new Map());
+          setPeriod(value);
+        }} />
         <div className="bo-time-date">
           <button
             type="button"
@@ -1078,7 +1068,7 @@ export function TimesheetLedger({
           ))}
         </details>
       )}
-      <TimesheetWeekTotals dates={dates} date={date} totalsByDate={byDate} onDateChange={chooseDate} />
+      <TimesheetWeekTotals dates={dates} date={date} totalsByDate={byDate} onDateChange={day => chooseDate(day, true)} />
       <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
           [t("timesheets.ledger.worked_total"), totals.worked],
@@ -1275,10 +1265,7 @@ export function TimesheetLedger({
           </ul>
         </details>
       )}
-      <div className="bo-time-footer">
-        {canEdit && <span>{t("timesheets.ledger.keyboard")}</span>}
-        <span role="status">{notice}</span>
-      </div>
+      {notice && <div className="bo-time-footer" role="status">{notice}</div>}
     </div>
   );
 }

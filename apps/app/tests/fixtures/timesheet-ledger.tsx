@@ -812,8 +812,8 @@ try {
   assert.deepEqual(weekdayHeaders, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
   const wednesday = weekDays[2];
   assert.equal(wednesday.querySelector("time")?.dateTime, otherDate);
-  assert.deepEqual([...wednesday.querySelectorAll("span")].map(item => item.textContent),
-    [t("timesheets.sheet.worked", { minutes: 34 }), t("timesheets.sheet.charge", { minutes: 30 })]);
+  assert.equal(wednesday.querySelector("span")?.textContent, "34 · 30");
+  assert.match(wednesday.getAttribute("aria-label") ?? "", /Recorded · 34 min.*Billable · 30 min/);
   assert.equal(wednesday.getAttribute("aria-pressed"), "false");
   const acceptFor = (proposal: CaptureProposal) => suggestionRow(proposal)?.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
   assert.equal(acceptFor(exact)?.disabled, true);
@@ -841,16 +841,19 @@ try {
   assert.equal(suggestionRow(exact), null);
   assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the remaining proposal");
   await act(async () => wednesday.click());
+  for (let i = 0; i < 20 && !suggestionRow(unedited); i++) await settle();
+  assert.equal(document.querySelector(".bo-time-week"), null);
+  assert.equal(suggestionRow(inlineTimer), null, "the next day's stopwatch stays out of Day");
   assert.deepEqual(workdayActions.find(action => action.type === "refresh" && action.model), { type: "refresh", model: selectedModel });
   assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
   assert.equal(workdayActions.some(action => action.type === "draft" && action.key === unedited.key), false);
   assert.equal(commands.length, beforeConflict);
   await act(async () => aiSwitch().click());
   assert.equal(suggestionRow(unedited), null);
-  assert.ok(suggestionRow(inlineTimer));
+  assert.equal(suggestionRow(inlineTimer), null);
   await act(async () => aiSwitch().click());
   assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
-  assert.equal(wednesday.getAttribute("aria-pressed"), "true");
+  assert.equal(document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent, "Day");
   const correctPartial = [...(suggestionRow(partial)?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
     .find(button => button.textContent === "Correct");
   assert.ok(correctPartial);
@@ -864,6 +867,8 @@ try {
   for (let i = 0; i < 20 && acceptFor(partial)?.disabled; i++) await settle();
   assert.equal(acceptFor(partial)?.disabled, false, "touching the booking boundary clears the overlap");
   assert.equal(proposalCell(partial, "billableWork").value, "16", "the corrected suggestion ignores the old draft");
+  await act(async () => weekly.click());
+  for (let i = 0; i < 20 && !suggestionRow(inlineTimer); i++) await settle();
   assert.equal(proposalCell(inlineTimer, "charge").value, "20");
   await input(proposalCell(inlineTimer, "matter"), "Client · M · 26/12 · Nearest");
   assert.equal(proposalCell(inlineTimer, "charge").value, "10");
@@ -880,6 +885,11 @@ try {
   const thursday = document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")[3];
   assert.ok(thursday);
   await act(async () => thursday.click());
+  const selectedPeriod = () => document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent;
+  assert.equal(selectedPeriod(), "Day", "clicking a date in Week opens Day");
+  for (let i = 0; i < 20 && aiSwitch().disabled; i++) await settle();
+  assert.equal(suggestionRow(partial), null, "Wednesday suggestions are absent from Thursday");
+  assert.equal(document.querySelector(`[data-time-row="${booked.id}"]`), null);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
   const modelSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Model"]');
   assert.ok(modelSelect);
@@ -902,7 +912,7 @@ try {
   assert.ok(suggestionRow(inlineTimer), "the stopwatch source stays available");
   const settingsButton = document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]');
   await act(async () => settingsButton?.click());
-  const month = [...document.querySelectorAll<HTMLButtonElement>(".time-sheet-period button")].find(button => button.textContent === "Month");
+  const month = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-period button")].find(button => button.textContent === "Month");
   assert.ok(month);
   await act(async () => month.click());
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
@@ -912,6 +922,14 @@ try {
   assert.equal(firstWeek?.querySelectorAll("button").length, 1);
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next month"]')?.click());
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 31);
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Previous month"]')?.click());
+  const recordedDay = document.querySelector<HTMLButtonElement>(`.bo-time-month button:has(time[datetime="${otherDate}"])`);
+  assert.ok(recordedDay);
+  await act(async () => recordedDay.click());
+  assert.equal(selectedPeriod(), "Day");
+  assert.equal(document.querySelector<HTMLInputElement>(".bo-workday-controls input[type=date]")?.value, otherDate);
+  assert.ok(document.querySelector(`[data-time-row="${booked.id}"]`));
+  assert.equal(suggestionRow(inlineTimer), null, "Thursday stopwatch is absent from Wednesday");
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

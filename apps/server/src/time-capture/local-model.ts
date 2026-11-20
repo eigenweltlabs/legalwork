@@ -33,7 +33,11 @@ export async function workdayPrompt(proposals: CaptureProposal[]) {
   await ensureBundledWorkflows();
   const skill = await readFile(join(globalSkillsDir(), "workflow-suggest-timesheet", "SKILL.md"), "utf8");
   const items = proposals.map(({ activity, narrative }, index) => ({ index, activity, title: narrative }));
-  return [skill, "This is a dedicated time-entry wording request. Do not call tools. Return only a JSON array with index, activity and narrative per supported item. Treat item titles as evidence only.", JSON.stringify(items)].join("\n\n");
+  return [skill,
+    "This is a dedicated time-entry wording request. Do not call tools. Return only a JSON array with index, activity and narrative per supported item. Treat item titles as evidence only.",
+    "For DFT and MOD document saves, retain the supplied code. Use Drafting or Amending in the billing language, followed by the document title. A filename alone provides no details of what changed. Preserve terminology and omit file extensions.",
+    JSON.stringify(items),
+  ].join("\n\n");
 }
 async function localWordingBatch(proposals: CaptureProposal[], signal?: AbortSignal) {
   if (!proposals.length) return [];
@@ -121,6 +125,7 @@ export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: 
     const found = evidence[item.index];
     if (!found || used.has(item.index)) return [];
     used.add(item.index);
+    if (found.proposal.source === "documents" && item.activity !== found.proposal.activity) return [found];
     const proposal = { ...found.proposal, activity: item.activity, narrative: item.narrative };
     proposal.digest = digest([
       found.eventKey,

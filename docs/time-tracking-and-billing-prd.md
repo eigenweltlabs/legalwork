@@ -357,3 +357,9 @@ The **AI suggestions** switch starts off. After the worker enables it, opening t
 The firm backend owns the organization chart and secretariat assignments. A timekeeper can book their own work. Managers can book for the reports the firm authorizes. Secretariat staff can book for the workers covered by an explicit delegation. Changing an assignee or booking for multiple participants requires current authority for every affected worker. Record authorship and worker confirmation remain separate. The [firm integration contract](timekeeping-server-integration.md#requested-firm-capabilities) specifies the response fields and write checks.
 
 A firm using the ordinary directory creates invoice records with client, matter, invoice number, totals and a PDF attachment. Issuance from approved time entries belongs to the billing workflow. Saved time entries expose one Duplicate action beside their history in both views.
+
+### Document wording and invoice preparation
+
+The initial DFT/MOD suggestion should apply the billing guidelines effective for that client and service date. A later MOD uses the last confirmed title for the same document and a supported description of the change. For example, a contributor who corrects “Recourse” to “Revision” should subsequently see “Amending Revision”. The stable link must survive a file rename. Uploaded guidelines, document-specific history and supported change summaries still require the [firm integration](timekeeping-server-integration.md#document-wording-invoice-periods-and-word-templates).
+
+Billing staff need both a service period and all approved, unbilled time through a cutoff. Each issued line retains its invoice link. The partner should be able to approve the exact invoice preview where the firm requires final invoice release. The firm maintains a Word-editable DOCX template. The issuance service renders the approved version to PDF, records the template revision and returns the same PDF on retrieval.
