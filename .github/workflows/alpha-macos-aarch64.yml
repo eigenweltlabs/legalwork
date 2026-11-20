@@ -30,7 +30,9 @@ permissions:
 
 concurrency:
   group: legalwork-alpha-${{ github.event_name == 'workflow_dispatch' && inputs.signing_test && format('benchmark-{0}', github.ref) || 'dev' }}
-  cancel-in-progress: false
+  # A newer dev merge supersedes the entire running alpha, including packaging.
+  # Manual diagnostics keep their separate group and do not interrupt a run.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   changes:
