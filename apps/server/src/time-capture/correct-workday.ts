@@ -60,7 +60,7 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     projectId: command.projectId,
     matterId: command.matterId ?? undefined,
     workProductId: parent.matterId === command.matterId ? parent.workProductId : undefined,
-    activity: command.activity ?? parent.activity,
+    activity: command.activity === undefined ? parent.activity : command.activity ?? "",
     narrative: command.narrative,
     parentDigest: parent.digest,
   };

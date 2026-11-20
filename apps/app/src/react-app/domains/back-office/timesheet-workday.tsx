@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { CalendarDays, Settings, Sparkles, ChevronLeft, ChevronRight, X } from "lucide-react";
@@ -50,15 +50,40 @@ export function TimesheetWorkday({
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const editorId = useId();
   const editor = useRef<HTMLDivElement>(null);
+  const editorForm = useRef<HTMLDivElement>(null);
+  const editorTitle = useRef<HTMLHeadingElement>(null);
+  const timelineBody = useRef<HTMLDivElement>(null);
+  const focusRequest = useRef<{ target: "editor" | "timeline"; removed?: HTMLElement }>(undefined);
+  const origin = useRef<{ key: string; index: number }>(undefined);
   const modelRequest = useRef<AbortController | undefined>(undefined);
   const inFlight = useRef(false);
   const cache = useQueryClient();
   const dates = periodDates(date, period);
   useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
+  const bindEditor = useCallback((element: HTMLDivElement | null) => {
+    if (!element && editor.current?.contains(document.activeElement))
+      focusRequest.current = { target: "timeline", removed: editor.current };
+    editor.current = element;
+  }, []);
+  const bindEditorForm = useCallback((element: HTMLDivElement | null) => {
+    if (!element && !focusRequest.current && editorForm.current?.contains(document.activeElement))
+      focusRequest.current = { target: "editor", removed: editorForm.current };
+    editorForm.current = element;
+  }, []);
   useLayoutEffect(() => {
-    if (selection) editor.current?.scrollIntoView({ block: "nearest" });
-  }, [selection, correction?.key]);
+    const request = focusRequest.current;
+    focusRequest.current = undefined;
+    if (!request || request.removed?.isConnected || !visible || timelineBody.current?.closest("[hidden]")) return;
+    const panel = timelineBody.current?.closest<HTMLElement>('[data-workspace-tab="timeline"]');
+    const buttons = [...(timelineBody.current?.querySelectorAll<HTMLButtonElement>("[data-proposal-id]") ?? [])];
+    const from = origin.current;
+    const nearby = from && (buttons.find(button => button.dataset.proposalId === from.key) ??
+      buttons[from.index] ?? buttons.at(-1));
+    const target = request.target === "editor" && editorTitle.current ? editorTitle.current : nearby || panel;
+    target?.focus();
+  });
 
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
   const profileId = directory.captureProfileId;
@@ -197,6 +222,23 @@ export function TimesheetWorkday({
     )),
   ) ?? [];
   const selected = shown.find(proposal => proposal.key === selection);
+  const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
+  function openEditor(proposal: CaptureProposal, trigger: HTMLButtonElement) {
+    const buttons = [...(timelineBody.current?.querySelectorAll<HTMLButtonElement>("[data-proposal-id]") ?? [])];
+    origin.current = { key: proposal.key, index: buttons.indexOf(trigger) };
+    if (selected?.key === proposal.key && !correcting) {
+      editorTitle.current?.focus();
+      return;
+    }
+    focusRequest.current = { target: "editor" };
+    setCorrection(undefined);
+    setSelection(proposal.key);
+  }
+  function closeEditor() {
+    focusRequest.current = { target: "timeline" };
+    setSelection(undefined);
+    setCorrection(undefined);
+  }
   const ownContactIds = new Set(directory.records.filter(person =>
     person.objectId === "people" && !person.archivedAt && person.values.active !== false &&
     person.sourceId === "eigenwelt-member:" + identity.user,
@@ -234,7 +276,10 @@ export function TimesheetWorkday({
   const capture: TimeCaptureSheet = {
     proposals: shown, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
     overlaps, linkableRecords: ownRecords, selectDate, act,
-    openSource: setCorrection,
+    openSource: proposal => {
+      focusRequest.current = { target: "editor" };
+      setCorrection(proposal);
+    },
   };
   const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal) => (
     <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
@@ -252,32 +297,41 @@ export function TimesheetWorkday({
           </div>
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {selected && (
-            <div ref={editor} className="time-workspace-editor">
+            <div ref={bindEditor} id={editorId} className="time-workspace-editor"
+              role="region" aria-labelledby={editorId + "-title"}
+              onKeyDown={event => {
+                if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing ||
+                    !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                closeEditor();
+              }}>
               <header>
-                <h3>{proposalTitle(selected)}</h3>
-                <Button size="icon-xs" variant="ghost" aria-label={t("timesheets.workday.cancel")} onClick={() => {
-                  setSelection(undefined);
-                  setCorrection(undefined);
-                }}><X size={14} /></Button>
+                <h3 ref={editorTitle} id={editorId + "-title"} tabIndex={-1}>{proposalTitle(selected)}</h3>
+                <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
+                  onClick={closeEditor}><X size={14} /></Button>
               </header>
               <p className="time-workspace-note">{t(sourceKeys[selected.source])}
                 {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
                 {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
               </p>
-              {correction?.digest === selected.digest
-                ? <WorkdayCorrectionForm key={selected.digest} proposal={correction} state={state}
-                  pending={running} save={act} close={() => setCorrection(undefined)} />
-                : renderProposal(selected)}
+              <div key={selected.digest + (correcting ? "-correction" : "")} ref={bindEditorForm}>
+                {correcting
+                  ? <WorkdayCorrectionForm proposal={correcting} state={state}
+                    pending={running} save={act} close={() => {
+                      if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
+                      setCorrection(undefined);
+                    }} />
+                  : renderProposal(selected)}
+              </div>
             </div>
           )}
           {local && (
-            <>
+            <div ref={timelineBody}>
               {data && shown.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
-              <WorkdayTimeline date={date} proposals={shown} state={state} view={view} selected={selection} onOpen={proposal => {
-                setCorrection(undefined);
-                setSelection(proposal.key);
-              }} />
-            </>
+              <WorkdayTimeline date={date} proposals={shown} state={state} view={view} selected={selected?.key}
+                editorId={editorId} onOpen={openEditor} />
+            </div>
           )}
         </>
       )}

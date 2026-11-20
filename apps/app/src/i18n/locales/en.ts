@@ -32,6 +32,7 @@ export default {
   "timeWorkspace.unavailable": "The timekeeping model is unavailable. You can still record time and review your timers.",
   "timeWorkspace.failed": "The day draft could not be updated. You can still record time and review your timers.",
   "timeWorkspace.editTimes": "Edit source and times",
+  "timeWorkspace.closeSuggestion": "Close suggestion",
   "timeWorkspace.chooseRecorded": "Choose an existing entry",
   "timeWorkspace.awaitingConfirmation": "Awaiting your confirmation",
   "timeWorkspace.bookEntry": "Save entry",

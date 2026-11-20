@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Info, CopyPlus, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TimeProposalActions } from "./time-proposal-actions";
 import { z, BackOfficeRecordSchema, BackOfficeViewSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { CaptureAction, CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
 import { proposedCharge, resolveTimePolicy, type TimesheetState } from "@legalwork/types/timesheet";
@@ -600,7 +601,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         {clientError && <p>{t(clientError)}</p>}
         {error && <p role="alert">{error}</p>}
         {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
-          <select value="" disabled={busy || !editable} onChange={event => {
+          <select value="" disabled={!editable} aria-disabled={busy || undefined} onChange={event => {
+            if (busy) return;
             const match = matches.find(entry => entry.id === event.currentTarget.value);
             if (match) finishProposal(proposal, { type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
           }}>
@@ -611,8 +613,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           </select>
         </label>}
         <div className="time-workspace-actions">
-          <Button size="sm" type="button" disabled={busy || !editable || conflict}
-            onClick={() => accept(record, proposal)}>{t("timesheets.sheet.accept")}</Button>
+          <TimeProposalActions busy={busy} canAccept={editable && !conflict} onAccept={() => accept(record, proposal)}
+            onDismiss={() => finishProposal(proposal, { type: "dismiss", key: proposal.key, digest: proposal.digest })} />
           <Button size="sm" type="button" variant="outline" disabled={busy}
             onClick={() => {
               const reviewed = edits.drafts.get(proposal.key)?.record.values ?? values;
@@ -623,8 +625,6 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
                 narrative: String(reviewed.billingNarrative || proposal.narrative),
               });
             }}>{t("timeWorkspace.editTimes")}</Button>
-          <Button size="sm" type="button" variant="ghost" disabled={busy}
-            onClick={() => finishProposal(proposal, { type: "dismiss", key: proposal.key, digest: proposal.digest })}>{t("timesheets.sheet.decline")}</Button>
         </div>
       </div>
     );

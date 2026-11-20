@@ -61,14 +61,15 @@ function matterTone(matterId: string) {
 }
 
 export function WorkdayTimeline({
-  date, proposals, state, view, selected, onOpen,
+  date, proposals, state, view, selected, editorId, onOpen,
 }: {
   date: string;
   proposals: CaptureProposal[];
   state: Directory;
   view: TimelineView;
   selected: string | undefined;
-  onOpen: (p: CaptureProposal) => void;
+  editorId?: string;
+  onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -129,7 +130,8 @@ export function WorkdayTimeline({
               return (
                 <button
                   key={item.id} type="button" className="bo-workday-axis-event" data-proposal-id={item.id}
-                  data-tone={matterTone(item.matterId)} aria-pressed={selected === item.id}
+                  data-tone={matterTone(item.matterId)} aria-expanded={selected === item.id}
+                  aria-controls={selected === item.id ? editorId : undefined}
                   data-short={segment.displayEnd - segment.displayStart < 32 || undefined}
                   style={{
                     top: (segment.displayStart - low) * minuteHeight,
@@ -139,7 +141,7 @@ export function WorkdayTimeline({
                   }}
                   title={[time, item.title, item.projectName].join(" · ")}
                   aria-label={[time, item.title, item.projectName].join(" · ")}
-                  onClick={() => onOpen(item.proposal)}
+                  onClick={event => onOpen(item.proposal, event.currentTarget)}
                 >
                   <span>{time} · {item.title}</span>
                   <small>{item.projectName}</small>
@@ -160,7 +162,8 @@ export function WorkdayTimeline({
             const matter = matterFor(proposal, state);
             return (
               <button type="button" key={proposal.key} data-proposal-id={proposal.key} data-tone={matterTone(matter?.id ?? "")}
-                aria-pressed={selected === proposal.key} onClick={() => onOpen(proposal)}>
+                aria-expanded={selected === proposal.key} aria-controls={selected === proposal.key ? editorId : undefined}
+                onClick={event => onOpen(proposal, event.currentTarget)}>
                 <strong>{proposalTitle(proposal)}</strong>
                 <small>{matter?.name ?? loose} · {t(sourceKeys[proposal.source])}
                   {proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}</small>
@@ -284,7 +287,7 @@ export function WorkdayCorrectionForm({
             key: p.key,
             digest: p.digest,
             narrative,
-            ...(activity.trim() ? { activity: activity.trim() } : {}),
+            activity: activity.trim() || null,
             ...sourceMatch,
             startAt,
             endAt,
@@ -374,7 +377,7 @@ export function WorkdayCorrectionForm({
       <p>{t("timesheets.workday.dictation")}</p>
       {error && <p role="alert">{error}</p>}
       <div>
-        <Button type="submit" size="sm" disabled={pending}>
+        <Button type="submit" size="sm" disabled={pending} focusableWhenDisabled>
           {t("timesheets.workday.apply")}
         </Button>
         <Button size="sm" type="button" variant="ghost" onClick={close}>

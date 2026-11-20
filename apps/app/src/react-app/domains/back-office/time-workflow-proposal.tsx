@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
 import { Button } from "@/components/ui/button";
+import { TimeProposalActions } from "./time-proposal-actions";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
 import {
@@ -52,7 +53,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     if (stopwatch) {
       result.manualCharge = typeof saved.values.manualCharge === "boolean"
         ? saved.values.manualCharge
-        : Boolean(result.charge && Number(result.charge) !== stopwatchRowCharge(proposal, result, policy));
+        : Boolean(result.charge && Number(result.charge) !== stopwatchRowCharge(proposal, result, policyFor(result)));
     }
     return result;
   });
@@ -191,7 +192,8 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       {conflict && <p role="status">{t("timesheets.workday.overlap")}</p>}
       {error && <p role="alert">{error}</p>}
       {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
-        <select value="" disabled={busy || !canEdit} onChange={event => {
+        <select value="" disabled={!canEdit} aria-disabled={busy || undefined} onChange={event => {
+          if (busy) return;
           const match = matches.find(record => record.id === event.target.value);
           if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
         }}>
@@ -202,14 +204,13 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         </select>
       </label>}
       <div className="time-workspace-actions">
-        <Button type="submit" size="sm" disabled={busy || !canEdit || conflict}>{t("timesheets.sheet.accept")}</Button>
+        <TimeProposalActions busy={busy} canAccept={canEdit && !conflict}
+          onDismiss={() => updateSource({ type: "dismiss", key: proposal.key, digest: proposal.digest })} />
         <Button type="button" size="sm" variant="outline" disabled={busy}
           onClick={() => capture.openSource({ ...proposal,
             matterId: selectedMatter?.matterId, projectId: selectedMatter?.projectId ?? null,
             workProductId: values.productId, activity: values.activity, narrative: values.narrative || proposal.narrative,
           })}>{t("timeWorkspace.editTimes")}</Button>
-        <Button type="button" size="sm" variant="ghost" disabled={busy}
-          onClick={() => updateSource({ type: "dismiss", key: proposal.key, digest: proposal.digest })}>{t("timesheets.sheet.decline")}</Button>
       </div>
     </form>
   );

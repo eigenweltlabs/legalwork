@@ -42,6 +42,7 @@ const de = {
   "timeWorkspace.unavailable": "Das Zeiterfassungsmodell ist nicht verfügbar. Sie können weiterhin Leistungen erfassen und Ihre Stoppuhrzeiten prüfen.",
   "timeWorkspace.failed": "Der Tagesentwurf konnte nicht aktualisiert werden. Sie können weiterhin Leistungen erfassen und Ihre Stoppuhrzeiten prüfen.",
   "timeWorkspace.editTimes": "Quelle und Zeiten bearbeiten",
+  "timeWorkspace.closeSuggestion": "Vorschlag schließen",
   "timeWorkspace.chooseRecorded": "Vorhandene Leistung auswählen",
   "timeWorkspace.awaitingConfirmation": "Ihre Bestätigung ist noch offen",
   "timeWorkspace.bookEntry": "Leistung speichern",

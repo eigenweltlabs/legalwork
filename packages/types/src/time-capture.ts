@@ -156,7 +156,7 @@ export const workdayCorrectionSchema = z.strictObject({
   key: z.uuid(),
   digest: z.string().regex(/^[a-f0-9]{64}$/),
   narrative: z.string().trim().min(1).max(2000),
-  activity: z.string().min(1).max(100).optional(),
+  activity: z.string().trim().min(1).max(100).nullable().optional(),
   matterId: z.string().min(1).max(200).nullable(),
   projectId: z.string().min(1).max(200).nullable(),
   startAt: z.iso.datetime({ offset: true }).nullable(),

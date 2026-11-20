@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { backOfficeAccess } from "../back-office/access.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
-import { acceptPrivateProposal } from "./routes.js";
+import { captureStateSchema, type CaptureAction } from "../back-office/timesheet-schema.js";
+import { startServer } from "../server.js";
+import { acceptPrivateProposal, captureProfile } from "./routes.js";
 import { digest } from "./private-workday.js";
 import { randomUUID } from "node:crypto";
 import type { CaptureProposal, WorkdayCorrection } from "@legalwork/types/time-capture";
@@ -118,6 +121,60 @@ test("a sub-minute stopwatch correction keeps the recorded clocks and null round
   expect(saved.days[parent.date][0].proposal).toMatchObject({
     startAt: "2026-11-12T09:00:00Z", endAt: "2026-11-12T09:00:14Z", workedMinutes: null,
   });
+});
+
+test("a private activity correction retains, replaces, or clears the code through refresh and acceptance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-private-activity-"));
+  const config = backOfficeTestConfig(root);
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  try {
+    const owner = await captureProfile(config, await backOfficeAccess(config));
+    const { parent, edit } = sample(false);
+    const proposal = { ...parent, projectId: null };
+    proposal.digest = proposalCommitment(proposal);
+    await mkdir(dirname(owner.path), { recursive: true });
+    await writeFile(owner.path, JSON.stringify({
+      lastRun: 0,
+      settings: { aiSuggestions: true, calendar: true, tasks: false, connections: [], intervalMinutes: 0 },
+      days: { [proposal.date]: [{ eventKey: "calendar", generated: true, proposal }] },
+      originals: { [proposal.digest]: proposal },
+    }));
+    const { profileId, scope, user, principal } = owner;
+    const context = new URLSearchParams({ date: proposal.date, profileId, scope, user, principal });
+    const request = async (action?: CaptureAction) => {
+      const response = await fetch(`http://127.0.0.1:${server?.port}/private-timesheet/workday?${context}`, {
+        method: action ? "POST" : "GET",
+        headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" },
+        body: action ? JSON.stringify(action) : undefined,
+      });
+      expect(response.status).toBe(200);
+      return captureStateSchema.parse(await response.json());
+    };
+    server = await startServer(config);
+    const correction = { ...edit, projectId: null, matterId: null, digest: proposal.digest };
+    const [retained] = (await request(correction)).proposals;
+    expect(retained.activity).toBe("EXM");
+    const [replaced] = (await request({ ...correction, digest: retained.digest, activity: "RES" })).proposals;
+    expect(replaced.activity).toBe("RES");
+    const [cleared] = (await request({ ...correction, digest: replaced.digest, activity: null })).proposals;
+    expect(cleared).toMatchObject({ key: proposal.key, activity: "", parentDigest: replaced.digest });
+    await server.stop();
+    server = await startServer(config);
+    expect((await request()).proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
+    const refreshed = await request({ type: "refresh", model: { workspaceId: "empty", providerID: "fixture", modelID: "fixture" } });
+    expect(refreshed.status?.type).toBe("ready");
+    expect(refreshed.proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
+    await expect(acceptPrivateProposal(config, owner, proposal.key, replaced.digest, async () => true)).rejects.toMatchObject({ status: 409 });
+    await expect(acceptPrivateProposal(config, owner, proposal.key, cleared.digest, async () => "booked")).resolves.toBe("booked");
+    expect((await request()).proposals).toEqual([]);
+    const persisted = JSON.parse(await readFile(owner.path, "utf8"));
+    expect(persisted.accepted[proposal.key]).toBe(cleared.digest);
+    expect(persisted.originals[cleared.digest].activity).toBe("");
+    expect(persisted.originals[proposal.digest].activity).toBe("EXM");
+  } finally {
+    await server?.stop();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("booking only the current private segment serializes a stale draft, preserving safe idempotent retry", async () => {

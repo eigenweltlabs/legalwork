@@ -219,6 +219,7 @@ export function TimeWorkspacePanels({
       host.dataset.workspaceTab = tab;
       host.className = "time-workspace-tab-content";
       host.hidden = view === "split" ? dock[pane].active !== tab : view !== tab;
+      if (tab === "timeline") host.tabIndex = -1;
       host.setAttribute("role", view === "split" ? "tabpanel" : "region");
       host.setAttribute("aria-label", t(tabLabels[tab], locale));
       if (target && host.parentElement !== target) target.appendChild(host);

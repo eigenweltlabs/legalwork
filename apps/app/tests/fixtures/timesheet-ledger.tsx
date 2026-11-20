@@ -672,11 +672,19 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
   const block = (proposal: CaptureProposal) => document.querySelector<HTMLButtonElement>(`[data-proposal-id="${proposal.key}"]`);
+  const proposalHeading = () => document.querySelector<HTMLHeadingElement>(".time-workspace-editor h3");
   async function openProposal(proposal: CaptureProposal) {
     for (let i = 0; i < 20 && !block(proposal); i++) await settle();
     const target = block(proposal);
     assert.ok(target, proposal.narrative);
-    await act(async () => target.click());
+    await act(async () => {
+      target.focus();
+      target.click();
+    });
+    assert.ok(proposalHeading());
+    assert.equal(document.activeElement, proposalHeading(), "activating a proposal takes focus to its editor heading");
+    assert.equal(target.getAttribute("aria-expanded"), "true");
+    assert.equal(target.getAttribute("aria-controls"), proposalHeading()?.closest("[id].time-workspace-editor")?.id);
   }
   const workspaceGroup = () => {
     const group = document.querySelector<HTMLElement>(".time-workspace-group");
@@ -688,12 +696,30 @@ try {
     assert.ok(separator);
     return separator;
   };
-  const press = async (label: string) => {
+  const press = async (label: string, focus = false) => {
     const target = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button =>
       button.textContent?.trim() === label || button.getAttribute("aria-label") === label);
     assert.ok(target, label);
-    await act(async () => target.click());
+    await act(async () => {
+      if (focus) target.focus();
+      target.click();
+    });
   };
+  await openProposal(capture);
+  await press("Close suggestion", true);
+  assert.equal(proposalHeading(), null);
+  assert.equal(document.activeElement, block(capture));
+  assert.equal(block(capture)?.getAttribute("aria-expanded"), "false");
+  await openProposal(unknown);
+  await act(async () => {
+    const handledByChild = new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    handledByChild.preventDefault();
+    proposalHeading()?.dispatchEvent(handledByChild);
+  });
+  assert.ok(proposalHeading(), "Escape already handled by a child does not close the editor");
+  await act(async () => proposalHeading()?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(proposalHeading(), null);
+  assert.equal(document.activeElement, block(unknown), "an untimed proposal restores its originating action");
   await openProposal(capture);
   assert.equal(workspaceGroup().dataset.view, "split");
   assert.equal(separator().getAttribute("aria-valuenow"), "67");
@@ -760,6 +786,9 @@ try {
   assert.equal(proposedText?.value, capture.narrative);
   assert.ok(proposedCharge);
   await input(proposedCharge, "30");
+  await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
+  assert.equal(document.activeElement, proposedCharge, "a background refresh keeps focus and the in-progress value in the editor");
+  assert.equal(proposedCharge.value, "30");
   await press("Private chat");
   assert.equal(workspaceGroup().dataset.view, "chat");
   await press("Day timeline");
@@ -771,10 +800,16 @@ try {
   assert.equal(proposedCharge.value, "30", "docking the timeline preserves the selected editor and unsaved proposal edit");
   await press("Move Day timeline to the right pane");
   assert.equal(writes.length, 0, "editing a proposal does not publish it");
-  await act(async () => proposalPanel.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  const acceptButton = proposalPanel.querySelector<HTMLButtonElement>('button[type="submit"]');
+  assert.ok(acceptButton);
+  await act(async () => {
+    acceptButton.focus();
+    proposalPanel.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  });
   for (let i = 0; i < 20 && block(capture); i++) await settle();
   assert.equal(writes.length, 1);
   assert.equal(block(capture), null);
+  assert.equal(document.activeElement, block(recordedTimer), "accepting a focused proposal moves to the next surviving block");
   assert.equal(document.querySelectorAll(`[data-time-row="${confirmedEntries[0]?.id}"]`).length, 1);
   await press("Time entries");
   await input(cell("new", "narrative"), "First profile's unfinished line");
@@ -1088,30 +1123,58 @@ try {
   assert.equal(acceptFor(exact)?.disabled, true);
   const link = proposalForm(exact)?.querySelector<HTMLSelectElement>("select");
   assert.ok(link);
+  await act(async () => link.focus());
   await selectNative(link, booked.id);
   await until(() => !block(exact));
   assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
     type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7,
   });
   assert.equal(block(exact), null);
+  assert.equal(document.activeElement, block(partial), "linking also returns focus to a surviving timeline block");
   await openProposal(partial);
   assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the second suggestion");
-  await press("Edit source and times");
+  const activityInput = proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="activity"]');
+  assert.ok(activityInput);
+  await input(activityInput, "");
+  await press("Edit source and times", true);
+  assert.equal(document.activeElement, proposalHeading());
   const correctionForm = document.querySelector<HTMLFormElement>(".bo-workday-correction");
   const correctedStart = correctionForm?.querySelector<HTMLInputElement>('input[type="time"]');
   assert.ok(correctedStart);
   await input(correctedStart, "10:34");
   await submit(correctionForm);
+  const savedCorrection = workdayActions.find(action => action.type === "correct" && action.key === partial.key);
+  assert.ok(savedCorrection?.type === "correct");
+  assert.equal(savedCorrection.activity, null, "correcting an interval preserves a code cleared in the proposal editor");
   await until(() => acceptFor(partial)?.disabled === false);
   assert.equal(acceptFor(partial)?.disabled, false, "touching boundaries do not overlap");
   assert.equal(proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="billableWork"]')?.value, "16");
 
   await openProposal(unedited);
-  await press(t("timesheets.sheet.decline"));
+  await press(t("timesheets.sheet.decline"), true);
   await until(() => !block(unedited));
   assert.equal(block(unedited), null);
+  assert.equal(document.activeElement, block(partial), "dismissing a focused proposal restores a useful neighbor");
   assert.deepEqual(workdayActions.find(action => action.type === "dismiss"),
     { type: "dismiss", key: unedited.key, digest: unedited.digest });
+  const remaining = workdayProposals.find(proposal => proposal.key === partial.key);
+  assert.ok(remaining);
+  await openProposal(remaining);
+  const dayField = document.querySelector<HTMLInputElement>(".bo-workday-controls input[type=date]");
+  assert.ok(dayField);
+  await act(async () => {
+    dayField.focus();
+    workdayProposals = workdayProposals.filter(proposal => proposal.key !== remaining.key);
+    await cache.invalidateQueries({ queryKey: ["back-office"] });
+  });
+  await until(() => !block(remaining));
+  assert.equal(document.activeElement, dayField, "removing an editor after the user navigates elsewhere does not move focus");
+  workdayProposals.push(remaining);
+  await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
+  await openProposal(remaining);
+  await press(t("timesheets.sheet.decline"), true);
+  await until(() => !block(remaining));
+  assert.equal(document.activeElement?.getAttribute("data-workspace-tab"), "timeline", "dismissing the last suggestion focuses the timeline");
 
   await press("Private chat");
   const chatPanel = document.querySelector<HTMLElement>(".time-workspace-chat");
@@ -1231,6 +1294,15 @@ try {
   await act(async () => root.render(null));
   await renderWorkday();
   assert.equal(workspaceGroup().dataset.view, "timeline", "the layout is restored for the same account and directory");
+  workdaySettings = { ...workdaySettings, aiSuggestions: false };
+  privateDrafts[inlineTimer.key] = {
+    date: inlineTimer.date, proposalDigest: inlineTimer.digest,
+    values: { workflow: true, charge: "37" },
+  };
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+  await openProposal(inlineTimer);
+  assert.equal(proposalForm(inlineTimer)?.querySelector<HTMLInputElement>('[data-column="charge"]')?.value,
+    "37", "an older stopwatch draft keeps its manually adjusted billable minutes");
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

@@ -85,9 +85,20 @@
 .time-workspace-editor { margin-block: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
 .time-workspace-editor > header { margin-bottom: 6px; overflow-wrap: anywhere; }
 .time-workspace-editor h3 { font-size: 13px; font-weight: 600; }
+.time-workspace-editor h3:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.time-workspace-editor :is(button, select)[aria-disabled="true"] { opacity: 0.5; }
 .time-workspace-form,
 .time-workspace-field { display: grid; gap: 8px; font-size: 12px; }
 .time-workspace-form > button { justify-self: start; }
+.time-proposal-decisions {
+  display: inline-flex;
+  flex: none;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.time-proposal-decisions > button { border-radius: inherit; }
+.time-proposal-decisions > button:focus-visible { z-index: 1; }
 .time-workspace-form label,
 .bo-workday-correction label { display: grid; gap: 4px; }
 .time-workspace-form :is(textarea, select, input) { width: 100%; }
@@ -169,8 +180,8 @@
 .bo-workday-axis-event small { opacity: 0.9; font-size: 10px; }
 .bo-workday-axis-event[data-short] { flex-direction: row; justify-content: start; align-items: center; gap: 4px; }
 .bo-workday-axis-event[data-short] small { order: -1; width: auto; max-width: 50%; flex: none; }
-.bo-workday-axis-event:is(:focus-visible, [aria-pressed="true"]),
-.bo-workday-untimed button:is(:focus-visible, [aria-pressed="true"]) {
+.bo-workday-axis-event:is(:focus-visible, [aria-expanded="true"]),
+.bo-workday-untimed button:is(:focus-visible, [aria-expanded="true"]) {
   outline: 1px solid currentColor;
   outline-offset: -1px;
 }
