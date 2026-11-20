@@ -2,6 +2,33 @@
 
 **Akzeptierter Produktplan vom 20. November 2026.** Für diesen PR gelten die hier beschriebenen Produktentscheidungen aus dem neuen Auftrag. Sämtliche früheren PRDs, Addenda und abweichenden PR-Beschreibungen sind als Anforderung abgelöst. Der Code bei `2d923e1b` ist der technische Ausgangspunkt. Der [Integrationsvertrag](timekeeping-server-integration.md) beschreibt vorhandene Schnittstellen und Arbeit für den Kanzleidienst.
 
+## Was mit dem heutigen Kanzlei-Backend funktioniert
+
+**Ja, für die tägliche Zeiterfassung ist der PR mit eurem heutigen Backend nutzbar.** Die Grenze liegt bei der automatischen Rechnungsstellung. Eure Kanzleiverbindung unterstützt synchronisierte Zeit- und Rechnungsdatensätze, aber noch keinen zentralen Freigabe- und Ausstellungsvorgang.
+
+| Was du tun willst | Was heute geht |
+|---|---|
+| **Leistungen erfassen** | Datum, Matter, Leistungstext, *Recorded* und *Billable* eintragen, auch ohne Uhrzeit. Fertige Einträge werden automatisch synchronisiert. Offline bleiben sie bis zur Zustellung im Postausgang. |
+| **Den Tag mit KI rekonstruieren** | Timeline, Stoppuhr, private Korrekturen und lokal hinterlegte Guidelines funktionieren ohne Erweiterung des Kanzleidienstes. Mit einem verfügbaren Modell kannst du Vorschläge bearbeiten und annehmen. Erst die angenommene Leistung geht in den Kanzlei-Sync. Bei einem verbundenen Modell verarbeitet der gewählte Anbieter die für den Entwurf benötigten Informationen. Ein produktiver Sonnet-Aufruf ist zum Stand dieser Abnahme unbestätigt. |
+| **DFT/MOD und Personen zuordnen** | Der private Entwurf kann Erstellung und Bearbeitung unterscheiden. Der Kanzlei-Zeittabelle fehlt das Feld zum Speichern von DFT/MOD. Pro Eintrag unterstützt sie einen Sachbearbeiter. Für Buchungen im Namen anderer braucht es eine ausdrückliche Serverberechtigung. |
+| **Eine vorhandene Rechnung ablegen** | Mit Finanzberechtigung kannst du unter *Invoices → Create Invoice* einen Rechnungsdatensatz für Mandant und Matter anlegen und ein fertiges PDF anhängen. Das Anlegen und Anhängen wurde gegen einen Testdienst mit genau diesem Schnittstellenumfang verifiziert. [Integrationstest](../apps/server/src/back-office-directory-timesheets.e2e.test.ts) |
+
+**Für deinen konkreten Monatsabschluss fehlt damit ein Schritt:** „Nimm alle offenen Leistungen dieses Matters, kürze sie auf 7.000 €, lass den Partner freigeben, erstelle die nummerierte Word- und PDF-Rechnung und markiere die Positionen als verrechnet.“ Dafür braucht es die Erweiterung des Kanzleidienstes. Bis dahin kannst du die Zeiten vollständig in LegalWork führen und eine anderweitig ausgestellte Rechnung dort ablegen. Das Anhängen des PDFs markiert die enthaltenen Leistungen nicht automatisch als verrechnet.
+
+### Was das Backend-Team bereitstellen muss
+
+Die am 20. November 2026 geprüfte Kanzleiverbindung meldete `service: records`, `canReview: false`, `supportsTimeAllocations: false`, `supportsInvoiceDrafts: false` und `supportsInvoiceWordingReview: false`. Die folgenden Anforderungen gelten für den Ausbau dieses Dienstes. Die Abschnitte 4 und 5 beschreiben den vollständigen Ablauf mit diesen Fähigkeiten.
+
+| Aufgabe des Kanzleidienstes | Woran sich die Umsetzung prüfen lässt |
+|---|---|
+| **Zeiteinträge und Aktivitätscodes** | Der Dienst liefert Feld und Katalog für DFT/MOD, hält Autor und Sachbearbeiter auseinander und speichert bei mehreren Beteiligten die jeweilige tatsächliche und verrechenbare Zeit samt Bestätigung. Bereits synchronisierte Datensätze behalten ihre IDs, Anhänge und Felder. |
+| **Dokumenthistorie, Ereignisse und Guidelines** | Eine stabile Dokument-ID verbindet Erstellung, Änderung, Umbenennung und frühere bestätigte Leistungstexte im selben Matter. Aufgabenabschlüsse liefern einen stabilen Abschlusszeitpunkt und den handelnden Nutzer, auch ohne Fälligkeitsdatum. Kanzleiweit veröffentlichte Guidelines und Honorarregeln haben Geltungsbereich, Version und Wirksamkeitsdatum. |
+| **Partnerreview und offene Leistungen** | Der Dienst prüft die Berechtigung bei jedem Zugriff. Für das gewählte Matter liefert er offene Leistungen im Zeitraum oder bis zum Stichtag, einschließlich später freigegebener älterer Leistungen. Entwurf, Kürzungen, Texte und Vorlagenversion sind an die geprüfte Revision gebunden. Jede inhaltliche Änderung erfordert eine neue Freigabe. |
+| **Ausstellung und Ablage** | Bei der Ausstellung vergibt der Dienst eine fortlaufende Nummer, verknüpft jede Position mit der Rechnung und archiviert das zugehörige DOCX/PDF-Paar. Zwei gleichzeitige Ausstellungen oder eine Wiederholung nach Verbindungsabbruch dürfen weder eine Position doppelt abrechnen noch eine zweite Nummer für dieselbe Ausstellung verbrauchen. Ein erneuter Download liefert die freigegebenen Dateien. |
+| **Berechtigungen für andere Personen (zurückgestellt)** | Das Organigramm und projekt- oder personenbezogene Delegationen für Sekretariat und Billing liegen beim Kanzleidienst. Er meldet die zulässigen Personen und prüft die Rechte auch beim Schreiben und beim nachträglichen Synchronisieren. Das Organigramm und die Tarifabrechnung gehören zum späteren Ausbau in Abschnitt 6. |
+
+Die bestehenden Transportwege für Datensätze und Anhänge sowie die erwarteten Befehle für Entwurf, Freigabe und Ausstellung stehen in der [technischen Übergabe an das Backend-Team](timekeeping-server-integration.md). Für eine angeschlossene Kanzlei bleiben Nummernvergabe, Freigabe und verbindlicher Verrechnungsstatus zentral.
+
 ## 1. Der Arbeitstag als Workspace
 
 Beim ersten Öffnen erhält die Leistungsliste rund zwei Drittel der verfügbaren Breite, die Tages-Timeline das rechte Drittel. Beide beziehen sich auf das gewählte Leistungsdatum. Die vorhandene Workspace-Bedienung dient als Vorbild. Die Trennlinie lässt sich ziehen und per Tastatur verstellen. Einträge, Timeline und Chat lassen sich als Tabs zwischen beiden Bereichen verschieben und umordnen, per Drag-and-drop oder über einen zugänglichen Knopf. Der Workspace merkt sich Anordnung und aktive Tabs. Der Standard ist wiederherstellbar. Persönliche Darstellungspräferenzen gelten pro Benutzer und Arbeitskontext. Auf kleinen Displays sind Liste, Timeline und Chat einzeln zugänglich. Ein Layoutwechsel erhält Eingaben, Auswahl und Datum.
