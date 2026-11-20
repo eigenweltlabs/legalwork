@@ -172,7 +172,7 @@ export class OriginService {
     if (!origin || origin.id !== originId) return { ok: false, reason: "no-origin", message: "The source app was not recorded.", origin: null };
     if (this.prefetched?.originId === originId) {
       const { result, requestedWordAutomation } = this.prefetched;
-      if (result.ok || result.reason !== "word-automation" || !explicit || requestedWordAutomation) return result;
+      if (result.ok === true || result.reason !== "word-automation" || !explicit || requestedWordAutomation) return result;
     }
     if (this.platform === "windows") return { ok: false, reason: "changed", message: "On Windows the selection is read by the selection shortcut before the panel opens. Select the text and use that shortcut.", origin };
     const result = await this.readSelection(origin, explicit);
