@@ -21,6 +21,7 @@ let available = true;
 let platformStatus = 200;
 let multipleModels = false;
 let usEnabled = false;
+let microsoftDecision = false;
 let catalogStatus = 200;
 let catalogNames = ["jev-latest", "jev-preview"];
 const sent: Array<{ authorization: string | null; model: string }> = [];
@@ -99,8 +100,8 @@ beforeAll(async () => {
           questionTypes: ["noul", "choice", "score"],
           region: "EU",
           ...(multipleModels ? { models: [
-            { model: "EigenJev", name: "Eigenwelt Europe EigenJev", region: "EU", enabled, available, questionTypes: ["noul", "choice", "score"] },
-            { model: "TypeSafeJev", name: "Eigenwelt US Jev", region: "US", enabled: usEnabled, available: true, questionTypes: ["noul", "choice", "score"] },
+            { model: "EigenJev", name: microsoftDecision ? "Microsoft Decision 1.1 (EU)" : "Eigenwelt Europe EigenJev", region: "EU", enabled, available, questionTypes: ["noul", "choice", "score"] },
+            { model: "TypeSafeJev", name: microsoftDecision ? "Microsoft Decision 1.1 (US)" : "Eigenwelt US Jev", region: "US", enabled: usEnabled, available: true, questionTypes: ["noul", "choice", "score"] },
           ] } : {}),
         });
       }
@@ -121,7 +122,7 @@ beforeAll(async () => {
           model: body.model,
         });
         return Response.json({
-          model: "openjev-0.1",
+          model: microsoftDecision ? "Microsoft-Decision-1.1" : "openjev-0.1",
           answers: Object.fromEntries(
             Object.keys(body.questions).map((id) => [
               id,
@@ -276,6 +277,21 @@ test("managed EigenJev reuses the subscription key and denies disabled, unavaila
   expect((await managed()).status).toBe(200);
   expect(sent.at(-1)).toEqual({ model: "TypeSafeJev", authorization: "Bearer existing-subscription-key" });
   expect((await call("POST", "", { request })).status).toBe(409);
+  // A backend change updates the catalog while saved aliases and the member key stay valid.
+  microsoftDecision = true;
+  enabled = true;
+  const decisionSettings = await (await call("GET", "/settings")).json();
+  expect(decisionSettings.providers[0].models).toMatchObject([
+    { id: "EigenJev", name: "Microsoft Decision 1.1 (EU)", region: "EU" },
+    { id: "TypeSafeJev", name: "Microsoft Decision 1.1 (US)", region: "US" },
+  ]);
+  for (const model of ["EigenJev", "TypeSafeJev"]) {
+    const result = await call("POST", "", { providerId: "eigenwelt", request: { ...request, model } });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ model: "Microsoft-Decision-1.1", requestedModel: model });
+    expect(sent.at(-1)).toEqual({ model, authorization: "Bearer existing-subscription-key" });
+  }
+  microsoftDecision = false;
   usEnabled = false;
   const count = sent.length;
   enabled = false;
