@@ -12,6 +12,7 @@ import {
 } from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { invalidateConnectorCredentials } from "./connectors/credential-cache.js";
 
 /**
@@ -32,6 +33,7 @@ const eigenweltConnections = sqliteTable("eigenwelt_connections", {
   entitlementsJson: text("entitlements_json"),
   accountJson: text("account_json"),
   platformUrl: text("platform_url"),
+  regionalRouteJson: text("regional_route_json"),
   platformToken: text("platform_token"),
   refreshToken: text("refresh_token"),
   refreshRequestId: text("refresh_request_id"),
@@ -44,6 +46,7 @@ type EigenweltConnectionRow = {
   entitlementsJson: string | null;
   accountJson: string | null;
   platformUrl: string | null;
+  regionalRouteJson: string | null;
   platformToken: string | null;
   refreshToken: string | null;
   refreshRequestId: string | null;
@@ -56,6 +59,7 @@ type UpsertValue = {
   entitlementsJson: string | null;
   accountJson: string | null;
   platformUrl: string | null;
+  regionalRouteJson: string | null;
   platformToken: string | null;
   refreshToken: string | null;
   refreshRequestId: string | null;
@@ -73,6 +77,8 @@ type EigenweltConnectionDb = {
 };
 
 export type EigenweltConnection = {
+  /** Routing destination; platformURL remains the stable local account identity. */
+  regionalPlatformURL?: string | null;
   entitlements: EigenweltEntitlements | null;
   account: EigenweltAccountIdentity | null;
   platformURL: string | null;
@@ -112,6 +118,7 @@ const CREATE_TABLE_SQL =
 // NOT EXISTS, so each ALTER runs best-effort (throws "duplicate column" once the
 // column exists — ignored).
 const MIGRATION_COLUMNS = [
+  "ALTER TABLE eigenwelt_connections ADD COLUMN regional_route_json TEXT",
   "ALTER TABLE eigenwelt_connections ADD COLUMN refresh_token TEXT",
   "ALTER TABLE eigenwelt_connections ADD COLUMN platform_token_expires_at INTEGER",
   "ALTER TABLE eigenwelt_connections ADD COLUMN account_json TEXT",
@@ -211,13 +218,13 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     // copy failed: the legacy rows stay, and the next open retries
   }
   const get = sqlite.prepare(
-    "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
+    "SELECT entitlements_json AS entitlementsJson, account_json AS accountJson, platform_url AS platformUrl, regional_route_json AS regionalRouteJson, platform_token AS platformToken, refresh_token AS refreshToken, refresh_request_id AS refreshRequestId, refresh_error AS refreshError, platform_token_expires_at AS platformTokenExpiresAt FROM eigenwelt_connections WHERE workspace_id = ?",
   );
   const upsert = sqlite.prepare(
-    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
+    "INSERT INTO eigenwelt_connections (workspace_id, entitlements_json, account_json, platform_url, regional_route_json, platform_token, refresh_token, refresh_request_id, refresh_error, platform_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET entitlements_json = excluded.entitlements_json, account_json = excluded.account_json, platform_url = excluded.platform_url, regional_route_json = excluded.regional_route_json, platform_token = excluded.platform_token, refresh_token = excluded.refresh_token, refresh_request_id = excluded.refresh_request_id, refresh_error = excluded.refresh_error, platform_token_expires_at = excluded.platform_token_expires_at, updated_at = excluded.updated_at",
   );
   const update = sqlite.prepare(
-    "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?",
+    "UPDATE eigenwelt_connections SET entitlements_json = ?, account_json = ?, platform_url = ?, regional_route_json = ?, platform_token = ?, refresh_token = ?, refresh_request_id = ?, refresh_error = ?, platform_token_expires_at = ?, updated_at = ? WHERE workspace_id = ? AND refresh_token = ? AND refresh_request_id = ?",
   );
   const claim = sqlite.prepare(
     "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id",
@@ -231,6 +238,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
         entitlementsJson: typeof row.entitlementsJson === "string" ? row.entitlementsJson : null,
         accountJson: typeof row.accountJson === "string" ? row.accountJson : null,
         platformUrl: typeof row.platformUrl === "string" ? row.platformUrl : null,
+        regionalRouteJson: typeof row.regionalRouteJson === "string" ? row.regionalRouteJson : null,
         platformToken: typeof row.platformToken === "string" ? row.platformToken : null,
         refreshToken: typeof row.refreshToken === "string" ? row.refreshToken : null,
         refreshRequestId: typeof row.refreshRequestId === "string" ? row.refreshRequestId : null,
@@ -245,6 +253,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
         value.entitlementsJson,
         value.accountJson,
         value.platformUrl,
+        value.regionalRouteJson,
         value.platformToken,
         value.refreshToken,
         value.refreshRequestId,
@@ -254,7 +263,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       );
     },
     updateIfCurrent: (value, expected) => update.run(
-      value.entitlementsJson, value.accountJson, value.platformUrl, value.platformToken,
+      value.entitlementsJson, value.accountJson, value.platformUrl, value.regionalRouteJson, value.platformToken,
       value.refreshToken, value.refreshRequestId, value.refreshError, value.platformTokenExpiresAt,
       value.updatedAt, value.workspaceId, expected.refreshToken, expected.refreshRequestId,
     ).changes > 0,
@@ -303,6 +312,17 @@ function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
   }
 }
 
+/** Bind routing metadata to the account, including after an older app rewrites
+ * this row without knowing about the extra column. */
+function decodeRegionalRoute(json: string | null, account: EigenweltAccountIdentity | null): string | null {
+  if (!json || !account) return null;
+  try {
+    const route: unknown = JSON.parse(json);
+    return isRecord(route) && route.userId === account.userId && route.orgId === account.orgId && typeof route.platformURL === "string"
+      ? route.platformURL : null;
+  } catch { return null; }
+}
+
 /** Full connection incl. the secret tokens — server-side callers only. */
 export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
   const db = await connectionDb(config);
@@ -312,6 +332,7 @@ export async function readEigenweltConnection(config: ServerConfig): Promise<Eig
       entitlements: null,
       account: null,
       platformURL: null,
+      regionalPlatformURL: null,
       platformToken: null,
       refreshToken: null,
       refreshRequestId: null,
@@ -323,6 +344,7 @@ export async function readEigenweltConnection(config: ServerConfig): Promise<Eig
     entitlements: decodeEntitlements(row.entitlementsJson),
     account: decodeAccount(row.accountJson),
     platformURL: row.platformUrl,
+    regionalPlatformURL: decodeRegionalRoute(row.regionalRouteJson, decodeAccount(row.accountJson)),
     platformToken: row.platformToken,
     refreshToken: row.refreshToken,
     refreshRequestId: row.refreshRequestId,
@@ -333,16 +355,17 @@ export async function readEigenweltConnection(config: ServerConfig): Promise<Eig
 
 /** App-safe read: entitlements + platformURL, with the secret tokens stripped. */
 export async function readEigenweltEntitlementsView(config: ServerConfig): Promise<EigenweltEntitlementsView> {
-  const { entitlements, account, platformURL, platformToken, refreshToken, refreshRequestId, refreshError } = await readEigenweltConnection(config);
+  const connection = await readEigenweltConnection(config);
+  const { entitlements, account, platformURL, platformToken, refreshToken, refreshRequestId, refreshError } = connection;
   // Fall back to the configured platform origin (EIGENWELT_PLATFORM_URL) so
   // billing / members / pricing links always point at the instance the app is
   // actually talking to — even before a connection is persisted — instead of
   // the hard-coded production URL. `connected` reflects the stored account, not
   // the model list: a token (access OR refresh) OR entitlements means signed in.
   let safePlatformURL = eigenweltPlatformUrl();
-  if (platformURL) {
+  if (platformURL || connection.regionalPlatformURL) {
     try {
-      safePlatformURL = validateEigenweltPlatformUrl(platformURL);
+      safePlatformURL = eigenweltConnectionPlatformUrl(connection);
     } catch {
       // Ignore a legacy/tampered stored URL. Server-side traffic and public
       // billing/member links both remain pinned to the configured origin.
@@ -358,6 +381,8 @@ export async function readEigenweltEntitlementsView(config: ServerConfig): Promi
 }
 
 export type WriteEigenweltConnectionInput = {
+  /** Internal refresh metadata; never supplied by a browser or connector. */
+  regionalPlatformURL?: string | null;
   entitlements?: EigenweltEntitlements | null;
   account?: EigenweltAccountIdentity | null;
   platformURL?: string | null;
@@ -418,6 +443,14 @@ async function persistConnection(
     entitlementsJson: nextEntitlementsJson,
     accountJson: nextAccountJson,
     platformUrl: nextPlatformUrl,
+    // A fresh sign-in/sign-out cannot inherit the previous account's route.
+    regionalRouteJson: !expected && (input.account !== undefined || input.platformURL !== undefined || input.platformToken === null || input.refreshToken === null)
+      ? null
+      : input.regionalPlatformURL === undefined ? current?.regionalRouteJson ?? null
+      : input.regionalPlatformURL === null ? null : JSON.stringify({
+        platformURL: validateEigenweltPlatformUrl(input.regionalPlatformURL),
+        userId: decodeAccount(nextAccountJson)?.userId, orgId: decodeAccount(nextAccountJson)?.orgId,
+      }),
     platformToken: nextPlatformToken,
     refreshToken: nextRefreshToken,
     refreshRequestId: input.refreshRequestId === undefined
@@ -433,7 +466,7 @@ async function persistConnection(
     if (!db.updateIfCurrent(value, expected)) return false;
   } else db.upsert(value);
   if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl ||
-      (!expected && (input.platformToken !== undefined || input.refreshToken !== undefined))) invalidateConnectorCredentials(config);
+      value.regionalRouteJson !== current?.regionalRouteJson || (!expected && (input.platformToken !== undefined || input.refreshToken !== undefined))) invalidateConnectorCredentials(config);
   if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl || Boolean(nextPlatformToken) !== Boolean(current?.platformToken)) {
     const previousAccount = decodeAccount(current?.accountJson ?? null);
     const nextAccount = decodeAccount(nextAccountJson);

@@ -19,6 +19,8 @@ When your firm is offered an infrastructure-region choice during Eigenwelt onboa
 
 After browser sign-in, LegalWork saves the firm's deployment with the account and uses it for firm features, storage, account refresh and model access. Sign in with the intended firm when switching accounts. Model inference regions are configured separately on the Eigenwelt platform. Clerk remains the shared sign-in service. External model and connector providers have their own hosting arrangements.
 
+Existing Eigenwelt sign-ins switch to the firm's assigned regional connection automatically after a successful account refresh. You do not need to sign out or choose the region again. Local drafts and connector connections stay with the same account. If you are offline, LegalWork keeps the saved connection and retries when it can reach the service.
+
 ## Set up meeting recording
 
 On the **Record meetings.** welcome screen, open setup and complete the permission prompts. Available cloud regions appear first, with a cloud option selected by default. Cloud transcription runs in your selected region with zero data retention (ZDR). Local transcription requires a model download and uses your computer’s CPU power. Select your source and choose **Continue**; an installed local model is reused.
