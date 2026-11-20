@@ -293,13 +293,17 @@ export function useSessionScrollController(
     [scrollToBottom],
   );
 
-  const jumpToMessage = useCallback((messageId: string, behavior: ScrollBehavior = "auto") => {
+  const jumpToMessage = useCallback((messageId: string, behavior: ScrollBehavior = "auto", highlight = false) => {
     const container = options.containerRef.current;
     if (!container) return false;
     const target = messageElementById(container, messageId);
     if (!target) return false;
     setManualScroll(selectedSessionId, container.scrollTop, messageId);
     target.scrollIntoView({ behavior, block: "start" });
+    if (highlight) target.animate(
+      [{ backgroundColor: "var(--amber-4)", offset: 0 }, { backgroundColor: "var(--amber-4)", offset: 0.8 }, { backgroundColor: "transparent" }],
+      { duration: 2400, easing: "ease-out" },
+    );
     return true;
   }, [options.containerRef, selectedSessionId, setManualScroll]);
 

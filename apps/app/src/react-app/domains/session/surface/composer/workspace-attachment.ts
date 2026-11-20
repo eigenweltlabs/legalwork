@@ -26,8 +26,8 @@ export function parseWorkspaceAttachmentMention(value: string): { name: string; 
   return { name, path, ...(params.get("version") ? { version: params.get("version"), origin: params.get("origin"), originProject: params.get("originProject"), originPath: params.get("originPath") } : {}) };
 }
 
-export function createProjectAttachmentMention(source: ProjectFileSource, projectName: string) {
-  return `${createWorkspaceAttachmentMention(`${source.name} · ${projectName}`, `pending/${crypto.randomUUID()}`)}&source=${encodeURIComponent(JSON.stringify(source))}`;
+export function createProjectAttachmentMention(source: ProjectFileSource, projectName: string, referenceId = crypto.randomUUID().toString()) {
+  return `${createWorkspaceAttachmentMention(`${source.name} · ${projectName}`, `pending/${encodeURIComponent(referenceId)}`)}&source=${encodeURIComponent(JSON.stringify(source))}`;
 }
 
 /** Store the original bytes before exposing a reference in the composer.

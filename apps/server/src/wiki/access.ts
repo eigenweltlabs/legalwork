@@ -3,12 +3,25 @@ import { realpath } from "node:fs/promises";
 import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import type { WikiRegistration } from "@legalwork/types/wiki";
+import { canonicalFolderPath } from "./workspace-safety.js";
 
 export const ownsWikis = (actor: Actor | undefined) => actor?.type === "host" || actor?.scope === "owner";
 
 /** Wiki visibility also applies through the existing workspace/file/proxy APIs. */
 export function assertWikiWorkspaceAccess(actor: Actor | undefined, wiki: WikiRegistration | undefined) {
   if (wiki && !wiki.sync && !ownsWikis(actor)) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+}
+
+/** A search root must not disclose a private wiki via an ancestor or alias. */
+export async function wikiSearchFolderVisible(actor: Actor | undefined, path: string, wikis: readonly WikiRegistration[]) {
+  if (ownsWikis(actor)) return true;
+  const inside = (root: string, child: string) => child === root || child.startsWith(root.endsWith(sep) ? root : root + sep);
+  for (const wiki of wikis) {
+    if (wiki.sync) continue;
+    const root = await canonicalFolderPath(wiki.root);
+    if (inside(root, path) || inside(path, root)) return false;
+  }
+  return true;
 }
 
 export function wikiForDirectory<T extends Pick<WikiRegistration, "root" | "workspaceId" | "id">>(wikis: readonly T[], directory: string, workspaces: readonly WorkspaceInfo[] = []) {

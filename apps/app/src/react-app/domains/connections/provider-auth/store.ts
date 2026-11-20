@@ -677,6 +677,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         opencode: { providers: { [providerId]: providerConfig } },
         legalwork: { customProviderModelRefresh: { [providerId]: { enabled: autoRefresh } } },
       });
+      if (options.disabledProviders().includes(providerId)) await ensureProjectProviderDisabledState(providerId, false);
       return true;
     }
 
@@ -1036,6 +1037,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     const configDefined = providerIsConfigDefined(resolved);
+    const configOnly = !configDefined && options.providers().find(provider => provider.id === resolved)?.source === "config";
 
     try {
       // Remove the stored API credential. Best-effort: config-defined providers
@@ -1054,8 +1056,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         await removeCustomProviderFromConfig(resolved);
         options.markOpencodeConfigReloadRequired();
       }
+      // Auto-discovered or externally configured providers have no owned config
+      // to delete. Persist their availability choice through the normal API.
+      if (configOnly) await ensureProjectProviderDisabledState(resolved, true);
 
-      const updated = await refreshProviders({ dispose: configDefined });
+      const updated = await refreshProviders({ dispose: configDefined || configOnly });
+      if (!updated) throw new Error(t("providers.load_failed"));
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         // Still connected (e.g. via an env var we can't unset). Report what we
         // did rather than silently doing nothing.

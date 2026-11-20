@@ -176,7 +176,7 @@ import { registerWikiRoutes } from "./routes/wikis.js";
 import { registerViewRoutes } from "./routes/views.js";
 import { WikiStore } from "./wiki/store.js";
 import { WikiSync } from "./wiki/sync.js";
-import { assertWikiWorkspaceAccess, ownsWikis, wikiForDirectory, wikiAgentCanAccess } from "./wiki/access.js";
+import { assertWikiWorkspaceAccess, ownsWikis, wikiForDirectory, wikiAgentCanAccess, wikiSearchFolderVisible } from "./wiki/access.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -916,7 +916,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
-  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, preparation, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
     changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -970,8 +970,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
-  await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, assistantRuntime.prepareQueuedSubmission);
+  await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval,
+    guardLauncherWorkspace: (ctx, id, method) => guardWikiWorkspace(ctx.actor, id, method),
+    launcherFolderVisible: async (ctx, path) => ownsWikis(ctx.actor) || wikiSearchFolderVisible(ctx.actor, path, await wikiStore.list()),
+    launcherRecordingAccess: ctx => recordingAccess(config, ctx.request, approvals),
+  });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
     const session = await getWorkspaceEngineSession(createDirectoryOpencodeClient(config, workspace, directory), workspace, sessionID);
@@ -1627,7 +1631,7 @@ async function requireClient(request: Request, config: ServerConfig, tokens: Tok
   if (!token) {
     throw new ApiError(401, "unauthorized", "Invalid bearer token");
   }
-  const scope = await tokens.scopeForToken(token);
+  const scope = await tokens.scopeForToken(token, request);
   if (!scope) {
     throw new ApiError(401, "unauthorized", "Invalid bearer token");
   }
@@ -1929,8 +1933,20 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  prepareQueuedSubmission: Awaited<ReturnType<typeof createAssistantRuntime>>["prepareQueuedSubmission"],
 ): Route[] {
   const routes: Route[] = [];
+  addRoute(routes, "POST", "/launcher/raycast/pairing", "host-token", async ctx => {
+    requireHostToken(ctx.request, config);
+    const response = jsonResponse({ token: tokens.rotateRaycast(true) });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  });
+  addRoute(routes, "DELETE", "/launcher/raycast/pairing", "host-token", async ctx => {
+    requireHostToken(ctx.request, config);
+    tokens.rotateRaycast(false);
+    return jsonResponse({ ok: true });
+  });
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
     const primary = config.workspaces[0];
@@ -2076,6 +2092,7 @@ function createRoutes(
   });
 
   registerSessionRoutes({
+    prepareQueuedSubmission,
     routes,
     config,
     jsonResponse,

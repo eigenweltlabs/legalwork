@@ -4,6 +4,9 @@ import { Agent } from "@opencode/schema/agent";
 import { ConfigCommand } from "@opencode/schema/config/command";
 import { commandDefinitionsSchema } from "../native-command-schema.js";
 import { commandSettingsRpc } from "../native-command-rpc.js";
+import { Session } from "@opencode/schema/session";
+import { PromptInput } from "@opencode/schema/prompt-input";
+import { SessionInbox } from "@opencode/schema/session-inbox";
 import { SessionMessage } from "@opencode/schema/session-message";
 import { Tool } from "@opencode/schema/tool";
 import { Schema } from "effect";
@@ -12,6 +15,7 @@ import { nativeEvents } from "./native-events.js";
 import { expandCommandTemplate } from "./native-command-template.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
 
+const identifiedCommand = Schema.Struct({ sessionID: Session.ID, messageID: SessionMessage.ID, name: Schema.String, prompt: PromptInput.Prompt, delivery: SessionInbox.Delivery });
 const executionResult = Schema.Struct({ output: Schema.String, exitCode: Schema.Number, truncated: Schema.Boolean });
 export { commandSettingsRpc };
 
@@ -50,7 +54,16 @@ export const LegalWorkCommands = Plugin.define({
       await Promise.all(active.map(item => item.settled));
       return { cancelled: active.length > 0 };
     };
-    registrations.push(await ctx.rpc.register(commandSettingsRpc, { refresh, cancel: input => cancel(Schema.decodeUnknownSync(Schema.Struct({ sessionID: Schema.String }))(input).sessionID) }));
+    registrations.push(await ctx.rpc.register(commandSettingsRpc, { refresh,
+      cancel: input => cancel(Schema.decodeUnknownSync(Schema.Struct({ sessionID: Schema.String }))(input).sessionID),
+      invoke: async value => {
+        const input = Schema.decodeUnknownSync(identifiedCommand)(value);
+        const command = definitions.commands[input.name];
+        if (!command) throw new Error("Command not found.");
+        await execute(command, input.name, input, input.messageID);
+        return { accepted: true };
+      },
+    }));
     const stop = nativeEvents(ctx, async event => {
       if (event.type === "session.execution.interrupted" || event.type === "session.deleted") {
         await cancel(event.data.sessionID);
@@ -60,7 +73,10 @@ export const LegalWorkCommands = Plugin.define({
     registrations.push(await ctx.command.transform(editor => {
       for (const [name, command] of Object.entries(definitions.commands)) editor.add({
         name, description: command.description,
-        async execute(input) {
+        execute: input => execute(command, name, input),
+      });
+    }));
+    async function execute(command: ConfigCommand.Info, name: string, input: CommandInvocation, messageID?: SessionMessage.ID) {
           const controller = new AbortController(), signal = controller.signal;
           let complete = () => {};
           const invocation = { controller, settled: new Promise<void>(resolve => { complete = resolve; }) };
@@ -90,12 +106,12 @@ export const LegalWorkCommands = Plugin.define({
             });
             signal.throwIfAborted();
             if (command.subagent ?? command.subtask ?? selected.mode === "subagent") {
-              await delegate(command, name, input, selected, text, model, Agent.ID.make(parentAgent), signal);
+              await delegate(command, name, input, selected, text, model, Agent.ID.make(parentAgent), signal, messageID);
               return;
             }
             if (command.agent && parent.agent !== agentID) await ctx.session.switchAgent({ sessionID: input.sessionID, agent: agentID }, { signal });
             if (model) await ctx.session.switchModel({ sessionID: input.sessionID, model }, { signal });
-            await ctx.session.prompt({ ...input.prompt, sessionID: input.sessionID, text, delivery: input.delivery }, { signal });
+            await ctx.session.prompt({ ...input.prompt, sessionID: input.sessionID, text, delivery: input.delivery, ...(messageID ? { id: messageID } : {}) }, { signal });
           } catch (error) {
             signal.throwIfAborted();
             throw error;
@@ -104,11 +120,9 @@ export const LegalWorkCommands = Plugin.define({
             if (!active.size) running.delete(input.sessionID);
             complete();
           }
-        },
-      });
-    }));
+    }
     async function delegate(command: ConfigCommand.Info, name: string, input: CommandInvocation, selected: Agent.Info, text: string,
-      model: Agent.Info["model"], parentAgent: Agent.ID, signal: AbortSignal) {
+      model: Agent.Info["model"], parentAgent: Agent.ID, signal: AbortSignal, messageID?: SessionMessage.ID) {
       const agent = selected.id;
       // Native configured agents are folded after external plugin transforms.
       // Register the command's dual-purpose role at invocation time so a saved
@@ -128,7 +142,7 @@ export const LegalWorkCommands = Plugin.define({
           await ctx.session.prompt({ ...input.prompt, sessionID: child.id, text: "", resume: false }, { signal });
         }
         const source = await ctx.session.synthetic({ sessionID: input.sessionID, text: "Run /" + name + " in a subagent.",
-          metadata: { legalworkCommand: name }, resume: false }, { signal });
+          metadata: { legalworkCommand: name }, ...(messageID ? { id: messageID } : {}), resume: false }, { signal });
         await tool.execute({ agent, description: command.description ?? name, prompt: "You are a subagent spawned by another session.\n" + text,
           sessionID: child.id, background: true,
           ...(model ? { model: model.providerID + "/" + model.id + (model.variant ? "#" + model.variant : "") } : {}) },

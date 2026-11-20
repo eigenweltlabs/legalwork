@@ -2,6 +2,20 @@ import { expect, test } from "bun:test";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 
+test("launcher output reads the exact saved operation independently of the visible chat page", async () => {
+  const output = { requestId: "request/older", messageId: "message-older", conversationId: "conversation", state: "ready", text: "The original answer" };
+  const server = Bun.serve({ port: 0, fetch(request) {
+    expect(new URL(request.url).pathname).toBe("/assistant/submissions/request%2Folder/output");
+    expect(request.method).toBe("GET");
+    expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    return Response.json(output);
+  } });
+  try {
+    const client = createLegalworkServerClient({ baseUrl: server.url.origin, token: "fixture" });
+    expect(await client.assistantSubmissionOutput(output.requestId)).toEqual(output);
+  } finally { await server.stop(true); }
+});
+
 test("resolving the daily Assistant sends valid JSON with or without project defaults", async () => {
   const received: unknown[] = [];
   const current = { workspace: { id: "assistant" }, day: { date: "2026-10-07", sessionId: "today" }, profile: { name: "Johann", icon: "bird" } };

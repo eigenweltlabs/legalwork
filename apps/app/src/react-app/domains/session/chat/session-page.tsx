@@ -162,7 +162,7 @@ export type SessionPageSidebarProps = {
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
   assistantWorkspaceId?: string;
-  assistantDay?: { sessionId: string; date: string };
+  assistantDay?: { sessionId: string; date: string | null };
   onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
   assistantGreetingUnread?: boolean;
@@ -1627,7 +1627,8 @@ export function SessionPage(props: SessionPageProps) {
             }}
             renderChat={(sessionId, active) => props.surface && props.legalworkServerClient && props.runtimeWorkspaceId && reactSessionBaseUrl && reactSessionToken ? <WorkspaceChat
               {...props.surface!}
-              assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
+              assistantChat={isAssistantChat(sessionId)}
+              assistantDate={props.sidebar.assistantDay?.sessionId === sessionId && isAssistantChat(sessionId) ? props.sidebar.assistantDay.date ?? undefined : undefined}
               assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
               assistantName={isAssistantChat(sessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
               renderAssistantHeader={isAssistantChat(sessionId) ? settings => <AssistantIdentity client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? settings : undefined} /> : undefined}

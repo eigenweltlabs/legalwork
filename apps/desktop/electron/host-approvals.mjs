@@ -1,8 +1,17 @@
-/** Present manual HTTP approvals only in the host's native main window. */
-export function createHostApprovalHandler({ getWindow, showMessageBox }) {
+/**
+ * Present manual HTTP approvals as system UI: a card in the quick panel while
+ * it is open, otherwise a native dialog in the main window. A panel that
+ * closes without answering hands the request to the dialog; nothing approves silently.
+ */
+export function createHostApprovalHandler({ getWindow, showMessageBox, presentInPanel = undefined }) {
   let queue = Promise.resolve();
   return (request, signal) => {
     const present = async () => {
+      if (signal.aborted) return "deny";
+      if (presentInPanel) {
+        const decision = await presentInPanel(request, signal).catch(() => null);
+        if (decision === "allow" || decision === "deny") return decision;
+      }
       const window = getWindow?.();
       if (signal.aborted || !window || window.isDestroyed()) return "deny";
 

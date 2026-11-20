@@ -21,6 +21,7 @@ function parse(path, root = repoRoot) {
 }
 
 const routeGuides = {
+  "/launcher": "assistant.md",
   "/welcome": "getting-started.md",
   "/home": "workspaces-chats.md",
   "/tasks": "tasks-intake.md",
@@ -54,7 +55,7 @@ const routeGuides = {
 
 const settingGuides = {
   general: "settings-privacy.md", permissions: "settings-privacy.md",
-  assistant: "assistant.md",
+  assistant: "assistant.md", launcher: "assistant.md",
   account: "settings-privacy.md", ai: "models-fusion.md",
   "tabular-review": "reviews.md", extensions: "integrations.md",
   personalisation: "settings-privacy.md", notifications: "tasks-intake.md",

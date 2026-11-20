@@ -1,5 +1,16 @@
-import type { AssistantEngineClient } from "./assistant-engine.js";
+import type { AssistantEngineClient, EngineMessage } from "./assistant-engine.js";
 import type { DelegationResult } from "./assistant-delegations.js";
+
+export function terminalDelegationResult(last: EngineMessage | undefined, sessionId: string, idle: boolean): DelegationResult | null {
+  if (idle && last?.info.role === "assistant" && last.info.sessionID === sessionId && !last.info.summary) {
+    const text = last.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n");
+    // Interrupted/error messages do not always receive a completed timestamp.
+    if (last.info.error) return { messageId: last.info.id, outcome: last.info.error.name === "MessageAbortedError" ? "interrupted" : "failed", text: `${text}\n${JSON.stringify(last.info.error)}` };
+    if (last.info.time.completed && (last.info.finish === "stop" || last.info.finish === "length"))
+      return { messageId: last.info.id, outcome: last.info.finish === "length" ? "failed" : "reply", text };
+  }
+  return null;
+}
 
 /** Read both terminal replies and input requests, which can keep the engine busy. */
 export async function readDelegationResult(client: AssistantEngineClient, sessionId: string, requestMessageId?: string): Promise<DelegationResult | null> {
@@ -13,13 +24,8 @@ export async function readDelegationResult(client: AssistantEngineClient, sessio
   // A queued follow-up must not consume the previous turn or an unrelated direct message.
   if (requestMessageId && (last?.info.role === "user" ? last.info.id : last?.info.parentID) !== requestMessageId) return null;
   const idle = !statuses.data[sessionId] || statuses.data[sessionId].type === "idle";
-  if (idle && last?.info.role === "assistant" && last.info.sessionID === sessionId && !last.info.summary) {
-    const text = last.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n");
-    // Interrupted/error messages do not always receive a completed timestamp.
-    if (last.info.error) return { messageId: last.info.id, outcome: last.info.error.name === "MessageAbortedError" ? "interrupted" : "failed", text: `${text}\n${JSON.stringify(last.info.error)}` };
-    if (last.info.time.completed && (last.info.finish === "stop" || last.info.finish === "length"))
-      return { messageId: last.info.id, outcome: last.info.finish === "length" ? "failed" : "reply", text };
-  }
+  const terminal = terminalDelegationResult(last, sessionId, idle);
+  if (terminal) return terminal;
   // Engine versions expose legacy and v2 endpoints independently. Read both,
   // deduplicate request IDs, and never treat a failed request as completion.
   const pending = await Promise.allSettled([

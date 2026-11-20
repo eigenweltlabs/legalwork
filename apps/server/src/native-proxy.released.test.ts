@@ -115,6 +115,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released native client cr
     expect(metadataResponse.status).toBe(200); expect(metadataResponse.headers.get("cache-control")).toBe("no-store");
     const metadata = await engineCredentialMetadata(privateClient, "fixture");
     const metadataText = await metadataResponse.text(); expect(metadataText).not.toContain("synthetic-private-value");
+    expect(JSON.parse(metadataText)).toEqual({ items: metadata });
     expect((await fetch(`${proxy.url}workspace/a/providers/fixture/credentials`, { headers: { "x-test-scope": "viewer" } })).status).toBe(403);
     expect(metadata).toHaveLength(1); expect(JSON.stringify(metadata)).not.toContain("synthetic-private-value"); expect(metadata[0]).not.toHaveProperty("value");
     const unrelated = (await engineCredentialMetadata(privateClient, "unrelated"))[0];

@@ -22,7 +22,7 @@ import {
   type WorkspaceList,
 } from "@/app/lib/desktop";
 import { createClient } from "@/app/lib/opencode";
-import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, LEGALWORK_DRAFT_ACCOUNT_EVENT, resolveLauncherDraftAccount, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import {
   resolveWorkspaceEndpoint,
@@ -341,7 +341,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         }
       }
 
-      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveLegalworkConnection();
+      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo, source } = await resolveLegalworkConnection();
       if (!isCurrent()) return;
       callbacksRef.current.onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
@@ -376,13 +376,13 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       // local workspaces => sidebar gets stuck in "loading" forever.
       localServerRef.current = { baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken };
 
-      const connectionKey = JSON.stringify([normalizedBaseUrl, resolvedToken, resolvedHostToken]);
+      const connection = { baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken || undefined, managedDesktop: source === "desktop-runtime" };
+      const draftAccount = await resolveLauncherDraftAccount(connection);
+      if (!isCurrent()) return;
+      const options = { ...connection, draftAccount };
+      const connectionKey = JSON.stringify(options);
       const legalworkClient = clientConnectionRef.current?.key === connectionKey
-        ? clientConnectionRef.current.client : createLegalworkServerClient({
-        baseUrl: normalizedBaseUrl,
-        token: resolvedToken,
-        hostToken: resolvedHostToken || undefined,
-      });
+        ? clientConnectionRef.current.client : createLegalworkServerClient(options);
       clientConnectionRef.current = { key: connectionKey, client: legalworkClient };
       const list = await legalworkClient.listWorkspaces();
       if (!isCurrent()) return;
@@ -586,7 +586,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       callbacksRef.current.onServerSettingsChanged();
       void refreshRouteState();
     };
+    const handleDraftAccountChange = () => { void refreshRouteState(); };
+    const handleDraftAccountStorage = (event: StorageEvent) => { if (event.key === LEGALWORK_DRAFT_ACCOUNT_EVENT) handleDraftAccountChange(); };
     window.addEventListener("legalwork-server-settings-changed", handleSettingsChange);
+    window.addEventListener(LEGALWORK_DRAFT_ACCOUNT_EVENT, handleDraftAccountChange);
+    window.addEventListener("storage", handleDraftAccountStorage);
 
     // Also retry on visibility flip independently — even when nobody else
     // dispatches the settings event.
@@ -606,6 +610,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         startupRetryTimerRef.current = null;
       }
       window.removeEventListener("legalwork-server-settings-changed", handleSettingsChange);
+      window.removeEventListener(LEGALWORK_DRAFT_ACCOUNT_EVENT, handleDraftAccountChange);
+      window.removeEventListener("storage", handleDraftAccountStorage);
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibility);
       }

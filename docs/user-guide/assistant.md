@@ -21,9 +21,9 @@ and hides the chat sidebar. On first use, choose a name and appearance. Each
 calendar day has its own chat. Scroll up to load earlier conversations.
 
 After reopening the app, your saved Assistant conversation loads while account
-and model updates continue in the background. If a new day has started, the app
-shows your previous conversation until today's chat is ready. Sending a message
-still checks your current access and uses today's chat.
+and model updates continue in the background. Sending a message checks your current access and continues the conversation
+you have open. A date change does not move a draft or an in-progress task into
+a different conversation.
 
 The Assistant receives your name, email address and organization from your
 signed-in LegalWork account when available. It updates this context when you
@@ -103,6 +103,308 @@ and its subagents. Continuing an unrelated conversation there will not send
 updates back to the Assistant. Ask the Assistant for a follow-up to start a new
 round of delegated work. Pending questions and approvals keep the current round
 open until the work returns a final result.
+
+## Mini-bar: search and act from any app
+
+The mini-bar runs on this computer and uses your existing projects and Assistant.
+No cloud Assistant setup or project replication is required.
+
+Project and wiki files use the same document folders as the main app, including
+projects upgraded to separate local app data from their documents. New documents,
+file copies, clipboard file references and dragging to Finder use those document
+folders. Internal chat attachments and save-recovery records remain in the local
+app data folder; they are not shown as ordinary search results.
+
+Press **Command+Shift+Space** on macOS or **Ctrl+F8** on Windows to
+open the floating mini-bar. Existing profiles keep their saved shortcut. To change it, open **Settings** and select **Assistant launcher** under **Global** in the overview or sidebar. On Windows, use **Ctrl+Enter** to confirm a form. A Command key mapped to Meta also works when Windows delivers it to LegalWork. Press the shortcut again or **Esc** from its start
+screen to close it. You can also hover over the microphone bar and
+choose its Assistant launcher button. Use **Show mini bar** or **Hide mini bar**
+in the profile menu to control this bar. Under **Settings > Assistant launcher**,
+**Show pending requests on the microphone bar** controls its count of open
+questions and approvals. LegalWork must be running; **Settings >
+Assistant launcher > Keep the Assistant available in the background** keeps
+its shortcut available after you close the main window.
+
+Type to search. **Browse files**, **Browse tasks**, **Browse chats** and the
+other categories appear as you type their names. The default file alias is
+**f**: type it and press **Space** or **Tab** to search files. Type a project
+name or a period such as **last week**, **last month**, or **last 7 days** to narrow
+results. **Last week** and **last month** appear as you type **last** and cover
+the trailing week or month up to now. German phrases such as **letzte Woche**
+and **letzter Monat** also work. Chosen filters stay visible in the input.
+The current project receives preference when its name
+matches. Wikis are kept separate from projects.
+Result subtitles show the source icon directly beside its name, without an
+extra “Project” or “Wiki” label. This works consistently for files, project
+chats, tasks and recordings with a known source. A book identifies a Wiki;
+the folder symbol identifies a project or added folder. Hover over the symbol
+for its label. The primary icon still identifies the file format or result type.
+
+With **Files** selected, type **projects**, **wiki**, or **folders** and press
+**Enter** on **Projects only**, **Wikis only**, or **Added folders only** to
+choose where to search. German words such as **Projekte**, **Wiki**, and
+**Suchordner** work too. The source appears as a removable chip and combines
+with file types, dates and search words. Choosing Wikis or added folders clears
+any project scope; choosing a specific project instead clears an incompatible
+source filter. **Added folders only** searches the extra folders configured in
+**Settings > Assistant launcher**. Remove the chip to search all sources again;
+with an empty input, **Backspace** removes the last filter. Switching to another
+category clears the file source filter.
+
+To change the result order, type **sort** or **sorted** (**sortieren** in German)
+and press **Enter** on **Sort results**. Use **Up/Down** to choose **Name A–Z**,
+**Name Z–A**, **Most recent**, **Oldest**, or **Relevance**,
+then press **Enter**. **Esc** or **Left** closes the menu without changing the
+order. The sort chip reopens this menu; its remove button restores relevance.
+This works for search categories such as files and tasks and when browsing a
+project's contents or a folder. It keeps source, type and date filters. “Updated” refers to the item's last change,
+not when you last opened it. Sources with partial coverage remain marked as such.
+
+Type **as** and continue toward **assistant** to put your personalized Assistant
+first, ahead of matching projects, files and recent items. Press **Enter** to open it.
+
+Hover over a row to highlight it. If more results are below, moving the pointer
+to the bottom edge of the list expands the mini-bar. You can also scroll or use
+**Up/Down** to reach those results. Press **Enter** to open the selected row. Chats, tasks,
+projects and folders open inside the mini-bar where supported; files open in
+their document workspace. Press **Right** for actions such as **Open in app**,
+copying a file or reference, or **Hide**. **Esc** goes back one step. Hidden
+suggestions can be restored through **Hidden items**. Find previous chats with
+**Browse chats**. A chat appears after its first message. Recently opened chats with messages can also appear on the start screen. Search
+filters apply to the current search; searches cannot be saved. The mini-bar has
+no separate History or saved-searches screen.
+
+When saving a document, use **Tab** to reach **Project**, then **Enter**,
+**Space**, or **Down** to open its dropdown. Choose with **Up/Down** and
+**Enter**. The **Folder** picker starts at **Project root** or your current
+folder. Type to narrow the folders shown, press **Down** to select one, and
+**Enter** or **Right** to browse inside it. **Left** goes up. With a folder row
+focused, **Command+Enter** (**Ctrl+Enter** on Windows) selects that folder
+directly; the button reads **Use folder {name}**. Returning focus to the search
+field changes it back to **Use this folder**, confirming the folder currently
+being browsed. **Esc** closes the picker before leaving the form.
+The same folder picker is available when copying or moving files. Finish those
+forms with **Copy** or **Move**, or use the same Command/Ctrl+Enter shortcut.
+
+File search, templates and recent items are checked against the files that
+currently exist. Recently opened Wiki files also appear here with their Wiki icon. Deleted files and folders drop out of the mini-bar; browsing
+and open folder pickers refresh while visible. These checks do not repair or
+change file deletion or sync behavior.
+
+To ask a question, type it and press **Shift+Enter** or **Command+Enter**
+(**Ctrl+Enter** on Windows). You can send the same text from a search without
+retyping it. A new question from inside a project opens a fresh chat in that
+project. A follow-up typed in an open mini-bar chat stays in that chat.
+
+Type **n**, **new** or **neu** for creation actions. In an active project, press
+**Enter** on **New chat** to open a chat in that project. Eigenwelt uses the
+same work pane as the project’s **New chat** button, following your left or
+right pane preference. When invoked from another app, **New chat in mini-bar**
+opens a blank composer. Choose a destination when you send, as described below. **New chat in a project…**
+lets you type a project name, choose it with the arrow keys and press **Enter** to
+open the chat in Eigenwelt. A separate Assistant conversation shows only its own
+messages when you scroll up. In the daily Assistant, scrolling up loads earlier days.
+**Open in app** still moves an existing mini-bar
+conversation and its draft into the main window.
+
+Narrow the creation list by typing **new docx**, **new file**, **new task** or
+**new project**. Word and plain-text entries preselect their file format.
+Documents and tasks use the current project when available. If you open the mini-bar
+from the project’s tasks or calendar, a new task starts without a document attachment.
+From the Files page, a new document starts in the folder you are browsing.
+A draft parked in another project keeps its attachments there.
+
+Drafts stay with the LegalWork server and signed-in Eigenwelt account that
+created them. To resume a draft after switching accounts or servers, reconnect
+to the original account and server and reopen its chat.
+
+If you need unsent text from a desktop build that stored shared drafts before
+account separation, look for `launcher-drafts.json` in the app data folder.
+On macOS the default folder is
+`~/Library/Application Support/com.eigenweltlabs.legalwork/`. On Windows it is
+`%APPDATA%\com.eigenweltlabs.legalwork\`. Open a copy of the file in a text
+editor, find the conversation under `drafts`, and copy its `text` into the
+chat after checking the account and server. This file can contain other
+unsent messages and attachments, so keep it private.
+
+Inside a chat, or after starting a question with **?**, **Shift+Enter** adds a
+new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait
+for the current answer to finish and keep the model and agent selected when
+you sent them, including after a restart.
+
+For a file or other search result, press **Right** to choose a chat action:
+
+- **Chat with Assistant** opens the general Assistant and adds the selected
+  content to its draft. It preserves any text already in that draft and waits
+  for your question.
+- **Ask about this** starts a new, ordinary project chat with the selected
+  content attached. Type your question and send it with **Command/Ctrl+Enter**.
+- **Summarize**, where available, starts a new project chat and sends the
+  summary request immediately. The **Summarize this document** suggestion
+  does the same for the document you are viewing.
+
+The action menu follows the item type, not how you reached it. Search results,
+recent items and files inside a project or folder use the same rules. **Chat
+with Assistant** shows the avatar you selected in Assistant settings.
+
+| Item | Actions |
+| --- | --- |
+| File | Chat with Assistant, Ask about this, Summarize; Compare for multiple selected files. Project files can be copied or moved to another project. Wiki files can be copied into a project. |
+| Folder or project | Browse with Enter; Open in app and Hide. Added local folders instead offer Open with default app and Reveal in folder. |
+| Chat | Continue with Enter; Open in app and Hide. There is no extra Ask about this, summary or file action. |
+| Task | Open/edit with Enter. The menu starts with Open in app, then Mark done (or Reopen task), followed by a separator and the Assistant actions. Hide is last. Tasks have no Copy to Clipboard action. |
+| Recording | Open its details with Enter; Chat with Assistant, Ask about this, Copy to Clipboard for its transcript, Open in app and Hide. |
+
+Ordinary files do not repeat **Open in app** in their menu because Enter
+already opens the document. **Copy to Clipboard** for files and folders needs
+a local desktop connection. **Reveal in folder** is offered for explicitly
+added local search folders, not an app-managed project directory. Added-folder
+files open with their default application on Enter. Remote sources do not offer
+local file-manager actions. Transfer choices require a different destination
+project, and multi-file actions must be supported by every selected item.
+
+In a task, recording, project or folder detail view, the **Actions** button
+opens that item's menu; **Command/Ctrl+K** also works from detail controls.
+**Right** on a child row opens that child's actions. **Esc** closes the menu
+before returning to the previous view. Hide always applies to the focused item.
+
+A task shows its project, due date and assignee below the title. Its description
+and notes have separate sections. Choose **Mark done** to see a green **✓ Done**
+in the detail view and search results. **Reopen task** returns it to Open.
+When a chat search matches an earlier message, open the result to jump to that
+message in the main window. The matching message is briefly highlighted.
+
+When you attach a recording, the mini-bar reads its full transcript. If the
+title and transcript exceed 200,000 characters, open the recording and select
+the passage you want to attach.
+
+Project actions use the result's own project. For Wiki files or added search
+folders, they use your current project; if there is no clear destination,
+choose a project with **Up/Down** and **Enter**, or cancel with **Esc**.
+Files from added search folders are copied into the chosen chat's project.
+These actions do not reuse an existing project chat. General Assistant access
+still requires an eligible Eigenwelt plan; project chats can use your configured
+provider/API key just as they do in the main app. **Ask About This** in the
+optional Raycast extension follows the same project-chat flow and opens the
+exact file you selected, including when several projects have files with the
+same name.
+
+To pair the Raycast extension, open **Settings > Assistant launcher > Raycast**
+in the desktop app and select **Enable pairing**. Run **Search LegalWork** in
+Raycast to find files, projects, chats, tasks and recording titles. Use the
+LegalWork mini-bar to search private local wikis. Select **Disable pairing** to revoke
+the extension's access. If a Raycast command expires or the connection is
+unavailable, open LegalWork and run the command again.
+If you open a shared Assistant result link, LegalWork shows a preview. Choose
+an action from the result menu before sending anything to a model.
+
+Files open in their normal document view; the mini-bar has no separate file
+preview or **Copy path** action. **Copy to Clipboard** still copies local files
+for pasting into another application. You can also drag a local file or folder
+from search results, recent items or a project's file list into Finder or another
+application. To drag several files together, select them first and drag one of
+the selected rows. In search results, use the arrow keys to focus a file and
+**Option+Enter** (**Alt+Enter** on Windows) to add or remove it from the selection.
+Moving focus keeps the other files selected. Up to 100 files or folders can be dragged together. The
+originals stay in their project when you copy them into Finder. This needs the
+local desktop app; unavailable or deleted files cannot be dragged.
+
+Inside a project's files or tasks, **New document** and **New task** use the
+project you are browsing. Creating a document inside a folder starts with that
+folder selected. In the folder chooser, **Command/Ctrl+Enter** chooses the
+highlighted folder directly; **Enter** opens it so you can browse its children.
+
+Search and project navigation load independently of the general Assistant.
+Your saved conversations remain readable if your Assistant subscription ends;
+starting new work with the general Assistant still requires an eligible plan.
+Project chats use the same access rules as in the main window. If part of the
+mini-bar search is unavailable, its category names the affected source even if
+it found zero items. Choose **Retry** beside that category to repeat its search.
+Results from the other categories stay visible.
+
+In **Work** and Raycast’s **LegalWork Work**, a green **✓ Done** means the
+delegated chat returned its final reply. **Idle** means the chat has no active
+turn or confirmed result. Open a job that needs input to answer its question or review its approval.
+
+Select text in Safari or another app and press **Command+Shift+Space** (Windows:
+**Ctrl+F8**). Choose **Explain**, **Translate** or **Rewrite**, or type
+a question and press **Command+Enter** (**Ctrl+Enter** on Windows). In Raycast,
+**Ask LegalWork with Selection** opens the same question composer. Opening the
+mini-bar with a selection starts with that passage and keeps existing chats separate.
+
+**Translate** uses the language selected beside the action, initially your
+interface language. If the passage is already in that language, it translates
+into English, or into German when English is selected.
+
+From another app, an eligible AI plan starts a fresh general Assistant chat.
+Without that plan, type a project name, use the arrow keys and press **Enter**.
+The mini-bar sends your question and selection together using the project's
+connected model, including a provider connected with your own key. **Esc**
+returns to your question. If the project has no model, **Connect a provider**
+opens AI settings before a chat is created. The selection chip identifies the source
+app and shows an excerpt. Expand it to read the full selection or remove it before
+sending. Each selection or clipboard attachment can hold up to 200,000 characters.
+If a passage exceeds that limit, select a shorter passage before sending. To bring in another selection, use **+ > Add selection**. If the app
+does not share its selection, copy the text there and use **+ > Paste clipboard**.
+On macOS, allow LegalWork under **System Settings > Privacy & Security > Accessibility**
+to read selected text from other apps. If Microsoft Word needs separate access,
+use **+ > Add selection** or the dedicated selection shortcut to request
+Automation permission. macOS lists it under **System Settings > Privacy &
+Security > Automation**. If you prefer, copy the passage in Word and choose
+**+ > Paste clipboard**.
+
+To use a selection in an existing project conversation, choose **Add selection
+to project chat**, select the project and chat, then choose **Attach to chat
+draft**. The selection stays in that draft until you send it.
+
+### Capture a screenshot
+
+1. Search for **Capture Region** or **Capture Window** from the mini-bar start
+   screen. In an open chat, find the same commands under **+**.
+2. For a region, drag over the display where the pointer is. The counter shows the
+   width and height of the resulting image in pixels. For a window, choose its
+   thumbnail from the picker. Press **Esc** to cancel. On macOS, allow LegalWork
+   under **System Settings > Privacy & Security > Screen & System Audio Recording**
+   if your Mac asks for permission.
+3. Review the local preview. Choose **Save image**, select a LegalWork project
+   and folder, and confirm the PNG filename. Saving uses the selected project’s
+   document folder and keeps your chat draft available.
+   Choose **Ask about this image**, edit the question, and send it to the current
+   chat or the destination you select. Use a model that accepts images.
+   Choose **Attach to chat** to add it to the open chat or select a destination without sending a message.
+   The chat keeps its existing draft text when the image is attached.
+
+You can also drop files into the mini-bar. To add a search folder, go to
+**Settings > Assistant launcher**. Search folders stay outside the project list.
+
+Drag the window to reposition it. A small reset-position icon appears after it
+has been moved. Shortcut, remembered position, additional folders, category
+aliases and saved quick actions are configured in **Settings > Assistant
+launcher**. Quick actions can copy or insert their answer; pending outputs are
+recovered after a restart, with uncertain pastes retained for review instead
+of being repeated automatically. In a quick action, choose **Show result**,
+**Copy result**, or **Insert into origin app**. If you select **A chosen project**,
+choose its destination from the project list before saving. Older actions with
+an unsupported output ask you to edit that choice before they run.
+If an action needs more information, a small form asks only for the missing
+text, files or destination project. Fill it in and choose **Run**. **Cancel**
+returns to your unchanged draft. Files are uploaded only when you choose
+**Run**, and the action keeps any existing draft in its destination chat.
+
+While a document, task or file transfer is saving, its form keeps control until
+the operation finishes. Hiding the mini-bar keeps an in-flight form available
+when you reopen it. A failed task creation can be retried without creating a
+second copy of the same task.
+The latest finished answer has one **Copy reply** button. **Save as document…**
+opens the document form so you can choose its project, folder and name. Older
+answers retain their individual copy buttons. **Project-bound chat session**
+means the conversation belongs to the selected project.
+
+If copying or inserting fails, a notice explains the failure. Use **Copy reply** or
+**Insert** to retry deliberately; the app never repeats an uncertain paste on
+its own. Turning off remembered position opens the mini-bar at its default
+location. Pressing the opening shortcut again also cancels an opening window
+that is still loading.
 
 ## Browser work
 

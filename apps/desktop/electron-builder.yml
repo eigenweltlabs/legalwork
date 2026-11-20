@@ -118,7 +118,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    NSAppleEventsUsageDescription: LegalWork uses System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
+    NSAppleEventsUsageDescription: LegalWork uses Microsoft Word to read selected text when you request it, System Events to paste dictated text, and Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSUserActivityTypes:
       - INSendMessageIntent
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
@@ -170,6 +170,8 @@ linux:
 win:
   icon: resources/icons/icon.ico
   extraResources:
+    - from: resources/helpers/LegalWorkLauncherOrigin.exe
+      to: helpers/LegalWorkLauncherOrigin.exe
     # Keep the signed Microsoft CRT beside the ONNX native addon. These
     # app-local dependencies require neither a system install nor admin rights.
     - from: resources/node

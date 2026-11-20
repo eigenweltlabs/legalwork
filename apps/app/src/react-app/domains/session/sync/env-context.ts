@@ -34,7 +34,7 @@ export async function buildLegalworkEnvSystemContext(
     (() => readLegalworkEnvPendingChanges(options.runtimeKey));
   if (readPendingChanges()) return undefined;
 
-  const cacheKey = `${client.baseUrl}:${options.cacheKey ?? DEFAULT_CACHE_KEY}`;
+  const cacheKey = JSON.stringify([client.draftProfile ?? client.baseUrl, options.cacheKey ?? DEFAULT_CACHE_KEY]);
   if (envSystemContextCache.has(cacheKey)) {
     return envSystemContextCache.get(cacheKey);
   }

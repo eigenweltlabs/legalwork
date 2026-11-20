@@ -190,6 +190,22 @@ export class MainAssistant {
     return this.pending;
   }
 
+  /** Today's daily session as recorded, without creating one: window focus and refreshes must not provision sessions. */
+  peek(): AssistantDay | null {
+    const workspace = this.config.workspaces.find(isMainAssistant);
+    if (!workspace) return null;
+    const date = assistantDate(this.now());
+    const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);
+    return row ? { date, sessionId: String(row.session_id) } : null;
+  }
+
+  engineFor(workspace: WorkspaceInfo) { return this.engine(workspace); }
+
+  /** Every recorded daily session, newest first, for the conversation list and origin lookups. */
+  days(workspaceId: string): AssistantDay[] {
+    return this.db.all("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? ORDER BY date DESC", [workspaceId]).map(row => ({ date: String(row.date), sessionId: String(row.session_id) }));
+  }
+
   /** Reading saved history must not wait for subscription refresh or engine startup. */
   savedDay(): AssistantDay | null {
     const workspace = this.config.workspaces.find(isMainAssistant);

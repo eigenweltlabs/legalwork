@@ -1,0 +1,75 @@
+import { Action, ActionPanel, Color, Clipboard, Icon, List, open, showInFinder, showToast, Toast } from "@raycast/api";
+import { useEffect, useState } from "react";
+import { launcherResultActions } from "@legalwork/types/launcher";
+import { launch, localResultPath, readPairing, request, type Pairing, type SearchKind, type SearchResult, type SourceState } from "./legalwork";
+import { completedLabel, coverageLabels, label } from "./status-labels";
+import { resultReference } from "./result-files";
+import { requireCurrentPairing } from "./pairing";
+
+const KINDS: { value: SearchKind | "all"; title: string }[] = [{ value: "all", title: "Everything" }, { value: "files", title: "Files" }, { value: "projects", title: "Projects" }, { value: "chats", title: "Chats" }, { value: "tasks", title: "Tasks" }, { value: "recordings", title: "Recordings" }];
+const ICONS: Record<SearchKind, Icon> = { files: Icon.Document, projects: Icon.Folder, chats: Icon.Message, tasks: Icon.CheckCircle, recordings: Icon.Microphone };
+
+export default function Command() {
+  const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<SearchKind | "all">("all");
+  const [results, setResults] = useState<{ pairing: Pairing; items: SearchResult[]; sources: SourceState[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    const current = new AbortController();
+    setResults(null); setError(null); setLoading(true);
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ q: query.trim(), content: "1", limit: "60", ...(kind !== "all" ? { kinds: kind } : {}) });
+      void readPairing().then(async found => {
+        if (current.signal.aborted) return;
+        setPairing(found);
+        if (!found || !query.trim() && kind === "all") return;
+        const response = await request<{ items: SearchResult[]; sources: SourceState[] }>(found, `/launcher/search?${params}`, { signal: current.signal });
+        if (!current.signal.aborted) setResults({ ...response, pairing: found });
+      }).catch(reason => { if (!current.signal.aborted) { const message = reason instanceof Error ? reason.message : String(reason); setError(message); void showToast({ style: Toast.Style.Failure, title: "Search failed", message }); } })
+        .finally(() => { if (!current.signal.aborted) setLoading(false); });
+    }, 150);
+    return () => { clearTimeout(timer); current.abort(); };
+  }, [query, kind, refresh]);
+  const items = results?.items ?? [], sources = results?.sources ?? [];
+
+  const run = async (item: SearchResult, action: "open" | "legalwork" | "reveal" | "copy-file" | "chat-with-assistant" | "ask" | "summarize") => {
+    if (!results) return;
+    try {
+      const found = await requireCurrentPairing(results.pairing, "Refresh Search");
+      if (action === "chat-with-assistant" || action === "ask" || action === "summarize") {
+        await launch({ action: "open", result: resultReference(item), resultAction: action }, found);
+      } else if (action === "legalwork" || item.kind !== "files") {
+        await launch({ action: "open", result: resultReference(item) }, found);
+      } else {
+        const file = await localResultPath(found, item);
+        if (action === "open") await open(file);
+        else if (action === "reveal") await showInFinder(file);
+        else { await Clipboard.copy({ file }); await showToast({ style: Toast.Style.Success, title: "File copied" }); }
+      }
+    } catch (reason) { await showToast({ style: Toast.Style.Failure, title: "Could not use this result", message: reason instanceof Error ? reason.message : String(reason) }); }
+  };
+  const refreshAction = <Action title="Refresh Search" icon={Icon.ArrowClockwise} onAction={() => setRefresh(value => value + 1)} />;
+  if (pairing === null) return <List><List.EmptyView title="LegalWork is not paired" description="Enable Raycast pairing in LegalWork Settings, Assistant launcher." actions={<ActionPanel>{refreshAction}</ActionPanel>} /></List>;
+  const coverage = sources.filter(source => source.coverage !== "complete").map(source => `${source.label}: ${coverageLabels[source.coverage]}`).join(" · ");
+  return <List isLoading={loading || pairing === undefined} searchText={query} onSearchTextChange={setQuery} throttle searchBarPlaceholder="Search files, projects, chats, tasks and recordings"
+    searchBarAccessory={<List.Dropdown tooltip="Category" value={kind} onChange={value => { const next = KINDS.find(item => item.value === value); if (next) setKind(next.value); }}>{KINDS.map(item => <List.Dropdown.Item key={item.value} value={item.value} title={item.title} />)}</List.Dropdown>}>
+    {items.length > 0 && <List.Section title={coverage ? label("Partial search results", "Unvollständige Suchergebnisse") : undefined} subtitle={coverage || undefined}>
+    {items.map(item => <List.Item key={`${item.kind}:${item.sourceId}:${item.id}`} icon={item.fileType === "folder" ? Icon.Folder : ICONS[item.kind]} title={item.title} subtitle={item.subtitle ?? item.path} accessories={item.kind === "tasks" && item.completed ? [{ tag: { value: completedLabel, color: Color.Green } }] : [{ text: item.kind }]} actions={<ActionPanel>
+      <Action title={item.kind === "files" ? "Open" : "Open in LegalWork"} icon={Icon.ArrowRight} onAction={() => void run(item, "open")} />
+      {item.kind === "files" && <>
+        <Action title="Open in LegalWork" icon={Icon.ArrowRight} onAction={() => void run(item, "legalwork")} />
+        <Action title="Show in Finder" icon={Icon.Folder} onAction={() => void run(item, "reveal")} />
+        <Action title="Copy File" icon={Icon.Clipboard} onAction={() => void run(item, "copy-file")} />
+      </>}
+      {launcherResultActions(item).includes("chat-with-assistant") && <Action title="Chat with Assistant" icon={Icon.Message} onAction={() => void run(item, "chat-with-assistant")} />}
+      {launcherResultActions(item).includes("ask") && <Action title="Ask About This" icon={Icon.SpeechBubble} onAction={() => void run(item, "ask")} />}
+      {launcherResultActions(item).includes("summarize") && <Action title="Summarize" icon={Icon.Document} onAction={() => void run(item, "summarize")} />}
+      {refreshAction}
+    </ActionPanel>} />)}
+    </List.Section>}
+    {!items.length && !loading && <List.EmptyView title={error ? "Search unavailable" : !query.trim() && kind === "all" ? "Search LegalWork" : coverage ? label("Search incomplete", "Suche unvollständig") : label("No results", "Keine Treffer")} description={error ?? (coverage || (!query.trim() && kind === "all" ? "Type a search or choose a category." : "Try another term or category."))} actions={<ActionPanel>{refreshAction}</ActionPanel>} />}
+  </List>;
+}

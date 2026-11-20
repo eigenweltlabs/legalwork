@@ -32,18 +32,24 @@ export function registerEngineCredentialRoutes(options: {
     const provider = await client.provider.get({ providerID, location: workspaceEngineLocation(workspace) }).catch(error => { if (findApiError(error)?.status === 404) return null; throw error; });
     const integrationID = provider?.data.integrationID ?? providerID;
     // Disabled providers are absent from provider.list but keep their integration.
-    await client.integration.get({ integrationID, location: workspaceEngineLocation(workspace) });
-    return { client, integrationID };
+    const integration = await client.integration.get({ integrationID, location: workspaceEngineLocation(workspace) }).catch(error => {
+      // A local provider may have a same-name integration despite omitting its
+      // integrationID. Only a confirmed absence means it has no saved login.
+      if (provider && !provider.data.integrationID && findApiError(error)?.status === 404) return null;
+      throw error;
+    });
+    return { client, integrationID: integration ? integrationID : null };
   };
   addRoute(options.routes, "GET", "/workspace/:id/providers/:providerId/credentials", "client", async ctx => {
     const { client, integrationID } = await target(ctx);
-    const response = options.jsonResponse({ items: await engineCredentialMetadata(client, integrationID) });
+    const response = options.jsonResponse({ items: integrationID ? await engineCredentialMetadata(client, integrationID) : [] });
     response.headers.set("Cache-Control", "no-store");
     return response;
   });
   addRoute(options.routes, "DELETE", "/workspace/:id/providers/:providerId/credentials/:credentialId", "client", async ctx => {
     options.ensureWritable(options.config);
     const { client, integrationID } = await target(ctx);
+    if (!integrationID) throw new ApiError(404, "credential_not_found", "This provider has no saved connection.");
     await disconnectEngineCredential(client, integrationID, ctx.params.credentialId);
     return options.jsonResponse({ ok: true });
   });

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { closeEigenweltConnectionForTests, readEigenweltConnection, readEigenweltEntitlementsView, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { launcherDraftAccount } from "./launcher-draft-account.js";
 import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { ensureFreshPlatformToken, revokeEigenweltConnection } from "./eigenwelt-refresh.js";
 import { readCachedEigenweltPaidManifest, writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
@@ -49,6 +50,7 @@ function mockNetwork(handler: (url: string, init?: RequestInit) => Promise<Respo
 test.each(["eu", "us"])("upgrades an existing shared login to %s, keeps its paid key and persists across reopen", async region => {
   const config = await fixture();
   const regional = `https://${region}.platform.eigenweltlabs.com`;
+  const draftAccount = await launcherDraftAccount(config);
   const token = accessToken({ deploymentRegion: region });
   await writeCachedEigenweltPaidManifest(config, { baseURL: `${shared}/v1`, apiKey: "fixture-paid-key", models: [] });
   const calls: string[] = [];
@@ -78,6 +80,7 @@ test.each(["eu", "us"])("upgrades an existing shared login to %s, keeps its paid
   const saved = await readEigenweltConnection(config);
   expect(saved.platformURL).toBe(shared); // Local data retains its account identity.
   expect(saved.regionalPlatformURL).toBe(regional);
+  expect(await launcherDraftAccount(config)).toBe(draftAccount);
   expect(calls).toEqual([`${shared}/api/desktop/refresh`, `${regional}/api/desktop/models`, `${regional}/api/desktop/refresh`]);
   await revokeEigenweltConnection(config);
   expect((await readEigenweltConnection(config)).regionalPlatformURL).toBeNull();
