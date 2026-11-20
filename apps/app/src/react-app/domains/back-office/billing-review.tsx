@@ -576,39 +576,39 @@ export function BillingReview({
                                     {e.suggestion}
                                   </div>
                                   {canEditLine && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={pending}
-                                      onClick={() => {
-                                        if (e.suggestion)
+                                    <div className="bo-billing-wording-actions">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={pending}
+                                        onClick={() => {
+                                          if (e.suggestion)
+                                            void send({
+                                              type: "review",
+                                              id: e.id,
+                                              revision: e.revision,
+                                              narrative: e.suggestion,
+                                              billableMinutes: e.billableMinutes,
+                                            }).catch(() => {});
+                                        }}
+                                      >
+                                        {t("back_office.billing.apply")}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={pending}
+                                        onClick={() =>
                                           void send({
-                                            type: "review",
+                                            type: "declineSuggestion",
                                             id: e.id,
                                             revision: e.revision,
-                                            narrative: e.suggestion,
-                                            billableMinutes: e.billableMinutes,
-                                          }).catch(() => {});
-                                      }}
-                                    >
-                                      {t("back_office.billing.apply")}
-                                    </Button>
-                                  )}
-                                  {canEditLine && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      disabled={pending}
-                                      onClick={() =>
-                                        void send({
-                                          type: "declineSuggestion",
-                                          id: e.id,
-                                          revision: e.revision,
-                                        }).catch(() => {})
-                                      }
-                                    >
-                                      {t("back_office.billing.dismiss")}
-                                    </Button>
+                                          }).catch(() => {})
+                                        }
+                                      >
+                                        {t("back_office.billing.dismiss")}
+                                      </Button>
+                                    </div>
                                   )}
                                 </>
                               )}

@@ -222,6 +222,8 @@ try {
   assert.ok(modified?.type === "create");
   assert.equal(modified.entry.workProductId, "wp2");
   await input(cell("new", "activity"), "DFT");
+  await input(cell("new", "date"), "2026-11-14");
+  assert.equal(date.value, "2026-11-13");
   await input(cell("new", "narrative"), "Separate brief");
   await input(cell("new", "billableWork"), "20");
   await input(cell("new", "product"), "Memo");
@@ -236,6 +238,15 @@ try {
   assert.equal(fresh.entry.workProductId, undefined);
   assert.equal(fresh.entry.createWorkProduct, true);
   assert.equal(fresh.entry.workProductTitle, "Memo");
+  assert.equal(fresh.entry.date, "2026-11-14");
+  assert.equal(cell("new", "date").value, "2026-11-13");
+  const receiptLink = document.querySelector<HTMLButtonElement>(".time-booking-receipt button");
+  assert.ok(receiptLink);
+  assert.match(receiptLink.parentElement?.textContent ?? "", /Separate brief/);
+  await act(async () => receiptLink.click());
+  assert.equal(date.value, "2026-11-14");
+  assert.equal(document.querySelector(".time-booking-receipt"), null);
+  await input(date, "2026-11-13");
   for (let i = 0; i < 14; i++) {
     await input(cell("new", "activity"), "RES");
     await input(cell("new", "narrative"), "Research " + i);
@@ -721,8 +732,11 @@ try {
     permissions: { userId: state.userId, edit: true, model: false, finance: false },
     sync: { enabled: false, cursor: 0, pending: 0, error: null },
   };
+  const { t } = await import("../../src/i18n");
+  const selectedModel = { workspaceId: "synthetic", providerID: "existing", modelID: "test-sonnet" };
   const workdayActions: CaptureAction[] = [];
-  let workdayProposals = [exact, partial, inlineTimer];
+  const unedited = { ...exact, key: crypto.randomUUID(), digest: "7".repeat(64), startAt: null, endAt: null };
+  let workdayProposals = [exact, partial, inlineTimer, unedited];
   let workdaySettings = { calendar: true, tasks: false, intervalMinutes: 0 as const };
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
     privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
@@ -732,7 +746,7 @@ try {
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
         ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
         : proposal);
-      return { settings: workdaySettings,
+      return { settings: workdaySettings, wording: action?.type === "suggest" ? { [unedited.digest]: { activity: "EXM", narrative: "Generated meeting wording" } } : undefined,
         modelReady: false, connections: [],
         drafts: context.date === partial.date && workdaySettings.calendar ? {
           [partial.key]: { date: partial.date, proposalDigest: partial.digest, values: { workflow: true, worked: "99" } },
@@ -743,12 +757,20 @@ try {
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
   await act(async () => root.render(
     <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
-      <TimesheetWorkday client={workdayClient} directory={workdayDirectory} state={weeklyState}
+      <TimesheetWorkday client={workdayClient} model={selectedModel} directory={workdayDirectory} state={weeklyState}
         initialDate={base.date} onDraft={() => {}}>
         {captureSheet => <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />}
       </TimesheetWorkday>
     </BackOfficeTheme></MemoryRouter></QueryClientProvider>,
   ));
+  const navigateDay = async (label: string) => {
+    const arrow = document.querySelector<HTMLButtonElement>('[aria-label="' + label + '"]');
+    assert.ok(arrow);
+    await act(async () => arrow.click());
+  };
+  await navigateDay(t("calendar.next_day"));
+  await navigateDay(t("calendar.previous_day"));
+  assert.equal(document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]')?.value, base.date);
   const weekly = button("Week");
   assert.ok(weekly);
   await act(async () => weekly.click());
@@ -787,6 +809,13 @@ try {
   assert.equal(suggestionRow(exact), null);
   assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the remaining proposal");
   await act(async () => wednesday.click());
+  const suggestButton = button(t("timesheets.run_local"));
+  assert.ok(suggestButton && !suggestButton.disabled);
+  await act(async () => suggestButton.click());
+  assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest", model: selectedModel });
+  assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
+  assert.equal(workdayActions.some(action => action.type === "draft" && action.key === unedited.key), false);
+  assert.equal(commands.length, beforeConflict);
   assert.equal(wednesday.getAttribute("aria-pressed"), "true");
   const correctPartial = [...(suggestionRow(partial)?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
     .find(button => button.textContent === "Correct");

@@ -25,7 +25,7 @@ The service must:
 
 ## Storage boundaries
 
-Private capture is a per-account JSON file in `private-timesheets`, with directory mode 0700 and file mode 0600, accessed through host-only routes on the loopback LegalWork server. It is not encrypted by the app and is not a remote attestation system. Optional drafting is through the configured local model. Connected-source reads contact the relevant provider.
+Private capture is a per-account JSON file in `private-timesheets`, with directory mode 0700 and file mode 0600, accessed through host-only routes on the loopback LegalWork server. It is not encrypted by the app and is not a remote attestation system. Manual drafting can use the selected project chat model through session-scoped generation. The request and response do not become chat messages. The generated wording returns only to the requesting view. Scheduled drafting continues to use the local model. Connected-source reads contact the relevant provider.
 
 Ordinary firm records enter the local Back Office outbox immediately on save and synchronize automatically. Pending/offline is a delivery state, not a privacy setting. `Draft` is a business status. Default organization sharing and finance/matter permissions govern visibility independently of that status. In the full workflow, booking already sends the entry to the service; submission changes the reviewer lifecycle. Infrastructure administrators may have access beyond the application's reviewer permissions.
 
@@ -47,3 +47,9 @@ The directory integration test runs a synthetic HTTP firm service exposing only 
 Host-only private workday actions persist incomplete cell values and AI edits in the account-specific device file. Drafts never enter record sync. Accepting a suggestion still uses the existing booking reservation and confirmed record API. The `reconcile` action requires the current proposal digest and target record revision. It verifies the worker, service date, matter and access before linking the entry and preserving its private source. A stale target revision leaves the suggestion available for review. It publishes no extra entry. Hiding a suggestion is only a display preference; editing does not accept. This storage uses device filesystem permissions and is not independently witnessed audit evidence.
 
 The ordinary record view keeps existing model limits: no native grouped participant allocation or work-product relation. The full timesheet service remains the authority for approvals and invoice issuance. No access to the connected mock backend's code was assumed or required.
+
+## Requested firm capabilities
+
+- Deliver task completion transitions with a stable event ID, task ID, project or inbox scope, UTC completion instant and authenticated actor. Include undated tasks. Keep the event stable across subsequent edits and sync retries, and distinguish a new completion after reopening. A worker’s device can then select their own completions and group them by local workday. The task snapshot currently exposes status, due date, assignee and last update.
+- Support grouped time entries through the timesheet workflow. Carry the member ID, actual and chargeable minutes and confirmation per participant. Apply group creation atomically with a retry key and return stable entry IDs. The ordinary directory field `timeEntries.timekeeper` accepts one person.
+- Expose the activity-code field and applicable code catalogue for directory records, or enable the existing full timesheet workflow. The current ordinary time-entry schema lacks this field. The workflow already supports codes including DFT (Drafting).

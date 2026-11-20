@@ -350,7 +350,7 @@ export function RecordGrid({
     } finally { setArchiving(false); }
   };
   const kanbanField = object.fields.find((field) => field.id === groupField);
-  const template = `32px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} 32px minmax(0,1fr)`;
+  const template = `${sheet ? 56 : 32}px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} 32px minmax(0,1fr)`;
   const saveView = async () => {
     if (!viewName.trim()) return;
     try {
@@ -448,7 +448,8 @@ export function RecordGrid({
         // The last cell can commit a complete draft and add a new blank row.
         if (targetRow === rows.length && event.target instanceof HTMLInputElement) {
           requestAnimationFrame(() => {
-            const next = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`);
+            const next = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`)
+              ?? scroll.current?.querySelector<HTMLElement>(`[data-sheet-blank]:not([data-record-id="${sheet.blankId}"]) [data-col="0"]`);
             if (next) { next.focus(); next.click(); }
           });
         }
@@ -512,7 +513,7 @@ export function RecordGrid({
     );
   }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
-    <RecordGridRow key={record.id} sheet={Boolean(sheet)} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
+    <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}

@@ -346,3 +346,7 @@ This supersedes the earlier implementation note requiring an actual service time
 In the ordinary firm-record table, stopwatch proposals now fill **Recorded minutes** as well as **Chargeable minutes** using the exact elapsed interval and effective stopwatch rounding rule. Default is up; disabled round-up uses nearest with ties up. This changes the proposed recorded quantity; original source measurements and previously saved entries stay unchanged. A short interval can round to zero without being forced up to one unit. The full workflow retains separate actual worked time and charge quantities. Existing backend limitations on project preferences remain unchanged.
 
 The stopwatch project panel must fit inside the overlay at every dock position, including with no suggested project and a long project list. Project options scroll within the panel while the heading and start/stop action stay reachable.
+
+### Connected-model wording update
+
+For an explicit **Suggest with AI** request, the selected project chat model may receive activity titles and codes from enabled sources. This supersedes the on-device-only inference requirement for that button. Session-scoped generation applies the project's provider policy and leaves no chat messages. The wording is held in the open view until edited or accepted. Background schedules retain on-device inference. Only the reviewed booking enters firm record sync.

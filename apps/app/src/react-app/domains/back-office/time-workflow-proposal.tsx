@@ -55,6 +55,8 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     }
     return result;
   });
+  const [changed, setChanged] = useState(false);
+  const suggestion = !changed && capture.drafts[proposal.key]?.proposalDigest !== proposal.digest ? capture.wording?.[proposal.digest] : undefined;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -63,7 +65,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
   const charge = stopwatch ? stopwatchRowCharge(proposal, edited, policy) : null;
   const values = charge !== null && !edited.manualCharge && Number.isFinite(charge)
     ? { ...edited, charge: edited.worked || (duration !== null && proposal.workedMinutes === null) ? String(charge) : "" }
-    : edited;
+    : suggestion ? { ...edited, ...suggestion } : edited;
   const conflict = capture.overlaps.has(proposal.key);
   const selectedMatter = matchMatter(matters, values.matter);
   const selectedWorker = people.find(person => person.label.toLocaleLowerCase() === values.workers.trim().toLocaleLowerCase());
@@ -78,7 +80,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     return capture.act({ type: "draft", key: proposal.key, date: proposal.date, proposalDigest: proposal.digest, values: fields });
   }
   function privateSave() {
-    if (!canEdit || !capture.privateAvailable || inFlight.current) return;
+    if (!changed || !canEdit || !capture.privateAvailable || inFlight.current) return;
     queue.current = queue.current.then(async () => {
       if (!await saveFields()) setError(t("back_office.save_failed"));
     });
@@ -158,7 +160,9 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
               readOnly={column === "charge" && !values.billable} list={choices[column] ? id + column : undefined}
               onChange={event => {
                 const value = event.target.value;
-                setValues(previous => {
+                setChanged(true);
+                setValues(current => {
+                  const previous = suggestion ? { ...current, ...suggestion } : current;
                   if (column === "worked" || column === "billableWork" || column === "nonBillable" || column === "charge") {
                     const effective = policyFor(previous);
                     return { ...previous, ...changeAmounts(previous, column, value, effective,

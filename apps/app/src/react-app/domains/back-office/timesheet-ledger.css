@@ -398,9 +398,11 @@
 .time-sheet-sync { margin-left:auto; display:inline-flex; align-items:center; gap:5px }
 .time-record-sheet .bo-grid-row-details { grid-column:1 / -1; min-width:0; padding:0 8px 8px 38px; font-size:12px; color:var(--muted-foreground) }
 .time-record-sheet .bo-grid-row-detail { background:var(--t-accent-quaternary, var(--bo-surface)) }
-.time-proposal-actions { display:flex; flex-direction:column; align-items:center; gap:1px }
-.time-proposal-actions button { display:flex; align-items:center; justify-content:center; padding:2px; border-radius:4px }
+.time-proposal-actions { display:flex; justify-content:center; align-items:center; gap:2px }
+.time-proposal-actions button { display:flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:4px }
 .time-proposal-actions button:hover { color:var(--foreground); background:var(--bo-hover) }
+.time-booking-receipt { display:flex; flex-wrap:wrap; align-items:center; gap:6px; flex-shrink:0; margin:10px 16px 4px; padding-top:8px; border-top:1px dashed var(--bo-border); font-size:12px; color:var(--muted-foreground) }
+.time-booking-receipt button { text-decoration:underline; text-underline-offset:2px }
 .time-proposal-details { display:flex; align-items:center; gap:12px; flex-wrap:wrap; max-width:100ch }
 .time-proposal-source { display:inline-flex; align-items:center; gap:5px; text-align:left }
 .time-proposal-source:hover { color:var(--foreground) }
@@ -414,6 +416,8 @@
 .time-unified .bo-workday-list { display:none }
 .time-unified .bo-time-ledger { min-height:0 }
 
+.time-model-hint { margin:0 16px; color:var(--muted-foreground); font-size:12px }
+.time-model-hint:empty { display:none }
 .time-sheet-tools { display:flex; align-items:flex-start; flex-wrap:wrap; gap:4px 20px; margin:4px 0; }
 .time-sheet-tools > details { margin:0; padding:4px 0; }
 .time-sheet-tools > details[open] { flex-basis:100%; }

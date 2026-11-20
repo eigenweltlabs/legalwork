@@ -14,7 +14,7 @@ import {
   type TimeDraft,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
-import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal, type WorkdayModel } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
@@ -43,10 +43,12 @@ export function TimesheetWorkspace({
   directory,
   page,
   renderRecords,
+  workdayModel,
 }: {
   client: LegalworkServerClient;
   directory: BackOfficeState;
   page: keyof typeof timeRoutes;
+  workdayModel?: WorkdayModel;
   renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
@@ -208,7 +210,7 @@ export function TimesheetWorkspace({
       )}
       {state && !recordsOnly && (page === "timesheets" || page === "timesheet-workday" || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={page !== "timesheets" && page !== "timesheet-workday"}>
-          <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+          <TimesheetWorkday ledgerDirty={ledgerDirty} model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
           {capture => <TimesheetLedger
             capture={capture}
             onOriginal={
@@ -242,7 +244,7 @@ export function TimesheetWorkspace({
         </div>
       )}
       {state && recordsOnly && (page === "timesheets" || page === "timesheet-workday") && (
-        <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+        <TimesheetWorkday model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
           {capture => <TimeRecordSheet client={client} directory={directory} state={state} capture={capture} />}
         </TimesheetWorkday>
       )}

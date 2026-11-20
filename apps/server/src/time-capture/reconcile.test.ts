@@ -57,7 +57,7 @@ test("workday reconciliation requires the current accessible row, worker, servic
       days: { [date]: [{ eventKey: "unassigned", proposal }] }, originals: { [proposal.digest]: proposal },
     }));
     const routes: Route[] = [];
-    registerWorkdayRoutes({ routes, config, jsonResponse: Response.json, ensureWritable: () => {}, readJsonBodyLimited: (request) => request.json() });
+    registerWorkdayRoutes({ routes, config, resolveWorkspace: async () => { throw new Error("Unexpected model workspace"); }, jsonResponse: Response.json, ensureWritable: () => {}, readJsonBodyLimited: (request) => request.json() });
     const url = new URL("/private-timesheet/workday?" + new URLSearchParams({ date, profileId, principal, scope, user }), "http://127.0.0.1");
     const approvals = new ApprovalService(config.approval), reloadEvents = new ReloadEventStore(), tokens = new TokenService(config);
     async function workday(action?: CaptureAction) {

@@ -140,8 +140,12 @@ function visible(id: string) { return Boolean(host.querySelector('[data-record-i
 
 try {
   // A refresh that removes the source must not send a private row to the directory.
-  const active = capture({ proposals: [proposal], privateAvailable: true });
+  const active = capture({ proposals: [proposal], privateAvailable: true,
+    wording: { [proposal.digest]: { narrative: "Generated private wording", activity: "RES" } } });
   await render(active);
+  assert.match(cell(row(proposal.key), 4).textContent ?? "", /Generated private wording/);
+  assert.equal(privateActions.length, 0);
+  assert.equal(writes.length, 0);
   const privateInput = await enter(row(proposal.key), 4, "Edited privately");
   await render(capture({ privateAvailable: true }));
   assert.equal(privateInput.isConnected, false);
@@ -308,6 +312,40 @@ try {
   assert.equal(writes.length, 8);
   assert.deepEqual(writes[7].expectedValues, { client: secondary, billableMinutes: 15 });
   assert.deepEqual(writes[7].values, { client: null, billableMinutes: 0 });
+  // A date edit keeps the draft on its originating day. Only the completed record belongs to the target day.
+  let openedDate = "";
+  const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
+  await render(origin, [workerContact, current]);
+  const offDayId = blank().dataset.recordId;
+  assert.ok(offDayId);
+  const workDate = await enter(blank(), 0, second);
+  await act(async () => workDate.blur());
+  assert.equal(blank().dataset.recordId, offDayId);
+  assert.ok(privateActions.some(action => action.type === "draft" && action.key === offDayId && action.date === first && action.values?.startedAt === second));
+  assert.equal(host.querySelector(".time-booking-receipt"), null);
+  const description = await enter(row(offDayId), 4, "Off-day work");
+  await act(async () => description.blur());
+  await act(async () => cell(row(offDayId), 2).click());
+  const option = [...document.querySelectorAll<HTMLButtonElement>(".bo-choices button")].find(button => button.textContent?.includes("Second matter"));
+  assert.ok(option);
+  await act(async () => option.click());
+  const worked = await enter(row(offDayId), 5, "10");
+  await act(async () => worked.blur());
+  assert.equal(writes.length, 8);
+  const charge = await enter(row(offDayId), 6, "0");
+  await act(async () => charge.blur());
+  assert.equal(writes.length, 9);
+  assert.equal(writes.at(-1)?.values.startedAt, second);
+  assert.equal(visible(offDayId), false);
+  assert.notEqual(blank().dataset.recordId, offDayId);
+  const receipt = host.querySelector<HTMLButtonElement>(".time-booking-receipt button");
+  assert.ok(receipt);
+  assert.match(receipt.parentElement?.textContent ?? "", /Off-day work/);
+  await act(async () => receipt.click());
+  assert.equal(openedDate, second);
+  await render(capture({ date: second, dates: [second] }));
+  assert.equal(visible(offDayId), true);
+  assert.equal(host.querySelector(".time-booking-receipt"), null);
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

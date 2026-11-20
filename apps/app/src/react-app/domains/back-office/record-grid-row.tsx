@@ -12,6 +12,7 @@ export type EditingCell = { record: string; field: string; base: BackOfficeRecor
 
 type RowProps = {
   sheet?: boolean;
+  blank?: boolean;
   leading?: ReactNode;
   details?: ReactNode;
   trailing?: ReactNode;
@@ -42,7 +43,7 @@ type RowProps = {
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
-  sheet, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
+  sheet, blank, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
   selected, editing, readOnlyFields, allowedRelationIds, canTab, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
@@ -53,6 +54,7 @@ export const RecordGridRow = memo(function RecordGridRow({
       onFocus={onFocus}
       role="row"
       data-record-id={record.id}
+      data-sheet-blank={blank || undefined}
       data-index={index}
       ref={measure}
       aria-rowindex={index + 2}

@@ -87,6 +87,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
     scopeRank: () => 3,
   });
   registerWorkdayRoutes({
+    resolveWorkspace: async () => config.workspaces[0],
     routes,
     config,
     jsonResponse,

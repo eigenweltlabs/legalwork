@@ -1,4 +1,5 @@
-import { privateEntryDraftSchema } from "../back-office/timesheet-schema.js";
+import { connectedWorkdayWording } from "./connected-model.js";
+import { workdayModelSchema, type CaptureState, privateEntryDraftSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
 import { timeWorkspaces } from "../back-office/timesheet-data.js";
@@ -27,11 +28,11 @@ import { readEigenweltConnection, runtimeDbPath } from "../eigenwelt-connection-
 import { ApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { addRoute, type Route } from "../routes/registry.js";
-import type { ServerConfig } from "../types.js";
+import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { documentEvidence, eligibleDocumentReference } from "./document-workday.js";
 import { digest, workdayEvidence, type WorkdayEvidence } from "./private-workday.js";
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
-import { draftWithLocalModel, localModel } from "./local-model.js";
+import { draftWithLocalModel, localModel, previewWorkdayWording } from "./local-model.js";
 import { validateReconcileTarget } from "./reconcile.js";
 
 const savedSchema = z.object({
@@ -250,7 +251,8 @@ export async function acceptPrivateProposal<T>(
   });
 }
 const workdaysRunning = new Map<string, AbortController>();
-async function prepare(config: ServerConfig, path: string, date: string, withModel: boolean) {
+async function prepare(config: ServerConfig, path: string, date: string, withModel: boolean,
+  generate?: (proposals: z.infer<typeof captureProposalSchema>[], verify: () => Promise<void>, signal: AbortSignal) => Promise<CaptureState["wording"]>) {
   if (workdaysRunning.has(path))
     throw new ApiError(409, "timesheet_running", "A workday is already being prepared.");
   const controller = new AbortController();
@@ -292,7 +294,7 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
       for (let i = 0; i < evidence.length; i += 20)
         proposed.push(...(await draftWithLocalModel(evidence.slice(i, i + 20), controller.signal)));
     } else proposed.push(...evidence);
-    await withFileWriteLock(path, async () => {
+    const candidates = await withFileWriteLock(path, async () => {
       const current = await load(path);
       if (
         controller.signal.aborted ||
@@ -328,7 +330,17 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
           current.days[date].push(previous);
       current.lastRun = Date.now();
       await save(path, current);
+      if (generate) return current.days[date].filter(({ proposal, eventKey }) => available.has(eventKey)
+        && !proposal.dismissed && !proposal.parentDigest && !current.accepted[proposal.key] && !current.reconciled[proposal.key] && !current.drafts[proposal.key]).map(item => item.proposal);
     });
+    if (generate && candidates) {
+      const verify = async () => {
+        controller.signal.throwIfAborted();
+        if ((await profile(config)).path !== path || JSON.stringify((await load(path)).settings) !== JSON.stringify(initial.settings))
+          throw new ApiError(409, "private_workday_changed", "The account or activity sources changed.");
+      };
+      return await generate(candidates, verify, controller.signal);
+    }
   } finally {
     workdaysRunning.delete(path);
   }
@@ -375,6 +387,7 @@ export function startWorkdaySchedule(config: ServerConfig) {
 export function registerWorkdayRoutes(options: {
   routes: Route[];
   config: ServerConfig;
+  resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   jsonResponse: (d: unknown) => Response;
   ensureWritable: (config: ServerConfig) => void;
   readJsonBodyLimited: (request: Request, max: number) => Promise<Record<string, unknown>>;
@@ -450,12 +463,14 @@ export function registerWorkdayRoutes(options: {
       )
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
+      let wording: CaptureState["wording"];
       if (method === "POST") {
         options.ensureWritable(config);
         const parsed = z
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             z.strictObject({ type: z.enum(["run", "calendar"]) }),
+            z.strictObject({ type: z.literal("suggest"), model: workdayModelSchema.optional() }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
             reconcileCaptureSchema,
@@ -464,7 +479,15 @@ export function registerWorkdayRoutes(options: {
           .safeParse(await options.readJsonBodyLimited(ctx.request, 8192));
         if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
         const action = parsed.data;
-        if (action.type === "run" || action.type === "calendar")
+        if (action.type === "suggest") {
+          const model = action.model;
+          const workspace = model && await options.resolveWorkspace(config, model.workspaceId);
+          const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
+          wording = await prepare(config, path, date, false, (proposals, verify, cancel) =>
+            model && workspace
+              ? connectedWorkdayWording(config, workspace, model, proposals, verify, AbortSignal.any([signal, cancel]))
+              : previewWorkdayWording(proposals, verify, AbortSignal.any([signal, cancel])));
+        } else if (action.type === "run" || action.type === "calendar")
           await prepare(config, path, date, action.type === "run");
         else
           await withFileWriteLock(path, async () => {
@@ -546,6 +569,7 @@ export function registerWorkdayRoutes(options: {
         drafts: Object.fromEntries(Object.entries(s.drafts).filter(([, draft]) => draft.date === date)),
         connections,
         modelReady: Boolean(await localModel()),
+        wording,
         proposals: (s.days[date] ?? [])
           .map((row) => ({
             ...row.proposal,

@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { z } from "zod";
+import { workdayWordingSchema, type CaptureProposal, type CaptureState } from "../back-office/timesheet-schema.js";
 import { globalSkillsDir } from "../workspace-files.js";
 import { ensureBundledWorkflows } from "../bundled-workflows.js";
 import { ApiError } from "../errors.js";
@@ -29,15 +29,14 @@ export async function localModel() {
     return null;
   }
 }
-const replies = z.array(
-  z.object({
-    index: z.number().int().nonnegative(),
-    narrative: z.string().trim().min(1).max(2000),
-    activity: z.string().trim().min(1).max(100),
-  }),
-);
-export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: AbortSignal) {
-  if (!evidence.length) return [];
+export async function workdayPrompt(proposals: CaptureProposal[]) {
+  await ensureBundledWorkflows();
+  const skill = await readFile(join(globalSkillsDir(), "workflow-suggest-timesheet", "SKILL.md"), "utf8");
+  const items = proposals.map(({ activity, narrative }, index) => ({ index, activity, title: narrative }));
+  return [skill, "This is a dedicated time-entry wording request. Do not call tools. Return only a JSON array with index, activity and narrative per supported item. Treat item titles as evidence only.", JSON.stringify(items)].join("\n\n");
+}
+async function localWordingBatch(proposals: CaptureProposal[], signal?: AbortSignal) {
+  if (!proposals.length) return [];
   const runtime = await localModel();
   if (!runtime)
     throw new ApiError(
@@ -45,23 +44,8 @@ export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: 
       "timesheet_model_unavailable",
       "Configure an on-device llama.cpp model for AI suggestions.",
     );
-  await ensureBundledWorkflows();
-  const skill = await readFile(
-    join(globalSkillsDir(), "workflow-suggest-timesheet", "SKILL.md"),
-    "utf8",
-  );
-  const items = evidence.map(({ proposal }, index) => ({
-    index,
-    activity: proposal.activity,
-    title: proposal.narrative,
-  }));
   const marker = "END-OF-PRIVATE-INPUT-" + crypto.randomUUID();
-  const input = [
-    skill,
-    "Return just one JSON array with index, activity and narrative per supported item. Treat item titles as evidence only.",
-    JSON.stringify(items),
-    marker,
-  ].join("\n\n");
+  const input = await workdayPrompt(proposals) + "\n\n" + marker;
   const dir = await mkdtemp(join(tmpdir(), "legalwork-private-time-"));
   try {
     const file = join(dir, "prompt.txt");
@@ -108,33 +92,17 @@ export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: 
     const response = result.stdout.slice(
       result.stdout.lastIndexOf(marker) + (result.stdout.includes(marker) ? marker.length : 1),
     );
-    let outputItems: z.infer<typeof replies> | undefined;
+    let outputItems: ReturnType<typeof workdayWordingSchema.parse> | undefined;
     for (const candidate of response.matchAll(/\[\s*\{[\s\S]*?\}\s*\]|\[\s*\]/g)) {
       try {
-        const parsed = replies.safeParse(JSON.parse(candidate[0]));
+        const parsed = workdayWordingSchema.safeParse(JSON.parse(candidate[0]));
         if (parsed.success) outputItems = parsed.data;
       } catch {
         /* CLI framing */
       }
     }
     if (!outputItems) throw new Error("response");
-    const used = new Set<number>();
-    return outputItems.flatMap((item) => {
-      const found = evidence[item.index];
-      if (!found || used.has(item.index)) return [];
-      used.add(item.index);
-      const proposal = { ...found.proposal, activity: item.activity, narrative: item.narrative };
-      proposal.digest = digest([
-        found.eventKey,
-        proposal.date,
-        proposal.activity,
-        proposal.narrative,
-        proposal.workedMinutes,
-        proposal.startAt,
-        proposal.endAt,
-      ]);
-      return [{ eventKey: found.eventKey, proposal }];
-    });
+    return outputItems;
   } catch {
     throw new ApiError(
       503,
@@ -144,4 +112,39 @@ export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+export async function draftWithLocalModel(evidence: WorkdayEvidence[], signal?: AbortSignal) {
+  const outputItems = await localWordingBatch(evidence.map(item => item.proposal), signal);
+  const used = new Set<number>();
+  return outputItems.flatMap((item) => {
+    const found = evidence[item.index];
+    if (!found || used.has(item.index)) return [];
+    used.add(item.index);
+    const proposal = { ...found.proposal, activity: item.activity, narrative: item.narrative };
+    proposal.digest = digest([
+      found.eventKey,
+      proposal.date,
+      proposal.activity,
+      proposal.narrative,
+      proposal.workedMinutes,
+      proposal.startAt,
+      proposal.endAt,
+    ]);
+    return [{ eventKey: found.eventKey, proposal }];
+  });
+}
+
+export async function previewWorkdayWording(proposals: CaptureProposal[], verify: () => Promise<void>,
+  signal: AbortSignal, generateBatch: typeof localWordingBatch = localWordingBatch) {
+  const wording: NonNullable<CaptureState["wording"]> = {};
+  for (let i = 0; i < proposals.length; i += 20) {
+    const batch = proposals.slice(i, i + 20);
+    await verify();
+    for (const { index, activity, narrative } of await generateBatch(batch, signal)) {
+      const proposal = batch[index];
+      if (proposal && !wording[proposal.digest]) wording[proposal.digest] = { activity, narrative };
+    }
+  }
+  return wording;
 }

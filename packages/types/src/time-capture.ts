@@ -46,9 +46,16 @@ export const captureProposalSchema = z.object({
   versions: z.array(z.string()).optional(),
 });
 export const privateEntryDraftSchema = z.object({ date: z.iso.date(), values: z.record(z.string(), BackOfficeValueSchema), proposalDigest: z.string().length(64).optional() });
+export const workdayModelSchema = z.object({
+  workspaceId: z.string().min(1).max(200), providerID: z.string().min(1).max(200), modelID: z.string().min(1).max(300),
+});
+export type WorkdayModel = z.infer<typeof workdayModelSchema>;
+const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
+export const workdayWordingSchema = z.array(wordingSchema.extend({ index: z.number().int().nonnegative() }));
 export const captureStateSchema = z.object({
   settings: captureSettingsSchema,
   modelReady: z.boolean(),
+  wording: z.record(z.string(), wordingSchema).optional(),
   proposals: z.array(captureProposalSchema),
   drafts: z.record(z.string(), privateEntryDraftSchema).default({}),
   connections: z.array(captureAccountSchema).default([]),
@@ -68,6 +75,7 @@ export type CaptureState = z.infer<typeof captureStateSchema>;
 export type CaptureAction =
   | WorkdayCorrection
   | { type: "settings"; settings: CaptureSettings }
+  | { type: "suggest"; model?: WorkdayModel }
   | { type: "run" | "calendar" }
   | { type: "dismiss"; key: string }
   | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }

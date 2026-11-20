@@ -60,6 +60,7 @@ import {
 } from "./timesheet-row";
 import { AdjustmentRequest } from "./timesheet-adjustment";
 import { useTimesheetColumns } from "./timesheet-columns";
+import { useBookingReceipt } from "./time-booking-receipt";
 import { TimesheetWeekTotals } from "./timesheet-week-totals";
 import "./timesheet-ledger.css";
 
@@ -222,6 +223,7 @@ export function TimesheetLedger({
   const [period, setPeriod] = useState<"day" | "week">("day");
   const date = capture?.date ?? ledgerDate;
   const dates = capture?.dates ?? (period === "week" ? weekDates(date) : [date]);
+  const { showBooking, receipt } = useBookingReceipt(date, dates, chooseDate);
   function capFor(
     entry: Pick<TimeDraft, "clientId" | "matterId" | "projectId" | "date" | "activity" | "billableMinutes">,
   ) {
@@ -534,14 +536,10 @@ export function TimesheetLedger({
       setProvenance(undefined);
       setDraftChanged(false);
       setParticipants([]);
-      if (capture) capture.selectDate(entry.date);
-      else {
-        setLedgerDate(entry.date);
-        onDateChange?.(entry.date);
-      }
+      showBooking(entry.date, entry.narrative);
       setDraft(
         emptyRow(
-          entry.date,
+          date,
           own,
           matters.find(
             (m) =>
@@ -621,13 +619,13 @@ export function TimesheetLedger({
     for (const column of rowColumns) fields[column] = draft[column];
     if (draft.productId) fields.productId = draft.productId;
     privateQueue.current = privateQueue.current.then(async () => {
-      if (!await capture.act({ type: "draft", key: requestId, date: draft.date, values: fields })) setError(t("back_office.save_failed"));
+      if (!await capture.act({ type: "draft", key: requestId, date, values: fields })) setError(t("back_office.save_failed"));
     });
   }
   async function clearPrivateDraft() {
     if (!capture?.privateAvailable) return;
     await privateQueue.current;
-    await capture.act({ type: "draft", key: requestId, date: draft.date, values: null });
+    await capture.act({ type: "draft", key: requestId, date, values: null });
   }
   function resetComposer() {
     void clearPrivateDraft();
@@ -1275,6 +1273,7 @@ export function TimesheetLedger({
           </div>
         )}
       </div>
+      {receipt}
       {delegated.length > 0 && (
         <details className="bo-time-delegated">
           <summary>

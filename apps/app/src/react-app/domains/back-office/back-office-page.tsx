@@ -1,3 +1,4 @@
+import type { WorkdayModel } from "@legalwork/types/time-capture";
 import { timePage } from "./time-routes";
 import { TimesheetWorkspace } from "./timesheet-workspace";
 import { NativeTable } from "./native-table";
@@ -73,8 +74,9 @@ const pendingChangesSchema = z.object({
   })),
 });
 
-export function BackOfficePage({ client, embeddedObject }: {
+export function BackOfficePage({ client, embeddedObject, workdayModel }: {
   client: LegalworkServerClient;
+  workdayModel?: WorkdayModel;
   embeddedObject?: "timeEntries" | "invoices";
 }) {
   const locale = useLocale();
@@ -437,7 +439,7 @@ export function BackOfficePage({ client, embeddedObject }: {
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            client={client} directory={data} page={timesheet}
+            client={client} directory={data} page={timesheet} workdayModel={workdayModel}
             renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (

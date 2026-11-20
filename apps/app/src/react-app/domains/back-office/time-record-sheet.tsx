@@ -14,6 +14,7 @@ import { ValueDisplay } from "./record-values";
 import { sourceKeys } from "./timesheet-labels";
 import { proposalValues, timeRecordDate } from "./time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, timeCellChanges, timeRecordConflictSchema, timeRecordEdits, timeRowClipboardSchema, type TimeRecordEdit, type TimeRecordValues, type TimeRowDraft } from "./time-record-edits";
+import { useBookingReceipt } from "./time-booking-receipt";
 import { TimesheetWeekTotals } from "./timesheet-week-totals";
 import { useNavigate } from "react-router-dom";
 
@@ -29,6 +30,7 @@ const serviceDate = (values: TimeRecordValues) => timeRecordDate(values.startedA
 
 export type TimeCaptureSheet = {
   proposals: CaptureProposal[];
+  wording?: CaptureState["wording"];
   drafts: CaptureState["drafts"];
   date: string;
   dates: string[];
@@ -60,6 +62,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   const [hiddenProposals, hideProposals] = useState<Set<string>>(new Set());
   const [source, setSource] = useState<string>();
   const [person, setPerson] = useState(self);
+  const bookedWorker = useRef<BackOfficeValue | undefined>(undefined);
+  const { showBooking, receipt } = useBookingReceipt(capture.date, capture.dates, target => {
+    if (person && person !== bookedWorker.current) setPerson("");
+    capture.selectDate(target);
+  });
   const copied = useRef<TimeRecordValues>(undefined);
   const blankIds = useRef(new Map<string, string>());
   const order = useRef(new Map<string, number>());
@@ -140,8 +147,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
   if (capture.showSuggestions) for (const proposal of proposals) {
     const draft = edits.drafts.get(proposal.key);
     const savedDraft = capture.drafts[proposal.key];
+    const suggested = capture.wording?.[proposal.digest];
     const candidate = draft?.proposal?.digest === proposal.digest ? draft.record : row(proposal.key, {
-      ...proposalValues(proposal, state), timekeeper: self, ...(savedDraft?.proposalDigest === proposal.digest ? savedDraft.values : {}),
+      ...proposalValues(suggested ? { ...proposal, ...suggested } : proposal, state), timekeeper: self, ...(savedDraft?.proposalDigest === proposal.digest ? savedDraft.values : {}),
     });
     candidateOrigins.current.set(candidate, proposal);
     entries.set(proposal.key, candidate);
@@ -328,6 +336,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
       edits.drafts.delete(id);
       edits.draftErrors.delete(id);
       if (accepted) hideProposals(previous => new Set(previous).add(id));
+      const bookedDate = serviceDate(saved.values);
+      if (currentCapture.current.date === capture.date && !capture.dates.includes(bookedDate)) {
+        bookedWorker.current = fieldValue(pending.record, "timekeeper");
+        showBooking(bookedDate, String(saved.values.billingNarrative ?? saved.values.name));
+      }
       await acknowledge(saved);
       if (later && later !== pending && !pending.proposal) addUpdate(saved, differentTimeValues(pending.record.values, later.record.values));
       if (!accepted && currentCapture.current.privateAvailable) await currentCapture.current.act({ type: "draft", key: id, date: pending.date, values: null });
@@ -352,12 +365,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
     // A candidate identified by the private cache cannot become an ordinary row.
     if (!record.revision && ((origin && (saved || hiddenProposals.has(id) || edits.saving.has(id))) || (!origin && capture.drafts[id]?.proposalDigest))) return;
     if (saved) { addUpdate(saved, values); return; }
-    if (id === blankId && !matchingDraft && !Object.keys(values).length) return;
+    if ((origin || (id === blankId && !matchingDraft)) && !Object.keys(values).length) return;
     const latest = matchingDraft?.record ?? record;
     const next = { ...latest, values: { ...latest.values, ...values } };
-    const draft = { record: next, date: origin?.date ?? (serviceDate(next.values) || capture.date), proposal: origin };
+    const draft = { record: next, date: origin?.date ?? matchingDraft?.date ?? capture.drafts[id]?.date ?? capture.date, proposal: origin };
     edits.drafts.set(id, draft);
-    if (id === blankId && (valid(draft) || draft.date !== capture.date)) blankIds.current.delete(capture.date);
+    if (id === blankId && valid(draft)) blankIds.current.delete(capture.date);
     edits.changed();
     enqueue(id, () => persistDraft(id));
   }
@@ -496,6 +509,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, edits }: Props
           </div>;
         },
       }} />
+    {receipt}
     <div className="time-sheet-footer"><span>{t("timesheets.sheet.keyboard")}</span></div>
   </div>;
 }

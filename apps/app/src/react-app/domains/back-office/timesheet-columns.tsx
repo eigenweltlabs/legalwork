@@ -48,8 +48,8 @@ export function useTimesheetColumns(scope: string) {
       : `${widths[field]}px`,
   );
   const layout = {
-    "--time-tracks": ["30px", ...tracks, "102px"].join(" "),
-    "--time-min-width": 132 + columns.reduce((n, field) => n + widths[field], 0) + "px",
+    "--time-tracks": ["56px", ...tracks, "102px"].join(" "),
+    "--time-min-width": 158 + columns.reduce((n, field) => n + widths[field], 0) + "px",
   };
   return {
     columns,
