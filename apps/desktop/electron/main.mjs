@@ -957,6 +957,7 @@ const launcherWindow = new LauncherWindow({
 const launcherFileDrag = new LauncherFileDrag({ icon: file => app.getFileIcon(file, { size: "normal" }) });
 const originService = new OriginService({
   helperPath: resolveKeyMonitorPath(app), exec: execHelper, clipboard,
+  windowsHelperPath: path.join(app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources"), "helpers/LegalWorkLauncherOrigin.exe"),
   pasteText: text => systemDictation.pasteText(text),
 });
 const screenCapture = new ScreenCapture({ hiddenWhile: work => launcherWindow.hiddenWhile(work) });
@@ -1068,7 +1069,7 @@ function syncBackgroundPresence() {
     appTray.ensure({
       dictationEnabled: status.enabled,
       shortcutLabel: trayShortcutLabel(status),
-      launcher: { shortcutLabel: trayShortcutLabel({ registered: true, accelerator: launcherSettings.shortcut, platform: status.platform }), onOpen: () => invoke("open"), onFiles: () => invoke("files"), onAsk: () => invoke("ask"), onWork: () => invoke("work") },
+      launcher: { shortcutLabel: trayShortcutLabel({ registered: launcherService.registry.isRegistered("launcher.open"), accelerator: launcherSettings.shortcut, platform: status.platform }), onOpen: () => invoke("open"), onFiles: () => invoke("files"), onAsk: () => invoke("ask"), onWork: () => invoke("work") },
     });
   } else {
     appTray.destroy();
@@ -3586,6 +3587,7 @@ if (!app.requestSingleInstanceLock()) {
         recorderService().broadcast({ type: "system-dictation-cancel" });
       },
       onUnlockScreen: async () => {
+        launcherService.refreshAfterResume();
         // The secure desktop swallows key-ups (Win+L is pressed to get
         // there) — rebuild key state even without a sleep in between.
         await systemDictation.refreshAfterResume();

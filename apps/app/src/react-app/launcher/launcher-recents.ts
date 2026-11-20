@@ -1,3 +1,5 @@
+import { useQueries } from "@tanstack/react-query";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { LauncherSearchResultSchema, type LauncherSearchResult } from "@legalwork/types/launcher";
 
 export type LauncherRecent = { result: LauncherSearchResult; openedAt: number; visits: number };
@@ -31,6 +33,26 @@ export function rememberLauncherOpen(server: string, result: LauncherSearchResul
 export function hasRecentSource(result: Pick<LauncherSearchResult, "kind" | "workspaceId" | "sourceId">, projects: readonly { id: string }[], visibleFile: boolean) {
   if (result.kind === "files") return visibleFile;
   return !result.workspaceId || result.sourceId === "assistant" || projects.some(project => project.id === result.workspaceId);
+}
+
+/** Old recents contain display metadata only. Check each project's chat IDs
+ * together before ranking suggestions so empty rows cannot take a slot. */
+export function useVisibleRecentChats(client: LegalworkServerClient, recents: LauncherRecent[], enabled: boolean) {
+  const byWorkspace = new Map<string, Set<string>>();
+  for (const { result } of recents) {
+    if (result.kind !== "chats" || !result.workspaceId) continue;
+    const ids = byWorkspace.get(result.workspaceId) ?? new Set<string>();
+    ids.add(result.sessionId ?? result.id);
+    byWorkspace.set(result.workspaceId, ids);
+  }
+  const groups = [...byWorkspace].map(([workspaceId, ids]) => ({ workspaceId, sessionIds: [...ids].sort() }));
+  const queries = useQueries({ queries: groups.map(({ workspaceId, sessionIds }) => ({
+    queryKey: ["launcher-visible-chats", client.baseUrl, client.draftProfile, workspaceId, sessionIds],
+    queryFn: ({ signal }: { signal: AbortSignal }) => client.visibleLauncherChats(workspaceId, sessionIds, signal),
+    enabled, retry: false,
+  })) });
+  const visible = new Map(groups.map(({ workspaceId }, index) => [workspaceId, new Set(queries[index]?.data?.sessionIds)]));
+  return (result: LauncherSearchResult) => result.kind !== "chats" || visible.get(result.workspaceId ?? "")?.has(result.sessionId ?? result.id) === true;
 }
 
 /** Recent use wins; a related project and repeated use provide bounded boosts. */

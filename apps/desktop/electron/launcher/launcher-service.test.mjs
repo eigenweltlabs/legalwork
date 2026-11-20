@@ -14,6 +14,7 @@ function fakeWindow() {
   return { sent, get visibleNow() { return visible; }, get dialogs() { return dialogs; }, get ensured() { return ensured; }, setLoading: value => { loading = value; }, window: {}, rememberPosition: true,
     ensure: async () => { ensured++; return {}; }, beginDialog: () => { dialogs++; }, endDialog: () => { dialogs = Math.max(0, dialogs - 1); },
     isVisible: () => visible, isFocused: () => focused, state: () => ({ visible, pinned, focused, displayId: null }), webContents: () => contents,
+    preview: async shouldShow => { if (shouldShow()) visible = true; },
     show: async (shouldShow = () => true) => { if (shouldShow()) { visible = true; focused = true; } return { visible, pinned, focused, displayId: null }; }, hide: () => { visible = false; focused = false; return { visible, pinned, focused, displayId: null }; },
     send: event => sent.push(event), setPinned: value => { pinned = value; return { visible, pinned, focused, displayId: null }; }, resize: () => ({ visible, pinned, focused, displayId: null }), expand: () => { visible = false; }, destroy: () => {} };
 }
@@ -24,22 +25,50 @@ function fakeOrigin() {
 }
 const fakeShortcut = () => { const bound = new Map(); return { bound, register: (accelerator, callback) => { bound.set(accelerator, callback); return true; }, unregister: accelerator => bound.delete(accelerator), isRegistered: accelerator => bound.has(accelerator) }; };
 
-async function makeService(dir) {
+async function makeService(dir, platform = "darwin") {
   const window = fakeWindow();
   const origin = fakeOrigin();
   const globalShortcut = fakeShortcut();
   const companionStates = [];
   const voice = [];
   const service = new LauncherService(/** @type {any} */ ({
-    app: { getLoginItemSettings: () => ({ openAtLogin: false, status: "enabled" }), setLoginItemSettings: () => {} }, globalShortcut, userDataDir: dir, platform: "darwin",
+    app: { getLoginItemSettings: () => ({ openAtLogin: false, status: "enabled" }), setLoginItemSettings: () => {} }, globalShortcut, userDataDir: dir, platform,
     window, origin, capture: { destroy: () => {} }, pairing: { load: async () => ({ enabled: false, path: null }), status: () => ({ enabled: false, path: null }) },
     dictation: () => ({ enabled: true, accelerator: "Control", runtimeState: "idle" }), meeting: () => ({ state: "idle" }), companion: state => companionStates.push(state), onPresenceChanged: () => {},
     dictate: () => voice.push("dictate"), record: () => voice.push("record"), composerRecording: () => false,
-    registry: new LauncherShortcutRegistry({ globalShortcut, platform: "darwin", reserved: () => ["Control"] }),
+    registry: new LauncherShortcutRegistry({ globalShortcut, platform, reserved: () => ["Control"] }),
   }));
   await service.initialize();
   return { service, window, origin, globalShortcut, companionStates, voice };
 }
+
+test("a repeated Windows hotkey during selection capture keeps one open and uses the external context", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-win-open-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { service, window, origin, globalShortcut } = await makeService(dir, "windows");
+  assert.ok(globalShortcut.bound.has("Control+F8"));
+  assert.equal(window.ensured, 1);
+  service.options.workspaceContext = () => ({ workspaceId: "previous", workspaceName: "Previous", capturedAt: 1 });
+  let release = () => {};
+  const delay = new Promise(resolve => { release = () => resolve(undefined); });
+  const capture = origin.capture;
+  origin.capture = async () => { await delay; return capture(); };
+  const open = service.toggle("shortcut");
+  await service.toggle("shortcut");
+  assert.equal(window.visibleNow, true);
+  assert.equal(window.isFocused(), false);
+  release();
+  await open;
+  assert.equal(window.isFocused(), true);
+  assert.equal(origin.captures, 1);
+  assert.equal(origin.prefetches, 1);
+  const invocations = service.drain();
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].workspaceContext, undefined);
+  await service.toggle("shortcut");
+  assert.equal(window.visibleNow, false);
+  service.dispose();
+});
 
 test("the shortcut opens the panel after capturing the origin; repeated invocations and duplicate links do nothing twice", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "launcher-service-"));

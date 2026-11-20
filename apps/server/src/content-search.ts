@@ -38,29 +38,44 @@ export function localSessionDatabasePath(config: ServerConfig) {
     : resolveOpencodeDbPath();
 }
 
+const hasChatMessages = "EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user','assistant'))";
+const activeSession = "s.directory IN (?,?) AND (s.time_archived IS NULL OR s.time_archived=0)";
+
+async function sessionDirectories(workspace: WorkspaceInfo) {
+  const root = workspace.opencode?.directory || workspace.directory || workspace.path;
+  const canonical = await realpath(root).catch(() => resolve(root));
+  return [root, canonical].map(path => process.platform === "win32" ? path.replaceAll("\\", "/") : path);
+}
+
+/** Validate launcher history against the engine without loading message bodies. */
+export async function nonemptySessionIds(config: ServerConfig, workspace: WorkspaceInfo, candidates?: readonly string[]) {
+  if (candidates?.length === 0) return new Set<string>();
+  const db = await openSqliteReadonly(localSessionDatabasePath(config));
+  try {
+    const ids = candidates ? ` AND s.id IN (${candidates.map(() => "?").join(",")})` : "";
+    const rows = db.all(`SELECT s.id FROM session_v2 s WHERE ${activeSession}${ids} AND ${hasChatMessages}`,
+      [...await sessionDirectories(workspace), ...(candidates ?? [])]);
+    return new Set(rows.map(row => String(row.id)));
+  } finally { db.close(); }
+}
+
 /** Read the engine's own local transcripts, including messages older than the UI's history window. */
 export async function searchSessionContents(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   query: string,
   signal: AbortSignal,
+  options: { requireMessages?: boolean } = {},
 ): Promise<ContentSearchResponse> {
   const dbPath = localSessionDatabasePath(config);
   if (!existsSync(dbPath))
     throw new Error("The local session database is unavailable.");
   const db = await openSqliteReadonly(dbPath);
   try {
-    const root =
-      workspace.opencode?.directory || workspace.directory || workspace.path;
-    const canonicalRoot = await realpath(root).catch(() => resolve(root));
-    // Released 2.1.4 retains legacy tables, but only these native tables
-    // contain new chats. Never fall back to a stale v1 transcript silently.
-    const stored = (path: string) =>
-      process.platform === "win32" ? path.replaceAll("\\", "/") : path;
     const sessions = db.all(
-      `SELECT id,title,time_updated FROM session_v2
-      WHERE directory IN (?,?) AND (time_archived IS NULL OR time_archived=0) ORDER BY time_updated DESC`,
-      [stored(root), stored(canonicalRoot)],
+      `SELECT s.id,s.title,s.time_updated FROM session_v2 s WHERE ${activeSession}
+       ${options.requireMessages ? "AND " + hasChatMessages : ""} ORDER BY s.time_updated DESC`,
+      await sessionDirectories(workspace),
     );
     const found = new Map<string, ContentSearchResult>();
     const add = (

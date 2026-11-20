@@ -9,7 +9,7 @@ test("forms and folder pickers share the platform confirmation key without inter
   expect(isLauncherConfirmKey({ ...enter, metaKey: true }, true)).toBe(true);
   expect(isLauncherConfirmKey({ ...enter, ctrlKey: true }, true)).toBe(false);
   expect(isLauncherConfirmKey({ ...enter, ctrlKey: true }, false)).toBe(true);
-  expect(isLauncherConfirmKey({ ...enter, metaKey: true }, false)).toBe(false);
+  expect(isLauncherConfirmKey({ ...enter, metaKey: true }, false)).toBe(true);
   expect(isLauncherConfirmKey({ ...enter, metaKey: true, isComposing: true }, true)).toBe(false);
   expect(isLauncherConfirmKey({ ...enter, metaKey: true, altKey: true }, true)).toBe(false);
 });

@@ -44,7 +44,7 @@ export class LauncherShortcutRegistry {
   /** After wake, re-apply only what the OS reports lost. */
   refresh(bindings) {
     const lost = [...this.registered.values()].some(entry => typeof this.globalShortcut.isRegistered === "function" && !this.globalShortcut.isRegistered(entry.accelerator));
-    if (lost || this.registered.size < bindings.length - this.conflicts.length) return this.apply(bindings);
+    if (lost || this.conflicts.some(entry => entry.reason === "registration-failed") || this.registered.size < bindings.length - this.conflicts.length) return this.apply(bindings);
     return this.conflicts;
   }
   dispose() {

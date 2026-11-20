@@ -78,7 +78,7 @@ export class LauncherWindow {
     const focused = this.options.focusedDisplay();
     return screen.getAllDisplays().find(display => display.id === focused) ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   }
-  /** Keep the renderer warm only when asked (background presence); otherwise it is created on first use. */
+  /** Share a single renderer between warm-up and concurrent opens. */
   async ensure() {
     if (this.disposed) throw new Error("The launcher has been closed.");
     if (this.loading) return this.loading;
@@ -123,17 +123,30 @@ export class LauncherWindow {
     }
     return window;
   }
-  /** @param {() => boolean} [shouldShow] */
-  async show(shouldShow = () => true) {
-    const window = await this.ensure();
-    if (!shouldShow()) return this.state();
+  place(window) {
     const display = this.display();
     this.displayId = display.id;
     this.remembered = this.rememberPosition ? this.positions[String(display.id)] ?? null : null;
     const bounds = placePanel(display.workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered?.displayId === display.id || !this.remembered?.displayId ? this.remembered : null);
-    window.setBounds(bounds);
-    window.show();
-    window.focus();
+    const current = window.getBounds();
+    if (current.x !== bounds.x || current.y !== bounds.y || current.width !== bounds.width || current.height !== bounds.height) window.setBounds(bounds);
+  }
+  /** Paint the warm Windows panel without taking keyboard focus from the source of the selection. */
+  async preview(shouldShow) {
+    const window = await this.ensure();
+    if (!shouldShow() || window.isVisible()) return;
+    this.place(window);
+    window.showInactive();
+  }
+  /** @param {() => boolean} [shouldShow] */
+  async show(shouldShow = () => true) {
+    const window = await this.ensure();
+    if (!shouldShow()) return this.state();
+    if (!window.isVisible()) {
+      this.place(window);
+      window.show();
+    }
+    if (!window.isFocused()) window.focus();
     this.options.onVisibility({ visible: true, pinned: this.pinned });
     this.send({ type: "visibility", visible: true, pinned: this.pinned });
     this.send({ type: "position", moved: this.positionMoved() });
@@ -175,7 +188,8 @@ export class LauncherWindow {
       const bounds = this.window.getBounds();
       const area = screen.getDisplayMatching(bounds).workArea;
       const height = Math.min(next, area.height);
-      this.window.setBounds({ ...bounds, height, y: Math.max(area.y, Math.min(bounds.y, area.y + area.height - height)) });
+      const y = Math.max(area.y, Math.min(bounds.y, area.y + area.height - height));
+      if (bounds.height !== height || bounds.y !== y) this.window.setBounds({ ...bounds, height, y });
     }
     return this.state();
   }

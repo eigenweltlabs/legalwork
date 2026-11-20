@@ -27,7 +27,8 @@ test("a pending output survives restart, keeps its identity and never repeats af
   assert.equal((await second.list())[0].result, "recovered");
   await second.remember(intent); await second.tick(); await second.dispose();
   const third = queue(); await third.tick(); assert.equal(inserted.length, 1); assert.equal(copied.length, 0);
-  assert.equal((await stat(path)).mode & 0o777, 0o600);
+  // On Windows the file inherits the profile directory's ACL instead of POSIX permission bits.
+  if (process.platform !== "win32") assert.equal((await stat(path)).mode & 0o777, 0o600);
 }));
 
 test("a crash after an uncertain paste recovers text without pasting again", () => fixture(async ({ queue, path, copied, inserted }) => {

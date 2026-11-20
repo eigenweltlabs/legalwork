@@ -61,6 +61,16 @@ test("conversations are explicit, independent of the day, and keep daily history
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("the launcher filters empty conversations before pagination, including daily chats", async () => {
+  const store = await AssistantConversations.open(":memory:", () => [
+    { sessionId: "older-with-messages", date: "2026-10-22" },
+    { sessionId: "newer-empty", date: "2026-10-23" },
+  ]);
+  const page = store.list(workspace.id, { limit: 1, sessionIds: new Set(["older-with-messages"]) });
+  expect(page.items.map(item => item.sessionId)).toEqual(["older-with-messages"]);
+  expect(page.nextCursor).toBeNull();
+});
+
 test("a conversation created outside the Assistant project is refused", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-conversations-scope-"));
   try {
