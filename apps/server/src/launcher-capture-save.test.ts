@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { backOfficeTestConfig } from "./back-office/config.test-support.js";
+import type { WorkspaceInfo } from "./types.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { matchRoute, type RequestContext, type Route } from "./routes/registry.js";
 
@@ -12,13 +14,13 @@ test("capture saves only into an existing project document folder without overwr
     await Promise.all([mkdir(join(documents, "Evidence"), { recursive: true }), mkdir(engine), mkdir(outside)]);
     await symlink(outside, join(documents, "Outside"), "junction");
     const routes: Route[] = [];
-    const workspace = { id: "project", name: "Synthetic project", contentPath: documents, path: engine, preset: "starter", workspaceType: "local" };
+    const workspace: WorkspaceInfo = { id: "project", name: "Synthetic project", contentPath: documents, path: engine, preset: "starter", workspaceType: "local" };
     registerFileRoutes({
-      routes, config: { workspaces: [workspace] }, jsonResponse: (data: unknown, status?: number) => Response.json(data, { status }),
+      routes, config: backOfficeTestConfig(root, { workspaces: [workspace] }), jsonResponse: (data: unknown, status?: number) => Response.json(data, { status }),
       readJsonBody: (request: Request) => request.json(), ensureWritable: () => {}, requireApproval: async () => {}, requireClientScope: () => {},
       resolveWorkspace: async () => workspace,
       resolveInboxEnabled: () => false, resolveOutboxEnabled: () => false, resolveInboxMaxBytes: () => 1000, scopeRank: () => 9,
-    } as Parameters<typeof registerFileRoutes>[0]);
+    });
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7d8AAAAASUVORK5CYII=", "base64");
     const save = (path: string) => {
       const url = new URL("http://localhost/workspace/project/files/raw");
