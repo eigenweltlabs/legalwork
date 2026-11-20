@@ -9,6 +9,8 @@ import type { ServerConfig } from "./types.js";
 
 const RemoteSchema = z.object({
   baseURL: z.string().url(),
+  // "grpc" once the region serves speech beside inference; unknown values keep the WebSocket.
+  transport: z.string().optional(),
   models: z.array(z.object({ model: z.enum(["gemini-transcribe-live-eu", "gemini-transcribe-live-us"]),
     name: z.string(), region: z.enum(["EU", "US"]), enabled: z.boolean(), available: z.boolean() })),
 });
@@ -68,5 +70,7 @@ export async function cloudTranscriptionConnection(config: ServerConfig, model: 
   gateway.hash = "";
   gateway.protocol = gateway.protocol === "https:" ? "wss:" : "ws:";
   gateway.searchParams.set("model", selected.model);
-  return { url: gateway.toString(), apiKey: manifest.apiKey, model: selected.model, region: selected.region };
+  // URL cannot switch to a non-special scheme in place: wss -> grpcs, ws -> grpc (loopback only).
+  const url = result.remote.transport === "grpc" ? gateway.toString().replace(/^ws/, "grpc") : gateway.toString();
+  return { url, apiKey: manifest.apiKey, model: selected.model, region: selected.region };
 }
