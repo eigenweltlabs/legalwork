@@ -199,6 +199,8 @@ test("real queued executor initializes restored project tools before dispatch an
   const engine = Bun.serve({ port: 0, async fetch(input) {
     const url = new URL(input.url);
     if (url.pathname === "/session/status") return Response.json(busy ? { worker: { type: "busy" } } : {});
+    if (url.pathname === "/api/session/worker/permission" || url.pathname === "/api/session/worker/question")
+      return Response.json({ data: [] });
     if (url.pathname === "/permission" || url.pathname === "/question" || url.pathname.endsWith("/message")) return Response.json([]);
     if (url.pathname.includes("/message/")) {
       const id = url.pathname.split("/").at(-1)!;
