@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { eigenweltCallbackPlatform, eigenweltConnectionPlatformUrl, validateEigenweltPlatformUrl } from "./eigenwelt-endpoints.js";
+import { eigenweltCallbackPlatform, eigenweltConnectionPlatformUrl, eigenweltRefreshPlatformUrl, validateEigenweltPlatformUrl } from "./eigenwelt-endpoints.js";
 
 const previous = process.env.EIGENWELT_PLATFORM_URL;
 const previousDevMode = process.env.LEGALWORK_DEV_MODE;
@@ -40,6 +40,15 @@ describe("regional Eigenwelt routing", () => {
     expect(validateEigenweltPlatformUrl("http://127.0.0.1:9876/")).toBe("http://127.0.0.1:9876");
     expect(eigenweltCallbackPlatform("state", "state.eu")).toBeNull();
     expect(() => eigenweltConnectionPlatformUrl({ platformURL: "https://eu.platform.eigenweltlabs.com" })).toThrow();
+  });
+  test("a stored routing override cannot change a pinned region or custom installation", () => {
+    for (const platformURL of ["https://eu.platform.eigenweltlabs.com", "http://127.0.0.1:9876"]) {
+      process.env.EIGENWELT_PLATFORM_URL = platformURL;
+      expect(eigenweltConnectionPlatformUrl({ platformURL, regionalPlatformURL: "https://us.platform.eigenweltlabs.com" })).toBe(platformURL);
+      expect(eigenweltRefreshPlatformUrl({ platformURL, account: { userId: "user", orgId: "org" } }, "header.payload.signature")).toBeUndefined();
+    }
+    delete process.env.EIGENWELT_PLATFORM_URL;
+    expect(() => eigenweltConnectionPlatformUrl({ platformURL: null, regionalPlatformURL: "https://attacker.example" })).toThrow();
   });
   test("the isolated regional dev client discovers either region without accepting production or custom hosts", () => {
     process.env.LEGALWORK_DEV_MODE = "1";
