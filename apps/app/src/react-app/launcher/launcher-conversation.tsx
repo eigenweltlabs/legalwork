@@ -40,14 +40,14 @@ export function useSubmissionStatus(requestId: string | null, onChange: (submiss
   }, [client, requestId, onChange]);
 }
 
-export function SubmissionStatusRow({ submission, onRetry }: { submission: { requestId: string; state: string; error?: string | null } | null; onRetry: () => void }) {
+export function SubmissionStatusRow({ submission, onRetry }: { submission: { requestId: string; state: string; error?: string | null } | null; onRetry?: () => void }) {
   if (!submission || submission.state === "completed") return null;
   const state = AssistantSubmissionStateSchema.safeParse(submission.state);
   const busy = submission.state === "sending" || submission.state === "accepted" || submission.state === "running";
   return <div className="launcher-status" role="status" aria-live="polite">
     {busy ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <AlertTriangle className="size-3.5" />}
     <span>{submission.state === "failed" && submission.error ? submission.error : t(state.success ? submissionKeys[state.data] : "launcher.submission.unconfirmed")}</span>
-    {(submission.state === "unconfirmed" || submission.state === "failed") && <Button variant="ghost" size="sm" onClick={onRetry}><RefreshCw className="size-3.5" />{t("launcher.submission.retry")}</Button>}
+    {onRetry && (submission.state === "unconfirmed" || submission.state === "failed") && <Button variant="ghost" size="sm" onClick={onRetry}><RefreshCw className="size-3.5" />{t("launcher.submission.retry")}</Button>}
   </div>;
 }
 
@@ -67,7 +67,7 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
 }
 
 export type PendingOutput = { requestId: string; messageId: string; output: "copy" | "insert"; originId: string | null };
-export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave, onOpenApp, handoffBusy = false }: { conversation: LauncherConversationBinding; onOpenApp: () => void; handoffBusy?: boolean; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
+export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave, onOpenApp, handoffBusy = false }: { conversation: LauncherConversationBinding; onOpenApp: () => void; handoffBusy?: boolean; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry?: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
   const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
   const notify = useLauncherStore(state => state.notify);

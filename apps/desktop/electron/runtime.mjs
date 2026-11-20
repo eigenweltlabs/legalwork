@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
+import { PAIRING_FILE } from "./launcher/raycast-pairing.mjs";
 import { renderRisHtmlPdf } from "./ris-pdf.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./opencode-release.mjs";
@@ -256,6 +257,7 @@ function createLegalworkServerState() {
     child: null,
     childExited: true,
     inProcess: false,
+    instanceId: null,
     remoteAccessEnabled: false,
     host: null,
     port: null,
@@ -279,6 +281,7 @@ function snapshotLegalworkServerState(state) {
   const running = state.inProcess || Boolean(child && child.exitCode === null && !child.killed);
   return {
     running,
+    instanceId: state.instanceId,
     remoteAccessEnabled: state.remoteAccessEnabled,
     host: state.host,
     port: state.port,
@@ -601,7 +604,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, presentApproval = undefined, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, onLegalworkServerReady = undefined, getApprovalWindow, presentApproval = undefined, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     presentInPanel: presentApproval,
@@ -761,6 +764,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   async function loadOrCreateWorkspaceTokens(workspaceKey) {
     const store = await loadTokenStore();
+    const pairing = await readJsonFile(path.join(userDataDir, PAIRING_FILE), null);
+    // Version 1 exposed the workspace credential. Rotate only the token issued in that file.
+    if (pairing?.version === 1 && typeof pairing.token === "string") {
+      const legacy = Object.values(store.workspaces ?? {}).filter(tokens => tokens.clientToken === pairing.token);
+      if (legacy.length) {
+        for (const tokens of legacy) { tokens.clientToken = randomUUID(); tokens.updatedAt = nowMs(); }
+        await saveTokenStore(store);
+      }
+    }
     const normalized = normalizeWorkspaceKey(workspaceKey);
     if (store.workspaces?.[normalized]) {
       return store.workspaces[normalized];
@@ -1420,8 +1432,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (!executable) throw new Error("Node.js is required for managed HTTP transport and image crops in desktop development.");
       return executable;
     };
+    const instanceId = randomUUID();
     const publishServerConnection = ({ port, url }) => {
       legalworkServerState.inProcess = true;
+      legalworkServerState.instanceId = instanceId;
       legalworkServerState.remoteAccessEnabled = false;
       legalworkServerState.host = host;
       legalworkServerState.port = port;
@@ -1517,6 +1531,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!portSelection.preferredPort || boundPort === portSelection.preferredPort) {
       await persistPreferredLegalworkPort(activeWorkspace, boundPort);
     }
+    await onLegalworkServerReady?.();
     return snapshotLegalworkServerState(legalworkServerState);
   }
 

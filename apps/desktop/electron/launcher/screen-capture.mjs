@@ -1,15 +1,15 @@
-import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BrowserWindow, desktopCapturer, ipcMain, nativeImage, screen, systemPreferences } from "electron";
-import { windowCaptureSource } from "./capture-source.mjs";
+import { BrowserWindow, desktopCapturer, ipcMain, screen, systemPreferences } from "electron";
+import { displayCaptureSource, capturePixelRect } from "./capture-geometry.mjs";
 
 const OVERLAY_CHANNEL = "legalwork:launcher:region";
+const PICKER_CHANNEL = "legalwork:launcher:window-picker";
 
 function permissionDenied() {
   if (process.platform !== "darwin") return false;
   try { return systemPreferences.getMediaAccessStatus("screen") === "denied"; } catch { return false; }
 }
-function dataUrl(image) { return image.toPNG().toString("base64") ? `data:image/png;base64,${image.toPNG().toString("base64")}` : ""; }
+function dataUrl(image) { return image.toDataURL(); }
 
 /**
  * Explicit, one-shot captures. Nothing watches the screen; the panel is hidden
@@ -17,18 +17,19 @@ function dataUrl(image) { return image.toPNG().toString("base64") ? `data:image/
  * permission or a cancelled region leaves the draft untouched.
  */
 export class ScreenCapture {
-  /** @param {{ hiddenWhile: <T>(work: () => Promise<T>) => Promise<T>, origin: () => { app?: string | null, window?: string | null } | null }} options */
+  /** @param {{ hiddenWhile: <T>(work: () => Promise<T>) => Promise<T> }} options */
   constructor(options) { this.options = options; /** @type {BrowserWindow | null} */ this.overlay = null; }
   /** @returns {Promise<import("@legalwork/types/launcher").LauncherCaptureResult>} */
   async captureWindow() {
     if (permissionDenied()) return { ok: false, reason: "denied", message: "Screen recording permission is needed to capture a window." };
     return this.options.hiddenWhile(async () => {
       try {
-        const origin = this.options.origin();
-        const sources = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 2560, height: 1600 }, fetchWindowIcons: false });
-        const match = windowCaptureSource(sources, origin);
-        if (!match || match.thumbnail.isEmpty()) return { ok: false, reason: "failed", message: "No window could be captured." };
-        return { ok: true, capture: { dataUrl: dataUrl(match.thumbnail), width: match.thumbnail.getSize().width, height: match.thumbnail.getSize().height, capture: "window", sourceApp: origin?.app ?? null, sourceWindow: match.name, capturedAt: Date.now() } };
+        const available = await desktopCapturer.getSources({ types: ["window"], thumbnailSize: { width: 2560, height: 1600 }, fetchWindowIcons: false });
+        const sources = available.filter(source => !source.thumbnail.isEmpty());
+        if (!sources.length) return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: "No capturable windows are available." };
+        const selected = await this.chooseWindow(sources);
+        if (!selected) return { ok: false, reason: "cancelled", message: "" };
+        return { ok: true, capture: { dataUrl: dataUrl(selected.thumbnail), ...selected.thumbnail.getSize(), capture: "window", sourceApp: null, sourceWindow: selected.name.slice(0, 400), capturedAt: Date.now() } };
       } catch (error) { return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: error instanceof Error ? error.message : String(error) }; }
     });
   }
@@ -44,37 +45,91 @@ export class ScreenCapture {
       let shot;
       try {
         const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale) } });
-        shot = sources.find(source => source.display_id === String(display.id)) ?? sources[0];
+        shot = displayCaptureSource(sources, display.id, screen.getAllDisplays().length);
       } catch (error) { return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: error instanceof Error ? error.message : String(error) }; }
-      if (!shot || shot.thumbnail.isEmpty()) return { ok: false, reason: "failed", message: "The screen could not be captured." };
-      const rect = await this.selectRegion(display);
-      if (!rect) return { ok: false, reason: "cancelled", message: "" };
-      const crop = shot.thumbnail.crop({ x: Math.round(rect.x * scale), y: Math.round(rect.y * scale), width: Math.max(1, Math.round(rect.width * scale)), height: Math.max(1, Math.round(rect.height * scale)) });
-      const origin = this.options.origin();
-      return { ok: true, capture: { dataUrl: dataUrl(crop), width: crop.getSize().width, height: crop.getSize().height, capture: "region", sourceApp: origin?.app ?? null, sourceWindow: origin?.window ?? null, capturedAt: Date.now() } };
+      if (!shot || shot.thumbnail.isEmpty()) return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: "The selected display could not be matched to a capture source." };
+      try {
+        const rect = await this.selectRegion(display);
+        if (!rect) return { ok: false, reason: "cancelled", message: "" };
+        const pixels = capturePixelRect(rect, display.bounds, shot.thumbnail.getSize());
+        if (!pixels) return { ok: false, reason: "failed", message: "The selected region is outside the captured display." };
+        const crop = shot.thumbnail.crop(pixels);
+        return { ok: true, capture: { dataUrl: dataUrl(crop), ...crop.getSize(), capture: "region", sourceApp: null, sourceWindow: null, capturedAt: Date.now() } };
+      } catch (error) { return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) }; }
+    });
+  }
+  /** @param {import("electron").DesktopCapturerSource[]} sources */
+  chooseWindow(sources) {
+    return new Promise((resolve, reject) => {
+      const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+      const width = Math.min(workArea.width, 620), height = Math.min(workArea.height, 540);
+      const picker = new BrowserWindow({
+        x: workArea.x + Math.floor((workArea.width - width) / 2), y: workArea.y + Math.floor((workArea.height - height) / 2),
+        width, height, show: false, title: "Capture Window", alwaysOnTop: true, skipTaskbar: true,
+        webPreferences: { preload: fileURLToPath(new URL("./window-picker-preload.cjs", import.meta.url)), contextIsolation: true, nodeIntegration: false, sandbox: true },
+      });
+      this.overlay = picker;
+      picker.setMenuBarVisibility(false);
+      let finished = false;
+      const finish = (selected, error = null) => {
+        if (finished) return;
+        finished = true;
+        ipcMain.removeListener(PICKER_CHANNEL, onSelect);
+        if (this.overlay === picker) this.overlay = null;
+        if (error) reject(error);
+        else resolve(selected);
+        if (!picker.isDestroyed()) picker.destroy();
+      };
+      const onSelect = (event, id) => {
+        if (event.sender === picker.webContents) finish(sources.find(source => source.id === id) ?? null);
+      };
+      ipcMain.on(PICKER_CHANNEL, onSelect);
+      picker.once("closed", () => finish(null));
+      void picker.loadFile(fileURLToPath(new URL("./window-picker.html", import.meta.url))).then(() => {
+        if (picker.isDestroyed()) return;
+        picker.webContents.send(PICKER_CHANNEL, sources.map(source => ({
+          id: source.id, name: source.name, dataUrl: source.thumbnail.resize({ width: 280 }).toDataURL(),
+        })));
+        picker.show();
+      }).catch(error => finish(null, error));
     });
   }
   /** @param {import("electron").Display} display @returns {Promise<{ x: number, y: number, width: number, height: number } | null>} */
   selectRegion(display) {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const overlay = new BrowserWindow({ ...display.bounds, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false, movable: false, hasShadow: false, show: false, enableLargerThanScreen: true,
         webPreferences: { preload: fileURLToPath(new URL("./region-overlay-preload.cjs", import.meta.url)), contextIsolation: true, nodeIntegration: false, sandbox: true } });
       this.overlay = overlay;
       overlay.setAlwaysOnTop(true, "screen-saver");
       overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      const finish = result => { ipcMain.removeListener(OVERLAY_CHANNEL, onMessage); if (!overlay.isDestroyed()) overlay.destroy(); this.overlay = null; resolve(result); };
+      let finished = false;
+      const finish = (result, error = null) => {
+        if (finished) return;
+        finished = true;
+        ipcMain.removeListener(OVERLAY_CHANNEL, onMessage);
+        this.overlay = null;
+        if (error) reject(error);
+        else resolve(result);
+        if (!overlay.isDestroyed()) overlay.destroy();
+      };
       const onMessage = (event, payload) => {
         if (event.sender !== overlay.webContents) return;
         if (!payload || payload.type === "cancel") finish(null);
-        else if (payload.type === "select" && payload.width >= 4 && payload.height >= 4) finish({ x: payload.x, y: payload.y, width: payload.width, height: payload.height });
+        else if (payload.type === "select" && [payload.x, payload.y, payload.width, payload.height].every(Number.isFinite) && payload.width >= 4 && payload.height >= 4) {
+          const bounds = overlay.getContentBounds();
+          if (screen.getDisplayMatching(bounds).id !== display.id) {
+            finish(null, new Error("The display changed during capture. Open the capture again."));
+            return;
+          }
+          finish({ x: payload.x + bounds.x - display.bounds.x, y: payload.y + bounds.y - display.bounds.y, width: payload.width, height: payload.height });
+        }
       };
       ipcMain.on(OVERLAY_CHANNEL, onMessage);
       overlay.on("closed", () => finish(null));
       overlay.on("blur", () => { if (!overlay.isDestroyed()) overlay.focus(); });
-      void overlay.loadFile(fileURLToPath(new URL("./region-overlay.html", import.meta.url))).then(() => { overlay.show(); overlay.focus(); }).catch(() => finish(null));
+      void overlay.loadFile(fileURLToPath(new URL("./region-overlay.html", import.meta.url))).then(() => { if (!overlay.isDestroyed()) { overlay.show(); overlay.focus(); } }).catch(error => finish(null, error));
     });
   }
   destroy() { if (this.overlay && !this.overlay.isDestroyed()) this.overlay.destroy(); this.overlay = null; }
 }
 export const OVERLAY_IPC_CHANNEL = OVERLAY_CHANNEL;
-export { nativeImage as _nativeImage, path as _path };

@@ -42,6 +42,7 @@ import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
+import { createLauncherDraftStore } from "./launcher/draft-store.mjs";
 import { LauncherService } from "./launcher/launcher-service.mjs";
 import { LauncherWindow } from "./launcher/launcher-window.mjs";
 import { LauncherOutputQueue } from "./launcher/output-queue.mjs";
@@ -958,7 +959,7 @@ const originService = new OriginService({
   helperPath: resolveKeyMonitorPath(app), exec: execHelper, clipboard,
   pasteText: text => systemDictation.pasteText(text),
 });
-const screenCapture = new ScreenCapture({ hiddenWhile: work => launcherWindow.hiddenWhile(work), origin: () => originService.current() });
+const screenCapture = new ScreenCapture({ hiddenWhile: work => launcherWindow.hiddenWhile(work) });
 const launcherOutputs = new LauncherOutputQueue({
   path: path.join(app.getPath("userData"), "launcher-outputs.json"),
   copy: text => clipboard.writeText(text),
@@ -1166,33 +1167,7 @@ function flushPendingDeepLinks() {
   mainWindow.webContents.send(NATIVE_DEEP_LINK_EVENT, urls);
 }
 
-// The complete launcher draft file: the panel and Home share it through revisioned writes.
-const LAUNCHER_DRAFTS_FILE = "launcher-drafts.json";
-let launcherDraftWrites = Promise.resolve();
-async function readLauncherDrafts() {
-  try {
-    const parsed = JSON.parse(await readFile(path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE), "utf8"));
-    return { version: Number.isSafeInteger(parsed?.version) ? parsed.version : 0, drafts: parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {}, leases: parsed?.leases && typeof parsed.leases === "object" ? parsed.leases : {} };
-  } catch {
-    return { version: 0, drafts: {}, leases: {} };
-  }
-}
-function writeLauncherDrafts(file, expectedVersion) {
-  if (!file || typeof file !== "object") return Promise.resolve(false);
-  if (!Number.isSafeInteger(expectedVersion) || file.version !== expectedVersion + 1) return Promise.resolve(false);
-  const snapshot = JSON.stringify(file);
-  if (snapshot.length > 8 * 1024 * 1024) return Promise.resolve(false);
-  const target = path.join(app.getPath("userData"), LAUNCHER_DRAFTS_FILE);
-  const operation = launcherDraftWrites.catch(() => {}).then(async () => {
-    if ((await readLauncherDrafts()).version !== expectedVersion) return false;
-    const temporary = `${target}.${process.pid}.tmp`;
-    await writeFile(temporary, snapshot, "utf8");
-    await rename(temporary, target);
-    return true;
-  });
-  launcherDraftWrites = operation.then(() => undefined);
-  return operation;
-}
+const launcherDraftStore = createLauncherDraftStore(() => app.getPath("userData"));
 
 function configHomePath() {
   if (process.env.XDG_CONFIG_HOME?.trim()) {
@@ -1301,6 +1276,7 @@ const runtimeManager = createRuntimeManager({
   // Host approvals are system UI: a card in the quick panel while it is open, otherwise a dialog on the main window.
   getApprovalWindow: () => mainWindow,
   presentApproval: (request, signal) => launcherService.presentApproval(request, signal),
+  onLegalworkServerReady: () => raycastPairing.refresh().catch(error => console.warn("[launcher] Could not refresh Raycast pairing", error.message)),
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
@@ -1515,8 +1491,6 @@ async function bootRuntimeForSelectedWorkspace() {
     name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
   }).catch(() => undefined);
   const legalworkServer = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
-  // The pairing credential is per boot: rewrite it once the server is confirmed up.
-  void raycastPairing.refresh().catch(() => undefined);
   return { ok: true, skipped: false, engine, legalworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
@@ -2911,10 +2885,10 @@ const desktopCommandHandlers = {
   "launcherOutputList": async (event) => launcherOutputs.list(),
   "launcherOutputCancel": async (event, requestId) => launcherOutputs.cancel(requestId),
   "launcherDraftsRead": async (event, ...args) => {
-      return readLauncherDrafts();
+      return launcherDraftStore.read(args[0]);
   },
   "launcherDraftsWrite": async (event, ...args) => {
-      return writeLauncherDrafts(args[0], args[1]);
+      return launcherDraftStore.write(args[0], args[1], args[2]);
   },
   "launcherInvocationsDrain": async (event, ...args) => {
       return launcherService.drain();
@@ -2932,7 +2906,7 @@ const desktopCommandHandlers = {
       const action = String(args[0] ?? "status");
       if (action === "enable") return raycastPairing.enable();
       if (action === "disable") return raycastPairing.disable();
-      return raycastPairing.refresh();
+      return raycastPairing.status();
   },
   "desktopLoginItemGet": async (event, ...args) => {
       try {

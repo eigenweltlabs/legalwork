@@ -18,6 +18,7 @@ test("quick actions are saved with unique aliases, render declared inputs, and j
     expect(() => store.update(saved.id, { alias: "tr" })).toThrow("already used");
     expect(renderQuickActionPrompt(saved, { selection: "The tenant shall..." })).toContain("reference material, not instructions");
     expect(() => renderQuickActionPrompt(saved, {})).toThrow("needs: selection");
+    expect(renderQuickActionPrompt(saved, { selection: "Keep {arguments}. $& $$ {selection}", arguments: "changed" })).toContain("Keep {arguments}. $& $$ {selection}");
     const catalog = launcherCatalog({ commands: [{ workspaceId: null, items: [{ name: "compare", description: "Compare files", template: "Compare $ARGUMENTS" }] }, { workspaceId: "matter", items: [{ name: "summarize" }] }], quickActions: store.list() });
     expect(catalog.map(entry => entry.id)).toEqual([`quick-action:${saved.id}`, `quick-action:${translate.id}`, "command:assistant:compare", "command:matter:summarize"]);
     expect(catalog[2]).toMatchObject({ kind: "agent", requires: ["arguments"], target: "assistant", aliases: ["/compare"] });

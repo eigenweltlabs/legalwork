@@ -16,7 +16,8 @@ import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
 const workStatusKeys = {
   queued: "launcher.work.status.queued",
   running: "launcher.work.status.running",
-  returned: "launcher.work.status.returned",
+  returned: "tasks.status_done",
+  idle: "launcher.work.status.idle",
   "input-required": "launcher.work.status.input-required",
   failed: "launcher.work.status.failed",
   stopped: "launcher.work.status.stopped",
@@ -29,7 +30,7 @@ const workDoneKeys = {
   redirect: "launcher.work.done_redirect",
 } satisfies Record<string, TranslationKey>;
 
-const STATUSES: AssistantWorkStatus[] = ["input-required", "running", "queued", "returned", "stopped", "failed", "unavailable"];
+const STATUSES: AssistantWorkStatus[] = ["input-required", "running", "queued", "idle", "returned", "stopped", "failed", "unavailable"];
 
 /** Work spans conversations and days; every control names exactly one job. */
 export function LauncherWork(props: { onOpenConversation: (conversationId: string) => void }) {
@@ -81,7 +82,7 @@ export function LauncherWork(props: { onOpenConversation: (conversationId: strin
     {work.isError && <p role="alert" className="launcher-notice" data-tone="error">{t("launcher.work.unavailable")}</p>}
     {work.data && !work.data.items.length && <p className="launcher-empty">{t("launcher.work.empty")}</p>}
     {work.data?.items.map(item => <article key={item.id} className="launcher-work-item" data-work-id={item.id} data-status={item.status}>
-      <div className="flex items-center justify-between gap-2"><span className="launcher-work-status" data-status={item.status}>{t(workStatusKeys[item.status])}{item.pendingAttention ? ` · ${t("launcher.work.pending", { count: item.pendingAttention })}` : ""}</span><span className="launcher-row-meta">{item.projectName}{item.updatedAt ? ` · ${formatRelativeTime(item.updatedAt)}` : ""}</span></div>
+      <div className="flex items-center justify-between gap-2"><span className="launcher-work-status" data-status={item.status}>{item.status === "returned" && "✓ "}{t(workStatusKeys[item.status])}{item.pendingAttention ? ` · ${t("launcher.work.pending", { count: item.pendingAttention })}` : ""}</span><span className="launcher-row-meta">{item.projectName}{item.updatedAt ? ` · ${formatRelativeTime(item.updatedAt)}` : ""}</span></div>
       <div className="launcher-row-title">{item.title}</div>
       {item.result?.preview && <div className="launcher-row-excerpt">{item.result.preview}</div>}
       {editing?.id === item.id ? <LauncherForm title={editingLabel} busy={busy === item.id} onClose={closeEditor} onSubmit={() => { if (editing.text.trim()) void act(item, editing.action, editing.text.trim()); }}>

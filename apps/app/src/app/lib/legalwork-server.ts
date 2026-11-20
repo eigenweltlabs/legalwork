@@ -1682,7 +1682,31 @@ async function requestBinary(
 
 let legalMemoryClientSequence = 0;
 
-export function createLegalworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
+export const LEGALWORK_DRAFT_ACCOUNT_EVENT = "legalwork:draft-account-changed";
+
+function notifyDraftAccountChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(LEGALWORK_DRAFT_ACCOUNT_EVENT));
+  try { window.localStorage.setItem(LEGALWORK_DRAFT_ACCOUNT_EVENT, crypto.randomUUID()); } catch { /* window-local notification still applies */ }
+}
+
+type LegalworkServerClientOptions = { baseUrl: string; token?: string; hostToken?: string; managedDesktop?: boolean; draftAccount?: string };
+
+export async function resolveLauncherDraftAccount(options: LegalworkServerClientOptions): Promise<string | undefined> {
+  try {
+    const { account } = await requestJson<{ account: string }>(options.baseUrl.replace(/\/+$/, ""), "/launcher/draft-account", {
+      token: options.token, hostToken: options.hostToken, timeoutMs: 3_000,
+    });
+    if (!/^[a-f0-9]{64}$/.test(account)) throw new Error("The server's draft account is invalid.");
+    return account;
+  } catch (error) {
+    // Older servers do not expose an account fingerprint.
+    if (error instanceof LegalworkServerError && error.status === 404) return undefined;
+    throw error;
+  }
+}
+
+export function createLegalworkServerClient(options: LegalworkServerClientOptions) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
   const hostToken = options.hostToken;
@@ -1759,6 +1783,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     baseUrl,
     token,
+    matchesManagedDesktopServer: (runtime: Pick<import("@legalwork/types/desktop-ipc").LegalworkServerInfo, "running" | "baseUrl" | "hostToken" | "instanceId">, instanceId?: string) =>
+      Boolean(options.managedDesktop && runtime.running && hostToken && hostToken === runtime.hostToken && runtime.baseUrl &&
+        normalizeLegalworkServerUrl(runtime.baseUrl) === baseUrl && instanceId && instanceId === runtime.instanceId),
+    draftProfile: JSON.stringify([options.managedDesktop && hostToken ? "managed-desktop" : baseUrl, token ?? "", hostToken ?? "", options.draftAccount ?? ""]),
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
     wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),
@@ -2561,6 +2589,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "PUT",
         body: payload,
         timeoutMs: timeouts.accountTransition,
+      }).then(result => {
+        if (payload.disconnect || payload.account !== undefined) notifyDraftAccountChanged();
+        return result;
       }),
     // `refresh: true` forces the server to re-pull entitlements from the
     // platform NOW (bypassing the access-token skew short-circuit) — used by the
@@ -2915,7 +2946,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     assistantConversation: (id: string) => requestJson<{ conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}`, { token, hostToken }),
     patchAssistantConversation: (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => requestJson<{ conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: patch }),
     updateAssistantConversation: (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => requestJson<{ conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}`, { token, hostToken, method: "PATCH", body: patch }),
-    submitAssistantMessage: (conversationId: string, input: AssistantSubmitInput) => requestJson<{ submission: AssistantSubmission; conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(conversationId)}/messages`, { token, hostToken, method: "POST", body: input, timeoutMs: 45_000 }),
+    submitAssistantMessage: (conversationId: string, input: AssistantSubmitInput) => requestJson<{ submission: AssistantSubmission; conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      token, hostToken, method: "POST", body: { ...input, draftAccount: options.draftAccount }, timeoutMs: 45_000,
+    }),
+    assertDraftAccount: async () => {
+      if (options.draftAccount && await resolveLauncherDraftAccount(options) !== options.draftAccount) {
+        throw new Error("The signed-in account changed. Reopen this conversation before sending.");
+      }
+    },
     assistantConversationForSession: (sessionId: string) => requestJson<{ conversation: AssistantConversation | null }>(baseUrl, `/assistant/conversation-for-session/${encodeURIComponent(sessionId)}`, { token, hostToken }),
     assistantSubmission: (requestId: string) => requestJson<{ submission: AssistantSubmission }>(baseUrl, `/assistant/submissions/${encodeURIComponent(requestId)}`, { token, hostToken }),
     assistantSubmissionOutput: (requestId: string) => requestJson<AssistantOutput>(baseUrl, `/assistant/submissions/${encodeURIComponent(requestId)}/output`, { token, hostToken }),
@@ -2954,11 +2992,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     registerLauncherInvocation: (invocation: LauncherInvocation) => requestJson<{ invocation: LauncherInvocation; duplicate: boolean; context: { id: string; items: number; expiresAt: number } | null }>(baseUrl, "/launcher/invocations", { token, hostToken, method: "POST", body: invocation }),
     assistantWork: async (filter: { status?: AssistantWorkStatus; projectId?: string } = {}) => {
       const items: AssistantWorkItem[] = [];
-      let offset: number | null = 0;
+      let snapshot: string | undefined; let offset: number | null = 0;
       do {
-        const query = new URLSearchParams({ offset: String(offset), limit: "100", ...(filter.status ? { status: filter.status } : {}), ...(filter.projectId ? { projectId: filter.projectId } : {}) });
-        const page: { items: AssistantWorkItem[]; nextOffset: number | null } = await requestJson(baseUrl, `/assistant/work?${query}`, { token, hostToken, timeoutMs: 30_000 });
-        items.push(...page.items); offset = page.nextOffset ?? null;
+        const query = new URLSearchParams({ offset: String(offset), limit: "100", ...(snapshot ? { snapshot } : {}), ...(filter.status ? { status: filter.status } : {}), ...(filter.projectId ? { projectId: filter.projectId } : {}) });
+        const page: { items: AssistantWorkItem[]; nextOffset: number | null; snapshot?: string } = await requestJson(baseUrl, `/assistant/work?${query}`, { token, hostToken, timeoutMs: 30_000 });
+        snapshot = page.snapshot;
+        items.push(...page.items);
+        const next = page.nextOffset ?? null;
+        if (next !== null && next <= offset) throw new Error("The work list returned an invalid page.");
+        offset = next;
       } while (offset !== null);
       return { items };
     },

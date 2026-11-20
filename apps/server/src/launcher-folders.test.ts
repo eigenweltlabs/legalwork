@@ -71,7 +71,7 @@ test("folder routes copy explicit attachments into the chosen project without in
     const searchFolders = await LauncherFolders.open(join(root, "db.sqlite"));
     const routes: Route[] = []; let scope = "owner", assistantCalls = 0;
     // Minimal route fixture; unrelated service dependencies are not invoked.
-    registerLauncherRoutes({ routes, searchFolders, fileIndex, config: { workspaces: [] }, ensureWritable: () => {},
+    registerLauncherRoutes({ routes, guardLauncherWorkspace: async () => {}, launcherFolderVisible: async () => true, searchFolders, fileIndex, config: { workspaces: [] }, ensureWritable: () => {},
       requireClientScope: (_ctx: unknown, required: string) => { if (required === "owner" && scope !== "owner") throw new Error("owner required"); },
       jsonResponse: (value: unknown, status = 200) => Response.json(value, { status }), readJsonBodyLimited: (request: Request) => request.json(),
       assistant: { workspace: async () => { assistantCalls++; return { id: "assistant", path: assistantPath }; } },

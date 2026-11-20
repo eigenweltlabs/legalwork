@@ -7,12 +7,12 @@ import type { LauncherFileIndex } from "./launcher-file-index.js";
 import type { LauncherSearchInput } from "./launcher-search.js";
 import type { ContentSearchResponse } from "./search-schema.js";
 
-export async function searchFolderFiles(folders: LauncherFolders, index: LauncherFileIndex, input: LauncherSearchInput,
+export async function searchFolderFiles(folders: { list: () => ReturnType<LauncherFolders["list"]> | Promise<ReturnType<LauncherFolders["list"]>>; root: LauncherFolders["root"] }, index: LauncherFileIndex, input: LauncherSearchInput,
   content: (folder: { id: string; path: string }, signal: AbortSignal) => Promise<ContentSearchResponse>, signal: AbortSignal): Promise<LauncherSearchResponse> {
   const response: LauncherSearchResponse = { items: [], sources: [], unavailable: [] };
   if (!input.kinds.includes("files") || input.projectId || input.sourceKind && input.sourceKind !== "folder") return response;
   // Bound parallel folder reads and document preparation.
-  const pending = [...folders.list()];
+  const pending = [...await folders.list()];
   await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
     for (let folder = pending.shift(); folder; folder = pending.shift()) {
       signal.throwIfAborted();

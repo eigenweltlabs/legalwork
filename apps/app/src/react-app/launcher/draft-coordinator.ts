@@ -1,9 +1,28 @@
-import type { LauncherDraft, LauncherDraftFile, DraftLease, AssistantSubmission } from "@legalwork/types/launcher";
+import { DraftLeaseSchema, LauncherDraftFileSchema, LauncherDraftSchema, type LauncherDraft, type LauncherDraftFile, type DraftLease, type AssistantSubmission } from "@legalwork/types/launcher";
 export type { LauncherDraft, DraftLease } from "@legalwork/types/launcher";
 export type DraftFile = LauncherDraftFile;
 export type DraftStorage = { read: () => Promise<DraftFile>; write: (file: DraftFile, expectedVersion: number) => Promise<boolean> };
 export type DraftMessage = { file: DraftFile };
 export const EMPTY_DRAFT_FILE: DraftFile = { version: 0, drafts: {}, leases: {} };
+
+export function readDraftFile(file: DraftFile): DraftFile {
+  const drafts: DraftFile["drafts"] = {};
+  for (const [id, raw] of Object.entries(file.drafts)) {
+    const parsed = LauncherDraftSchema.safeParse(raw);
+    if (parsed.success && parsed.data.conversationId === id) drafts[id] = parsed.data;
+    else {
+      // An older release could persist an invalid send while the editable draft remained valid.
+      const recovered = LauncherDraftSchema.safeParse({ ...raw, submission: null });
+      if (recovered.success && recovered.data.conversationId === id) drafts[id] = recovered.data;
+    }
+  }
+  const leases: DraftFile["leases"] = {};
+  for (const [id, raw] of Object.entries(file.leases)) {
+    const parsed = DraftLeaseSchema.safeParse(raw);
+    if (parsed.success && parsed.data.conversationId === id && drafts[id]) leases[id] = parsed.data;
+  }
+  return LauncherDraftFileSchema.parse({ ...file, drafts, leases });
+}
 
 export function emptyLauncherDraft(conversationId: string, now = Date.now()): LauncherDraft {
   return { conversationId, revision: 0, text: "", context: [], target: { kind: "assistant" }, searchScope: null, pendingTranscription: null, model: null, variant: null, submission: null, updatedAt: now };
@@ -51,7 +70,10 @@ export class DraftCoordinator {
     throw new Error("The draft changed in another window. Focus it again before editing.");
   }
   subscribe(listener: (conversationId: string) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  async ready() { this.loaded ??= this.reconcile(); await this.loaded; }
+  async ready() {
+    this.loaded ??= this.reconcile().catch(error => { this.loaded = null; throw error; });
+    await this.loaded;
+  }
   get(conversationId: string): LauncherDraft { return this.file.drafts[conversationId] ?? emptyLauncherDraft(conversationId, this.now()); }
   lease(conversationId: string): DraftLease | null { return this.file.leases[conversationId] ?? null; }
   owns(conversationId: string, owner: string) { return this.lease(conversationId)?.owner === owner; }
@@ -109,7 +131,7 @@ export class DraftCoordinator {
         if (!lease || lease.owner !== owner) throw new Error("draft_lease_lost");
         const current = next.drafts[conversationId] ?? emptyLauncherDraft(conversationId, this.now());
         if (current.revision !== expectedRevision) throw new Error("draft_revision_changed");
-        next.drafts[conversationId] = { ...current, ...patch, conversationId, revision: current.revision + 1, updatedAt: this.now() };
+        next.drafts[conversationId] = LauncherDraftSchema.parse({ ...current, ...patch, conversationId, revision: current.revision + 1, updatedAt: this.now() });
         lease.revision = current.revision + 1;
       });
       return file.drafts[conversationId];
@@ -129,6 +151,10 @@ export class DraftCoordinator {
           current.text = ""; current.context = []; current.pendingTranscription = null; delete current.composer;
         }
         current.submission.state = submission.state;
+        if (["accepted", "running", "completed"].includes(submission.state)) {
+          delete current.submission.input;
+          delete current.submission.draftSnapshot;
+        }
         current.revision++; current.updatedAt = this.now(); lease.revision = current.revision;
       });
       return result.cleared;
@@ -151,5 +177,5 @@ export class DraftCoordinator {
     return Boolean(lease && this.now() - lease.since > 15 * 60_000);
   }
   async reconcile() { this.adopt(await this.storage.read()); }
-  async flush() { await this.writes; }
+  async flush() { await this.writes.catch(() => {}); }
 }

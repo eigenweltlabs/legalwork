@@ -2,7 +2,8 @@ import { launcherResultActions, LauncherInvocationResultActionSchema, LauncherRe
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 
-export function launcherInvocationResultAction(result: LauncherSearchResult, requested: LauncherInvocation["resultAction"]) {
+export function launcherInvocationResultAction(result: LauncherSearchResult, requested: LauncherInvocation["resultAction"], source?: LauncherInvocation["source"]) {
+  if (source === "deep-link") return "preview";
   const action = LauncherInvocationResultActionSchema.parse(requested ?? "open");
   if (!launcherResultActions(result).includes(action)) throw new Error(t("launcher.notice.action_unknown"));
   return action;

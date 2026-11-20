@@ -102,3 +102,22 @@ test("result subtitles use only the origin icon and name consistently across res
   }
   }
 });
+
+test("an empty offline source remains visible with a retry even when suggestions hide the empty state", () => {
+  const source = { id: "drive", kind: "files", workspaceId: "w", label: "Test project", coverage: "offline", count: 0 } as const;
+  const html = renderToStaticMarkup(<LauncherResultList items={[]} sources={[source]} query="test" hideEmpty selectedKey={null} multiSelect={new Set()} pins={new Set()} pending={false} onRetry={noop} onSelect={noop} onRun={noop} onToggleMulti={noop} onOpenActions={noop} />);
+  expect(html).toContain("Unavailable: Test project");
+  expect(html).toContain("Retry");
+});
+
+test("assistive technology sees checked files independently of the highlighted row", () => {
+  const other = { ...file, id: "other.pdf" };
+  const task = { ...file, id: "task", kind: "tasks", completed: true } as const;
+  const html = renderToStaticMarkup(<LauncherResultList items={[file, other, task]} sources={[]} query="" selectedKey={resultKey(other)} multiSelect={new Set([resultKey(file)])} pins={new Set()} pending={false} onSelect={noop} onRun={noop} onToggleMulti={noop} onOpenActions={noop} />);
+  const rows = html.match(/<div [^>]*role="option"[^>]*>/g) ?? [];
+  expect(rows[0]).toContain('aria-selected="true"');
+  expect(rows[0]).toContain('data-selected="false"');
+  expect(rows[1]).toContain('aria-selected="false"');
+  expect(rows[1]).toContain('data-selected="true"');
+  expect(html).toContain("✓ Done");
+});

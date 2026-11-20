@@ -4,24 +4,24 @@ An optional entry point into the same LegalWork Assistant: the panel, files, act
 
 ## Pairing
 
-1. In LegalWork open Settings, Assistant launcher, and enable Raycast pairing.
-2. LegalWork writes `launcher-pairing.json` into its application-support folder with the local server URL and a per-session token. Only your user account can read it; the token changes on every app start and the file is removed when pairing is disabled.
+1. In LegalWork open **Settings > Assistant launcher > Raycast** and select **Enable pairing**.
+2. LegalWork writes `launcher-pairing.json` into its application-support folder with the local server URL and a credential scoped to Raycast commands. The credential rotates when the local server restarts. **Disable pairing** revokes it immediately and removes the file.
 3. From Raycast, run **Search LegalWork** to check the connection. The extension discovers the installed app’s profile automatically. When only the development profile is paired, commands open that instance.
-4. The commands read that file on every call. Launch URLs (`legalwork://assistant/...`) carry identifiers only; selected text travels over the paired loopback connection as a one-time staged context that expires after five minutes.
+4. Questions, selections, actions and result references travel over the authenticated local connection. The launch URL carries only a single-use handoff ID that expires after one minute.
 
 ## Commands
 
 - **Open LegalWork Assistant**: resume the current conversation, or pass a question.
 - **Ask LegalWork with Selection**: stages the front app's selection and opens the Assistant with it attached.
-- **Search LegalWork**: files, projects, chats, tasks and recordings with per-source coverage. Open the exact result in LegalWork. For local project, Wiki and search-folder files, **Open** uses the default app; **Show in Finder** locates the source and **Copy File** puts the actual file on the clipboard. For files, tasks and recordings, **Chat with Assistant** attaches the item to your general Assistant's current draft; **Ask About This** starts a fresh project chat with the item attached and waits for your question. **Summarize**, available for files, starts a fresh project chat and sends the summary request. Wiki and search-folder items ask you to choose a project when there is no current project. Files from added folders are copied only after you choose the destination. Project chats can use your own AI provider; Chat with Assistant uses the Assistant plan.
+- **Search LegalWork** finds files, projects, chats, tasks and recording titles in sources available to the paired extension. Recording transcripts open in LegalWork. For local files, **Open** uses the default app, **Show in Finder** locates the source and **Copy File** puts the file on the clipboard. **Chat with Assistant** attaches the item to the current general Assistant draft. **Ask About This** opens a fresh project chat with the item attached and waits for your question. **Summarize**, available for files, sends a summary request in a fresh project chat. Wiki and search-folder items ask you to choose a project when there is no current project. Files from added folders are copied after you choose a destination. Project chats can use your own AI provider. **Chat with Assistant** uses the Assistant plan.
 - **Run LegalWork Quick Action**: saved quick actions on the selection or clipboard.
-- **LegalWork Work**: delegated work and what needs your decision. **Open in LegalWork** opens the selected job's chat; **Open Origin Conversation** returns to the conversation that delegated it.
+- **LegalWork Work**: delegated work and what needs your decision. **Open in LegalWork** opens the selected job's chat; **Open Origin Conversation** returns to the conversation that delegated it. A green **✓ Done** marks a final reply. **Idle** indicates that the job has no active turn or confirmed result.
 
 Use **Refresh Search**, **Refresh Work** or **Refresh Actions** after changing a source or restarting LegalWork. Unavailable sources and failed requests are shown explicitly.
 
 The Raycast extension uses the published Raycast List API, which does not expose a custom native drag-out handler. Use **Copy File** and paste into Finder or another app, or drag the result from LegalWork's own Assistant mini-bar. The extension does not provide multi-selection or incoming file drops.
 
-A cold start is an ordinary launch URL; LegalWork queues the invocation and delivers it to the panel once it is ready. Repeated delivery of the same invocation does nothing twice.
+LegalWork consumes each paired command once and delivers it when the panel is ready. If the local server has stopped or a handoff has expired, open LegalWork and run the command again.
 
 ## Development
 

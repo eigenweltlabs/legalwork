@@ -4,6 +4,13 @@ import path from "node:path";
 
 export type Pairing = { serverUrl: string; token: string; scheme: string };
 
+export function raycastHandoffUrl(scheme: Pairing["scheme"], id: string): string {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error("LegalWork returned an invalid handoff ID.");
+  const url = new URL(`${scheme}://assistant/open`);
+  url.searchParams.set("handoff", id);
+  return url.toString();
+}
+
 function pairingCandidates(appData: string) {
   const names = ["com.eigenweltlabs.legalwork", "com.eigenweltlabs.legalwork.dev", "LegalWork", "LegalWork Dev"];
   return names.map(name => path.join(appData, name, "launcher-pairing.json"));
@@ -18,7 +25,7 @@ export async function readPairing(appData = applicationDataDirectory()): Promise
   for (const candidate of pairingCandidates(appData)) {
     try {
       const parsed = JSON.parse(await readFile(candidate, "utf8"));
-      if (parsed?.enabled === true && typeof parsed.serverUrl === "string" && typeof parsed.token === "string" && parsed.token) {
+      if (parsed?.enabled === true && parsed.version === 2 && typeof parsed.serverUrl === "string" && typeof parsed.token === "string" && parsed.token) {
         const url = new URL(parsed.serverUrl);
         if (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash) continue;
         return { serverUrl: url.href.replace(/\/+$/, ""), token: parsed.token, scheme: parsed.scheme === "legalwork-dev" ? "legalwork-dev" : "legalwork" };

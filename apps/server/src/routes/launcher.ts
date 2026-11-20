@@ -16,11 +16,13 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
-import { readAssistantAttention } from "../assistant-attention.js";
-import { readDelegationResult } from "../assistant-delegation-result.js";
+import { readPendingAssistantRequests } from "../assistant-attention.js";
+import { terminalDelegationResult } from "../assistant-delegation-result.js";
 import { listAssistantWork } from "../assistant-work.js";
+import { launcherDraftAccount } from "../launcher-draft-account.js";
 import { launcherCatalog, renderQuickActionPrompt } from "../launcher-actions.js";
 import { assemblePreview, clampPreview, messagesPreview } from "../launcher-preview.js";
+import { readAuthorizedRecording } from "../recording-library.js";
 import { extractCorpusText } from "../corpus/extract.js";
 import { isSupportedWorkspaceTextFilePath, normalizeWorkspaceRelativePath } from "./files.js";
 import { filterRecordings, searchLauncher, titleScore } from "../launcher-search.js";
@@ -28,6 +30,7 @@ import { searchFileContents, searchSessionContents } from "../content-search.js"
 import { taskStore } from "../task-store.js";
 import { connectedTaskOrgId } from "../tasks-api.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import type { LauncherInvocation } from "@legalwork/types/launcher";
 import type { WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext } from "./registry.js";
 import type { registerMainAssistantRoutes } from "./main-assistant.js";
@@ -41,7 +44,51 @@ function parse<T>(schema: z.ZodType<T>, value: unknown, code: string, message: s
 export function registerLauncherRoutes(options: Parameters<typeof registerMainAssistantRoutes>[0]) {
   const { config, routes, jsonResponse, quickActions, stagedContext, fileIndex, delegations, sessionQueue, conversations, submissions } = options;
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
+  addRoute(routes, "GET", "/launcher/draft-account", "client", async ctx => {
+    read(ctx);
+    return jsonResponse({ account: await launcherDraftAccount(config) });
+  });
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
+  const workspaceFor = async (ctx: RequestContext, id: string, method = "GET") => {
+    await options.guardLauncherWorkspace(ctx, id, method);
+    return options.resolveWorkspace(config, id);
+  };
+  const visibleFolders = async (ctx: RequestContext) => {
+    const folders = options.searchFolders.list();
+    const allowed = await Promise.all(folders.map(folder => options.launcherFolderVisible(ctx, folder.path)));
+    return folders.filter((_folder, i) => allowed[i]);
+  };
+  const folderRoot = async (ctx: RequestContext, id: string) => {
+    const folder = await options.searchFolders.root(id);
+    if (!await options.launcherFolderVisible(ctx, folder.path)) throw new ApiError(404, "search_folder_missing", "Search folder not found.");
+    return folder;
+  };
+  const guardRaycastResult = async (ctx: RequestContext, invocation: LauncherInvocation) => {
+    const restricted: RequestContext = { ...ctx, actor: { type: "remote", scope: "collaborator" } };
+    if (invocation.projectId) await workspaceFor(restricted, invocation.projectId);
+    const result = invocation.result;
+    if (result?.workspaceId && result.kind !== "recordings") await workspaceFor(restricted, result.workspaceId);
+    if (result?.folderId) await folderRoot(restricted, result.folderId);
+  };
+  addRoute(routes, "POST", "/launcher/raycast/handoff", "client", async ctx => {
+    if (!ctx.tokens.requestHasRaycastToken(ctx.request)) throw new ApiError(401, "unauthorized", "Raycast is no longer paired.");
+    const input = parse(LauncherInvocationSchema, await options.readJsonBodyLimited(ctx.request, 24_000), "invalid_invocation", "Invalid Raycast command.");
+    if (input.source !== "raycast" || input.workspaceContext || input.captureSelection || input.raycastServerInstanceId || !["ask", "open", "resume", "quick-action"].includes(input.action))
+      throw new ApiError(400, "invalid_invocation", "Invalid Raycast command.");
+    await guardRaycastResult(ctx, input);
+    const id = ctx.tokens.stageRaycast(ctx.request, input);
+    if (!id) throw new ApiError(401, "unauthorized", "Raycast is no longer paired.");
+    return jsonResponse({ id });
+  });
+  addRoute(routes, "POST", "/launcher/raycast/handoff/:handoffId", "host-token", async ctx => {
+    if (ctx.actor?.type !== "host") throw new ApiError(401, "unauthorized", "Invalid host token.");
+    const invocation = ctx.tokens.consumeRaycast(ctx.params.handoffId);
+    if (!invocation) throw new ApiError(404, "expired_invocation", "Open the command again in Raycast.");
+    await guardRaycastResult(ctx, invocation);
+    const response = jsonResponse({ invocation });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  });
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
   addRoute(routes, "GET", "/launcher/assistant-availability", "client", async ctx => {
     read(ctx);
@@ -50,14 +97,14 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   addRoute(routes, "POST", "/launcher/documents", "client", async ctx => {
     write(ctx);
     const input = parse(z.object({ workspaceId: z.string().min(1), operationId: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/), folder: z.string().max(4096), name: z.string().trim().min(1).max(200), format: z.enum(["md", "txt", "docx"]), templatePath: z.string().max(4096).optional(), text: z.string().max(500_000) }), await options.readJsonBodyLimited(ctx.request, 2_100_000), "document_input", "Choose a project, folder and document name.");
-    const target = await options.resolveWorkspace(config, input.workspaceId);
+    const target = await workspaceFor(ctx, input.workspaceId, "POST");
     const result = await createLauncherDocument(workspaceContentPath(target), input, async path => { await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `Create ${input.name}`, paths: [path] }); }, target.path);
     await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: result.path, summary: `Created ${input.name}`, timestamp: Date.now() });
     fileIndex.invalidate(target.id);
     void fileIndex.ensure(target.id, workspaceContentPath(target), false).catch(() => undefined);
     return jsonResponse(result, 201);
   });
-  addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
+  addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: await visibleFolders(ctx) }); });
   // Read-only validation of cached recent files and configured search roots.
   addRoute(routes, "POST", "/launcher/files/visible", "client", async ctx => {
     read(ctx);
@@ -72,8 +119,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const visible = await Promise.all([...groups.values()].map(async group => {
       const first = group[0];
       try {
-        const folder = first.folderId ? await options.searchFolders.root(first.folderId) : null;
-        const workspace = !folder && first.workspaceId ? await options.resolveWorkspace(config, first.workspaceId) : null;
+        const folder = first.folderId ? await folderRoot(ctx, first.folderId) : null;
+        const workspace = !folder && first.workspaceId ? await workspaceFor(ctx, first.workspaceId) : null;
         const root = folder?.path ?? (workspace ? workspaceContentPath(workspace) : undefined);
         const sourceKind = folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project";
         return root ? (await existingLauncherFiles(root, group)).map(item => ({ ...item, sourceKind, subtitle: folder?.name ?? (workspace ? projectName(workspace) : item.subtitle) })) : [];
@@ -85,8 +132,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     read(ctx);
     const input = parse(z.object({ workspaceId: z.string().min(1).optional(), folderId: z.string().min(1).optional(), path: z.string().max(4096).default("") }), Object.fromEntries(ctx.url.searchParams), "launcher_browse", "Choose a project or search folder.");
     if (Boolean(input.workspaceId) === Boolean(input.folderId)) throw new ApiError(400, "launcher_browse", "Choose one project or search folder.");
-    const folder = input.folderId ? await options.searchFolders.root(input.folderId) : null;
-    const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : null;
+    const folder = input.folderId ? await folderRoot(ctx, input.folderId) : null;
+    const workspace = input.workspaceId ? await workspaceFor(ctx, input.workspaceId) : null;
     const root = folder?.path ?? (workspace ? workspaceContentPath(workspace) : undefined);
     if (!root) throw new ApiError(404, "launcher_browse", "Folder unavailable.");
     return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, sourceKind: folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project", name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
@@ -105,31 +152,50 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   });
   addRoute(routes, "GET", "/launcher/folders/:id/file", "client", async ctx => {
     read(ctx);
+    await folderRoot(ctx, ctx.params.id);
     const file = await options.searchFolders.file(ctx.params.id, ctx.url.searchParams.get("path") ?? "");
     return jsonResponse({ path: file.absolute });
   });
   addRoute(routes, "POST", "/launcher/folders/:id/attach", "client", async ctx => {
     write(ctx);
     const input = parse(z.object({ path: z.string().min(1).max(4096), workspaceId: z.string().min(1).max(200).optional() }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_file", "Choose a file to attach.");
+    await folderRoot(ctx, ctx.params.id);
     const file = await options.searchFolders.file(ctx.params.id, input.path);
     if (file.info.size > 64 * 1024 * 1024) throw new ApiError(413, "attachment_size", "Choose a file smaller than 64 MiB.");
-    const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : await options.assistant.workspace();
+    const workspace = input.workspaceId ? await workspaceFor(ctx, input.workspaceId, "POST") : await options.assistant.workspace();
     const name = basename(file.absolute), folder = `.legalwork/attachments/${randomUUID()}`;
     const destination = await launcherDestination(workspace.path, folder, true);
     await writeFile(resolve(destination, name), await readFile(file.absolute), { flag: "wx", mode: 0o600 });
     return jsonResponse({ item: { id: `ref_${randomUUID()}`, type: "file", workspaceId: workspace.id, path: `${folder}/${name}`, name,
       revision: `${file.info.mtimeMs}:${file.info.size}`, sourceLabel: `${file.folder.name} · ${input.path}` } }, 201);
   });
-  const accessible = async (sourceKind?: z.infer<typeof LauncherFileSourceKindSchema>) => {
+  const accessible = async (ctx: RequestContext, sourceKind?: z.infer<typeof LauncherFileSourceKindSchema>) => {
     const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace) && (!sourceKind || sourceKind === (workspace.preset === "wiki" ? "wiki" : "project")));
-    const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
+    const results = await Promise.allSettled(candidates.map(workspace => workspaceFor(ctx, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
-    results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });
+    results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else if (!(result.reason instanceof ApiError && [403, 404].includes(result.reason.status))) unavailable.push(candidates[index].id); });
     return { workspaces, unavailable };
   };
-  const recordings = () => {
-    const list = config.recorder?.listRecordings ?? config.recorder?.library?.list;
-    return list ? async (query: string) => filterRecordings((await list()).filter(meta => !meta.ephemeral).map(meta => ({ id: meta.id, title: meta.title, createdAt: meta.createdAt, durationMs: meta.durationMs, projectIds: meta.projectIds ?? [], status: meta.status })), query).slice(0, 200) : null;
+  const recordings = (ctx: RequestContext) => {
+    const list = config.recorder?.listRecordings;
+    if (!list) return null;
+    // The desktop owner can pair Raycast to discover recordings. The token
+    // stays collaborator-scoped and cannot read a recording or its transcript.
+    const paired = ctx.tokens.requestHasRaycastToken(ctx.request);
+    if (!paired) {
+      try { options.requireClientScope(ctx, "owner"); }
+      catch (error) {
+        if (error instanceof ApiError && [401, 403].includes(error.status)) return null;
+        throw error;
+      }
+    }
+    return async (query: string) => {
+      const access = await options.launcherRecordingAccess(ctx);
+      const items = filterRecordings((await list()).filter(meta => !meta.ephemeral && access.visible(meta)).map(meta => ({ id: meta.id, title: meta.title, createdAt: meta.createdAt, durationMs: meta.durationMs, projectIds: meta.projectIds ?? [], status: meta.status })), query).slice(0, 200);
+      await access.check();
+      if (paired && !ctx.tokens.requestHasRaycastToken(ctx.request)) return [];
+      return items;
+    };
   };
   addRoute(routes, "GET", "/launcher/search", "client", async ctx => {
     read(ctx);
@@ -140,9 +206,13 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const kinds = input.kinds ? input.kinds.split(",").map(kind => LauncherSearchKindSchema.parse(kind.trim())) : [...LAUNCHER_SEARCH_KINDS];
     const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
     const store = await taskStore(config);
-    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since, sourceKind: input.sourceKind, sort: input.sort },
+    const folderSources = {
+      list: () => visibleFolders(ctx),
+      root: (id: string) => folderRoot(ctx, id),
+    };
+    const [extra, response] = await Promise.all([searchFolderFiles(folderSources, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since, sourceKind: input.sourceKind, sort: input.sort },
       (folder, signal) => searchFileContents(folder, input.q, signal, options.preparation), ctx.request.signal), searchLauncher({
-      workspaces: () => accessible(kinds.length === 1 && kinds[0] === "files" ? input.sourceKind : undefined), projectName, fileIndex, recordings: recordings(),
+      workspaces: () => accessible(ctx, kinds.length === 1 && kinds[0] === "files" ? input.sourceKind : undefined), projectName, fileIndex, recordings: recordings(ctx),
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
@@ -172,10 +242,12 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const unavailable: string[] = [];
     for (const source of sources) {
       try {
-        const workspace = await options.resolveWorkspace(config, source.id);
+        const workspace = await workspaceFor(ctx, source.id);
         const result = await options.client(workspace).native.command.list({ location: { directory: workspace.path } }, { signal: AbortSignal.timeout(10000) });
         groups.push({ workspaceId: isMainAssistant(workspace) ? null : workspace.id, items: result.data ?? [] });
-      } catch { unavailable.push(source.id); }
+      } catch (error) {
+        if (!(error instanceof ApiError && [403, 404].includes(error.status))) unavailable.push(source.id);
+      }
     }
     return jsonResponse({ entries: launcherCatalog({ commands: groups, quickActions: quickActions.list() }), unavailable });
   });
@@ -184,7 +256,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     write(ctx);
     const input = parse(LauncherFileTransferInputSchema, await options.readJsonBodyLimited(ctx.request, 16_000), "launcher_transfer", "Name the file, the destination project and copy or move.");
     if (input.sourceWorkspaceId === input.targetWorkspaceId) throw new ApiError(400, "launcher_transfer", "Choose a different project as the destination.");
-    const [source, target] = await Promise.all([options.resolveWorkspace(config, input.sourceWorkspaceId), options.resolveWorkspace(config, input.targetWorkspaceId)]);
+    const [source, target] = await Promise.all([workspaceFor(ctx, input.sourceWorkspaceId, input.mode === "move" ? "POST" : "GET"), workspaceFor(ctx, input.targetWorkspaceId, "POST")]);
     const relativePath = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true });
     const sourceRoot = await realpath(workspaceFileRoot(source, relativePath)), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
     if (!sourceFile || (sourceFile !== sourceRoot && !sourceFile.startsWith(sourceRoot + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
@@ -213,13 +285,14 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     read(ctx);
     const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
     const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(15_000)]);
-    const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return options.resolveWorkspace(config, input.workspaceId); };
+    const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return workspaceFor(ctx, input.workspaceId); };
     const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
     if (input.kind === "projects") {
       const workspace = await workspaceOf();
       return jsonResponse(assemblePreview({ kind: "projects", id: workspace.id, title: projectName(workspace), meta: [workspaceContentPath(workspace)], updatedAt: null }, clampPreview(workspaceContentPath(workspace)), "metadata"));
     }
     if (input.kind === "files") {
+      if (input.folderId) await folderRoot(ctx, input.folderId);
       const external = input.folderId ? await options.searchFolders.file(input.folderId, input.id) : null;
       const workspace = external ? { id: external.folder.id, path: external.folder.path, name: external.folder.name } : await workspaceOf();
       const relativePath = normalizeWorkspaceRelativePath(input.id, { allowSubdirs: true });
@@ -250,12 +323,12 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       const meta = [task.status, task.dueDate ? `Due ${task.dueDate.slice(0, 10)}` : null, task.assigneeName, ...task.tags].filter((value): value is string => Boolean(value));
       return jsonResponse(assemblePreview({ kind: "tasks", id: task.id, title: task.title, meta, updatedAt: Date.parse(task.updatedAt) || null }, clampPreview(task.description), "metadata"));
     }
-    const readRecording = config.recorder?.readRecording ?? config.recorder?.library?.read;
-    if (!readRecording) throw new ApiError(404, "recording_unavailable", "The recording library is only available in the desktop app.");
-    const detail = await readRecording(input.id);
-    if (!detail || detail.meta.ephemeral) throw new ApiError(404, "recording_not_found", "This recording no longer exists.");
+    options.requireClientScope(ctx, "owner");
+    const access = await options.launcherRecordingAccess(ctx);
+    const detail = await readAuthorizedRecording(config, input.id, access.authorize);
+    await access.check();
     const meta = [new Date(detail.meta.createdAt).toLocaleString("en-GB"), `${Math.round(detail.meta.durationMs / 60_000)} min`, detail.meta.status].filter((value): value is string => Boolean(value));
-    return jsonResponse(assemblePreview({ kind: "recordings", id: detail.meta.id, title: detail.meta.title, meta, updatedAt: detail.meta.createdAt }, clampPreview(detail.segments.map(segment => segment.text).join("\n")), "transcript"));
+    return jsonResponse(assemblePreview({ kind: "recordings", id: detail.meta.id, title: detail.meta.title, meta, updatedAt: detail.meta.createdAt }, clampPreview(detail.segments.filter(segment => segment.final).map(segment => segment.text).join("\n")), "transcript"));
   });
   addRoute(routes, "GET", "/launcher/actions", "client", async ctx => { read(ctx); return jsonResponse({ actions: quickActions.list() }); });
   addRoute(routes, "POST", "/launcher/actions", "client", async ctx => {
@@ -300,46 +373,81 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     return jsonResponse({ invocation, duplicate: !fresh, context: invocation.contextId ? stagedContext.peek(invocation.contextId) : null });
   });
   // Work: every delegated job with its origin, exact destination and live status.
-  const sourceWorkspace = async () => {
+  const sourceWorkspace = async (ctx: RequestContext) => {
     const source = config.workspaces.find(isMainAssistant);
     if (!source) return null;
-    await options.resolveWorkspace(config, source.id);
+    await workspaceFor(ctx, source.id);
     return source;
   };
+  type WorkList = Awaited<ReturnType<typeof listAssistantWork>>;
+  const snapshots = new Map<string, { key: string; expires: number; items: WorkList }>();
   addRoute(routes, "GET", "/assistant/work", "client", async ctx => {
     read(ctx);
     const filter = parse(z.object({ status: AssistantWorkStatusSchema.optional(), projectId: z.string().max(200).optional(), limit: z.coerce.number().int().min(1).max(100).default(40), offset: z.coerce.number().int().nonnegative().default(0) }), Object.fromEntries(ctx.url.searchParams), "work_query", "Check the work filters.");
-    const source = await sourceWorkspace();
+    const source = await sourceWorkspace(ctx);
     if (!source) return jsonResponse({ items: [] });
+    const key = JSON.stringify([ctx.actor, source.id, filter.projectId, filter.status]);
+    const page = (items: WorkList, snapshot?: string) => {
+      const end = filter.offset + filter.limit;
+      return jsonResponse({ items: items.slice(filter.offset, end), nextOffset: end < items.length ? end : null, snapshot });
+    };
+    const cursor = ctx.url.searchParams.get("snapshot");
+    if (cursor) {
+      const saved = snapshots.get(cursor);
+      if (!saved || saved.key !== key || saved.expires <= Date.now()) throw new ApiError(409, "work_expired", "Refresh the work list.");
+      const projects = new Set(saved.items.slice(filter.offset, filter.offset + filter.limit).map(item => item.workspaceId));
+      await Promise.all([...projects].map(id => options.guardLauncherWorkspace(ctx, id, "GET")));
+      return page(saved.items, cursor);
+    }
     const tracked = delegations.list(source.id).filter(delegation => !filter.projectId || delegation.workspaceId === filter.projectId);
-    const items = await listAssistantWork(tracked, {
+    const allowed = new Set<string>();
+    await Promise.all([...new Set(tracked.map(job => job.workspaceId))].map(async id => {
+      try {
+        await options.guardLauncherWorkspace(ctx, id, "GET");
+        allowed.add(id);
+      } catch (error) {
+        if (!(error instanceof ApiError && [403, 404].includes(error.status))) throw error;
+      }
+    }));
+    const statusesByProject = new Map<string, ReturnType<ReturnType<typeof options.client>["session"]["status"]>>();
+    const items = await listAssistantWork(tracked.filter(job => allowed.has(job.workspaceId)), {
       originConversationId: sessionId => conversations.bySession(source.id, sessionId)?.id ?? null,
       inspect: async delegation => {
         const workspace = await options.resolveWorkspace(config, delegation.workspaceId);
         const client = options.client(workspace);
         const session = await client.session.get({ sessionID: delegation.sessionId }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
         const available = Boolean(session.data && !session.data.time.archived && resolve(session.data.directory) === resolve(workspace.path));
+        if (!available) return { title: delegation.title, projectName: projectName(workspace), createdAt: null, updatedAt: null, queuedMessages: 0, available: false, busy: false, result: null, pendingAttention: 0 };
         const common = { title: session.data?.title ?? delegation.title, projectName: projectName(workspace), createdAt: session.data?.time.created ?? null, updatedAt: session.data?.time.updated ?? null, queuedMessages: sessionQueue.list({ workspaceId: delegation.workspaceId, sessionId: delegation.sessionId }).length };
-        if (!available) return { ...common, available: false, busy: false, result: null, pendingAttention: 0 };
-        const [statuses, result, attention] = await Promise.all([
-          client.session.status({}, { throwOnError: true, signal: AbortSignal.timeout(10000) }),
-          readDelegationResult(client, delegation.sessionId),
-          readAssistantAttention(client, { workspaceId: delegation.workspaceId, sessionId: delegation.sessionId, projectName: common.projectName, sessionTitle: common.title }).catch(() => []),
+        let statusesPromise = statusesByProject.get(workspace.id);
+        if (!statusesPromise) {
+          statusesPromise = client.session.status({}, { throwOnError: true, signal: AbortSignal.timeout(10000) });
+          statusesByProject.set(workspace.id, statusesPromise);
+        }
+        const [statuses, messages, attention] = await Promise.all([
+          statusesPromise,
+          client.session.messages({ sessionID: delegation.sessionId, limit: 1 }, { throwOnError: true, signal: AbortSignal.timeout(10000) }),
+          readPendingAssistantRequests(client, delegation.sessionId),
         ]);
         const status = statuses.data?.[delegation.sessionId];
-        return { ...common, available: true, busy: Boolean(status && status.type !== "idle"), result, pendingAttention: attention.filter(item => item.kind !== "widget").length };
+        const busy = Boolean(status && status.type !== "idle");
+        const result = terminalDelegationResult(messages.data?.at(-1), delegation.sessionId, !busy);
+        return { ...common, available: true, busy, result, pendingAttention: attention.permissions.length + attention.questions.length };
       },
     }, { status: filter.status, projectId: filter.projectId });
-    const end = filter.offset + filter.limit;
-    return jsonResponse({ items: items.slice(filter.offset, end), nextOffset: end < items.length ? end : null });
+    if (items.length <= filter.offset + filter.limit) return page(items);
+    for (const [id, entry] of snapshots) if (entry.expires <= Date.now() || snapshots.size >= 32) snapshots.delete(id);
+    const snapshot = randomUUID();
+    snapshots.set(snapshot, { key, items, expires: Date.now() + 60_000 });
+    return page(items, snapshot);
   });
   addRoute(routes, "POST", "/assistant/work/:workspaceId/:sessionId/:action", "client", async ctx => {
     write(ctx);
-    const source = await sourceWorkspace();
+    const source = await sourceWorkspace(ctx);
     if (!source) throw new ApiError(404, "assistant_missing", "The Assistant is unavailable.");
     const delegation = delegations.list(source.id).find(item => item.workspaceId === ctx.params.workspaceId && item.sessionId === ctx.params.sessionId);
     if (!delegation) throw new ApiError(404, "attention_scope", "This chat was not delegated by your Assistant.");
-    const workspace = await options.resolveWorkspace(config, delegation.workspaceId);
+    const workspace = await workspaceFor(ctx, delegation.workspaceId);
     const authority = await assistantRequestAuthority(config, ctx.request, ctx.actor);
     assertAssistantDispatchAuthority(authority, workspace.id);
     await options.sessionAccess.checkDirectory(workspace.path, authority);
@@ -360,7 +468,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   // The execution target bound to a conversation's latest request: the server, not the prompt, is the boundary.
   addRoute(routes, "GET", "/assistant/conversations/:id/constraint", "client", async ctx => {
     read(ctx);
-    const source = await sourceWorkspace();
+    const source = await sourceWorkspace(ctx);
     const conversation = source ? conversations.find(source.id, ctx.params.id) : null;
     if (!conversation) throw new ApiError(404, "conversation_not_found", "This conversation is no longer available.");
     return jsonResponse({ target: submissions.constraint(conversation.sessionId) });

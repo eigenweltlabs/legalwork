@@ -161,7 +161,7 @@ test("a newer action waits for an older native read and receives its own origin"
 });
 
 test("assistant links carry identifiers only and reject unknown actions", () => {
-  assert.equal(parseAssistantLink("legalwork://assistant/ask?q=hi&invocation=i1&context=ctx_1")?.contextId, "ctx_1");
+  assert.equal(parseAssistantLink("legalwork://assistant/ask?q=hi&invocation=i1&context=ctx_1")?.contextId, undefined);
   assert.equal(parseAssistantLink("legalwork://assistant/erase-everything"), null);
   assert.equal(parseAssistantLink("legalwork://connect-remote?legalworkToken=x"), null);
   assert.equal(parseAssistantLink("legalwork-dev://assistant")?.action, "open");
@@ -237,11 +237,34 @@ test("exact result links retain identity without accepting arbitrary routes or m
   const link = value => `legalwork://assistant/open?result=${encodeURIComponent(JSON.stringify(value))}`;
   assert.deepEqual(parseAssistantLink(link(result))?.result, result);
   for (const resultAction of ["chat-with-assistant", "ask", "summarize"]) {
-    assert.equal(parseAssistantLink(`${link(result)}&resultAction=${resultAction}`)?.resultAction, resultAction);
+    const preview = parseAssistantLink(`${link(result)}&resultAction=${resultAction}`);
+    assert.deepEqual(preview?.result, result);
+    assert.equal(preview?.source, "deep-link");
+    assert.equal(preview?.resultAction, undefined);
   }
   assert.equal(parseAssistantLink(`${link(result)}&resultAction=move-to-project`), null);
   assert.equal(parseAssistantLink("legalwork://assistant/open?resultAction=ask"), null);
   for (const value of [null, [], { ...result, kind: "unknown" }, { ...result, workspaceId: 2 }, { ...result, route: "/settings" }, { ...result, id: "x".repeat(4097) }]) {
     assert.equal(parseAssistantLink(link(value)), null);
   }
+});
+
+test("only a consumed Raycast command can request an immediate summary", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-handoff-"));
+  try {
+    const { service } = await makeService(dir);
+    /** @type {import("@legalwork/types/launcher").LauncherInvocation | null} */
+    let command = { id: "private-command", action: "open", source: "raycast", resultAction: "summarize",
+      result: { kind: "files", id: "Agreement.docx", workspaceId: "matter", sourceId: "local:matter" } };
+    let requests = 0;
+    service.options.pairing.consume = async () => { requests++; const pending = command; command = null; return pending; };
+    const link = "legalwork://assistant/open?handoff=c556f4eb-0071-422f-9951-088bbbc7aab5";
+    const publicLink = `legalwork://assistant/open?result=${encodeURIComponent(JSON.stringify(command.result))}&resultAction=summarize`;
+    assert.deepEqual(await service.handleDeepLinks([publicLink, link + "&q=forged"]), []);
+    assert.deepEqual(service.drain().map(invocation => [invocation.source, invocation.result, invocation.resultAction]), [["deep-link", command.result, undefined]]);
+    assert.equal(requests, 0);
+    await service.handleDeepLinks([link, link]);
+    assert.deepEqual(service.drain().map(invocation => [invocation.id, invocation.resultAction]), [["private-command", "summarize"]]);
+    assert.equal(requests, 2);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

@@ -25,6 +25,14 @@ test("recordings copy the complete transcript across pages", async () => {
   expect(offsets).toEqual([0, 6]);
 });
 
+test("an oversized attachment is rejected on the first page without discarding its ending", async () => {
+  let reads = 0;
+  await expect(launcherClipboardText(item("recordings"), { recordingTranscript: async id => {
+    reads++; return { recording: { id, title: "Title" }, content: "first", totalCharacters: 200_001, nextOffset: 5 };
+  } }, 200_000)).rejects.toThrow("too long");
+  expect(reads).toBe(1);
+});
+
 test("unavailable or stalled transcripts fail instead of copying a partial excerpt", async () => {
   for (const page of [{ content: "", nextOffset: null }, { content: "partial", nextOffset: 0 }]) {
     await expect(launcherClipboardText(item("recordings"), { recordingTranscript: async id => ({ recording: { id, title: "Title" }, totalCharacters: 10, ...page }) })).rejects.toThrow();

@@ -158,9 +158,10 @@ export class LauncherService {
     // Serialize native context reads so an older capture cannot overwrite a newer invocation's origin.
     this.preparing = this.preparing.catch(() => {}).then(async () => {
       if (this.opening !== opening) return;
-      if (!this.options.window.isFocused()) await this.options.origin.capture();
+      const needsOrigin = !this.options.window.isFocused();
+      if (needsOrigin) await this.options.origin.capture();
       if (this.opening !== opening) return;
-      if (payload.captureSelection || !payload.workspaceContext && invocation.action === "open") await this.options.origin.prefetchSelection();
+      if (needsOrigin && (payload.captureSelection || !payload.workspaceContext && invocation.action === "open")) await this.options.origin.prefetchSelection();
     });
     try {
       await this.preparing;
@@ -198,8 +199,20 @@ export class LauncherService {
   async handleDeepLinks(urls) {
     const remaining = [];
     for (const url of urls) {
+      let link;
+      try { link = new URL(url); } catch { remaining.push(url); continue; }
+      if (["legalwork:", "legalwork-dev:"].includes(link.protocol) && link.hostname === "assistant" && link.searchParams.has("handoff")) {
+        const handoff = link.searchParams.get("handoff");
+        if (link.pathname === "/open" && handoff && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(handoff)
+          && [...link.searchParams].length === 1) {
+          const command = await this.options.pairing.consume(handoff).catch(() => null);
+          if (command) await this.invoke(command);
+        }
+        continue;
+      }
       const invocation = parseAssistantLink(url);
-      if (invocation) await this.invoke(invocation); else remaining.push(url);
+      if (invocation) await this.invoke(invocation);
+      else if (!["legalwork:", "legalwork-dev:"].includes(link.protocol) || link.hostname !== "assistant") remaining.push(url);
     }
     return remaining;
   }

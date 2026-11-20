@@ -16,6 +16,6 @@ export async function canonicalResultFile(root: string, relativePath: string, di
 
 export function resultReference(item: LauncherSearchResult): LauncherResultReference {
   return { kind: item.kind, id: item.id, workspaceId: item.workspaceId, sourceId: item.sourceId,
-    ...(item.folderId ? { folderId: item.folderId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}),
+    ...(item.messageId ? { messageId: item.messageId } : {}), ...(item.folderId ? { folderId: item.folderId } : {}), ...(item.sessionId ? { sessionId: item.sessionId } : {}),
     ...(item.kind === "files" && item.path !== undefined ? { path: item.path } : {}), ...(item.fileType === "folder" ? { fileType: "folder" } : {}) };
 }

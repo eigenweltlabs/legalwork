@@ -4,45 +4,73 @@ import { useBootState } from "@/react-app/shell/boot-state";
 import { launcherBootstrapQueries } from "./launcher-bootstrap";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { LauncherDesktopEventSchema, LauncherDraftFileSchema, type LauncherDesktopEvent } from "@legalwork/types/launcher";
-import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LauncherDesktopEventSchema, type LauncherDesktopEvent } from "@legalwork/types/launcher";
+import { createLegalworkServerClient, LEGALWORK_DRAFT_ACCOUNT_EVENT, resolveLauncherDraftAccount, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { launcherDraftsRead, launcherDraftsWrite, launcherInvocationsDrain, launcherOriginGet, launcherWindowControl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { parseAssistantDeepLink } from "@/app/lib/assistant-links";
 import { t } from "@/i18n";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { useSyncEvents } from "@/react-app/kernel/sync-events";
-import { DraftCoordinator, EMPTY_DRAFT_FILE, type DraftMessage, type DraftStorage } from "./draft-coordinator";
+import { hashDraftProfile } from "./draft-profile";
+import { DraftCoordinator, EMPTY_DRAFT_FILE, readDraftFile, type DraftFile, type DraftStorage } from "./draft-coordinator";
 import { LauncherPanel } from "./launcher-panel";
 import { LauncherShellContext, type LauncherShellValue } from "./launcher-shell";
 import { useLauncherStore } from "./launcher-store";
 
 const LAUNCHER_EVENT = "legalwork:launcher:event";
-const CHANNEL = "legalwork-launcher-drafts";
-const DRAFTS_KEY = "legalwork.launcher.drafts.v1";
-
-/** The desktop file is the source of truth; the browser fallback keeps a local copy for the web app only. */
-export function createDraftStorage(desktop: boolean): DraftStorage {
-  if (desktop) return { read: async () => LauncherDraftFileSchema.parse(await launcherDraftsRead()), write: (file, expectedVersion) => launcherDraftsWrite(file, expectedVersion) };
-  const read = async () => { const raw = window.localStorage.getItem(DRAFTS_KEY); return raw ? LauncherDraftFileSchema.parse(JSON.parse(raw)) : structuredClone(EMPTY_DRAFT_FILE); };
+function browserDraftStorage(profile: string): DraftStorage {
+  const database = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("legalwork-launcher-drafts", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("profiles");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
   return {
-    read,
-    write: async (file, expectedVersion) => await navigator.locks.request(DRAFTS_KEY, async () => {
-      if ((await read()).version !== expectedVersion) return false;
-      window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(file));
-      return true;
-    }),
+    read: async () => {
+      const db = await database;
+      return new Promise<DraftFile>((resolve, reject) => {
+        const request = db.transaction("profiles").objectStore("profiles").get(profile);
+        request.onsuccess = () => { try { resolve(readDraftFile(request.result ?? EMPTY_DRAFT_FILE)); } catch (error) { reject(error); } };
+        request.onerror = () => reject(request.error);
+      });
+    },
+    write: async (file, version) => {
+      const db = await database;
+      return new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction("profiles", "readwrite"), store = tx.objectStore("profiles"), current = store.get(profile);
+        let accepted = false;
+        current.onsuccess = () => { if ((current.result?.version ?? 0) === version) { store.put(file, profile); accepted = true; } };
+        tx.oncomplete = () => resolve(accepted);
+        tx.onabort = () => reject(tx.error ?? new Error("Draft storage unavailable"));
+      });
+    },
   };
 }
-export function createDraftChannel() {
-  if (typeof BroadcastChannel === "undefined") return undefined;
-  const channel = new BroadcastChannel(CHANNEL);
-  return { post: (message: DraftMessage) => channel.postMessage(message), subscribe: (listener: (message: DraftMessage) => void) => { const handler = (event: MessageEvent<DraftMessage>) => listener(event.data); channel.addEventListener("message", handler); return () => channel.removeEventListener("message", handler); } };
-}
-let sharedDrafts: DraftCoordinator | null = null;
-export function sharedDraftCoordinator() {
-  sharedDrafts ??= new DraftCoordinator(createDraftStorage(isDesktopRuntime()), createDraftChannel());
-  return sharedDrafts;
+
+const coordinators = new Map<string, DraftCoordinator>();
+export function sharedDraftCoordinator(client: Pick<LegalworkServerClient, "draftProfile"> | null) {
+  const key = client?.draftProfile ?? "disconnected";
+  const existing = coordinators.get(key);
+  if (existing) return existing;
+  const profile = hashDraftProfile(key);
+  const storage = profile.then((id): DraftStorage => isDesktopRuntime() ? {
+    read: async () => readDraftFile(await launcherDraftsRead(id)),
+    write: (file, version) => launcherDraftsWrite(file, version, id),
+  } : browserDraftStorage(id));
+  const channel = profile.then(id => typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("legalwork-launcher-drafts:" + id));
+  const coordinator = new DraftCoordinator({
+    read: async () => (await storage).read(),
+    write: async (file, version) => {
+      const written = await (await storage).write(file, version);
+      if (written) (await channel)?.postMessage("updated");
+      return written;
+    },
+  });
+  // Notify other windows to reread. Never broadcast large attachments or credentials.
+  void channel.then(bus => { if (bus) bus.onmessage = () => { void coordinator.reconcile().catch(() => undefined); }; });
+  coordinators.set(key, coordinator);
+  return coordinator;
 }
 export function windowOwnerId(prefix: string) {
   try {
@@ -58,6 +86,18 @@ export function useLauncherConnection() {
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
   const connectionKey = useRef("");
+  const draftProfile = useRef<string | null>(null);
+  const profileGeneration = useRef(0);
+  const changeClient = (next: LegalworkServerClient | null) => {
+    const profile = next?.draftProfile ?? null;
+    if (draftProfile.current && draftProfile.current !== profile) {
+      const { visible, pinned, positionMoved, origin } = useLauncherStore.getState();
+      useLauncherStore.setState({ ...useLauncherStore.getInitialState(), visible, pinned, positionMoved, origin });
+    }
+    if (draftProfile.current !== profile) profileGeneration.current++;
+    draftProfile.current = profile;
+    setClient(next);
+  };
   useEffect(() => {
     let generation = 0;
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
@@ -67,11 +107,15 @@ export function useLauncherConnection() {
       try {
         const connection = await resolveLegalworkConnection();
         if (cancelled || generation !== currentGeneration) return;
-        if (!connection.normalizedBaseUrl || (!connection.resolvedToken && !connection.resolvedHostToken)) { connectionKey.current = ""; setClient(null); setError(t("launcher.connecting")); timer = setTimeout(resolve, 1500); return; }
-        const key = JSON.stringify([connection.normalizedBaseUrl, connection.resolvedToken, connection.resolvedHostToken]);
+        if (!connection.normalizedBaseUrl || (!connection.resolvedToken && !connection.resolvedHostToken)) { connectionKey.current = ""; changeClient(null); setError(t("launcher.connecting")); timer = setTimeout(resolve, 1500); return; }
+        const options = { baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken || undefined, hostToken: connection.resolvedHostToken || undefined, managedDesktop: connection.source === "desktop-runtime" };
+        const draftAccount = await resolveLauncherDraftAccount(options);
+        if (cancelled || generation !== currentGeneration) return;
+        const clientOptions = { ...options, draftAccount };
+        const key = JSON.stringify(clientOptions);
         if (connectionKey.current !== key) {
           connectionKey.current = key;
-          setClient(createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken || undefined, hostToken: connection.resolvedHostToken || undefined }));
+          changeClient(createLegalworkServerClient(clientOptions));
         }
         setError(null);
       } catch (failure) { if (!cancelled && generation === currentGeneration) { setError(failure instanceof Error ? failure.message : String(failure)); timer = setTimeout(resolve, 3000); } }
@@ -79,15 +123,25 @@ export function useLauncherConnection() {
     void resolve();
     const onChange = () => void resolve();
     window.addEventListener("legalwork-server-settings-changed", onChange);
+    const onAccountStorage = (event: StorageEvent) => { if (event.key === LEGALWORK_DRAFT_ACCOUNT_EVENT) onChange(); };
     window.addEventListener("focus", onChange);
-    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener("legalwork-server-settings-changed", onChange); window.removeEventListener("focus", onChange); };
+    window.addEventListener(LEGALWORK_DRAFT_ACCOUNT_EVENT, onChange);
+    window.addEventListener("storage", onAccountStorage);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      window.removeEventListener("legalwork-server-settings-changed", onChange);
+      window.removeEventListener("focus", onChange);
+      window.removeEventListener(LEGALWORK_DRAFT_ACCOUNT_EVENT, onChange);
+      window.removeEventListener("storage", onAccountStorage);
+    };
   }, []);
-  return { client, error };
+  return { client, error, profileGeneration: profileGeneration.current };
 }
 
 /** The dedicated panel route: the app's connection, theme and i18n, without workspace UI. */
 export function LauncherRoute() {
-  const { client, error } = useLauncherConnection();
+  const { client, error, profileGeneration } = useLauncherConnection();
   const { markRouteReady } = useBootState();
   // This independent window has no SessionRoute to release the global boot overlay.
   useEffect(() => { markRouteReady(); }, [markRouteReady]);
@@ -104,7 +158,7 @@ export function LauncherRoute() {
     ? { workspaceId: assistantQuery.data.workspace.id, profile: assistantQuery.data.profile } : null, [assistantQuery.data]);
   const workspaces = useMemo(() => workspaceQuery.data ?? [], [workspaceQuery.data]);
   const bootstrapError = workspaceQuery.error?.message ?? assistantQuery.error?.message ?? null;
-  const drafts = useMemo(() => sharedDraftCoordinator(), []);
+  const drafts = useMemo(() => sharedDraftCoordinator(client), [client]);
   const owner = useMemo(() => windowOwnerId("panel"), []);
   const seen = useRef(new Set<string>());
   const deliveryRevision = useRef(0);
@@ -122,11 +176,12 @@ export function LauncherRoute() {
         seen.current.add(event.invocation.id);
         const revision = ++deliveryRevision.current;
         const deliver = () => { if (!cancelled && deliveryRevision.current === revision) store.setInvocation(event.invocation); };
-        // The native service deduplicates ordinary opens before showing the panel. Apply the foreground
-        // snapshot immediately; execution-bearing invocations still use server-side deduplication.
-        if (event.invocation.action === "open" && !event.invocation.result && !event.invocation.contextId && !event.invocation.conversationId && !event.invocation.projectId) {
+        // Native delivery and the single-use handoff already deduplicate external
+        // links. Never post their contents to the panel's configured server.
+        if (event.invocation.source === "raycast" || event.invocation.source === "deep-link" ||
+          (event.invocation.action === "open" && !event.invocation.result && !event.invocation.contextId && !event.invocation.conversationId && !event.invocation.projectId)) {
           deliver();
-        } else if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) deliver(); }).catch(deliver);
+        } else if (client) void client.registerLauncherInvocation({ ...event.invocation, workspaceContext: event.invocation.workspaceContext ? { ...event.invocation.workspaceContext, dashboard: undefined } : undefined }).then(result => { if (!result.duplicate) deliver(); }).catch(deliver);
         else deliver();
       } else if (event.type === "visibility") { stateRevision++; store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) { deliveryRevision.current++; store.setInvocation(null); store.reset(); } }
       else if (event.type === "position") { stateRevision++; store.setPositionMoved(event.moved); }
@@ -138,13 +193,17 @@ export function LauncherRoute() {
     };
     const listener = (event: Event) => { if (!(event instanceof CustomEvent)) return; const parsed = LauncherDesktopEventSchema.safeParse(event.detail); if (parsed.success) apply(parsed.data); };
     window.addEventListener(LAUNCHER_EVENT, listener);
-    void launcherInvocationsDrain().then(invocations => { if (!cancelled) invocations.forEach(invocation => apply({ type: "invocation", invocation })); }).catch(() => undefined);
-    void launcherOriginGet().then(origin => { if (!cancelled && originRevision === 0) useLauncherStore.getState().setOrigin(origin); }).catch(() => undefined);
-    void launcherWindowControl("state").then(state => {
-      if (cancelled || stateRevision !== 0) return;
-      // Warmed windows may mount while hidden; newer native events always win.
-      const store = useLauncherStore.getState();
-      store.setVisible(state.visible); store.setPinned(state.pinned); store.setPositionMoved(state.moved);
+    void Promise.allSettled([
+      launcherOriginGet().then(origin => { if (!cancelled && originRevision === 0) useLauncherStore.getState().setOrigin(origin); }),
+      launcherWindowControl("state").then(state => {
+        if (cancelled || stateRevision !== 0) return;
+        const store = useLauncherStore.getState();
+        store.setVisible(state.visible); store.setPinned(state.pinned); store.setPositionMoved(state.moved);
+      }),
+    ]).then(async () => {
+      if (cancelled || !client) return;
+      const pending = await launcherInvocationsDrain();
+      if (!cancelled) pending.forEach(invocation => apply({ type: "invocation", invocation }));
     }).catch(() => undefined);
     return () => { cancelled = true; window.removeEventListener(LAUNCHER_EVENT, listener); };
   }, [desktop, client]);
@@ -163,5 +222,5 @@ export function LauncherRoute() {
     refresh, bootstrapError, workspacesPending: workspaceQuery.isPending,
   } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh, bootstrapError, workspaceQuery.isPending]);
   if (!shell) return <div className="launcher-root" data-surface="panel"><div className="launcher-panel"><div className="launcher-empty"><Loader2 className="mx-auto mb-2 size-5 animate-spin motion-reduce:animate-none" />{error ?? t("launcher.connecting")}</div></div></div>;
-  return <LauncherShellContext.Provider value={shell}><LauncherPanel /></LauncherShellContext.Provider>;
+  return <LauncherShellContext.Provider value={shell}><LauncherPanel key={profileGeneration} /></LauncherShellContext.Provider>;
 }

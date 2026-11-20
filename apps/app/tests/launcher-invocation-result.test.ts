@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { launcherInvocationResultAction, resolveLauncherInvocationResult } from "../src/react-app/launcher/launcher-invocation-result";
 import { resultChatProject } from "../src/react-app/launcher/launcher-result-chat";
+import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 type Client = Parameters<typeof resolveLauncherInvocationResult>[1];
@@ -18,6 +19,27 @@ test("exact file handoff validates the selected source rather than title-searchi
   } }));
   expect(found).toMatchObject({ ...reference, sourceKind: "wiki", subtitle: "Current Wiki Name" });
   await expect(resolveLauncherInvocationResult(reference, client({ visibleLauncherFiles: async () => ({ items: [] }) }))).rejects.toThrow();
+});
+
+test("public result actions always open a preview and paired summaries retain the explicit action", () => {
+  const file: LauncherSearchResult = { kind: "files", id: "Fixture.md", path: "Fixture.md", workspaceId: null, folderId: "fixture-folder",
+    sourceId: "folder:fixture-folder", title: "Fixture.md", score: 0, updatedAt: 0, match: "exact", actions: ["open"] };
+  expect(launcherInvocationResultAction(file, "open", "deep-link")).toBe("preview");
+  expect(launcherInvocationResultAction(file, "summarize", "deep-link")).toBe("preview");
+  expect(launcherInvocationResultAction(file, "summarize", "raycast")).toBe("summarize");
+});
+
+test("Raycast dispatch is bound to the authenticated desktop runtime and refuses manual servers", () => {
+  const local = { baseUrl: "http://127.0.0.1:4123", hostToken: "local-host" };
+  const instanceId = "c556f4eb-0071-422f-9951-088bbbc7aab5";
+  const runtime = { ...local, running: true, instanceId };
+  const managed = createLegalworkServerClient({ ...local, managedDesktop: true });
+  expect(managed.matchesManagedDesktopServer(runtime, instanceId)).toBeTrue();
+  expect(managed.matchesManagedDesktopServer(runtime, "previous-boot")).toBeFalse();
+  expect(managed.matchesManagedDesktopServer({ ...runtime, hostToken: "new-host" }, instanceId)).toBeFalse();
+  expect(managed.matchesManagedDesktopServer({ ...runtime, baseUrl: "http://127.0.0.1:4999" }, instanceId)).toBeFalse();
+  const forwarded = createLegalworkServerClient(local);
+  expect(forwarded.matchesManagedDesktopServer(runtime, instanceId)).toBeFalse();
 });
 
 test("job handoff asks for the exact project session and propagates unavailable failures", async () => {

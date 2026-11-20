@@ -14,10 +14,11 @@ export function workStatus(inspection: WorkInspection): AssistantWorkStatus {
   if (!inspection.available) return "unavailable";
   if (inspection.pendingAttention > 0 || inspection.result?.outcome === "input-required") return "input-required";
   if (inspection.busy) return "running";
+  if (inspection.queuedMessages > 0) return "queued";
   if (inspection.result?.outcome === "failed") return "failed";
   if (inspection.result?.outcome === "interrupted") return "stopped";
   if (inspection.result?.outcome === "reply") return "returned";
-  return inspection.queuedMessages > 0 ? "queued" : "returned";
+  return "idle";
 }
 
 /** Work is addressable: every delegated job keeps its origin conversation, exact destination and current status. */

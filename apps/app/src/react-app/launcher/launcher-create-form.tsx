@@ -1,7 +1,7 @@
 import type { TranslationKey } from "./launcher-labels";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { AssistantContextItem } from "@legalwork/types/launcher";
+import type { AssistantContextItem, LauncherCapture } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
@@ -19,9 +19,9 @@ const createKeys = {
   attach: "launcher.flow.create_attach",
 } satisfies Record<LauncherCreate["kind"], TranslationKey>;
 
-export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; format?: "md" | "txt" | "docx"; context: AssistantContextItem[] };
+export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; format?: "md" | "txt" | "docx"; context: AssistantContextItem[]; screenshot?: LauncherCapture; sessionId?: string };
 export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTaskCreated, onFormStateChange }: { initial: LauncherCreate; onClose: () => void; onFormStateChange?: (state: LauncherFormState) => void;
-  onAttach: (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[]) => Promise<void>;
+  onAttach: (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[], screenshot?: LauncherCapture) => Promise<void>;
   onDraft: (workspaceId: string, folder: string, name: string, format: string, instructions: string) => Promise<void>;
   onTaskCreated: (task: LegalworkTask, workspaceId: string) => void;
 }) {
@@ -31,7 +31,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
   const [name, setName] = useState(initial.name);
   const [text, setText] = useState(initial.text);
   const [format, setFormat] = useState<"md" | "txt" | "docx">(initial.format ?? (initial.name.endsWith(".docx") ? "docx" : initial.name.endsWith(".txt") ? "txt" : "md"));
-  const [sessionId, setSession] = useState("");
+  const [sessionId, setSession] = useState(initial.sessionId ?? "");
   const [templatePath, setTemplate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
     saving.current = true; setBusy(true); setError(null);
     try {
       if (initial.kind === "document" || initial.kind === "excerpt") await client.listWorkspaceDirectory(workspaceId, folder);
-      if (initial.kind === "attach") await onAttach(workspaceId, sessionId || undefined, initial.context);
+      if (initial.kind === "attach") await onAttach(workspaceId, sessionId || undefined, initial.context, initial.screenshot);
       else if (initial.kind === "task") {
         const result = await client.createTask(workspaceId, { id: operation.current.id, title: name, description: text, projectId: workspaceId });
         onTaskCreated(result.task, workspaceId);
@@ -61,7 +61,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <LauncherForm title={t(createKeys[initial.kind])} busy={busy} onStateChange={onFormStateChange} onClose={onClose} onSubmit={() => void submit()}>
+  return <LauncherForm title={t(initial.screenshot ? "launcher.capture.attach_image" : createKeys[initial.kind])} busy={busy} onStateChange={onFormStateChange} onClose={onClose} onSubmit={() => void submit()}>
     <fieldset disabled={busy} className="contents">
       {initial.kind !== "attach" && <label>{t(initial.kind === "task" ? "tasks.field_title" : "launcher.flow.name")}<Input value={name} autoFocus maxLength={200} required onChange={event => setName(event.target.value)} /></label>}
       <LauncherSelect label={t("launcher.flow.project")} value={workspaceId} autoFocus={initial.kind === "attach" && !initial.workspaceId} required disabled={busy} placeholder={t("launcher.flow.choose_project")}

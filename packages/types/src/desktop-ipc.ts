@@ -99,6 +99,7 @@ export type EngineInfo = {
 
 export type LegalworkServerInfo = {
   running: boolean;
+  instanceId?: string | null;
   remoteAccessEnabled: boolean;
   host: string | null;
   port: number | null;
@@ -850,8 +851,8 @@ export type DesktopCommandMap = {
   launcherOutputRemember: { args: [serverUrl: string, intent: LauncherOutputIntent]; result: void };
   launcherOutputList: { args: []; result: LauncherOutputTask[] };
   launcherOutputCancel: { args: [requestId: string]; result: void };
-  launcherDraftsRead: { args: []; result: LauncherDraftFile };
-  launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number]; result: boolean };
+  launcherDraftsRead: { args: [profile: string]; result: LauncherDraftFile };
+  launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number, profile: string]; result: boolean };
   launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };
   launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
   launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };

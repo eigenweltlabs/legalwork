@@ -90,6 +90,7 @@ export const LauncherWorkspaceContextSchema = z.object({
   folder: z.string().max(4096).optional(), sessionId: z.string().max(200).optional(),
   document: z.object({ workspaceId: z.string().max(200), path: z.string().max(4096), name: z.string().max(400), revision: z.string().nullable().optional() }).optional(),
   selection: z.string().max(200_000).optional(), capturedAt: z.number(),
+  dashboard: z.object({ profile: z.string().regex(/^[a-f0-9]{64}$/), sessionId: z.string().max(200), context: z.string().max(20_000) }).optional(),
 });
 export type LauncherWorkspaceContext = z.infer<typeof LauncherWorkspaceContextSchema>;
 /** Frozen when a request is submitted. Later scope changes never rewrite a running job. */
@@ -116,10 +117,11 @@ export const AssistantSubmitInputSchema = z.object({
   command: z.object({ name: z.string().min(1).max(120), arguments: z.string().max(60000) }).optional(),
   parts: z.array(AssistantSubmissionPartSchema).max(100).optional(),
   queue: queueInputSchema.omit({ execution: true, messageId: true }).optional(),
+  draftAccount: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 export type AssistantSubmitInput = z.infer<typeof AssistantSubmitInputSchema>;
 
-export const AssistantWorkStatusSchema = z.enum(["queued", "running", "returned", "input-required", "failed", "stopped", "unavailable"]);
+export const AssistantWorkStatusSchema = z.enum(["queued", "running", "returned", "input-required", "idle", "failed", "stopped", "unavailable"]);
 export type AssistantWorkStatus = z.infer<typeof AssistantWorkStatusSchema>;
 export const AssistantWorkItemSchema = z.object({
   id: z.string(), workspaceId: z.string(), sessionId: z.string(), projectName: z.string(), title: z.string(), scope: z.string(), status: AssistantWorkStatusSchema,
@@ -173,10 +175,10 @@ export const LauncherInvocationSourceSchema = z.enum(["shortcut", "hud", "home",
 /** Exact result identity from an external launcher; resolve it again before opening. */
 export const LauncherResultReferenceSchema = z.object({
   kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().min(1).max(200).nullable(),
-  sourceId: z.string().min(1).max(300), folderId: z.string().min(1).max(100).optional(), sessionId: z.string().min(1).max(200).optional(),
+  sourceId: z.string().min(1).max(300), folderId: z.string().min(1).max(100).optional(), sessionId: z.string().min(1).max(200).optional(), messageId: z.string().min(1).max(200).optional(),
   path: z.string().max(4096).optional(), fileType: z.literal("folder").optional(),
 }).strict().refine(value => (value.kind === "files" || value.path === undefined && value.folderId === undefined && value.fileType === undefined)
-  && (value.kind === "chats" || value.sessionId === undefined), "Result metadata does not match its category.");
+  && (value.kind === "chats" || value.sessionId === undefined && value.messageId === undefined), "Result metadata does not match its category.");
 export type LauncherResultReference = z.infer<typeof LauncherResultReferenceSchema>;
 export const LauncherInvocationResultActionSchema = z.enum(["open", "chat-with-assistant", "ask", "summarize"]);
 /** Snapshot of the focused workpane, captured before the launcher takes focus. */
@@ -186,6 +188,7 @@ export const LauncherInvocationSchema = z.object({
   workspaceContext: LauncherWorkspaceContextSchema.optional(),
   result: LauncherResultReferenceSchema.optional(),
   resultAction: LauncherInvocationResultActionSchema.optional(),
+  raycastServerInstanceId: z.uuid().optional(),
   captureSelection: z.literal(true).optional(),
 }).refine(value => !value.resultAction || Boolean(value.result), "A result action requires an exact result reference.");
 export type LauncherInvocation = z.infer<typeof LauncherInvocationSchema>;

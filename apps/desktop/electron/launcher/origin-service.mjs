@@ -10,7 +10,7 @@ export function execHelper(command, args, options = {}) {
     const timer = setTimeout(() => { child.kill(); reject(new Error(`${command} timed out`)); }, options.timeoutMs ?? 5000);
     child.stdout.on("data", chunk => { stdout += String(chunk); });
     child.once("error", error => { clearTimeout(timer); reject(error); });
-    child.once("exit", () => { clearTimeout(timer); resolve(stdout); });
+    child.once("close", () => { clearTimeout(timer); resolve(stdout); });
   });
 }
 
@@ -106,7 +106,7 @@ export class OriginService {
     this.exists = options.exists ?? existsSync;
     /** @type {import("@legalwork/types/launcher").LauncherOrigin | null} */
     this.origin = null;
-    /** A selection read as part of an explicit capture shortcut, handed out once to the panel. */
+    /** Selection outcome prefetched before focus moves away from the recorded app. */
     this.prefetched = null;
   }
   helperAvailable() { return Boolean(this.helperPath && this.exists(this.helperPath)); }
@@ -147,14 +147,17 @@ export class OriginService {
     const origin = this.origin;
     if (!origin) return null;
     const result = await this.readSelection(origin);
-    if (result.ok) { this.prefetched = { originId: origin.id, text: result.text }; origin.supportsSelection = true; }
+    if (this.origin?.id === origin.id) {
+      this.prefetched = { originId: origin.id, result };
+      if (result.ok) origin.supportsSelection = true;
+    }
     return result;
   }
   /** @returns {Promise<import("@legalwork/types/launcher").LauncherSelectionResult>} */
   async selection(originId) {
     const origin = this.origin;
     if (!origin || origin.id !== originId) return { ok: false, reason: "no-origin", message: "The source app was not recorded.", origin: null };
-    if (this.prefetched?.originId === originId) { const { text } = this.prefetched; this.prefetched = null; return { ok: true, text, origin }; }
+    if (this.prefetched?.originId === originId) return this.prefetched.result;
     if (this.platform === "windows") return { ok: false, reason: "changed", message: "On Windows the selection is read by the selection shortcut before the panel opens. Select the text and use that shortcut.", origin };
     return this.readSelection(origin);
   }

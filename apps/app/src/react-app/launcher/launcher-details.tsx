@@ -1,7 +1,7 @@
-import { taskStatusLabel } from "../domains/tasks/task-format";
+import { formatTaskDateTime, formatTaskDueDate, taskDueDateInputValue, taskStatusLabel } from "../domains/tasks/task-format";
 import { compareLauncherResults } from "@legalwork/types/launcher";
 import { useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LauncherFileFilter, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { handleLauncherFocusKey } from "./launcher-focus";
 import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 import { matchesLauncherFileFilter, namedFileTypeFilter } from "./launcher-typed-filters";
 
-export type LauncherDetail = { result: LauncherSearchResult; category?: LauncherSearchKind };
+export type LauncherDetail = { result: LauncherSearchResult; category?: LauncherSearchKind; preview?: boolean };
 export function useLauncherDetailItems(detail: LauncherDetail | null, query: string, filter: LauncherFileFilter) {
   const { client } = useLauncherShell();
   const result = detail?.result;
@@ -46,7 +46,9 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
 export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, onFormStateChange }: { result: LauncherSearchResult; onUpdated: (result: LauncherSearchResult) => void; onOpenChat: (sessionId: string, workspaceId: string) => void; onOpenApp: () => void; onFormStateChange?: (state: LauncherFormState) => void }) {
   const { client, assistant, workspaces } = useLauncherShell();
   const workspaceId = result.workspaceId ?? assistant?.workspaceId ?? workspaces[0]?.id;
-  const task = useQuery({ queryKey: ["launcher-task", client.baseUrl, workspaceId, result.id], enabled: Boolean(workspaceId), queryFn: () => client.getTask(workspaceId ?? "", result.id) });
+  const cache = useQueryClient();
+  const queryKey = ["launcher-task", client.baseUrl, workspaceId, result.id];
+  const task = useQuery({ queryKey, enabled: Boolean(workspaceId), queryFn: () => client.getTask(workspaceId ?? "", result.id) });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ title: string; description: string; status: LegalworkTaskStatus; dueDate: string } | null>(null);
@@ -60,16 +62,20 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, o
     if (!task.data || !workspaceId || running.current) return;
     running.current = true;
     setBusy(true); setError(null);
-    try { await client.patchTask(workspaceId, result.id, patch); const refreshed = await task.refetch();
-      if (refreshed.data) onUpdated({ ...result, title: refreshed.data.task.title, completed: refreshed.data.task.status === "done", status: refreshed.data.task.status, updatedAt: Date.parse(refreshed.data.task.updatedAt) });
-      if (editing) closeEditor(); }
+    try {
+      const { task: updated } = await client.patchTask(workspaceId, result.id, patch);
+      cache.setQueryData(queryKey, { ...task.data, task: updated });
+      onUpdated({ ...result, title: updated.title, completed: updated.status === "done", status: updated.status, updatedAt: Date.parse(updated.updatedAt) });
+      if (editing) closeEditor();
+    }
     catch (error) { setError(String(error)); }
     finally { running.current = false; setBusy(false); }
   };
   const item = task.data?.task;
+  const project = workspaces.find(workspace => workspace.id === (item?.projectId ?? result.workspaceId));
   const changeStatus = () => { if (item) void update({ status: item.status === "done" ? "open" : "done" }); };
   const statuses: LegalworkTaskStatus[] = ["open", "in_progress", "done", "cancelled"];
-  if (editing) return <LauncherForm title={t("tasks.edit")} busy={busy} onStateChange={onFormStateChange} onClose={closeEditor} onSubmit={() => { if (editing.title.trim()) void update({ ...editing, title: editing.title.trim(), dueDate: item && editing.dueDate === item.dueDate?.slice(0, 10) ? item.dueDate : editing.dueDate || null }); }}>
+  if (editing) return <LauncherForm title={t("tasks.edit")} busy={busy} onStateChange={onFormStateChange} onClose={closeEditor} onSubmit={() => { if (editing.title.trim()) void update({ ...editing, title: editing.title.trim(), dueDate: item && editing.dueDate === taskDueDateInputValue(item.dueDate) ? item.dueDate : editing.dueDate || null }); }}>
     <fieldset disabled={busy} className="contents">
       <label>{t("tasks.field_title")}<Input autoFocus required maxLength={200} value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })} /></label>
       <div className="launcher-form-row">
@@ -89,16 +95,26 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, o
       else if (event.key === "Enter" && event.target === section.current) { event.preventDefault(); if (!event.repeat) editButton.current?.click(); }
       else handleLauncherFocusKey(event, section.current, true);
     }}>
-    <strong>{item?.title ?? result.title}</strong>
+    <header className="launcher-task-header"><h2>{item?.title ?? result.title}</h2>
+      {item && <span className="launcher-task-status" data-status={item.status}>{item.status === "done" && "✓ "}{taskStatusLabel(item.status)}</span>}</header>
     {task.isPending ? <p>{t("launcher.preview.loading")}</p> : task.isError ? <><p role="alert">{String(task.error)}</p><Button onClick={() => void task.refetch()}>{t("launcher.submission.retry")}</Button></> : <>
-      <p className="text-muted-foreground">{[item && taskStatusLabel(item.status), item?.dueDate, item?.assigneeName].filter(Boolean).join(" · ")}</p>
+      <dl className="launcher-task-properties">
+        {project && <div><dt>{t("projects.project")}</dt><dd>{project.displayName || project.name}</dd></div>}
+        <div><dt>{t("tasks.sort_due")}</dt><dd>{formatTaskDueDate(item?.dueDate) || t("tasks.due_none")}</dd></div>
+        <div><dt>{t("tasks.column_assignee")}</dt><dd>{item?.assigneeName || t("tasks.unassigned")}</dd></div>
+      </dl>
       <div className="launcher-detail-controls">
-        <Button ref={editButton} variant="outline" size="sm" disabled={busy || !item} onClick={() => { if (item) { setError(null); setEditing({ title: item.title, description: item.description, status: item.status, dueDate: item.dueDate?.slice(0, 10) ?? "" }); } }}>{t("common.edit")}<kbd>↵</kbd></Button>
+        <Button ref={editButton} variant="outline" size="sm" disabled={busy || !item} onClick={() => { if (item) { setError(null); setEditing({ title: item.title, description: item.description, status: item.status, dueDate: taskDueDateInputValue(item.dueDate) }); } }}>{t("common.edit")}<kbd>↵</kbd></Button>
         <Button variant="outline" size="sm" disabled={busy || !item} onClick={changeStatus}>{t(item?.status === "done" ? "launcher.detail.reopen_task" : "launcher.result_action.complete")}<LauncherSubmitHint /></Button>
         <Button variant="ghost" size="sm" onClick={onOpenApp}>{t("launcher.result_action.open-in-app")}</Button>
       </div>
-      <p className="whitespace-pre-wrap">{item?.description || t("tasks.description_empty")}</p>
-      {task.data?.notes.map(note => <p key={note.id} className="whitespace-pre-wrap">{note.body}</p>)}
+      <section className="launcher-task-section"><h3>{t("tasks.field_description")}</h3><p>{item?.description || t("tasks.description_empty")}</p></section>
+      {Boolean(task.data?.notes.length) && <section className="launcher-task-section"><h3>{t("projects.notes")}</h3>
+        {task.data?.notes.map(note => <article key={note.id}>
+          <div className="launcher-row-meta">{[note.authorName || note.authorEmail, formatTaskDateTime(note.createdAt)].filter(Boolean).join(" · ")}</div>
+          <p>{note.body}</p>
+        </article>)}
+      </section>}
       {item?.sessions.map(link => <Button key={link.sessionId} variant="ghost" size="sm" onClick={() => onOpenChat(link.sessionId, link.workspaceId)}>{t("launcher.detail.open_chat")}</Button>)}
     </>}
     {error && <p role="alert">{error}</p>}

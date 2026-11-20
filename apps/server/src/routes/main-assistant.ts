@@ -69,6 +69,9 @@ export function registerMainAssistantRoutes(options: {
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
+  guardLauncherWorkspace: (ctx: RequestContext, id: string, method: string) => Promise<void>;
+  launcherFolderVisible: (ctx: RequestContext, path: string) => Promise<boolean>;
+  launcherRecordingAccess: (ctx: RequestContext) => ReturnType<typeof import("../recording-access.js").recordingAccess>;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   client: (workspace: WorkspaceInfo) => ReturnType<typeof createAssistantEngineClient>;
   changed: () => void;

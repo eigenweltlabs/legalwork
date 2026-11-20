@@ -211,6 +211,19 @@ from the project’s tasks or calendar, a new task starts without a document att
 From the Files page, a new document starts in the folder you are browsing.
 A draft parked in another project keeps its attachments there.
 
+Drafts stay with the LegalWork server and signed-in Eigenwelt account that
+created them. To resume a draft after switching accounts or servers, reconnect
+to the original account and server and reopen its chat.
+
+If you need unsent text from a desktop build that stored shared drafts before
+account separation, look for `launcher-drafts.json` in the app data folder.
+On macOS the default folder is
+`~/Library/Application Support/com.eigenweltlabs.legalwork/`. On Windows it is
+`%APPDATA%\com.eigenweltlabs.legalwork\`. Open a copy of the file in a text
+editor, find the conversation under `drafts`, and copy its `text` into the
+chat after checking the account and server. This file can contain other
+unsent messages and attachments, so keep it private.
+
 Inside a chat, or after starting a question with **?**, **Shift+Enter** adds a
 new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait
 for the current answer to finish and keep the model and agent selected when
@@ -252,6 +265,16 @@ opens that item's menu; **Command/Ctrl+K** also works from detail controls.
 **Right** on a child row opens that child's actions. **Esc** closes the menu
 before returning to the previous view. Hide always applies to the focused item.
 
+A task shows its project, due date and assignee below the title. Its description
+and notes have separate sections. Choose **Mark done** to see a green **✓ Done**
+in the detail view and search results. **Reopen task** returns it to Open.
+When a chat search matches an earlier message, open the result to jump to that
+message in the main window. The matching message is briefly highlighted.
+
+When you attach a recording, the mini-bar reads its full transcript. If the
+title and transcript exceed 200,000 characters, open the recording and select
+the passage you want to attach.
+
 Project actions use the result's own project. For Wiki files or added search
 folders, they use your current project; if there is no clear destination,
 choose a project with **Up/Down** and **Enter**, or cancel with **Esc**.
@@ -263,12 +286,23 @@ optional Raycast extension follows the same project-chat flow and opens the
 exact file you selected, including when several projects have files with the
 same name.
 
+To pair the Raycast extension, open **Settings > Assistant launcher > Raycast**
+in the desktop app and select **Enable pairing**. Run **Search LegalWork** in
+Raycast to find files, projects, chats, tasks and recording titles. Use the
+LegalWork mini-bar to search private local wikis. Select **Disable pairing** to revoke
+the extension's access. If a Raycast command expires or the connection is
+unavailable, open LegalWork and run the command again.
+If you open a shared Assistant result link, LegalWork shows a preview. Choose
+an action from the result menu before sending anything to a model.
+
 Files open in their normal document view; the mini-bar has no separate file
 preview or **Copy path** action. **Copy to Clipboard** still copies local files
 for pasting into another application. You can also drag a local file or folder
 from search results, recent items or a project's file list into Finder or another
 application. To drag several files together, select them first and drag one of
-the selected rows. Up to 100 files or folders can be dragged together. The
+the selected rows. In search results, use the arrow keys to focus a file and
+**Option+Enter** (**Alt+Enter** on Windows) to add or remove it from the selection.
+Moving focus keeps the other files selected. Up to 100 files or folders can be dragged together. The
 originals stay in their project when you copy them into Finder. This needs the
 local desktop app; unavailable or deleted files cannot be dragged.
 
@@ -281,8 +315,13 @@ Search and project navigation load independently of the general Assistant.
 Your saved conversations remain readable if your Assistant subscription ends;
 starting new work with the general Assistant still requires an eligible plan.
 Project chats use the same access rules as in the main window. If part of the
-mini-bar cannot load, its error includes **Retry** while available results stay
-usable.
+mini-bar search is unavailable, its category names the affected source even if
+it found zero items. Choose **Retry** beside that category to repeat its search.
+Results from the other categories stay visible.
+
+In **Work** and Raycast’s **LegalWork Work**, a green **✓ Done** means the
+delegated chat returned its final reply. **Idle** means the chat has no active
+turn or confirmed result. Open a job that needs input to answer its question or review its approval.
 
 Select text in Safari or another app and press **Command+Shift+Space** (Windows:
 **Ctrl+Shift+Space**). Choose **Explain**, **Translate** or **Rewrite**, or type
@@ -299,14 +338,29 @@ Without that plan, type a project name, use the arrow keys and press **Enter**.
 The mini-bar sends your question and selection together using the project's
 connected model, including a provider connected with your own key. **Esc**
 returns to your question. If the project has no model, **Connect a provider**
-opens AI settings before a chat is created. Capture controls can also attach a screenshot. These captures
-are context for the chosen request; a later invocation does not silently reuse
-an old selection. You can drop files into the mini-bar, or configure additional
-search folders under **Settings > Assistant launcher**. Adding a search folder
-does not turn it into a project.
-The **Add selection** shortcut captures the text selected in the source app;
-capturing again replaces the previous selection while keeping files and tasks
-you deliberately attached.
+opens AI settings before a chat is created. The selection chip identifies the source
+app and shows an excerpt. Expand it to read the full selection or remove it before
+sending. To bring in another selection, use **+ > Add selection**. If the app
+does not share its selection, copy the text there and use **+ > Paste clipboard**.
+On macOS, allow LegalWork under **System Settings > Privacy & Security > Accessibility**
+to read selected text from other apps.
+
+### Capture a screenshot
+
+1. Search for **Capture Region** or **Capture Window** from the mini-bar start
+   screen. In an open chat, find the same commands under **+**.
+2. For a region, drag over the display where the pointer is. For a window, choose its
+   thumbnail from the picker. Press **Esc** to cancel. On macOS, allow LegalWork
+   under **System Settings > Privacy & Security > Screen & System Audio Recording**
+   if your Mac asks for permission.
+3. Review the local preview. Choose **Save image** to save a PNG without a project.
+   Choose **Ask about this image**, edit the question, and send it to the current
+   chat or the destination you select. Use a model that accepts images.
+   Choose **Attach to chat** to add it to the open chat or select a destination without sending a message.
+   The chat keeps its existing draft text when the image is attached.
+
+You can also drop files into the mini-bar. To add a search folder, go to
+**Settings > Assistant launcher**. Search folders stay outside the project list.
 
 Drag the window to reposition it. A small reset-position icon appears after it
 has been moved. Shortcut, remembered position, additional folders, category

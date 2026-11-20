@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssistantConversations } from "./assistant-conversations.js";
@@ -92,18 +92,50 @@ test("project conversations submit without an Assistant plan while Assistant exe
       client: () => ({ session: { get: async () => ({ data: { directory: root, model: { providerID: "native", id: "selected-model", variant: "deep" }, agent: "selected-agent", time: {} } }), messages: async () => ({ data: [] }) } }),
     } as unknown as Parameters<typeof registerAssistantConversationRoutes>[0];
     registerAssistantConversationRoutes(routeOptions);
-    registerLauncherRoutes(routeOptions);
-    const send = (id: string) => {
-      const request = new Request(`http://localhost/assistant/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ requestId: `request_${id}`, messageId: `msg_${id.replaceAll("_", "")}`, text: "Review the file" }) });
+    registerLauncherRoutes({ ...routeOptions, guardLauncherWorkspace: async () => {}, launcherFolderVisible: async () => true,
+      launcherRecordingAccess: async () => ({ authorize: async () => {}, check: async () => {}, visible: () => true, scope: { projects: "all", globalRecordings: true, transcriptAccess: "" } }),
+    });
+    const attachmentDir = ".legalwork/attachments/1234-abcd";
+    const name = "region-2026-11-20T12-00-00-000Z.png";
+    const path = `${attachmentDir}/${name}`;
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7d8AAAAASUVORK5CYII=";
+    await mkdir(join(root, attachmentDir), { recursive: true });
+    await writeFile(join(root, path), Buffer.from(png, "base64"));
+    const send = (id: string, attachmentPath = path, draftAccount?: string) => {
+      const context = { items: [{ id: "image", type: "image", workspaceId: project.id, name, capture: "region", sourceApp: null, sourceWindow: null, capturedAt: 1, path: attachmentPath }], target: { kind: "project", workspaceId: project.id }, searchScope: null, capturedAt: 1 };
+      const request = new Request(`http://localhost/assistant/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ requestId: `request_${id}`, messageId: `msg_${id.replaceAll("_", "")}`, text: "Review the file", context, draftAccount }) });
       return matchRoute(routes, "POST", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: { id }, actor: { type: "host" } } as unknown as RequestContext);
     };
     const request = new Request("http://localhost/launcher/assistant-availability");
     const availability = await matchRoute(routes, "GET", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: {}, actor: { type: "host" } } as RequestContext);
     expect(await availability.json()).toEqual({ included: false });
-    expect((await send(projectChat.id)).status).toBe(202);
+    const resolveDraftAccount = async () => {
+      const request = new Request("http://localhost/launcher/draft-account");
+      const response = await matchRoute(routes, "GET", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: {}, actor: { type: "host" } } as RequestContext);
+      return (await response.json()).account;
+    };
+    const signedOut = await resolveDraftAccount();
+    const account = { userId: "account-a", orgId: "firm-a", userName: null, userEmail: null, orgName: "Demo firm" };
+    await writeEigenweltConnection(config, { account, platformToken: "first-token" });
+    const first = await resolveDraftAccount();
+    expect(first).not.toBe(signedOut);
+    await writeEigenweltConnection(config, { platformToken: "rotated-token" });
+    expect(await resolveDraftAccount()).toBe(first);
+    await writeEigenweltConnection(config, { account: { ...account, userId: "account-b" } });
+    const second = await resolveDraftAccount();
+    expect(second).not.toBe(first);
+    await expect(send(projectChat.id, path, first)).rejects.toMatchObject({ status: 409, code: "draft_account_changed" });
+    expect(sent).toBe(0);
+    const symlinkPath = `${attachmentDir}/window-2026-11-20T12-00-00-000Z.png`;
+    await symlink(join(root, path), join(root, symlinkPath));
+    await expect(send(projectChat.id, symlinkPath)).rejects.toMatchObject({ status: 400, code: "capture_missing" });
+    expect((await send(projectChat.id, path, second)).status).toBe(202);
     expect(currentWikiAgentSession(config, projectChat.sessionId)?.scope).toBe("owner");
     await expect(send(assistantChat.id)).rejects.toMatchObject({ status: 403, code: "assistant_subscription_required" });
     expect(sent).toBe(1);
-    expect(payloads[0]).toMatchObject({ model: { providerID: "native", modelID: "selected-model" }, variant: "deep", agent: "selected-agent", queue: { id: expect.any(String), draft: { text: "Review the file" } } });
+    const url = `data:image/png;base64,${png}`;
+    expect(payloads[0].parts).toContainEqual({ type: "file", filename: name, mime: "image/png", url });
+    expect(payloads[0]).toMatchObject({ model: { providerID: "native", modelID: "selected-model" }, variant: "deep", agent: "selected-agent",
+      queue: { id: expect.any(String), draft: { text: "Review the file", attachments: [{ kind: "image", name, data: url }] } } });
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -420,20 +420,101 @@ private func runSelectedTextMode(_ pidText: String?) -> Never {
     guard let pidText, let pid = Int32(pidText) else { emitJSON([("ok", "false"), ("reason", jsonString("no-origin"))]); exit(0) }
     guard AXIsProcessTrusted() else { emitJSON([("ok", "false"), ("reason", jsonString("denied"))]); exit(0) }
     // Accessibility reads a background app's focused element, so the panel may keep focus while the selection is read.
-    guard NSRunningApplication(processIdentifier: pid) != nil else {
+    guard let sourceApp = NSRunningApplication(processIdentifier: pid) else {
         emitJSON([("ok", "false"), ("reason", jsonString("changed"))]); exit(0)
     }
     let application = AXUIElementCreateApplication(pid)
-    var focused: AnyObject?
-    guard AXUIElementCopyAttributeValue(application, kAXFocusedUIElementAttribute as CFString, &focused) == .success, let element = focused else {
-        emitJSON([("ok", "false"), ("reason", jsonString("unsupported"))]); exit(0)
+    AXUIElementSetMessagingTimeout(application, 0.35)
+
+    func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
-    var selected: AnyObject?
-    let status = AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &selected)
-    if status == .success, let text = selected as? String {
-        emitJSON([("ok", text.isEmpty ? "false" : "true"), ("reason", jsonString(text.isEmpty ? "empty" : "")), ("text", jsonString(text))])
+
+    func string(for range: CFTypeRef, in element: AXUIElement, attribute name: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, name as CFString, range, &value) == .success else { return nil }
+        return value as? String
+    }
+
+    func readSelection(startingAt candidate: AXUIElement? = nil) -> (text: String?, supported: Bool, secure: Bool) {
+        var current = candidate ?? attribute(application, kAXFocusedUIElementAttribute)
+        if current == nil, let focused = attribute(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute),
+           CFGetTypeID(focused) == AXUIElementGetTypeID() {
+            var focusedPid: pid_t = 0
+            if AXUIElementGetPid(focused as! AXUIElement, &focusedPid) == .success, focusedPid == pid { current = focused }
+        }
+        current = current ?? attribute(application, kAXFocusedWindowAttribute)
+        var supported = false
+        for _ in 0..<6 {
+            guard let value = current, CFGetTypeID(value) == AXUIElementGetTypeID() else { break }
+            let element = value as! AXUIElement
+            if attribute(element, kAXSubroleAttribute) as? String == kAXSecureTextFieldSubrole { return (nil, false, true) }
+            if let text = attribute(element, kAXSelectedTextAttribute) as? String {
+                if !text.isEmpty { return (text, true, false) }
+                supported = true
+            }
+            for (rangeName, stringName) in [
+                ("AXSelectedTextRange", "AXStringForRange"),
+                ("AXSelectedTextMarkerRange", "AXStringForTextMarkerRange"),
+            ] {
+                guard let range = attribute(element, rangeName),
+                      let text = string(for: range, in: element, attribute: stringName) else { continue }
+                if !text.isEmpty { return (text, true, false) }
+                supported = true
+            }
+            if let ranges = attribute(element, "AXSelectedTextRanges") as? [CFTypeRef] {
+                let text = ranges.prefix(16).compactMap { string(for: $0, in: element, attribute: "AXStringForRange") }
+                    .filter { !$0.isEmpty }.joined(separator: "\n")
+                if !text.isEmpty { return (text, true, false) }
+                supported = true
+            }
+            current = attribute(element, kAXParentAttribute)
+        }
+        return (nil, supported, false)
+    }
+
+    _ = attribute(application, kAXRoleAttribute)
+    var selection = readSelection()
+    if !selection.supported && !selection.secure {
+        // Chromium turns on full accessibility after one enhanced-UI request
+        // and a two-second debounce. Repeating the setter restarts its timer.
+        let bundle = sourceApp.bundleIdentifier?.lowercased() ?? ""
+        let chromium = ["com.google.chrome", "org.chromium.chromium", "com.microsoft.edgemac", "com.brave.browser", "company.thebrowser.browser"]
+            .contains { bundle.hasPrefix($0) }
+        let manual = AXUIElementSetAttributeValue(application, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success
+        if !manual && chromium {
+            _ = AXUIElementSetAttributeValue(application, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        }
+        let attempts = manual ? 4 : chromium ? 10 : 0
+        for _ in 0..<attempts {
+            Thread.sleep(forTimeInterval: 0.24)
+            selection = readSelection()
+            if selection.supported || selection.secure { break }
+        }
+    }
+    if selection.text == nil && !selection.secure,
+       let window = attribute(application, kAXFocusedWindowAttribute),
+       CFGetTypeID(window) == AXUIElementGetTypeID() {
+        var stack = [window as! AXUIElement]
+        var examined = 0
+        let deadline = Date().addingTimeInterval(0.2)
+        // Some apps expose focus on a descendant of their focused window.
+        while let element = stack.popLast(), examined < 90, Date() < deadline {
+            examined += 1
+            if attribute(element, kAXFocusedAttribute) as? Bool == true {
+                let result = readSelection(startingAt: element)
+                if result.text != nil || result.secure { selection = result; break }
+            }
+            if let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] {
+                stack.append(contentsOf: children.prefix(30).reversed())
+            }
+        }
+    }
+    if let text = selection.text {
+        emitJSON([("ok", "true"), ("text", jsonString(String(decoding: text.utf16.prefix(200_000), as: UTF16.self)))])
     } else {
-        emitJSON([("ok", "false"), ("reason", jsonString(status == .attributeUnsupported ? "unsupported" : "failed"))])
+        emitJSON([("ok", "false"), ("reason", jsonString(selection.supported ? "empty" : "unsupported"))])
     }
     exit(0)
 }

@@ -31,7 +31,7 @@ export default function Command() {
       const clipboard = entry.requires.includes("clipboard") ? ((await Clipboard.readText()) ?? "").trim() : "";
       const items = [...(selection ? [{ id: `sel_${Date.now().toString(36)}`, type: "selection", text: selection.slice(0, 200_000), sourceApp: null, sourceWindow: null, capturedAt: Date.now() }] : []), ...(clipboard ? [{ id: `clip_${Date.now().toString(36)}`, type: "clipboard", text: clipboard.slice(0, 200_000), capturedAt: Date.now() }] : [])];
       const staged = items.length ? await request<{ id: string }>(found, "/launcher/context", { method: "POST", body: { items, source: "raycast" } }) : null;
-      await launch("quick-action", { action: entry.id, context: staged?.id }, found);
+      await launch({ action: "quick-action", actionId: entry.id, contextId: staged?.id }, found);
     } catch (error) { await showToast({ style: Toast.Style.Failure, title: "Quick action failed", message: error instanceof Error ? error.message : String(error) }); }
   };
   const refreshAction = <Action title="Refresh Actions" icon={Icon.ArrowClockwise} onAction={() => setRefresh(value => value + 1)} />;

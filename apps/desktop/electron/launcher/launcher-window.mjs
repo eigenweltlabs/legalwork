@@ -184,7 +184,7 @@ export class LauncherWindow {
     const wasVisible = this.isVisible();
     if (wasVisible) { this.childDialogs++; this.window?.hide(); }
     try { return await work(); }
-    finally { if (wasVisible) { this.childDialogs--; await this.show(); } }
+    finally { if (wasVisible) { this.childDialogs--; if (this.window && !this.window.isDestroyed()) { this.window.show(); this.window.focus(); } } }
   }
   beginDialog() { this.childDialogs++; }
   endDialog() { this.childDialogs = Math.max(0, this.childDialogs - 1); if (this.isVisible() && !this.pinned && !this.isFocused()) this.window?.focus(); }

@@ -32,12 +32,13 @@ test("the origin is captured before the panel, LegalWork itself is never an orig
   assert.deepEqual(await origins.selection(origin.id), { ok: false, reason: "changed", message: "", origin });
 });
 
-test("a selection shortcut prefetches the selection once for the panel", async () => {
-  const { service: origins } = service("darwin", [front(42, "Lease.docx"), JSON.stringify({ ok: true, text: "Clause 9" }), JSON.stringify({ ok: false, reason: "empty" })]);
+test("a selection shortcut reuses one pre-focus selection throughout the invocation", async () => {
+  const { service: origins, calls } = service("darwin", [front(42, "Lease.docx"), JSON.stringify({ ok: true, text: "Clause 9" })]);
   const origin = await origins.capture();
   assert.equal((await origins.prefetchSelection()).ok, true);
   assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Clause 9", origin });
-  assert.equal(/** @type {any} */ (await origins.selection(origin.id)).reason, "empty");
+  assert.deepEqual(await origins.selection(origin.id), { ok: true, text: "Clause 9", origin });
+  assert.equal(calls.filter(([, action]) => action === "--selected-text").length, 1);
 });
 
 test("insertion requires the validated destination; a changed document copies instead of pasting elsewhere", async () => {
@@ -79,4 +80,16 @@ test("reopening from another application cannot retarget an earlier automatic in
   assert.equal(result.ok, false);
   assert.equal(clipboard.text, "Reply for A");
   assert.equal(originMatches({ pid: 42, window: "A.docx" }, { ok: true, pid: 42, window: null }), false);
+});
+
+test("a failed selection prefetch remains the answer after focus changes and leaves the clipboard intact", async () => {
+  const { service: origins, calls, clipboard } = service("darwin", [front(42, "Lease.docx"), JSON.stringify({ ok: false, reason: "unsupported" })]);
+  clipboard.writeText("Synthetic clipboard sentinel");
+  const origin = await origins.capture();
+  const outcome = await origins.prefetchSelection();
+  assert.equal(outcome && "reason" in outcome && outcome.reason, "unsupported");
+  assert.deepEqual(await origins.selection(origin.id), outcome);
+  assert.deepEqual(await origins.selection(origin.id), outcome);
+  assert.equal(calls.filter(([, action]) => action === "--selected-text").length, 1);
+  assert.equal(clipboard.readText(), "Synthetic clipboard sentinel");
 });

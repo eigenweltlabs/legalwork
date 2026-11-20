@@ -9,6 +9,11 @@ function draw(x, y) {
   return box;
 }
 window.addEventListener("DOMContentLoaded", () => {
+  if (navigator.language.toLowerCase().startsWith("de")) {
+    document.documentElement.lang = "de";
+    document.title = "Bildschirmbereich aufnehmen";
+    document.getElementById("hint").textContent = "Bereich mit der Maus auswählen · Esc zum Abbrechen";
+  }
   document.addEventListener("keydown", event => { if (event.key === "Escape") window.regionOverlay.cancel(); });
   document.addEventListener("mousedown", event => { if (event.button === 0) start = { x: event.clientX, y: event.clientY }; });
   document.addEventListener("mousemove", event => { if (start) draw(event.clientX, event.clientY); });

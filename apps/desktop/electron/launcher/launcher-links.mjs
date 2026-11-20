@@ -1,4 +1,4 @@
-const ACTIONS = new Set(["open", "search", "files", "projects", "chats", "tasks", "recordings", "ask", "speak", "dictate", "record", "capture-region", "capture-window", "quick-action", "work", "new-conversation", "resume"]);
+const ACTIONS = new Set(["open", "search", "files", "projects", "chats", "tasks", "recordings", "ask", "work", "new-conversation", "resume"]);
 const KINDS = new Set(["files", "projects", "chats", "tasks", "recordings"]);
 
 /** Mirrors LauncherResultReferenceSchema without loading TypeScript in Electron. */
@@ -9,16 +9,17 @@ function resultReference(raw) {
   if (!value || typeof value !== "object" || Array.isArray(value) || !KINDS.has(value.kind)
     || !text("id", 4096) || !text("sourceId", 300) || value.workspaceId !== null && !text("workspaceId", 200)
     || value.folderId !== undefined && !text("folderId", 100) || value.sessionId !== undefined && !text("sessionId", 200)
+    || value.messageId !== undefined && (value.kind !== "chats" || !text("messageId", 200))
     || value.path !== undefined && (typeof value.path !== "string" || value.path.length > 4096)
     || value.fileType !== undefined && value.fileType !== "folder"
     || value.kind !== "files" && (value.path !== undefined || value.folderId !== undefined || value.fileType !== undefined)
     || value.kind !== "chats" && value.sessionId !== undefined
-    || Object.keys(value).some(key => !["kind", "id", "sourceId", "workspaceId", "folderId", "sessionId", "path", "fileType"].includes(key))) throw new Error("Invalid result reference");
+    || Object.keys(value).some(key => !["kind", "id", "sourceId", "workspaceId", "folderId", "sessionId", "messageId", "path", "fileType"].includes(key))) throw new Error("Invalid result reference");
   return value;
 }
 
 /**
- * `legalwork://assistant/<action>?invocation=…&q=…&context=…`: identifiers only, never content. Mirrors the app's parser.
+ * Public links can navigate and open a question draft. Mirrors the app's parser.
  * @returns {import("@legalwork/types/launcher").LauncherInvocation | null}
  */
 export function parseAssistantLink(rawUrl) {
@@ -37,6 +38,6 @@ export function parseAssistantLink(rawUrl) {
   }
   const resultAction = url.searchParams.get("resultAction");
   if (resultAction !== null && (!result || !["open", "chat-with-assistant", "ask", "summarize"].includes(resultAction))) return null;
-  return { id: read("invocation", 100) ?? `link_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`, action: /** @type {import("@legalwork/types/launcher").LauncherInvocationAction} */ (action), query: read("q", 2000), conversationId: read("conversation", 100), projectId: read("project", 200), actionId: read("action", 200), contextId: read("context", 100), ...(result ? { result } : {}), ...(resultAction ? { resultAction: /** @type {NonNullable<import("@legalwork/types/launcher").LauncherInvocation["resultAction"]>} */ (resultAction) } : {}), source: "deep-link" };
+  return { id: read("invocation", 100) ?? `link_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`, action: /** @type {import("@legalwork/types/launcher").LauncherInvocationAction} */ (action), query: read("q", 2000), conversationId: read("conversation", 100), projectId: read("project", 200), ...(result ? { result } : {}), source: "deep-link" };
 }
 export function isAssistantLink(rawUrl) { return parseAssistantLink(rawUrl) !== null; }

@@ -20,7 +20,7 @@ export function LauncherDialog(props: { workspace?: LauncherViewedProject | null
   const drag = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
   useEffect(() => { const reset = () => setOffset({ x: 0, y: 0 }); window.addEventListener("legalwork:launcher-reset-position", reset); window.addEventListener("resize", reset); return () => { window.removeEventListener("legalwork:launcher-reset-position", reset); window.removeEventListener("resize", reset); }; }, []);
   useEffect(() => { useLauncherStore.getState().setPositionMoved(offset.x !== 0 || offset.y !== 0); }, [offset.x, offset.y]);
-  const drafts = useMemo(() => sharedDraftCoordinator(), []);
+  const drafts = useMemo(() => sharedDraftCoordinator(props.client), [props.client]);
   const owner = useMemo(() => windowOwnerId("main"), []);
   useEffect(() => {
     if (isDesktopRuntime()) {

@@ -2,6 +2,8 @@ import { submissionKeys } from "@/react-app/launcher/launcher-labels";
 import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
 import { acceptLauncherBrowser, acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
 import { useLauncherStore } from "@/react-app/launcher/launcher-store";
+import { draftCacheScope } from "@/react-app/launcher/draft-profile";
+import { loadStagedCaptureParts } from "@/react-app/launcher/context-capture";
 import { usePublishLauncherContext, type LauncherViewedProject } from "@/react-app/launcher/workspace-context";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
@@ -29,7 +31,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { assistantChatIdentity, assistantShellQueryKey, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
 import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
 import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
-import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
+import { submitAssistantDraft, validateAssistantMessageText } from "@/react-app/launcher/submit-draft";
 import { rememberLauncherSubmissionOutput } from "@/react-app/launcher/submission-output";
 import { LauncherDialog } from "@/react-app/launcher/launcher-dialog";
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
@@ -599,7 +601,7 @@ export function SessionRoute() {
   }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
   // Background reads never provision an engine or create a chat; opening is explicit.
   const assistant = useQuery<AssistantShellState | null>({
-    queryKey: assistantShellQueryKey(client?.baseUrl ?? ""), enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
+    queryKey: assistantShellQueryKey(client?.baseUrl ?? "", client?.draftProfile), enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
     queryFn: async () => {
       if (!client) throw new Error("Server unavailable");
       const current = await client.assistantConversationCurrent();
@@ -642,7 +644,7 @@ export function SessionRoute() {
     focusPromptSoon();
   }, [location.pathname, location.search, selectedSessionId, routeWorkspaceId, rememberPendingCreatedSession, navigate]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage && Boolean(selectedSessionId);
-  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: Boolean(selectedSessionId && client),
+  const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, draftCacheScope(client?.draftProfile), selectedSessionId], enabled: Boolean(selectedSessionId && client),
     queryFn: async () => {
       if (!client || !selectedSessionId) return null;
       const found = await client.assistantConversationForSession(selectedSessionId);
@@ -705,13 +707,13 @@ export function SessionRoute() {
   const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     await client.updateAssistantProfile(profile);
-    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl, client.draftProfile) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
   }, [client]);
   const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     const state = await client.answerAssistantOnboarding(answer);
-    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl) });
+    await getReactQueryClient().invalidateQueries({ queryKey: assistantShellQueryKey(client.baseUrl, client.draftProfile) });
     getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
   }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
@@ -1667,19 +1669,28 @@ export function SessionRoute() {
         if (providerListQuery.data && sendModel && !isModelAvailableInConnectedProviders(providerListQuery.data, sendModel)) throw new Error(t("session_route.model_unavailable"));
 
         if (selectedWorkspace?.preset === "main-assistant" && !assistantConversationId) throw new Error(t("session.loading_detail"));
-        if (assistantConversationId && draft.mode !== "shell") {
-          const drafts = sharedDraftCoordinator();
-          await flushHomeDraft(assistantConversationId);
-          await drafts.flush();
-          const shared = drafts.get(assistantConversationId);
-          const parts = await draftToParts(draft, selectedWorkspaceRoot, opencodeClient);
+        const fusionEnabled = !isOfficeAddinRuntime() && isFusionEnabled(targetSessionId);
+        const fusionModels = getFusionSelectedModels(targetSessionId);
+        const buildParts = async () => {
+          const parts = await draftToParts(draft, selectedWorkspaceRoot, opencodeClient, selectedWorkspace?.contentPath ?? undefined);
           const environment = await buildLegalworkEnvSystemContext(client, { cacheKey: targetSessionId, runtimeKey: environmentRuntimeKey });
           const pluginContext = await loadPluginSelectionContext({ parts: draft.parts, client, workspaceId: selectedWorkspaceId,
             readStatuses: async () => await readMcpStatuses(opencodeClient, selectedWorkspaceRoot || undefined) });
-          const context = [environment, draft.modelContext, pluginContext].filter(Boolean).join("\n\n");
+          const dashboard = visibleDashboardContext({ serverUrl: client.baseUrl, workspaceId: selectedWorkspaceId, sessionId: targetSessionId });
+          const context = [environment, draft.modelContext, pluginContext, dashboard].filter(value => value?.trim()).join("\n\n");
           if (context) parts.push(systemReminderPart(context));
+          return parts;
+        };
+        if (assistantConversationId && draft.mode !== "shell" && !fusionEnabled) {
+          validateAssistantMessageText(text);
+          const drafts = sharedDraftCoordinator(client);
+          await flushHomeDraft(assistantConversationId, client);
+          await drafts.flush();
+          const shared = drafts.get(assistantConversationId);
+          const parts = await buildParts();
           const queueIdentity = options?.queue ? options.queue.editToken ?? options.queue.id : null;
           const submission = await submitAssistantDraft({ client, drafts, owner: windowOwnerId("home"), conversationId: assistantConversationId,
+            draftSnapshot: { text: shared.text, context: shared.context },
             beforeSend: rememberLauncherSubmissionOutput(client.baseUrl, assistantConversationId),
             identity: queueIdentity ? { requestId: `req_queue_${queueIdentity}`, messageId: `msg_${queueIdentity.replaceAll("-", "")}` } : undefined, input: {
             text, parts, queue: options?.queue, command: draft.command, model: sendModel, variant: sendVariant ?? undefined, agent: selectedAgent ?? undefined,
@@ -1690,7 +1701,6 @@ export function SessionRoute() {
           return { preserveDraft: Boolean(remaining.text || remaining.context.length) };
         }
 
-        const fusionModels = getFusionSelectedModels(targetSessionId);
         captureAnalyticsEvent("task_message_sent", {
           session_id: targetSessionId,
           is_command: Boolean(draft.command),
@@ -1729,34 +1739,25 @@ export function SessionRoute() {
           return;
         }
 
-        const pluginContext = await loadPluginSelectionContext({
-          parts: draft.parts,
-          client,
-          workspaceId: selectedWorkspaceId,
-          readStatuses: async () => await readMcpStatuses(opencodeClient,selectedWorkspaceRoot || undefined),
-        });
-        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient, selectedWorkspace?.contentPath ?? undefined);
-        const envSystemContext = await buildLegalworkEnvSystemContext(client, {
-          cacheKey: targetSessionId,
-          runtimeKey: environmentRuntimeKey,
-        });
-        const dashboardContext = visibleDashboardContext({ serverUrl: client.baseUrl, workspaceId: selectedWorkspaceId, sessionId: targetSessionId });
-        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, dashboardContext]
-          .filter((context): context is string => Boolean(context?.trim()))
-          .join("\n\n");
-        if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
+        const parts = await buildParts();
+        if (fusionEnabled && assistantConversationId) {
+          await client.assertDraftAccount();
+          await flushHomeDraft(assistantConversationId, client);
+          const drafts = sharedDraftCoordinator(client);
+          await drafts.reconcile();
+          parts.push(...await loadStagedCaptureParts(client, selectedWorkspaceId, drafts.get(assistantConversationId).context));
+        }
 
         if (options?.queue) {
-          if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId) && fusionModels.length) {
+          if (fusionEnabled && fusionModels.length) {
             const trace = await buildFusionTraceSystemPrompt({ client: opencodeClient, directory: selectedWorkspaceRoot || undefined, sessionId: targetSessionId });
             parts.push(systemReminderPart([trace, buildFusionDelegationSystemPrompt({ candidateModels: fusionModels })].filter(Boolean).join("\n\n")));
           }
           await enqueue(queuedNativePrompt({sessionID:targetSessionId,parts,draft:options.queue.draft,model:sendModel,agent:selectedAgent ?? undefined,variant:sendVariant ?? undefined}));
           return;
         }
-        if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
-          const candidateModels = getFusionSelectedModels(targetSessionId);
-          if (candidateModels.length === 0) {
+        if (fusionEnabled) {
+          if (fusionModels.length === 0) {
             // No candidates picked for this chat: warn and fall through to a
             // normal single-model send.
             toast.error(t("fusion.not_configured"));
@@ -1771,7 +1772,7 @@ export function SessionRoute() {
               mainSessionId: targetSessionId,
               parts,
               userText: text,
-              candidateModels,
+              candidateModels: fusionModels,
               mainModel: sendModel ?? undefined,
               agent: selectedAgent ?? undefined,
               variant: sendVariant ?? undefined,
@@ -2233,7 +2234,13 @@ export function SessionRoute() {
   // The panel opens files and tasks through routes; the parameters are consumed once.
   useEffect(() => {
     const search = new URLSearchParams(location.search);
-    const file = search.get("file"), task = search.get("task");
+    const file = search.get("file"), task = search.get("task"), messageId = search.get("message");
+    if (messageId && routeWorkspaceId && selectedSessionId && location.pathname.endsWith("/" + encodeURIComponent(selectedSessionId))) {
+      useSearchNavigation.getState().setTarget({ kind: "sessions", id: selectedSessionId, workspaceId: routeWorkspaceId, title: "", excerpt: "", updatedAt: 0, messageId });
+      search.delete("message");
+      navigate({ pathname: location.pathname, search: search.toString() }, { replace: true });
+      return;
+    }
     if (file && routeWorkspaceId && /\/project\/?$/.test(location.pathname)) {
       useSearchNavigation.getState().setTarget({ kind: "files", id: file, workspaceId: routeWorkspaceId, title: file.split("/").pop() ?? file, excerpt: "", updatedAt: 0, path: file });
       search.delete("file");
@@ -2243,7 +2250,7 @@ export function SessionRoute() {
       search.delete("task");
       navigate({ pathname: location.pathname, search: search.size ? `?${search}` : "" }, { replace: true });
     }
-  }, [location.pathname, location.search, routeWorkspaceId, navigate]);
+  }, [location.pathname, location.search, selectedSessionId, routeWorkspaceId, navigate]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -2453,7 +2460,7 @@ export function SessionRoute() {
   const projectPage = projectViewFromPath(location.pathname);
   const launcherWorkspace: LauncherViewedProject | null = viewedProject && viewedProject.preset !== "main-assistant" && viewedProject.preset !== "wiki"
     ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, view: projectPage === "files" ? "files" : homePage || projectPage || mainPage === "evals" ? "project" : undefined } : null;
-  usePublishLauncherContext(launcherWorkspace, client?.baseUrl);
+  usePublishLauncherContext(launcherWorkspace, client, selectedSessionId);
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
   const homeSending = useRef(false);
@@ -2531,7 +2538,7 @@ export function SessionRoute() {
           const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
           const turnContext = [environmentContext, fileContext].filter(Boolean).join("\n\n");
           if (homeConversationId) {
-            const drafts = sharedDraftCoordinator(), owner = windowOwnerId("home");
+            const drafts = sharedDraftCoordinator(client), owner = windowOwnerId("home");
             if (!drafts.owns(homeConversationId, owner)) await drafts.claim(homeConversationId, owner);
             const shared = drafts.get(homeConversationId);
             const submission = await submitAssistantDraft({ client, drafts, owner, conversationId: homeConversationId,

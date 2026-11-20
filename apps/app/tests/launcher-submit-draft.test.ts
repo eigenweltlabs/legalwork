@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { LauncherDraftFileSchema, type AssistantConversation, type AssistantSubmitInput, type AssistantSubmission, type LauncherOutputIntent } from "@legalwork/types/launcher";
-import { DraftCoordinator, EMPTY_DRAFT_FILE } from "../src/react-app/launcher/draft-coordinator";
+import { DraftCoordinator, EMPTY_DRAFT_FILE, emptyLauncherDraft, readDraftFile } from "../src/react-app/launcher/draft-coordinator";
 import { submitAssistantDraft } from "../src/react-app/launcher/submit-draft";
 import { useLauncherStore } from "../src/react-app/launcher/launcher-store";
 
@@ -56,9 +56,14 @@ test("HTTP success with unconfirmed delivery retains the payload; Home retries t
   expect(panel.get("one").text).toBe("Original");
   expect(panel.get("one").submission?.state).toBe("unconfirmed");
   await home.claim("one", "home");
-  await submitAssistantDraft({ client, drafts: home, owner: "home", conversationId: "one", input: { text: "changed after losing acknowledgement" } });
+  await home.update("one", "home", { text: "a different follow-up" });
+  await expect(submitAssistantDraft({ client, drafts: home, owner: "home", conversationId: "one", input: { text: "a different follow-up" } })).rejects.toThrow("awaiting confirmation");
+  expect(sent).toHaveLength(1);
+  expect(home.get("one").text).toBe("a different follow-up");
+  await submitAssistantDraft({ client, drafts: home, owner: "home", conversationId: "one", retry: true, input: { text: "changed after losing acknowledgement" } });
   expect(sent[1]).toEqual(sent[0]);
-  expect(home.get("one").text).toBe("");
+  expect(home.get("one").text).toBe("a different follow-up");
+  expect(home.get("one").submission?.input).toBeUndefined();
   await expect(submitAssistantDraft({ client, drafts: panel, owner: "panel", conversationId: "one", input: { text: "stale" } })).rejects.toThrow("another window");
 });
 
@@ -147,4 +152,38 @@ test("retrying a local output preparation failure cannot silently omit the outpu
   } };
   await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: "Copy answer" }, outputIntent: { output: "copy", originId: null }, beforeSend: async () => { throw new Error("disk full"); } })).rejects.toThrow("disk full");
   await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", retry: true, input: { text: "Copy answer" }, beforeSend: async (_input, intent) => { remembered = intent; } });
+});
+
+test("an overlong message stays editable and cannot invalidate the draft store", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const drafts = new DraftCoordinator({ read: async () => LauncherDraftFileSchema.parse(file), write: async (next, version) => {
+    if (file.version !== version) return false;
+    file = structuredClone(next);
+    return true;
+  } });
+  const tooLong = "a".repeat(60_001);
+  await drafts.claim("one", "panel");
+  await drafts.update("one", "panel", { text: tooLong });
+  await drafts.claim("other", "panel");
+  await drafts.update("other", "panel", { text: "Independent draft" });
+  const client = { submitAssistantMessage: async () => { throw new Error("Unexpected dispatch"); } };
+  const version = file.version;
+  await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: tooLong } })).rejects.toThrow("60,000");
+  expect(file.version).toBe(version);
+  expect(drafts.get("one").text).toBe(tooLong);
+  expect(drafts.get("other").text).toBe("Independent draft");
+});
+
+
+test("an older invalid submission does not hide its own editable text or another draft", () => {
+  const longDraft = "a".repeat(60_001);
+  const file = { ...EMPTY_DRAFT_FILE, drafts: {
+    other: { ...emptyLauncherDraft("other"), text: "Independent draft" },
+    one: { ...emptyLauncherDraft("one"), text: longDraft, submission: {
+      requestId: "req_example", messageId: "msg_1234567890", state: "sending",
+      input: { requestId: "req_example", messageId: "msg_1234567890", text: longDraft },
+    } },
+  } };
+  expect(readDraftFile(file).drafts.one).toMatchObject({ text: longDraft, submission: null });
+  expect(readDraftFile(file).drafts.other.text).toBe("Independent draft");
 });

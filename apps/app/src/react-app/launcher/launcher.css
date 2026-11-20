@@ -150,3 +150,20 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 
 .launcher-row[draggable="true"] { cursor: grab; }
 .launcher-row[draggable="true"]:active { cursor: grabbing; }
+
+.launcher-task-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.launcher-task-header h2 { margin: 0; font-weight: 600; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+.launcher-task-properties { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 0; padding-block: 4px 10px; border-bottom: 1px solid var(--lw-border-subtle); }
+.launcher-task-properties dt, .launcher-task-section h3 { color: var(--lw-text-secondary); font-size: 11px; font-weight: 500; margin: 0 0 3px; }
+.launcher-task-properties dd { margin: 0; }
+.launcher-task-section p { white-space: pre-wrap; margin: 0; }
+.launcher-task-section article + article { margin-top: 8px; }
+.launcher-task-status, .launcher-work-status[data-status="returned"] { display: inline-flex; flex: none; align-items: center; padding: 2px 8px; border-radius: 999px; background: var(--lw-sunken); font-size: 11px; font-weight: 600; }
+.launcher-task-status[data-status="done"], .launcher-work-status[data-status="returned"] { color: var(--green-11, #18794e); background: var(--green-3, #e1f6eb); }
+.launcher-context-item img.launcher-capture-thumb { width: 72px; height: 46px; object-fit: contain; background: var(--lw-sunken); }
+
+.launcher-capture-preview { display: grid; justify-items: start; gap: 6px; padding: 6px 12px; }
+.launcher-capture-preview > img { display: block; max-width: 100%; max-height: 144px; object-fit: contain; border-radius: 8px; border: 1px solid var(--lw-border-subtle); }
+.launcher-capture-preview .launcher-context-actions { padding: 0; flex-wrap: wrap; }
+.launcher-capture-save { display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.launcher-selection-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: min(390px, 70vw); max-height: 140px; overflow: auto; margin: 6px 0 0; font: inherit; }

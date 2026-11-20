@@ -2,9 +2,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { AssistantConversation } from "@legalwork/types/launcher";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import type { LegalworkServerClient, LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { draftCacheScope } from "./draft-profile";
 
 export type AssistantShellState = { workspace: LegalworkWorkspaceInfo; profile: AssistantProfile; conversation: AssistantConversation | null; day: { date: string; sessionId: string } | null };
-export const assistantShellQueryKey = (baseUrl: string) => ["launcher-assistant-shell", baseUrl];
+export const assistantShellQueryKey = (baseUrl: string, draftProfile?: string) => ["launcher-assistant-shell", baseUrl, draftCacheScope(draftProfile)];
 
 /** Identify the Assistant chat for the workspace pane, including explicit conversations. */
 export function assistantChatIdentity(
@@ -24,7 +25,7 @@ export function assistantChatIdentity(
  * one; a navigation into the Assistant, or a first message, does so explicitly.
  */
 export async function resolveAssistantConversation(
-  client: Pick<LegalworkServerClient, "baseUrl" | "assistantConversationCurrent" | "createAssistantConversation" | "ensureAssistantWorkspace">,
+  client: Pick<LegalworkServerClient, "baseUrl" | "assistantConversationCurrent" | "createAssistantConversation" | "ensureAssistantWorkspace"> & Partial<Pick<LegalworkServerClient, "draftProfile">>,
   cache: QueryClient,
   origin: "home" | "navigation" = "home",
   projectFields?: Parameters<LegalworkServerClient["ensureAssistantWorkspace"]>[0],
@@ -32,6 +33,6 @@ export async function resolveAssistantConversation(
   const current = await client.assistantConversationCurrent();
   const workspace = current.workspace ?? (await client.ensureAssistantWorkspace(projectFields)).workspace;
   const conversation = current.conversation ?? (await client.createAssistantConversation({ origin })).conversation;
-  cache.setQueryData<AssistantShellState>(assistantShellQueryKey(client.baseUrl), previous => previous ? { ...previous, conversation } : { workspace, profile: current.profile, conversation, day: current.day });
+  cache.setQueryData<AssistantShellState>(assistantShellQueryKey(client.baseUrl, client.draftProfile), previous => previous ? { ...previous, conversation } : { workspace, profile: current.profile, conversation, day: current.day });
   return { workspace, profile: current.profile, conversation, sessionId: conversation.sessionId };
 }

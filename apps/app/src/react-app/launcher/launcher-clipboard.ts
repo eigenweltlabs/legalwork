@@ -24,12 +24,15 @@ export function canCopyLauncherResult(result: LauncherSearchResult, localFiles: 
 }
 
 /** Copy complete source text, rather than the truncated search excerpt. */
-export async function launcherClipboardText(result: LauncherSearchResult, client: Pick<LegalworkServerClient, "recordingTranscript">) {
+export async function launcherClipboardText(result: LauncherSearchResult, client: Pick<LegalworkServerClient, "recordingTranscript">, maxLength?: number) {
   if (result.kind === "recordings") {
     const parts: string[] = [];
     let offset = 0;
     while (true) {
       const page = await client.recordingTranscript(result.id, { offset, limit: 20000 });
+      if (maxLength !== undefined && Math.max(page.totalCharacters, offset + page.content.length) > maxLength) {
+        throw new Error(t("launcher.capture.transcript_long"));
+      }
       parts.push(page.content);
       if (page.nextOffset === null) break;
       if (page.nextOffset <= offset) throw new Error(t("launcher.notice.copy_failed"));

@@ -1,6 +1,10 @@
 import { workspaceContextSnapshot, type LauncherViewedProject } from "./workspace-context-model";
 import { useLayoutEffect, useRef } from "react";
 import type { LauncherWorkspaceContext } from "@legalwork/types/launcher";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { visibleDashboardContext } from "@/react-app/domains/views/view-generation-sync";
+import { useViewGenerationStore } from "@/react-app/domains/views/view-generation";
+import { hashDraftProfile } from "./draft-profile";
 import { launcherWindowControl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
@@ -18,15 +22,23 @@ export function readWorkspaceContext(workspace: LauncherViewedProject | null): L
 }
 
 /** Publish only this window's state. The desktop chooses the focused window at invocation. */
-export function usePublishLauncherContext(workspace: LauncherViewedProject | null, server = "") {
+export function usePublishLauncherContext(workspace: LauncherViewedProject | null, client: LegalworkServerClient | null, selectedSessionId: string | null) {
+  const server = client?.baseUrl;
+  const profileKey = client?.draftProfile;
   const latest = useRef(workspace);
   const lastOpened = useRef("");
   latest.current = workspace;
   useLayoutEffect(() => {
     if (!isDesktopRuntime()) return;
+    let disposed = false, profile: string | undefined;
     const publish = () => {
       if (!document.hasFocus()) return;
       const context = readWorkspaceContext(latest.current);
+      const sessionId = context?.sessionId || selectedSessionId;
+      if (context && !latest.current?.view && profile && server && sessionId) {
+        const dashboard = visibleDashboardContext({ serverUrl: server, workspaceId: context.workspaceId, sessionId });
+        if (dashboard) context.dashboard = { profile, sessionId, context: dashboard.slice(0, 20_000) };
+      }
       void launcherWindowControl("context", { context }).catch(() => undefined);
       if (!context || !server || latest.current?.view) { lastOpened.current = ""; return; }
       const file = context.sessionId ? undefined : context.document;
@@ -40,16 +52,20 @@ export function usePublishLauncherContext(workspace: LauncherViewedProject | nul
         path: file?.path, sessionId: context.sessionId, updatedAt: Date.now(), match: "recent", score: 0, actions: ["open"] });
     };
     publish();
+    if (profileKey) void hashDraftProfile(profileKey).then(hash => { if (!disposed) { profile = hash; publish(); } }).catch(() => undefined);
     const unsubscribe = usePanelTabStore.subscribe(publish);
+    const unsubscribeViews = useViewGenerationStore.subscribe(publish);
     window.addEventListener("focus", publish);
     document.addEventListener("selectionchange", publish);
     window.addEventListener("legalwork:folder-changed", publish);
     return () => {
+      disposed = true;
       unsubscribe();
+      unsubscribeViews();
       window.removeEventListener("focus", publish);
       document.removeEventListener("selectionchange", publish);
       window.removeEventListener("legalwork:folder-changed", publish);
       void launcherWindowControl("context", { context: null }).catch(() => undefined);
     };
-  }, [workspace?.id, workspace?.name, workspace?.view, server]);
+  }, [workspace?.id, workspace?.name, workspace?.view, server, profileKey, selectedSessionId]);
 }

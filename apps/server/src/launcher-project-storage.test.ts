@@ -36,7 +36,7 @@ test("migrated projects and wikis search, browse, save, retry and transfer from 
 
     const approvals: string[][] = [];
     // HTTP fixture: only the dependencies exercised by these routes are supplied.
-    registerLauncherRoutes({ routes, config: { workspaces }, fileIndex,
+    registerLauncherRoutes({ routes, guardLauncherWorkspace: async () => {}, config: { workspaces }, fileIndex,
       resolveWorkspace: async (_config: unknown, id: string) => { const workspace = workspaces.find(item => item.id === id); if (!workspace) throw new Error("Project removed"); return workspace; },
       jsonResponse: (body: unknown, status = 200) => Response.json(body, { status }), readJsonBodyLimited: (request: Request) => request.json(),
       requireClientScope: () => {}, ensureWritable: () => {}, requireApproval: async (_ctx: unknown, request: { paths: string[] }) => { approvals.push(request.paths); },

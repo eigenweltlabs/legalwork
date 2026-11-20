@@ -22,6 +22,7 @@ test("work items keep their origin, derive one status per job, and survive an un
   expect(items.map(item => [item.sessionId, item.status, item.originConversationId])).toEqual([["question", "input-required", "conv_1"], ["running", "running", "conv_1"], ["done", "returned", null], ["gone", "unavailable", "conv_1"]]);
   expect(items[2].result).toMatchObject({ outcome: "reply", preview: "Done: the comparison is saved." });
   expect((await listAssistantWork(delegations, { originConversationId: () => null, inspect: async () => ({ available: true, busy: false, title: "t", projectName: "p", createdAt: 1, updatedAt: 1, result: null, pendingAttention: 0, queuedMessages: 2 }) }, { projectId: "schmidt" })).map(item => item.status)).toEqual(["queued"]);
+  expect(workStatus({ available: true, busy: false, title: "", projectName: "", createdAt: null, updatedAt: null, result: null, pendingAttention: 0, queuedMessages: 0 })).toBe("idle");
   expect(workStatus({ available: true, busy: false, title: "", projectName: "", createdAt: null, updatedAt: null, result: { messageId: "x", outcome: "interrupted", text: "" }, pendingAttention: 0, queuedMessages: 0 })).toBe("stopped");
   expect(workStatus({ available: true, busy: false, title: "", projectName: "", createdAt: null, updatedAt: null, result: { messageId: "x", outcome: "failed", text: "" }, pendingAttention: 0, queuedMessages: 0 })).toBe("failed");
 });

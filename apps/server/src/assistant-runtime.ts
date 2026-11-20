@@ -39,7 +39,7 @@ const unwrapOpencodeResult = <T>(result: { data?: T; response: Response }, path:
   if (!result.response.ok || result.data === undefined) throw new ApiError(result.response.status, "assistant_engine", `Could not read ${path}.`);
   return result.data;
 };
-type Helpers = Pick<Parameters<typeof registerMainAssistantRoutes>[0], "jsonResponse" | "readJsonBodyLimited" | "ensureWritable" | "requireClientScope" | "requireApproval">;
+type Helpers = Pick<Parameters<typeof registerMainAssistantRoutes>[0], "jsonResponse" | "readJsonBodyLimited" | "ensureWritable" | "requireClientScope" | "requireApproval" | "guardLauncherWorkspace" | "launcherFolderVisible" | "launcherRecordingAccess">;
 
 export async function createAssistantRuntime(config: ServerConfig, options: {
   scheduledTasks: ScheduledTaskStore;

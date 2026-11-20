@@ -59,12 +59,12 @@ export function Highlight({ text, query }: { text: string; query: string }) {
   return <>{text.split(new RegExp(`(${terms.join("|")})`, "gi")).map((part, index) => index % 2 ? <mark key={index}>{part}</mark> : part)}</>;
 }
 export function coverageLabel(sources: LauncherSourceState[]) {
-  if (!sources.length) return "";
+  const unavailable = sources.filter(source => source.coverage === "unavailable" || source.coverage === "offline");
+  if (unavailable.length) return t("launcher.coverage.unavailable", { names: unavailable.map(source => source.label || t(categoryKeys[source.kind])).join(", ") });
   if (sources.some(source => source.coverage === "searching")) return t("launcher.coverage.searching");
   if (sources.some(source => source.coverage === "indexing")) return t("launcher.coverage.indexing");
-  const unavailable = sources.filter(source => source.coverage === "unavailable" || source.coverage === "offline");
-  if (unavailable.length) return t("launcher.coverage.unavailable", { count: unavailable.length, names: unavailable.map(source => source.label).join(", ") });
   if (sources.some(source => source.coverage === "partial" || source.limited)) return t("launcher.coverage.partial");
+  if (sources.some(source => source.coverage === "filename-only")) return t("launcher.coverage.filename_only");
   return "";
 }
 export type LauncherExtraAction = "open-in-app" | "copy-to-clipboard" | "hide";
@@ -80,21 +80,24 @@ export function actionLabel(action: LauncherResultAction | "run" | "open-convers
 
 export function LauncherResultList(props: {
   items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean; hideEmpty?: boolean;
+  onRetry?: (kind: LauncherSearchResult["kind"]) => void;
   canDrag?: (result: LauncherSearchResult) => boolean; onDragStart?: (event: DragEvent<HTMLElement>, result: LauncherSearchResult) => void;
   onSelect: (key: string) => void; onRun: (result: LauncherSearchResult, action: LauncherResultAction) => void; onToggleMulti: (key: string) => void; onOpenActions: (key: string) => void;
 }) {
-  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length);
+  const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length || coverageLabel(group.sources));
   if (!groups.length) return props.hideEmpty ? null : <div className="launcher-empty">{props.pending ? t("launcher.coverage.searching") : props.query.length === 1 ? t("content_search.keep_typing") : t("content_search.no_results")}</div>;
   return <>
     {groups.map(group => <section key={group.kind}>
-      <div className="launcher-section-title"><span>{t(categoryKeys[group.kind])}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
+      <div className="launcher-section-title"><span>{t(categoryKeys[group.kind])}</span><span className="launcher-coverage" role="status">{coverageLabel(group.sources)}
+        {props.onRetry && group.sources.some(source => ["offline", "unavailable", "partial"].includes(source.coverage)) && <button type="button" className="ms-2 underline" disabled={props.pending} onClick={() => props.onRetry?.(group.kind)}>{t("scheduled.retry")}</button>}
+      </span></div>
       {group.items.map(item => {
         const key = resultKey(item);
         const Icon = resultIcon(item);
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
-        const details = [item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ");
-        return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row" draggable={props.canDrag?.(item) ?? false} onDragStart={event => props.onDragStart?.(event, item)}
+        const details = [item.path && item.path !== item.title ? item.path : null, item.kind === "tasks" && item.completed ? null : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ");
+        return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={item.kind === "files" && item.fileType !== "folder" ? multi : undefined} aria-keyshortcuts={item.kind === "files" && item.fileType !== "folder" ? "Alt+Enter" : undefined} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row" draggable={props.canDrag?.(item) ?? false} onDragStart={event => props.onDragStart?.(event, item)}
           onMouseMove={() => props.onSelect(key)} onClick={event => { if ((event.metaKey || event.ctrlKey) && item.kind === "files" && item.fileType !== "folder") props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
           <span className="launcher-row-icon" onClick={event => { if (item.kind === "files" && item.fileType !== "folder") { event.stopPropagation(); props.onToggleMulti(key); } }} aria-hidden="true">{item.kind === "files" && item.fileType !== "folder" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">
@@ -102,6 +105,7 @@ export function LauncherResultList(props: {
             <div className="launcher-row-meta">{item.subtitle && <LauncherResultOrigin item={item} />}{item.subtitle && details ? " · " : ""}{details}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
             {item.excerpt && item.excerpt !== item.path && <div className="launcher-row-excerpt"><Highlight text={item.excerpt} query={props.query} /></div>}
           </div>
+          {item.kind === "tasks" && item.completed && <span className="launcher-task-status" data-status="done">✓ {t("tasks.status_done")}</span>}
           <span className="launcher-row-hint">{props.selectedKey === key ? <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); props.onOpenActions(key); }}><ChevronRight className="size-4" /></button> : item.kind === "projects" ? <Folder className="size-3.5" /> : null}</span>
         </div>;
       })}

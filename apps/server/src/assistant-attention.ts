@@ -32,29 +32,36 @@ export function assistantWidget(tool: string, output: string) {
   return null;
 }
 
+export async function readPendingAssistantRequests(client: AssistantEngineClient, sessionID: string) {
+  const [permissions, questions] = await Promise.all([
+    client.v2.session.permission.list({ sessionID }, options()),
+    client.v2.session.question.list({ sessionID }, options()),
+  ]).catch(cause => { throw new Error("Pending requests could not be read.", { cause }); });
+  if (!permissions.data || !questions.data) throw new Error("Pending requests could not be read.");
+  return {
+    permissions: permissions.data.data.filter(item => item.sessionID === sessionID),
+    questions: questions.data.data.filter(item => item.sessionID === sessionID),
+  };
+}
+
 /** Read the original engine requests. An unsupported protocol is not an empty inbox. */
 export async function readAssistantAttention(client: AssistantEngineClient, source: AttentionSource): Promise<AssistantAttentionItem[]> {
   const sessionID = source.sessionId;
-  const results = await Promise.allSettled([
-    client.v2.session.permission.list({ sessionID }, options()).then(result => result.data?.data),
-    client.v2.session.question.list({ sessionID }, options()).then(result => result.data?.data),
-    client.session.messages({ sessionID, limit: 20 }, options()).then(result => result.data),
+  const [pending, messages] = await Promise.all([
+    readPendingAssistantRequests(client, sessionID),
+    client.session.messages({ sessionID, limit: 20 }, options()).catch(cause => { throw new Error("Project widgets could not be read.", { cause }); }),
   ]);
-  if (results[0].status === "rejected" || results[1].status === "rejected")
-    throw new Error("Pending requests could not be read.");
   const items = new Map<string, AssistantAttentionItem>();
   const add = (kind: "approval" | "question" | "widget", requestId: string, payload: object) => {
     const id = fingerprint([source.workspaceId, sessionID, kind, requestId]);
     const item = AssistantAttentionItemSchema.parse({ ...source, id, revision: fingerprint(payload), visible: false, presentedAt: 0, kind, ...payload });
     items.set(id, item);
   };
-  const [permissions, questions, messages] = results;
-  if (permissions.status === "fulfilled") for (const item of permissions.value ?? []) if (item.sessionID === sessionID)
+  for (const item of pending.permissions)
     add("approval", item.id, { requestId: item.id, protocol: "v2", permission: item.action, patterns: item.resources, metadata: item.metadata ?? {} });
-  if (questions.status === "fulfilled") for (const item of questions.value ?? []) if (item.sessionID === sessionID)
+  for (const item of pending.questions)
     add("question", item.id, { requestId: item.id, protocol: "v2", questions: item.questions });
-  if (messages.status === "rejected") throw new Error("Project widgets could not be read.");
-  for (const message of messages.value ?? []) {
+  for (const message of messages.data ?? []) {
     if (message.info.sessionID !== sessionID || message.info.role !== "assistant") continue;
     for (const part of message.parts) {
       if (part.type !== "tool" || part.state.status !== "completed") continue;

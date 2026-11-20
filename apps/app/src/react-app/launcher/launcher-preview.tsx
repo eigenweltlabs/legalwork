@@ -10,7 +10,10 @@ export function LauncherPreviewPane({ result, detail = false }: { result: Launch
   const { client } = useLauncherShell();
   const preview = useQuery({
     queryKey: ["launcher-preview", client.baseUrl, result.kind, result.workspaceId ?? "", result.folderId ?? "", result.id, result.revision],
-    queryFn: ({ signal }) => client.launcherPreview({ kind: result.kind, id: result.kind === "chats" ? result.sessionId ?? result.id : result.id, workspaceId: result.workspaceId, folderId: result.folderId }, signal),
+    queryFn: ({ signal }) => client.launcherPreview({
+      kind: result.kind, id: result.kind === "chats" ? result.sessionId ?? result.id : result.kind === "files" ? result.path ?? result.id : result.id,
+      workspaceId: result.workspaceId, folderId: result.folderId,
+    }, signal),
     staleTime: 30_000, retry: false,
   });
   return <aside className="launcher-preview" tabIndex={0} data-launcher-controls aria-label={detail ? result.title : t("launcher.result_action.preview")} aria-busy={preview.isPending}>

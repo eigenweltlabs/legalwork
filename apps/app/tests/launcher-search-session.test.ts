@@ -115,3 +115,22 @@ test("explicit ordering also sorts late content hits and changing order invalida
     expect(session.current().items.map(item => item.id)).toEqual(["Zulu", "Alpha"]);
   } finally { session.cancel(); }
 });
+
+test("retrying a failed category preserves the other results and only calls the failed provider", async () => {
+  const calls: string[] = [];
+  const session = new LauncherSearchSession(async input => {
+    const kind = input.kinds[0];
+    calls.push(kind);
+    if (kind === "tasks" && calls.filter(value => value === kind).length === 1) throw new Error("Timeout");
+    return { items: [{ ...item(kind, 1), kind }], sources: [], unavailable: [] };
+  }, { debounceMs: 0, contentPass: false });
+  session.search({ kinds: ["files", "tasks"], projectId: null, query: "example" });
+  await wait(15);
+  expect(session.current().sources[0]?.coverage).toBe("unavailable");
+  session.retry("tasks");
+  await wait(10);
+  expect(calls).toEqual(["files", "tasks", "tasks"]);
+  expect(session.current().items.map(value => value.id)).toEqual(["files", "tasks"]);
+  expect(session.current().sources).toEqual([]);
+  session.cancel();
+});

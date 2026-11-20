@@ -1885,7 +1885,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (!searchMessageId || !searchMessagePresent) return;
     const frame = requestAnimationFrame(() => {
-      if (sessionScroll.jumpToMessage(searchMessageId)) useSearchNavigation.getState().setTarget(null);
+      if (sessionScroll.jumpToMessage(searchMessageId, "auto", true)) useSearchNavigation.getState().setTarget(null);
     });
     return () => cancelAnimationFrame(frame);
   }, [searchMessageId, searchMessagePresent, sessionScroll.jumpToMessage]);

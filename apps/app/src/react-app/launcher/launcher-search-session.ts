@@ -20,10 +20,15 @@ export class LauncherSearchSession {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The query whose rows are on screen; only a content pass for the same words keeps their order. */
   private settledQuery = "";
+  private lastInput: SearchInput | null = null;
   current() { return this.snapshot; }
   subscribe(listener: (snapshot: SearchSnapshot) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   private publish(next: Partial<SearchSnapshot>) { this.snapshot = { ...this.snapshot, ...next }; for (const listener of this.listeners) listener(this.snapshot); }
   cancel() { this.controller?.abort(); this.controller = null; if (this.timer) clearTimeout(this.timer); this.timer = null; this.publish({ pending: false }); }
+  retry(kind: LauncherSearchKind) {
+    if (!this.lastInput || this.snapshot.pending || !this.controller || !this.lastInput.kinds.includes(kind)) return;
+    void this.execute(this.generation, this.controller, this.lastInput, kind);
+  }
   search(input: SearchInput) {
     this.controller?.abort();
     if (this.timer) clearTimeout(this.timer);
@@ -34,7 +39,9 @@ export class LauncherSearchSession {
     const controller = new AbortController();
     this.controller = controller;
     this.publish({ pending: true, query, error: null, ...(JSON.stringify({ ...input, query }) !== this.settledQuery ? { items: [], sources: [] } : {}) });
-    this.timer = setTimeout(() => { this.timer = null; void this.execute(generation, controller, { ...input, query }); }, this.options.debounceMs ?? 120);
+    const next = { ...input, query };
+    this.lastInput = next;
+    this.timer = setTimeout(() => { this.timer = null; void this.execute(generation, controller, next); }, this.options.debounceMs ?? 120);
   }
   private merge(previous: LauncherSearchResult[], incoming: LauncherSearchResult[]) {
     // Keep the order of rows already on screen; append newcomers after them.
@@ -42,10 +49,17 @@ export class LauncherSearchSession {
     const kept = previous.flatMap(item => { const next = seen.get(resultKey(item)); if (!next) return []; seen.delete(resultKey(item)); return [next]; });
     return [...kept, ...seen.values()];
   }
-  private async execute(generation: number, controller: AbortController, input: SearchInput) {
+  private async execute(generation: number, controller: AbortController, input: SearchInput, retryKind?: LauncherSearchKind) {
     const responses = new Map<LauncherSearchKind, LauncherSearchResponse>();
     const fingerprint = JSON.stringify(input);
-    let remaining = input.kinds.length;
+    const kinds = retryKind ? [retryKind] : input.kinds;
+    if (retryKind) {
+      for (const kind of input.kinds.filter(kind => kind !== retryKind)) {
+        responses.set(kind, { items: this.snapshot.items.filter(item => item.kind === kind), sources: this.snapshot.sources.filter(source => source.kind === kind), unavailable: [] });
+      }
+      this.publish({ pending: true, error: null });
+    }
+    let remaining = kinds.length;
     let rendered: LauncherSearchResult[] = this.settledQuery === fingerprint ? this.snapshot.items : [];
     const publish = () => {
       if (controller.signal.aborted || generation !== this.generation) return;
@@ -55,7 +69,7 @@ export class LauncherSearchSession {
       this.publish({ items: rendered, sources: pages.flatMap(page => page.sources), pending: remaining > 0 });
       this.settledQuery = fingerprint;
     };
-    await Promise.all(input.kinds.map(async kind => {
+    await Promise.all(kinds.map(async kind => {
       try {
         const fast = await this.run({ ...input, kinds: [kind], content: false }, controller.signal);
         if (controller.signal.aborted || generation !== this.generation) return;
@@ -78,7 +92,11 @@ export class LauncherSearchSession {
         }
       } catch (error) {
         if (controller.signal.aborted || generation !== this.generation) return;
-        this.publish({ error: error instanceof Error ? error.message : String(error) });
+        const message = error instanceof Error ? error.message : String(error);
+        const page = responses.get(kind);
+        responses.set(kind, { items: page?.items ?? [], sources: [...(page?.sources ?? []), {
+          id: "request:" + kind, kind, workspaceId: null, label: "", coverage: "unavailable", count: 0, error: message,
+        }], unavailable: [] });
       } finally { remaining--; publish(); }
     }));
   }
