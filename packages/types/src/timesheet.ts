@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { invoiceTemplateSchema } from "@legalwork/types/invoice-template";
+import { invoiceAmountSchema, invoiceBillingModeSchema, invoiceTemplateSchema } from "@legalwork/types/invoice-template";
 
 const id = z.string().trim().min(1).max(200);
 const text = z.string().trim().min(1).max(2000);
@@ -95,8 +95,10 @@ export const TimePolicySchema = z.strictObject({
   agreementProjects: z.array(id).optional(),
   allocationUnavailable: z.boolean().optional(),
   nonHourlyAgreement: z.literal(true).optional(),
+  nonHourlyBasis: z.enum(["fixed", "tariff"]).optional(),
   incrementExceptionReason: text.optional(),
   incrementException: incrementExceptionSchema.optional(),
+  minimumMinutes: minutes.min(1).optional(),
   maxMinutes: minutes.min(1).optional(),
   activityLimits: z.record(id, minutes.min(1)).optional(),
   activityLabels: wordingMap(80).optional(),
@@ -204,6 +206,7 @@ export function resolveTimePolicy(
     enforceIncrement: true,
     rounding: "choose" as (typeof roundingModes)[number],
     stopwatchRoundUp: true,
+    minimumMinutes: undefined as number | undefined,
     maxMinutes: 120,
     activityLimits: {} as Record<string, number>,
     activityLabels: {} as Record<string, string>,
@@ -220,7 +223,8 @@ export function resolveTimePolicy(
   };
   let unavailable = false,
     ambiguous = false,
-    nonHourlyAgreement = false;
+    nonHourlyAgreement = false,
+    nonHourlyBasis: TimePolicy["nonHourlyBasis"];
   const targets = {
     firm: "firm",
     client: clientId,
@@ -251,6 +255,7 @@ export function resolveTimePolicy(
         agreementProjects: _agreementProjects,
         allocationUnavailable,
         nonHourlyAgreement: nonHourly,
+        nonHourlyBasis: basis,
         bindingIncrement: _binding,
         incrementExceptionReason: _reason,
         incrementException,
@@ -260,6 +265,7 @@ export function resolveTimePolicy(
       if (agreementId) {
         unavailable = Boolean(allocationUnavailable);
         nonHourlyAgreement = Boolean(nonHourly);
+        nonHourlyBasis = basis;
       }
       Object.assign(baseline, values);
       Object.assign(baseline.activityLimits, activityLimits);
@@ -296,6 +302,7 @@ export function resolveTimePolicy(
     ...baseline,
     ...(ambiguous ? { ambiguousAgreement: true } : {}),
     ...(nonHourlyAgreement && !ambiguous ? { nonHourlyAgreement: true } : {}),
+    ...(nonHourlyBasis && !ambiguous ? { nonHourlyBasis } : {}),
   };
 }
 export function timeEntryPrice(policy: ReturnType<typeof resolveTimePolicy>, workerId: string) {
@@ -374,6 +381,7 @@ const snapshot = TimeDraftSchema.extend({
   status,
   policyDigest: z.string().length(64).optional(),
   nonHourlyApproval: z.literal(true).optional(),
+  nonHourlyBasis: TimePolicySchema.shape.nonHourlyBasis,
   adjustmentBaselineRevision: z.number().int().positive().optional(),
   hourlyRate: rate.optional(),
   currency: currency.optional(),
@@ -406,6 +414,7 @@ export const TimeEntrySchema = TimeDraftSchema.extend({
   currency: currency.optional(),
   policyDigest: z.string().length(64).optional(),
   nonHourlyApproval: z.literal(true).optional(),
+  nonHourlyBasis: TimePolicySchema.shape.nonHourlyBasis,
   adjustmentBaselineRevision: z.number().int().positive().optional(),
   legacy: z.boolean().optional(),
   submittedNarrative: z.string().optional(),
@@ -460,6 +469,81 @@ export function adjustedTimeEntry(entry: TimeEntry, adjustments: TimeAdjustment[
 const entity = z.object({ id, name: z.string() });
 const ref = z.object({ id, revision: z.number().int().positive() });
 const selection = z.array(ref).min(1).max(1000);
+const digest = z.string().regex(/^[a-f\d]{64}$/);
+const invoiceAdjustment = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("percent"), basisPoints: z.number().int().min(0).max(10000) }),
+  z.strictObject({ type: z.literal("target"), amountMinor: invoiceAmountSchema, basis: z.enum(["selection", "invoice"]) }),
+]);
+const invoiceAdjustmentScope = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("all") }),
+  z.strictObject({ type: z.literal("people"), ids: z.array(id).min(1).max(1000) }),
+  z.strictObject({ type: z.literal("entries"), ids: z.array(id).min(1).max(1000) }),
+]);
+export const InvoiceDraftInputSchema = z.strictObject({
+  matterId: id,
+  clientId: id,
+  period: z.strictObject({ from: date.optional(), to: date }),
+  entries: selection,
+  adjustmentVersions: z.array(ref).max(2000),
+  wording: z.array(id).max(1000),
+  expectedSuggestions: z.array(z.strictObject({ id, narrative: text })).max(1000).optional(),
+  edits: z.array(z.strictObject({ id, narrative: text })).max(1000).optional(),
+  pricing: z.discriminatedUnion("mode", [
+    z.strictObject({ mode: z.literal("hourly") }),
+    z.strictObject({ mode: z.literal("fixed"), currency, amountMinor: invoiceAmountSchema, showHours: z.boolean() }),
+  ]),
+  reduction: z.strictObject({ scope: invoiceAdjustmentScope, adjustment: invoiceAdjustment }).optional(),
+});
+export type InvoiceDraftInput = z.infer<typeof InvoiceDraftInputSchema>;
+export const InvoiceApprovalSchema = z.strictObject({
+  actorId: id,
+  at: z.iso.datetime(),
+  revision: digest,
+});
+export const InvoiceWordingSuggestionSchema = z.strictObject({
+  id,
+  narrative: text,
+  rule: z.enum(["spelling", "language", "actionFirst", "activityLabels", "terminology", "narrativeExample", "uploadedGuideline"]),
+});
+export type InvoiceWordingSuggestion = z.infer<typeof InvoiceWordingSuggestionSchema>;
+const invoiceSnapshot = z.strictObject({
+  date,
+  client: z.string(),
+  clientAddress: z.string(),
+  template: invoiceTemplateSchema,
+  wordTemplateRevision: z.number().int().nonnegative().optional(),
+});
+export const TimeInvoiceDraftSchema = z.strictObject({
+  id: z.uuid(),
+  revision: digest,
+  input: InvoiceDraftInputSchema,
+  currency,
+  showHours: z.boolean(),
+  totalMinor: invoiceAmountSchema,
+  protectedMinor: invoiceAmountSchema,
+  selectedBaseMinor: invoiceAmountSchema,
+  selectedTotalMinor: invoiceAmountSchema,
+  snapshot: invoiceSnapshot,
+  modelBasis: digest.optional(),
+  modelWording: z.array(InvoiceWordingSuggestionSchema).max(1000).optional(),
+  lines: z.array(z.strictObject({
+    entry: TimeEntrySchema,
+    originalNarrative: text,
+    currentNarrative: text,
+    suggestedNarrative: z.string().optional(),
+    modelRule: InvoiceWordingSuggestionSchema.shape.rule.optional(),
+    rules: z.array(z.string()),
+    actionFirst: z.boolean().optional(),
+    guidelineVersions: z.array(z.strictObject({
+      id: z.uuid(), revision: z.number().int().positive(), name: z.string(), effectiveFrom: date,
+    })).max(3).optional(),
+    actualAmountMinor: invoiceAmountSchema.optional(),
+    baseAmountMinor: invoiceAmountSchema,
+    amountMinor: invoiceAmountSchema,
+  })).min(1).max(1000),
+  approval: InvoiceApprovalSchema.optional(),
+});
+export type TimeInvoiceDraft = z.infer<typeof TimeInvoiceDraftSchema>;
 export const TimesheetCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("create"),
@@ -547,6 +631,12 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     approve: z.boolean(),
   }),
   z.strictObject({ type: z.literal("policy"), policy: TimePolicySchema }),
+  z.strictObject({ type: z.literal("prepareInvoice"), draft: InvoiceDraftInputSchema }),
+  z.strictObject({ type: z.literal("reviewInvoiceWording"), id: z.uuid(), revision: digest,
+    model: z.strictObject({ workspaceId: id, providerID: id, modelID: z.string().trim().min(1).max(300) }),
+  }),
+  z.strictObject({ type: z.literal("approveInvoice"), id: z.uuid(), revision: digest }),
+  z.strictObject({ type: z.literal("issueInvoice"), id: z.uuid(), revision: digest, requestId: z.uuid() }),
   z.strictObject({
     type: z.literal("invoice"),
     adjustmentVersions: z.array(ref).max(2000).optional(),
@@ -560,12 +650,27 @@ export function requiresTimeAllocations(command: TimesheetCommand) {
   return (command.type === "create" && Boolean(command.workerTimes?.length)) ||
     ((command.type === "create" || command.type === "update") && command.entry.nonBillableMinutes !== undefined);
 }
+export function requiresInvoiceDrafts(command: TimesheetCommand) {
+  return command.type === "prepareInvoice" || command.type === "approveInvoice" || command.type === "issueInvoice" ||
+    command.type === "reviewInvoiceWording";
+}
 const invoiceSchema = z.object({
   id,
+  draftId: z.uuid().optional(),
   number: z.number().int().positive().safe(),
-  entries: z.array(TimeEntrySchema),
+  entries: z.array(TimeEntrySchema.extend({
+    actualAmountMinor: invoiceAmountSchema.optional(),
+    baseAmountMinor: invoiceAmountSchema.optional(),
+    amountMinor: invoiceAmountSchema.optional(),
+    originalNarrative: text.optional(),
+  })),
   templateRevision: z.number().int().nonnegative().optional(),
   total: z.number().nonnegative(),
+  totalMinor: invoiceAmountSchema.optional(),
+  billingMode: invoiceBillingModeSchema.optional(),
+  showHours: z.boolean().optional(),
+  approval: InvoiceApprovalSchema.optional(),
+  snapshot: invoiceSnapshot.optional(),
   currency,
   issuedAt: z.iso.datetime(),
   clientId: id,
@@ -578,6 +683,9 @@ export const TimesheetStateSchema = z.object({
   template: invoiceTemplateSchema.optional(),
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
+  supportsInvoiceDrafts: z.boolean().optional(),
+  supportsInvoiceWordingReview: z.boolean().optional(),
+  invoiceDraft: TimeInvoiceDraftSchema.optional(),
   unresolvedLegacyEntries: z.array(id).optional(),
   canManage: z.boolean(),
   canReview: z.boolean(),
@@ -585,7 +693,7 @@ export const TimesheetStateSchema = z.object({
   delegatedEntries: z.array(DelegatedTimeEntrySchema).optional(),
   adjustments: z.array(TimeAdjustmentSchema).optional(),
   matters: z.array(entity.extend({ clientIds: z.array(id), reference: z.string() })),
-  clients: z.array(entity),
+  clients: z.array(entity.extend({ billingAddress: z.string().optional() })),
   people: z.array(entity.extend({ directoryOnly: z.literal(true).optional(), canRecordTimeFor: z.boolean().optional() })),
   products: z.array(
     entity.extend({

@@ -1,9 +1,10 @@
+import { z } from "zod";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CaptureAction } from "@legalwork/types/time-capture";
-import { captureStateSchema } from "@legalwork/types/time-capture";
+import { captureProposalSchema, captureStateSchema } from "@legalwork/types/time-capture";
 import { registerFileRoutes } from "../routes/files.js";
 import { matchRoute, type Route } from "../routes/registry.js";
 import { backOfficeAccess } from "../back-office/access.js";
@@ -19,7 +20,6 @@ import {
   beginDocumentCapture,
   captureProfile,
   registerWorkdayRoutes,
-  submissionOriginals,
 } from "./routes.js";
 import { documentEvidence } from "./document-workday.js";
 
@@ -205,7 +205,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
     const resumed = await workday({ type: "calendar" });
     expect(resumed.proposals).toHaveLength(2);
     const folder = join(root, "private-timesheets"),
-      files = (await readdir(folder)).filter((n) => n.endsWith(".json"));
+      files = (await readdir(folder)).filter((n) => /^[a-f0-9]{64}\.json$/.test(n));
     expect(files).toHaveLength(1);
     const profile = await readFile(join(folder, files[0]), "utf8");
     for (const excluded of [
@@ -228,11 +228,15 @@ test("only successful opted-in local editor saves yield a private workday sugges
       async () => true,
     );
     const identity = { user: "local", scope: "local", principal: "" };
-    expect((await submissionOriginals(config, profileId, identity, [accepted])).get(accepted.digest)).toEqual({
-      activity: accepted.activity, narrative: accepted.narrative, workedMinutes: accepted.workedMinutes,
-    });
-    await expect(submissionOriginals(config, "wrong", identity, [accepted])).rejects.toThrow(/account changed/);
-    await expect(submissionOriginals(config, profileId, identity, [{ ...accepted, key: "wrong" }])).rejects.toThrow(/unavailable/);
+    const original = (id: string, hash: string) => dispatch(new Request(
+      base + "/private-timesheet/original/" + hash + "?" + new URLSearchParams({ ...identity, profileId: id }),
+      { headers: host },
+    ));
+    const shown = await original(profileId, accepted.digest);
+    expect(shown.status).toBe(200);
+    expect(await shown.json()).toMatchObject({ activity: accepted.activity, narrative: accepted.narrative, workedMinutes: accepted.workedMinutes });
+    expect((await original("wrong", accepted.digest)).status).toBe(409);
+    expect((await original(profileId, "f".repeat(64))).status).toBe(404);
     await workday({
       type: "settings",
       settings: { calendar: false, tasks: true, documents: false, intervalMinutes: 0 },
@@ -240,10 +244,7 @@ test("only successful opted-in local editor saves yield a private workday sugges
     expect((await workday({ type: "calendar" })).proposals).toHaveLength(0);
     await settings(true);
     const restored = await workday({ type: "calendar" });
-    expect(restored.proposals.find((p) => p.narrative === accepted.narrative)).toMatchObject({
-      key: accepted.key,
-      digest: accepted.digest,
-    });
+    expect(restored.proposals.find((p) => p.key === accepted.key)).toBeUndefined();
     const crossAccount = await beginDocumentCapture(
       config,
       { actor: { type: "host" } },
@@ -277,8 +278,51 @@ test("only successful opted-in local editor saves yield a private workday sugges
     await writeEigenweltConnection(config, { account: null, platformURL: null });
     profileId = await getProfileId();
     const previous = await workday({ type: "calendar" });
-    expect(previous.proposals.map((p) => p.narrative).sort()).toEqual(["Existing.md", "Synthetic.docx"]);
+    expect(previous.proposals.map((p) => p.narrative)).toEqual(
+      ["Existing.md", "Synthetic.docx"].filter(narrative => narrative !== accepted.narrative),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 }, 30000);
+
+test("a moved document retains its private identity across an atomic save without binding the same name in another project", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-document-identity-"));
+  try {
+    const first = join(root, "one"), second = join(root, "two");
+    await Promise.all([mkdir(first), mkdir(second)]);
+    const config = backOfficeTestConfig(root, {
+      workspaces: [
+        { id: "one", name: "One", path: first, workspaceType: "local", preset: "starter" },
+        { id: "two", name: "Two", path: second, workspaceType: "local", preset: "starter" },
+      ],
+      authorizedRoots: [first, second],
+    });
+    const actor = { actor: { type: "host" } };
+    const created = await beginDocumentCapture(config, actor, "one", "Revision.md");
+    await writeFile(join(first, "Revision.md"), "Synthetic");
+    await created?.(true);
+    await rename(join(first, "Revision.md"), join(first, "Moved.md"));
+    const moved = await beginDocumentCapture(config, actor, "one", "Moved.md");
+    const next = join(first, "Replacement.md");
+    await writeFile(next, "More synthetic content");
+    await rename(next, join(first, "Moved.md"));
+    await moved?.(false);
+    const another = await beginDocumentCapture(config, actor, "two", "Revision.md");
+    await writeFile(join(second, "Revision.md"), "Unrelated synthetic content");
+    await another?.(true);
+    const profile = await captureProfile(config, await backOfficeAccess(config));
+    const storage = z.object({ documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)) })
+      .parse(JSON.parse(await readFile(profile.path, "utf8")));
+    const entries = Object.values(storage.documentSaves).flatMap(day => Object.values(day));
+    expect(entries).toHaveLength(3);
+    const original = entries.find(item => item.projectId === "one" && item.activity === "DFT");
+    const amendment = entries.find(item => item.projectId === "one" && item.activity === "MOD");
+    expect(original?.documentId).toBeTruthy();
+    expect(amendment?.documentId).toBe(original?.documentId);
+    expect(entries.find(item => item.projectId === "two")?.documentId).not.toBe(original?.documentId);
+    expect(entries.every(item => item.workedMinutes === null && !item.changeSummary)).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

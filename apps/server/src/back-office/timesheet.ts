@@ -1,12 +1,12 @@
-import { adjustTime, decideAdjustment, invoiceLines } from "./timesheet-adjustment.js";
+import { adjustTime, decideAdjustment } from "./timesheet-adjustment.js";
+import { buildInvoiceDraft } from "./timesheet-invoice-draft.js";
+import type { InvoiceGuidelineContext } from "./timesheet-invoice-guidelines.js";
 import { authorizeIncrement } from "./timesheet-policy.js";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   currencyScale,
-  timeFeeMinor,
   renderInvoice,
-  standardInvoice,
   suggestBillingNarrative,
   timeActivities,
   resolveTimePolicy,
@@ -22,6 +22,8 @@ import {
   type TimeDraft,
   type TimeEntry,
   type TimeInvoice,
+  type TimeInvoiceDraft,
+  type InvoiceWordingSuggestion,
   type TimesheetCommand,
   type TimesheetState,
 } from "./timesheet-schema.js";
@@ -29,6 +31,8 @@ import { BackOfficeRecordSchema, backOfficeMoneyFromMinor, canonicalBackOfficeAu
 import {
   readTimesheet,
   readTimeDocument,
+  readInvoiceDraft,
+  invoiceDraftKey,
   writeTimeDocument,
   writeEntry,
   projectBillingRecord,
@@ -75,14 +79,14 @@ function meetingSlot(entry: TimeDraft) {
 function suggestion(state: TimesheetState, entry: TimeEntry) {
   return suggestBillingNarrative(entry, policyFor(state, entry));
 }
-function requireReviewer(state: TimesheetState, e: TimeEntry, actor: BackOfficeActor) {
+function canReviewEntry(state: TimesheetState, e: TimeEntry, actor: BackOfficeActor) {
   const p = policyFor(state, e);
-  if (
-    !actor.finance ||
-    !actor.edit ||
-    (p.reviewerId !== actor.userId && !(p.soloApproval && state.scope === "local" && !p.reviewerId)) ||
-    (e.workerId === actor.userId && !(p.soloApproval && state.scope === "local"))
-  )
+  const solo = p.soloApproval && state.scope === "local";
+  return actor.finance && actor.edit && (p.reviewerId === actor.userId || (solo && !p.reviewerId)) &&
+    (e.workerId !== actor.userId || solo);
+}
+function requireReviewer(state: TimesheetState, e: TimeEntry, actor: BackOfficeActor) {
+  if (!canReviewEntry(state, e, actor))
     timeError("An assigned independent billing reviewer must perform this action.", 403);
 }
 function requireEntry(state: TimesheetState, ref: { id: string; revision: number }) {
@@ -104,26 +108,18 @@ function issue(
   store: BackOfficeStore,
   state: TimesheetState,
   actor: BackOfficeActor,
-  originals: TimeEntry[],
-  adjustmentVersions: { id: string; revision: number }[],
+  draft: TimeInvoiceDraft,
+  profileId?: string,
 ) {
-  if (!actor.finance) timeError("Billing access is required.", 403);
-  const entries = invoiceLines(originals, state.adjustments ?? [], adjustmentVersions).map((e) => {
-    validateReferences(state, e);
-    if (e.legacy || e.status !== "approved" || !e.billable || e.nonHourlyApproval || !hasTimeEntryPrice(e))
-      timeError("Issuance requires approved, priced billing lines.", 409);
-    return e;
-  });
-  for (const e of entries) {
-    if (
-      e.clientId !== entries[0].clientId ||
-      e.currency !== entries[0].currency ||
-      e.matterId !== entries[0].matterId
-    )
-      timeError("Select one client, matter and currency for an invoice.");
-  }
-  const currency = entries[0].currency,
-    scope = state.scope;
+  const { currency, snapshot, totalMinor, input, approval } = draft;
+  const { scope } = state;
+  const entries = draft.lines.map(({ entry, amountMinor, actualAmountMinor, baseAmountMinor, originalNarrative }) => ({
+    ...entry,
+    amountMinor,
+    actualAmountMinor,
+    baseAmountMinor,
+    originalNarrative,
+  }));
   // The sequence spans the entire directory, including matters the issuer cannot open.
   const numbers = new Set<number>(
     store.db
@@ -153,61 +149,139 @@ function issue(
   for (const n of numbers) number = Math.max(number, n + 1);
   if (!Number.isSafeInteger(number)) timeError("The invoice sequence is exhausted.", 409);
   const scale = currencyScale(currency),
-    totalMinor = entries.reduce((sum, e) => sum + timeFeeMinor(e.billableMinutes, e.hourlyRate, scale), 0),
     invoice: TimeInvoice = {
       id: randomUUID(),
+      draftId: draft.id,
       number,
       currency,
-      clientId: entries[0].clientId,
-      templateRevision: state.template?.revision ?? 0,
+      clientId: input.clientId,
+      templateRevision: snapshot.template.revision,
       issuedAt: new Date().toISOString(),
-      entries: entries.map((e) => ({
-        ...e,
-        history: [],
-        proposalDigest: undefined,
-        sharedOriginal: undefined,
-        suggestion: undefined,
-      })),
+      entries,
       total: totalMinor / scale,
+      totalMinor,
+      billingMode: input.pricing.mode,
+      showHours: draft.showHours,
+      approval,
+      snapshot,
     };
   writeTimeDocument(store, scope, {
     id: invoice.id,
     kind: "invoice",
     value: invoice,
-    document: renderInvoice(state.template ?? standardInvoice, {
+    document: renderInvoice(snapshot.template, {
       number,
-      date: invoice.issuedAt.slice(0, 10),
+      date: snapshot.date,
       currency,
-      client: state.clients.find((c) => c.id === invoice.clientId)?.name ?? invoice.clientId,
+      client: snapshot.client,
+      clientAddress: snapshot.clientAddress,
       entries: invoice.entries,
+      billingMode: invoice.billingMode,
+      showHours: invoice.showHours,
     }),
   });
   projectBillingRecord(store, scope, invoice.id, "invoices", actor.userId, {
     name: "Invoice " + number,
     invoiceNumber: String(number),
     status: "Issued",
-    issuedOn: invoice.issuedAt.slice(0, 10),
-    matter: entries[0].matterId,
+    issuedOn: snapshot.date,
+    matter: input.matterId,
     client: invoice.clientId,
     netTotal: backOfficeMoneyFromMinor(totalMinor, currency, scale),
   });
-  for (const e of originals) {
+  for (const ref of input.entries) {
+    const e = requireEntry(state, ref);
     writeEntry(store, scope, actor, e, { ...e, status: "invoiced" }, "invoice");
     projectBillingRecord(store, scope, e.id, "timeEntries", e.workerId, {
       invoice: invoice.id,
     });
   }
+  store.db.run("DELETE FROM bo_timesheets WHERE scope=? AND id=?", [scope, invoiceDraftKey(actor.userId, profileId)]);
 }
-type Originals = ReadonlyMap<string, Omit<NonNullable<TimeEntry["sharedOriginal"]>, "submittedRevision">>;
+
+function requireInvoiceAuthority(state: TimesheetState, actor: BackOfficeActor) {
+  if (state.scope !== "local") timeError("The connected firm must issue invoices in its own service.", 409);
+  if (!actor.finance || !actor.edit) timeError("Billing access is required.", 403);
+}
+
+function validateInvoiceEntry(state: TimesheetState, actor: BackOfficeActor, entry: TimeEntry) {
+  requireReviewer(state, entry, actor);
+  validateReferences(state, entry);
+}
+
+export function currentInvoiceDraft(
+  store: BackOfficeStore,
+  state: TimesheetState,
+  actor: BackOfficeActor,
+  ref: { id: string; revision: string },
+  context?: InvoiceGuidelineContext,
+) {
+  requireInvoiceAuthority(state, actor);
+  const previous = readInvoiceDraft(store, state.scope, actor.userId, context?.profileId);
+  if (!previous || previous.id !== ref.id || previous.revision !== ref.revision)
+    timeError("The invoice draft changed. Open the current preview.", 409);
+  const draft = buildInvoiceDraft(state, previous.input, (entry) => canReviewEntry(state, entry, actor),
+    (entry) => validateInvoiceEntry(state, actor, entry), digest, previous, undefined, context);
+  if (draft.revision !== ref.revision)
+    timeError("The invoice content or template changed. Preview it again before approval.", 409);
+  return draft;
+}
+
+function reviewInvoice(
+  store: BackOfficeStore,
+  state: TimesheetState,
+  actor: BackOfficeActor,
+  command: Extract<TimesheetCommand, { type: "prepareInvoice" | "reviewInvoiceWording" | "approveInvoice" | "issueInvoice" }>,
+  advice: InvoiceWordingSuggestion[] | undefined,
+  context?: InvoiceGuidelineContext,
+) {
+  requireInvoiceAuthority(state, actor);
+  const build = (input: TimeInvoiceDraft["input"], prior?: TimeInvoiceDraft, modelWording?: InvoiceWordingSuggestion[]) =>
+    buildInvoiceDraft(state, input, (entry) => canReviewEntry(state, entry, actor),
+      (entry) => validateInvoiceEntry(state, actor, entry), digest, prior, modelWording, context);
+  let draft = command.type === "prepareInvoice"
+    ? build(command.draft, readInvoiceDraft(store, state.scope, actor.userId, context?.profileId))
+    : currentInvoiceDraft(store, state, actor, command, context);
+  if (command.type === "reviewInvoiceWording") {
+    if (!actor.model) timeError("Model access is required to check invoice wording.", 403);
+    if (!advice) timeError("No invoice wording review is available.", 409);
+    if (draft.approval || draft.input.wording.length || draft.input.edits?.length)
+      timeError("Check wording before applying corrections and approving the invoice.", 409);
+    draft = build(draft.input, draft, advice);
+  }
+  if (command.type === "issueInvoice") {
+    if (!draft.approval || draft.approval.actorId !== actor.userId || draft.approval.revision !== draft.revision)
+      timeError("Approve this invoice preview before issuing.", 409);
+    issue(store, state, actor, draft, context?.profileId);
+    return;
+  }
+  if (command.type === "approveInvoice") {
+    if (!draft.snapshot.clientAddress) timeError("Add the client's billing address before approving the invoice.", 409);
+    draft.approval ??= { actorId: actor.userId, at: new Date().toISOString(), revision: draft.revision };
+  }
+  writeTimeDocument(store, state.scope, {
+    kind: "invoiceDraft",
+    id: invoiceDraftKey(actor.userId, context?.profileId),
+    value: draft,
+  });
+}
 function apply(
   store: BackOfficeStore,
   state: TimesheetState,
   actor: BackOfficeActor,
   command: TimesheetCommand,
-  originals: Originals,
+  advice: InvoiceWordingSuggestion[] | undefined,
+  context?: InvoiceGuidelineContext,
 ) {
   const scope = state.scope;
+  if (command.type === "submit" && command.entries.some(entry => entry.shareOriginal))
+    timeError("Only confirmed entries can be shared. The original proposal stays on this device.",403);
   if (!actor.edit) timeError("Directory edit permission is required.", 403);
+  if (command.type === "prepareInvoice" || command.type === "reviewInvoiceWording" || command.type === "approveInvoice" || command.type === "issueInvoice") {
+    reviewInvoice(store, state, actor, command, advice, context);
+    return;
+  }
+  if (command.type === "invoice") timeError("Create and approve an invoice draft before issuing.", 409);
   if (command.type === "productDetails") {
     if (!state.canManage) timeError("Billing configuration access is required.", 403);
     const product = state.products.find((p) => p.id === command.id);
@@ -446,15 +520,6 @@ function apply(
     }
     return;
   }
-  if (command.type === "invoice") {
-    if (
-      command.templateRevision !== undefined &&
-      command.templateRevision !== (state.template?.revision ?? 0)
-    )
-      timeError("The template changed. Review the new preview before issuing.", 409);
-    issue(store, state, actor, selection, command.adjustmentVersions ?? []);
-    return;
-  }
   const booked = new Set(command.type === "confirm"
     ? state.entries.filter((e) => e.workerId === actor.userId && e.status !== "pending" && e.status !== "declined").map(meetingSlot)
     : []);
@@ -514,21 +579,14 @@ function apply(
       suggestion: status === "submitted" ? suggestion(state, e) : undefined,
       submittedNarrative: status === "submitted" ? e.narrative : e.submittedNarrative,
     };
-    if (command.type === "submit") {
-      const consent = command.entries.find((ref) => ref.id === e.id)?.shareOriginal;
-      delete next.sharedOriginal;
-      if (consent) {
-        const original = originals.get(consent.digest);
-        if (e.authorId !== actor.userId || e.source !== "suggestion" || !original ||
-            consent.key !== e.groupId || consent.digest !== e.proposalDigest)
-          timeError("Refresh the verified original before sharing.", 409);
-        next.sharedOriginal = { ...original, submittedRevision: e.revision + 1 };
-      }
-    } else if (command.type === "return") delete next.sharedOriginal;
+    if (command.type === "submit" || command.type === "return") delete next.sharedOriginal;
     if (status === "submitted" || status === "approved") {
       const terms = snapshotRate(state, next, policy);
       if (status === "approved") {
-        if (e.billable && policy.nonHourlyAgreement) next.nonHourlyApproval = true;
+        if (e.billable && policy.nonHourlyAgreement) {
+          next.nonHourlyApproval = true;
+          next.nonHourlyBasis = policy.nonHourlyBasis;
+        }
         else if (e.billable && !hasTimeEntryPrice(terms))
           timeError("Set an hourly rate and currency for the service date before approving this billable entry.", 409);
         if (e.policyDigest !== terms.policyDigest)
@@ -550,14 +608,15 @@ export function commandTimesheet(
   people: TimeDirectory["people"],
   input: unknown,
   workspaces: TimeDirectory["projects"] = [],
-  originals: Originals = new Map(),
+  advice?: InvoiceWordingSuggestion[],
+  context?: InvoiceGuidelineContext,
 ) {
   if (actor.agentId) timeError("A person must save or confirm billing workflow changes.", 403);
   const command = TimesheetCommandSchema.parse(input);
   return store.transaction(
     () => {
       store.requireAccount(scope, actor);
-      const state = readTimesheet(store, scope, actor, people, workspaces, true);
+      const state = readTimesheet(store, scope, actor, people, workspaces, true, context?.profileId);
       if ("requestId" in command) {
         const id = "request-" + digest([actor.userId, command.requestId]),
           hash = digest(command),
@@ -565,12 +624,12 @@ export function commandTimesheet(
         if (previous) {
           if (previous.kind !== "request" || previous.digest !== hash)
             timeError("This request ID was already used for other data.", 409);
-          return readTimesheet(store, scope, actor, people, workspaces);
+          return readTimesheet(store, scope, actor, people, workspaces, false, context?.profileId);
         }
-        apply(store, state, actor, command, originals);
+        apply(store, state, actor, command, advice, context);
         writeTimeDocument(store, scope, { kind: "request", id, digest: hash });
-      } else apply(store, state, actor, command, originals);
-      return readTimesheet(store, scope, actor, people, workspaces);
+      } else apply(store, state, actor, command, advice, context);
+      return readTimesheet(store, scope, actor, people, workspaces, false, context?.profileId);
     },
     { actor, action: "timesheet." + command.type },
   );

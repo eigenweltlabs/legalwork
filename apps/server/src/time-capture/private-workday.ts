@@ -1,12 +1,46 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
 import type { CaptureProposal, CaptureSettings } from "@legalwork/types/time-capture";
+import { captureProposalSchema } from "../back-office/timesheet-schema.js";
+import { z } from "zod";
 import { addDays, dayInZone, zonedInstant } from "../calendar/dates.js";
 
 export function digest(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
-export type WorkdayEvidence = { eventKey: string; proposal: CaptureProposal };
+export const evidenceClaimSchema = z.object({
+  id: z.string(), source: captureProposalSchema.shape.source, account: captureProposalSchema.shape.account,
+  from: z.number().nullable(), to: z.number().nullable(), observationStart: z.number().optional(),
+});
+export const workdayEvidenceSchema = z.object({
+  eventKey: z.string(), proposal: captureProposalSchema, claims: z.array(evidenceClaimSchema).optional(),
+  generated: z.boolean().optional(),
+});
+export type EvidenceClaim = z.infer<typeof evidenceClaimSchema>;
+export type WorkdayEvidence = z.infer<typeof workdayEvidenceSchema>;
+
+export type Interval = { from: number; to: number };
+export function humanInterval(proposal: CaptureProposal): Interval | undefined {
+  if (proposal.source === "workspace" && proposal.observation !== "foreground") return;
+  if (proposal.source === "agent" || proposal.source === "documents" || proposal.source === "tasks" ||
+      proposal.source === "gmail" || proposal.source === "outlook" || !proposal.startAt || !proposal.endAt) return;
+  const from = Date.parse(proposal.startAt), to = Date.parse(proposal.endAt);
+  if (Number.isFinite(from) && Number.isFinite(to) && to > from) return { from, to };
+}
+export function claimsFor(item: WorkdayEvidence): EvidenceClaim[] {
+  if (item.claims) return item.claims;
+  const { source, account } = item.proposal;
+  const clocks = humanInterval(item.proposal);
+  return [{ id: item.eventKey, source, account, from: clocks?.from ?? null, to: clocks?.to ?? null }];
+}
+export function intervalsOverlap(a: Interval, b: Interval) {
+  return a.from < b.to && b.from < a.to;
+}
+export function claimsOverlap(a: EvidenceClaim, b: EvidenceClaim) {
+  return a.id === b.id && (a.source === "stopwatch" || a.from === null || a.to === null ||
+    (a.observationStart !== undefined && b.observationStart !== undefined && a.observationStart !== b.observationStart) ||
+    b.from === null || b.to === null || intervalsOverlap({ from: a.from, to: a.to }, { from: b.from, to: b.to }));
+}
 
 export function workdayEvidence(
   events: CalendarOccurrence[],
@@ -25,6 +59,7 @@ export function workdayEvidence(
     if (source === "tasks" && !["done", "completed"].includes(event.status)) return [];
     if (event.assigneeUserId && event.assigneeUserId !== userId) return [];
     let startAt = event.allDay ? null : zonedInstant(event.start, event.timeZone);
+    const observationStart = startAt ? Date.parse(startAt) : undefined;
     let endAt = !event.allDay && event.end ? zonedInstant(event.end, event.timeZone) : null;
     if (startAt && endAt && endAt > startAt) {
       if (endAt <= first || startAt >= last) return [];
@@ -52,13 +87,15 @@ export function workdayEvidence(
       narrative: event.title.slice(0, 2000),
       startAt,
       endAt,
-      workedMinutes: minutes > 0 && minutes <= 1440 ? minutes : null,
+      workedMinutes: source === "calendar" && minutes > 0 && minutes <= 1440 ? minutes : null,
     };
-    return [
-      {
-        eventKey,
-        proposal: { ...body, source, key: randomUUID(), digest: digest(body), dismissed: false },
-      },
-    ];
+    const item: WorkdayEvidence = { eventKey, proposal: { ...body, source, key: randomUUID(), digest: digest(body), dismissed: false } };
+    if (source === "calendar") {
+      const [wireClaim] = claimsFor(item);
+      const stableClaim = { ...wireClaim, observationStart,
+        id: digest(["calendar-item", event.itemId, event.recurring ? event.id : "", date]) };
+      item.claims = [wireClaim, stableClaim];
+    }
+    return [item];
   });
 }

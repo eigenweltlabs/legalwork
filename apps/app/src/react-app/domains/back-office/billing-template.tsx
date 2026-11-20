@@ -1,10 +1,11 @@
+import { BillingWordTemplate, type PreviewTemplate } from "./billing-word-template";
 import { useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { standardInvoice } from "@legalwork/types/invoice-template";
 import { t } from "@/i18n";
 import { useBillingAction, type BillingProps } from "./billing-components";
 
-export function BillingTemplate({ state, onCommand }: BillingProps) {
+export function BillingTemplate({ state, onCommand, accountScope, previewWord }: BillingProps & {accountScope?:string;previewWord?:PreviewTemplate}) {
   const [template, setTemplate] = useState(state.template ?? standardInvoice);
   const { send, pending, error } = useBillingAction(onCommand);
   return (
@@ -54,6 +55,7 @@ export function BillingTemplate({ state, onCommand }: BillingProps) {
             onChange={(e) => setTemplate({ ...template, footer: e.target.value })}
           />
         </label>
+        {state.supportsInvoiceDrafts && <BillingWordTemplate previewWord={previewWord} template={template} onChange={setTemplate} account={accountScope ?? (state.scope+"/"+state.userId)} />}
         {error && <p role="alert">{error}</p>}
         <Button type="submit" size="sm" disabled={pending}>
           {t("timesheets.template_save")}

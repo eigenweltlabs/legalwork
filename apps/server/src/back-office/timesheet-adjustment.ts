@@ -8,6 +8,7 @@ import {
   standardInvoice,
   type TimeAdjustment,
   type TimeEntry,
+  type TimeInvoice,
   type TimesheetCommand,
   type TimesheetState,
 } from "./timesheet-schema.js";
@@ -40,6 +41,18 @@ function delta(e: TimeEntry, from: number, to: number) {
   const scale = currencyScale(e.currency);
   return (timeFeeMinor(to, e.hourlyRate, scale) - timeFeeMinor(from, e.hourlyRate, scale)) / scale;
 }
+function issuedDelta(invoice: TimeInvoice, line: TimeInvoice["entries"][number], from: number, to: number) {
+  if (invoice.billingMode === "fixed") return 0;
+  if (line.amountMinor === undefined || line.baseAmountMinor === undefined || line.amountMinor === line.baseAmountMinor)
+    return delta(line, from, to);
+  if (!line.baseAmountMinor || line.hourlyRate === undefined) return 0;
+  const scale = currencyScale(invoice.currency);
+  const base = BigInt(line.baseAmountMinor);
+  const amount = BigInt(line.amountMinor);
+  const feeAt = (minutes: number, rate: number) =>
+    (BigInt(timeFeeMinor(minutes, rate, scale)) * amount + base / 2n) / base;
+  return Number(feeAt(to, line.hourlyRate) - feeAt(from, line.hourlyRate)) / scale;
+}
 export function adjustTime(
   store: BackOfficeStore,
   state: TimesheetState,
@@ -52,13 +65,18 @@ export function adjustTime(
   const existing = state.adjustments?.filter((a) => a.entryId === original.id) ?? [];
   if (existing.some((a) => a.status === "pending"))
     timeError("A correction is already pending for this entry.", 409);
-  const previous = adjustedTimeEntry(original, existing);
-  if (previous.narrative === command.narrative && previous.billableMinutes === command.billableMinutes)
-    timeError("Change the charge or description first.");
   const invoiceId =
     original.status === "invoiced" ? store.raw(state.scope, original.id)?.values.invoice : undefined;
-  if (original.status === "invoiced" && typeof invoiceId !== "string")
+  const invoiceDoc = typeof invoiceId === "string" ? readTimeDocument(store, state.scope, invoiceId) : undefined;
+  const invoice = invoiceDoc?.kind === "invoice" ? invoiceDoc.value : undefined;
+  const invoiceLine = invoice?.entries.find((line) => line.id === original.id);
+  if (original.status === "invoiced" && !invoiceLine)
     timeError("The original invoice is unavailable.", 409);
+  const previous = invoiceLine && invoice
+    ? adjustedTimeEntry({ ...invoiceLine, revision: original.revision }, existing.filter((item) => item.invoiceId === invoice.id))
+    : adjustedTimeEntry(original, existing);
+  if (previous.narrative === command.narrative && previous.billableMinutes === command.billableMinutes)
+    timeError("Change the charge or description first.");
   const time = Math.max(Date.now(), ...existing.map((a) => Date.parse(a.createdAt) + 1));
   const value: TimeAdjustment = {
     id: randomUUID(),
@@ -73,8 +91,10 @@ export function adjustTime(
     narrative: command.narrative,
     fromMinutes: previous.billableMinutes,
     toMinutes: command.billableMinutes,
-    deltaAmount: delta(original, previous.billableMinutes, command.billableMinutes),
-    currency: original.currency,
+    deltaAmount: invoiceLine && invoice
+      ? issuedDelta(invoice, invoiceLine, previous.billableMinutes, command.billableMinutes)
+      : delta(original, previous.billableMinutes, command.billableMinutes),
+    currency: invoice?.currency ?? original.currency,
     createdAt: new Date(time).toISOString(),
     invoiceId: typeof invoiceId === "string" ? invoiceId : undefined,
   };

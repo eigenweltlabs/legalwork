@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   invoiceTemplateSchema,
   DelegatedTimeEntrySchema,
   TimeAdjustmentSchema,
   TimeEntrySchema,
+  TimeInvoiceDraftSchema,
   TimePolicySchema,
   TimesheetStateSchema,
   resolveTimePolicy,
@@ -52,6 +53,7 @@ export const DocumentSchema = z.discriminatedUnion("kind", [
     value: invoiceTemplateSchema,
   }),
   z.object({ kind: z.literal("product"), id: z.string(), value: product }),
+  z.object({ kind: z.literal("invoiceDraft"), id: z.string(), value: TimeInvoiceDraftSchema }),
   z.object({
     kind: z.literal("invoice"),
     id: z.string(),
@@ -70,6 +72,13 @@ export function writeTimeDocument(store: BackOfficeStore, scope: string, doc: Ti
 export function readTimeDocument(store: BackOfficeStore, scope: string, id: string) {
   const row = store.db.get("SELECT data FROM bo_timesheets WHERE scope=? AND id=?", [scope, id]);
   return row ? DocumentSchema.parse(JSON.parse(String(row.data))) : null;
+}
+export function invoiceDraftKey(actorId: string, profileId?: string) {
+  return "invoice-draft-" + createHash("sha256").update(profileId ? JSON.stringify([actorId, profileId]) : actorId).digest("hex");
+}
+export function readInvoiceDraft(store: BackOfficeStore, scope: string, actorId: string, profileId?: string) {
+  const doc = readTimeDocument(store, scope, invoiceDraftKey(actorId, profileId));
+  return doc?.kind === "invoiceDraft" ? doc.value : undefined;
 }
 export function timeError(message: string, status = 400): never {
   throw new ApiError(status, "timesheet", message);
@@ -134,6 +143,7 @@ export function timeDirectory(
     clients: options("clients").map((r) => ({
       id: r.id,
       name: String(r.values.name),
+      billingAddress: typeof r.values.billingAddress === "string" ? r.values.billingAddress.trim() : undefined,
     })),
     matters: visibleMatters.map((r) => ({
       id: r.id,
@@ -196,6 +206,7 @@ export function readTimesheet(
   people: TimeDirectory["people"],
   workspaces: TimeDirectory["projects"] = [],
   forMutation = false,
+  invoiceReviewProfile?: string,
 ): TimesheetState {
   const directory = timeDirectory(store, scope, actor, people, workspaces),
     matters = new Set(directory.matters.map((m) => m.id)),
@@ -240,7 +251,7 @@ export function readTimesheet(
         .map((p) => p.id),
       allocationUnavailable: Boolean(basis && basis !== "Hourly") || !hourlyRate,
       ...(basis === "Flat fee" || basis === "Flat fee with included time" || basis === "RVG"
-        ? { nonHourlyAgreement: true }
+        ? { nonHourlyAgreement: true, nonHourlyBasis: basis === "RVG" ? "tariff" : "fixed" }
         : {}),
       ...(matter && typeof client === "string" ? { agreementClientId: client } : {}),
       effectiveFrom: "0001-01-01",
@@ -299,13 +310,27 @@ export function readTimesheet(
           resolveTimePolicy(policies, e.clientId, e.matterId, e.date, e.projectId).reviewerId ===
             actor.userId)),
   );
+  const draftDoc = actor.finance && actor.edit && scope === "local"
+    ? docs.find((doc) => doc.kind === "invoiceDraft" && doc.id === invoiceDraftKey(actor.userId, invoiceReviewProfile))
+    : undefined;
+  const draft = draftDoc?.kind === "invoiceDraft" ? draftDoc.value : undefined;
+  const invoiceDraft = draft && draft.lines.every((line) => {
+    const current = visible.find((e) => e.id === line.entry.id);
+    return current?.status === "approved" && current.revision === line.entry.revision;
+  }) ? {
+    ...draft,
+    snapshot: { ...draft.snapshot, template: { ...draft.snapshot.template, word: undefined } },
+  } : undefined;
   return {
     scope,
     template: actor.finance ? docs.find((doc) => doc.kind === "template")?.value : undefined,
     userId: actor.userId,
     ...(unresolvedLegacyEntries.length ? { unresolvedLegacyEntries } : {}),
-    supportsBillingComparisons: true,
+    supportsBillingComparisons: false,
     supportsTimeAllocations: true,
+    supportsInvoiceDrafts: scope === "local",
+    supportsInvoiceWordingReview: scope === "local" && actor.model && actor.finance && actor.edit,
+    invoiceDraft,
     canManage: actor.model && actor.finance && actor.edit,
     canReview: actor.finance,
     ...directory,
@@ -371,7 +396,13 @@ export function readTimesheet(
       actor.finance &&
       d.kind === "invoice" &&
       d.value.entries.every((e) => matters.has(e.matterId) && clients.has(e.clientId))
-        ? [d.value]
+        ? [{
+          ...d.value,
+          snapshot: d.value.snapshot && {
+            ...d.value.snapshot,
+            template: { ...d.value.snapshot.template, word: undefined },
+          },
+        }]
         : [],
     ),
   };
@@ -525,6 +556,7 @@ export function writeEntry(
     status: e.status,
     policyDigest: e.policyDigest,
     nonHourlyApproval: e.nonHourlyApproval,
+    nonHourlyBasis: e.nonHourlyBasis,
     adjustmentBaselineRevision: e.adjustmentBaselineRevision,
     hourlyRate: e.hourlyRate,
     currency: e.currency,

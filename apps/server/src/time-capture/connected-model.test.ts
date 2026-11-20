@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 import { captureStateSchema, type CaptureAction } from "../back-office/timesheet-schema.js";
@@ -9,17 +10,28 @@ import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-supp
 import { startServer } from "../server.js";
 import { beginDocumentCapture, captureProfile } from "./routes.js";
 
-test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and keeps generated wording out of chat and storage", async () => {
-  const narrative = "Reviewed the synthetic agreement";
+test.skipIf(!nativeMcpBinary)("opening and correcting a workday persists private drafts, deduplicates model calls, and keeps evidence out of engine history", async () => {
+  const narrative = "Drafting Example";
   const prompts: string[] = [];
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let hold = false;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = z.object({ model: z.literal("fixture"), messages: z.array(z.object({ role: z.string(), content: z.string() })) }).parse(await request.json());
-    prompts.push(...body.messages.filter(item => item.role === "user").map(item => item.content));
+    const prompt = body.messages.find(item => item.role === "user")?.content;
+    if (!prompt) throw Error("Missing private generation request");
+    prompts.push(prompt);
     if (hold) { entered.resolve(); await release.promise; }
-    const content = JSON.stringify([{ index: 0, activity: "MOD", narrative }]);
+    const input = z.discriminatedUnion("stage", [
+      z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string(), projectId: z.string() })) }),
+      z.object({ stage: z.literal("wording"), entries: z.array(z.object({ index: z.number() })) }),
+    ]).parse(JSON.parse(prompt.trim().split("\n").at(-1) ?? ""));
+    const content = input.stage === "grouping"
+      ? JSON.stringify({ proposals: input.evidence.map(item => ({
+          evidenceIds: [item.id], activity: "DFT", documentId: item.documentId,
+          projectId: item.projectId, matterId: null, startAt: null, endAt: null, workedMinutes: null,
+        })) })
+      : JSON.stringify({ wording: input.entries.map(({ index }) => ({ index, narrative })) });
     function chunk(delta: object, finish_reason: string | null) {
       return "data: " + JSON.stringify({ id: "synthetic", object: "chat.completion.chunk", model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason }] }) + "\n\n";
     }
@@ -61,22 +73,37 @@ test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and k
     const result = await request(refresh);
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
-    expect(prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(2);
     expect(prompts[0]).toContain("Example.docx");
     expect(prompts[0]).not.toContain("Folder/");
-    expect(result.wording?.[proposal.digest]).toEqual({ narrative, activity: "MOD" });
-    expect(proposal.narrative).toBe("Example.docx");
-    expect((await request()).wording).toBeUndefined();
-    expect(await readFile(profile.path, "utf8")).not.toContain(narrative);
+    expect(proposal.narrative).toBe(narrative);
+    expect(proposal.suggested).toBe(true);
+    const [reopened, secondWindow] = await Promise.all([request(refresh), request(refresh)]);
+    expect(reopened.proposals[0]).toEqual(proposal);
+    expect(secondWindow.proposals[0]).toEqual(proposal);
+    expect(prompts).toHaveLength(2);
+    expect(await readFile(profile.path, "utf8")).toContain(narrative);
+
+    const correction: CaptureAction = { type: "chat", id: randomUUID(), text: "Example → Rekurs",
+      model: refresh.model, instruction: { scope: "document", documentId: proposal.documentId! } };
+    const changed = await request(correction);
+    expect(changed.proposals[0].narrative).toBe("Drafting Rekurs");
+    expect(changed.proposals[0].key).toBe(proposal.key);
+    expect(changed.proposals[0].digest).not.toBe(proposal.digest);
+    expect(changed.chat.map(turn => turn.role)).toEqual(["user", "assistant"]);
+    expect(changed.instructions[0]).toMatchObject({ text: correction.text, documentId: proposal.documentId });
+    expect((await request(correction)).chat).toEqual(changed.chat);
+    expect(prompts).toHaveLength(4);
     expect((await engine.client().session.list({ directory: engine.directory })).data).toHaveLength(0);
     for (const file of ["engine.db", "engine.db-wal"]) {
       const bytes = file === "engine.db" ? await readFile(join(engine.root, file))
         : await readFile(join(engine.root, file)).catch(() => Buffer.alloc(0));
       expect(bytes.includes("Example.docx")).toBe(false);
       expect(bytes.includes(narrative)).toBe(false);
+      expect(bytes.includes(correction.text)).toBe(false);
     }
     hold = true;
-    const interrupted = request(refresh);
+    const interrupted = request({ type: "chat", id: randomUUID(), text: "Shorten the description", model: refresh.model });
     await entered.promise;
     try {
       await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: false } });
@@ -84,8 +111,15 @@ test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and k
       release.resolve();
     }
     const cancelled = await interrupted;
-    expect(cancelled.wording).toBeUndefined();
+    expect(cancelled.proposals.some(item => item.suggested)).toBe(false);
     expect(cancelled.settings.aiSuggestions).toBe(false);
+    const priorCalls = prompts.length;
+    const permanent = { type: "chat", id: randomUUID(), text: "Use active voice", instruction: { scope: "personal" } } satisfies CaptureAction;
+    const stored = await request(permanent);
+    expect(stored.instructions.some(rule => rule.id === permanent.id && rule.text === permanent.text)).toBe(true);
+    expect(stored.chat.at(-1)).toMatchObject({ role: "assistant", replyTo: permanent.id });
+    expect((await request(permanent)).chat).toEqual(stored.chat);
+    expect(prompts).toHaveLength(priorCalls);
   } finally {
     release.resolve();
     await server.stop();

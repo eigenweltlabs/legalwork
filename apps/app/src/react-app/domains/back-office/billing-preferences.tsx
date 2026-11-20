@@ -470,6 +470,7 @@ function PolicyForm({
 }
 
 export function BillingPreferences({
+  accountScope, previewWord,
   state,
   onCommand,
   initialProjectId,
@@ -477,6 +478,8 @@ export function BillingPreferences({
   initialClientId,
   initialDate,
 }: BillingProps & {
+  accountScope?: string;
+  previewWord?: import("./billing-word-template").PreviewTemplate;
   initialProjectId?: string;
   initialMatterId?: string;
   initialClientId?: string;
@@ -599,7 +602,7 @@ export function BillingPreferences({
           />
         )}
         {scope === "firm" && state.canManage && (
-          <BillingTemplate key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
+          <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
         )}
       </div>
     </section>

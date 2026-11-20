@@ -421,10 +421,6 @@
 }
 
 .time-unified { display:flex; flex-direction:column; flex:1; min-height:0; padding:0; overflow:hidden }
-.time-unified > .bo-workday-controls { flex-shrink:0; padding:10px 16px }
-.time-unified > details { flex-shrink:0; margin:0 16px; padding:7px 0 !important }
-.time-unified > details[open] { max-height:40vh; overflow:auto }
-.time-unified > .bo-workday-timeline { margin-bottom:8px }
 .time-sheet-period { display:flex; gap:2px }
 .time-record-sheet { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden }
 .time-sheet-summary { display:flex; flex-shrink:0; align-items:center; gap:16px; padding:6px 16px; font-size:12px; color:var(--muted-foreground) }
@@ -442,7 +438,6 @@
 .time-booking-receipt { margin:4px 6px; padding:4px; border:1px dashed var(--bo-border); border-radius:6px; font-size:12px }
 .time-booking-receipt > strong, .time-created-date, .time-created-entry > div > small { display:block; padding:2px 4px; color:var(--muted-foreground) }
 .time-created-date { text-decoration:underline; text-underline-offset:2px }
-.time-sheet-tools:empty { display:none }
 .time-proposal-details { display:flex; align-items:center; gap:12px; flex-wrap:wrap; max-width:100ch }
 .time-proposal-source { display:inline-flex; align-items:center; gap:5px; text-align:left }
 .time-proposal-source:hover { color:var(--foreground) }
@@ -451,13 +446,6 @@
 .time-record-sheet .bo-grid-cell { min-height:36px }
 .time-record-sheet .bo-editor-footer { display:none }
 
-.time-workflow-proposal { background:var(--bo-surface) }
-.time-workflow-source { padding:4px 12px 8px 8px; min-height:28px; font-size:12px; color:var(--muted-foreground) }
-.time-unified .bo-workday-list { display:none }
 .time-unified .bo-time-ledger { min-height:0 }
 
-.time-sheet-tools { display:flex; align-items:flex-start; flex-wrap:wrap; gap:4px 20px; margin:4px 0; }
-.time-sheet-tools > details { margin:0; padding:4px 0; }
-.time-sheet-tools > details[open] { flex-basis:100%; }
-.time-sheet-tools details[open] > summary .time-detail-chevron { transform:rotate(180deg); }
 .time-record-sheet .bo-grid-fill { display:flex; justify-content:flex-end; align-items:center; padding-right:10px; color:var(--muted-foreground); }

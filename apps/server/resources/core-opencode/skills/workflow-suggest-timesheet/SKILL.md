@@ -1,10 +1,12 @@
 ---
 name: workflow-suggest-timesheet
-description: Draft individual billing narratives from selected workday activities.
+description: Reconstruct a private workday from enabled activity sources and scoped billing context.
 ---
 
 # Suggest Timesheet
 
-The private Workday runner supplies enabled local sources. Describe the action evident for each item, preserving the author's language and client terminology. Keep personal details out of the billing narrative. A meeting can use EXM, an internal meeting INM, research RES, and document changes MOD. A deadline alone does not establish that work was performed. Omit entries with insufficient evidence. Suggest a concise narrative for each supported item. Leave assignment, duration and confirmation to the worker.
+Group the supplied workday evidence first. Look across the whole day for work that belongs together, distinct work within one observed interval, and observations that do not support any entry. Keep ambiguous assignments and uncertain time open. Calendar appointments and foreground intervals can support a proposed time. An open background window or a background agent run gives context but does not establish human time. A task's completion, sent email or file save gives evidence of an action without its duration.
 
-For an ordinary chat invocation, direct the user to Time tracking > AI suggestions. The dedicated workday runner supplies the selected activity evidence.
+When the runner requests wording, use the billing language, action words, and terminology supplied for the validated scope. For DFT or MOD use the stable document ID and preferred billing title. Use a specific change description only when the evidence or the worker supplies it. Keep personal details out of billing narratives. Use the worker's day-specific correction for this draft and apply saved instructions only to the supplied scope.
+
+In an ordinary chat, direct users to Time tracking. The private workday runner supplies evidence and validates proposed changes before the worker can review them.

@@ -59,6 +59,7 @@ CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
 CREATE TABLE IF NOT EXISTS native_directory_links (
   account TEXT NOT NULL, kind TEXT NOT NULL, sourceId TEXT NOT NULL, projectKey TEXT NOT NULL, recordId TEXT NOT NULL,
   present INTEGER NOT NULL, stamp TEXT, generation TEXT, PRIMARY KEY(account,kind,sourceId,projectKey,recordId));
+CREATE TABLE IF NOT EXISTS bo_invoice_files (scope TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, docx TEXT NOT NULL, pdf TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_timesheets (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);

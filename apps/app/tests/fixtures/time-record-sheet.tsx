@@ -100,7 +100,11 @@ const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
 });
 const render = async (capture: TimeCaptureSheet, records = directory.records) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
-    <TimeRecordSheet client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture} />
+    <TimeRecordSheet client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture}
+      workspace={(entries, renderProposal) => <>{entries}<aside>{capture.proposals.map(proposal => {
+        const details = renderProposal(proposal);
+        return details && <div key={proposal.key} data-private-proposal={proposal.key}>{details}</div>;
+      })}</aside></>} />
   </BackOfficeTheme></QueryClientProvider></MemoryRouter>));
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 15)); });
 };
@@ -144,6 +148,26 @@ async function enter(container: HTMLElement, column: number, text: string) {
   return input;
 }
 function visible(id: string) { return Boolean(host.querySelector('[data-record-id="' + id + '"]')); }
+function proposalDetails(id: string) {
+  const details = host.querySelector<HTMLElement>('[data-private-proposal="' + id + '"]');
+  assert.ok(details, "Missing private suggestion " + id);
+  return details;
+}
+function selectField(root: HTMLElement, label: string) {
+  const element = [...root.querySelectorAll("label")].find(item => item.textContent?.startsWith(label))?.querySelector("select");
+  assert.ok(element, label);
+  return element;
+}
+async function editProposal(id: string, field: "textarea" | 'input[type="number"]', value: string) {
+  const input = proposalDetails(id).querySelector(field);
+  assert.ok(input instanceof window.HTMLInputElement || input instanceof window.HTMLTextAreaElement);
+  await act(async () => {
+    input.focus();
+    input.value = value;
+    input.blur();
+  });
+  return input;
+}
 
 try {
   // A refresh that removes the source must not send a private row to the directory.
@@ -156,33 +180,34 @@ try {
   assert.deepEqual(calendarMetrics(first), ["20 · 30"]);
   assert.deepEqual(calendarMetrics(second), ["0 · 0"]);
   assert.match(cell(row(savedRow.id), 6).textContent ?? "", /Invoiced/);
-  const documentSave = { ...proposal, key: crypto.randomUUID(), source: "documents" as const, activity: "MOD", narrative: "Reply.docx" };
+  const documentSave = { ...proposal, key: crypto.randomUUID(), digest: "c".repeat(64), source: "documents" as const, activity: "MOD", narrative: "Reply.docx" };
   await render({ ...active, proposals: [documentSave] });
-  assert.match(row(documentSave.key).querySelector(".time-proposal-source")?.textContent ?? "", / · MOD/);
+  assert.equal(visible(documentSave.key), false);
+  assert.equal(proposalDetails(documentSave.key).querySelector("textarea")?.value, documentSave.narrative);
   await render(active);
   assert.equal(host.querySelector(".bo-time-week"), null);
   assert.ok(![...host.querySelectorAll('[role="columnheader"]')].some(header => header.textContent?.includes(t("timesheets.sheet.bill_to"))));
   assert.equal(host.querySelector("[data-sheet-blank]"), null);
   assert.ok(host.querySelector(".time-new-entry"));
-  assert.deepEqual([...row(proposal.key).querySelectorAll(".time-proposal-actions button")].map(item => item.getAttribute("aria-label")),
-    [t("timesheets.sheet.decline"), t("timesheets.sheet.accept")]);
-  assert.match(cell(row(proposal.key), 3).textContent ?? "", /Generated private wording/);
+  assert.equal(visible(proposal.key), false);
+  assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.decline")));
+  assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")));
+  assert.equal(proposalDetails(proposal.key).querySelector("textarea")?.value, "Generated private wording");
   assert.equal(privateActions.length, 0);
   assert.equal(writes.length, 0);
-  const privateInput = await enter(row(proposal.key), 3, "Edited privately");
+  const privateInput = await editProposal(proposal.key, "textarea", "Edited privately");
   await render(capture({ privateAvailable: true }));
   assert.equal(privateInput.isConnected, false);
   assert.equal(visible(proposal.key), false);
   assert.equal(writes.length, 0);
   assert.ok(privateActions.some(action => action.type === "draft" && action.key === proposal.key && action.proposalDigest === proposal.digest));
   await render({ ...active, overlaps: new Set([proposal.key]) });
-  assert.ok(button(row(proposal.key), t("timesheets.sheet.accept")).disabled);
+  assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).disabled);
   await render(active);
-  await act(async () => button(row(proposal.key), t("timesheets.sheet.accept")).click());
+  await act(async () => button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 0, "chargeable time needs a linked client");
   async function chooseBillingClient(id: string, value: string) {
-    const selector = row(id).querySelector<HTMLSelectElement>(".time-proposal-details label select");
-    assert.ok(selector);
+    const selector = selectField(visible(id) ? row(id) : proposalDetails(id), t("timesheets.sheet.bill_to"));
     assert.equal([...selector.options].some(option => option.value === unrelated), false);
     await act(async () => {
       selector.value = value;
@@ -191,12 +216,13 @@ try {
   }
   await chooseBillingClient(proposal.key, secondary);
   assert.equal(writes.length, 0, "choosing a client does not accept a suggestion");
-  await act(async () => button(row(proposal.key), t("timesheets.sheet.accept")).click());
+  await act(async () => button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 1);
   assert.equal(writes[0].values.client, secondary);
   assert.deepEqual(writes[0].privateProposal, { key: proposal.key, digest: proposal.digest, profileId: directory.captureProfileId });
   assert.equal(writes[0].values.billingNarrative, "Edited privately");
-  assert.equal(row(proposal.key).querySelector("button[aria-label='" + t("timesheets.sheet.accept") + "']"), null);
+  assert.ok(visible(proposal.key));
+  assert.equal(host.querySelector('[data-private-proposal="' + proposal.key + '"]'), null);
 
   // A remote-only draft survives leaving the date and unmounting the page.
   await render(capture());
@@ -243,8 +269,7 @@ try {
 
   const reconcile = { ...proposal, key: crypto.randomUUID() };
   await render(capture({ proposals: [reconcile], privateAvailable: true }), [workerContact, current]);
-  const matchingEntries = row(reconcile.key).querySelector("select");
-  assert.ok(matchingEntries);
+  const matchingEntries = selectField(proposalDetails(reconcile.key), t("timesheets.sheet.reconcile"));
   await act(async () => {
     matchingEntries.value = current.id;
     matchingEntries.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -284,12 +309,11 @@ try {
   const unlinked = { ...proposal, key: crypto.randomUUID(), matterId: noClients };
   const uncharged = { ...proposal, key: crypto.randomUUID() };
   await render(capture({ proposals: [unlinked, uncharged], privateAvailable: true }), [workerContact, current]);
-  await act(async () => button(row(unlinked.key), t("timesheets.sheet.accept")).click());
+  await act(async () => button(proposalDetails(unlinked.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 4);
-  assert.match(row(unlinked.key).textContent ?? "", /Add a client to this matter/);
-  const unchargedInput = await enter(row(uncharged.key), 5, "0");
-  await act(async () => unchargedInput.blur());
-  await act(async () => button(row(uncharged.key), t("timesheets.sheet.accept")).click());
+  assert.match(proposalDetails(unlinked.key).textContent ?? "", /Add a client to this matter/);
+  await editProposal(uncharged.key, 'input[type="number"]', "0");
+  await act(async () => button(proposalDetails(uncharged.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 5);
   assert.equal(writes[4].values.client, null);
   assert.equal(writes[4].values.billableMinutes, 0);
@@ -367,16 +391,13 @@ try {
   await act(async () => option.click());
   const worked = await enter(row(offDayId), 4, "10");
   await act(async () => worked.blur());
-  assert.equal(writes.length, 8);
-  const charge = await enter(row(offDayId), 5, "10");
-  await act(async () => charge.blur());
-  assert.equal(writes.length, 9);
+  assert.equal(writes.length, 9, "the completed manual row needs no clock or separate charge input");
   assert.equal(writes.at(-1)?.values.startedAt, second);
   assert.equal(writes.at(-1)?.values.client, primary, "the only billing client was assigned without user input");
-  assert.ok(row(offDayId).closest(".time-booking-receipt"));
+  assert.equal(visible(offDayId), false, "a booking on a different day is not shown as a row on the selected day");
   assert.notEqual(blank().dataset.recordId, offDayId);
   assert.equal(host.querySelectorAll(".time-created-entry").length, previousCreations + 1);
-  const receipt = row(offDayId).closest(".time-created-entry")?.querySelector<HTMLButtonElement>(".time-created-date");
+  const receipt = host.querySelector<HTMLButtonElement>(".time-created-entry .time-created-date");
   assert.ok(receipt);
   assert.match(receipt.parentElement?.textContent ?? "", /Off-day work/);
   await act(async () => receipt.click());
@@ -387,11 +408,13 @@ try {
   assert.equal(host.querySelector(".time-sheet-summary select"), null, "membership alone does not enable delegation");
   canDelegate = true;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
-  await render(active, [workerContact, current]);
+  const currentWorkersProposal = { ...proposal, key: crypto.randomUUID(), digest: "d".repeat(64) };
+  await render({ ...active, proposals: [currentWorkersProposal] }, [workerContact, current]);
   const filter = host.querySelector<HTMLSelectElement>(".time-sheet-summary select");
   assert.ok(filter);
   await act(async () => { filter.value = "member:other"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
-  assert.equal(host.querySelector(".time-proposal-actions"), null, "the colleague's filter hides the current user's private activities");
+  assert.equal(visible(currentWorkersProposal.key), false, "a worker filter cannot turn a private suggestion into a ledger row");
+  assert.ok(proposalDetails(currentWorkersProposal.key), "the private side remains scoped to the current user");
   const chosenWorker = cell(blank(), 1);
   assert.match(chosenWorker.textContent ?? "", /Other worker/);
   await act(async () => chosenWorker.click());

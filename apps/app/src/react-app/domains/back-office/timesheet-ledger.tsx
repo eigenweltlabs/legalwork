@@ -1,4 +1,3 @@
-import { TimeWorkflowProposal } from "./time-workflow-proposal";
 import type { TimeCaptureSheet } from "./time-record-sheet";
 import {
   labelForCode,
@@ -10,7 +9,7 @@ import {
   historyFieldKeys,
 } from "./timesheet-labels";
 import { Link } from "react-router-dom";
-import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import {
   AlertTriangle,
   Check,
@@ -82,7 +81,7 @@ type Props = {
   initialDate?: string;
   onDateChange?: (date: string) => void;
   columnScope?: string;
-  onEditingChange?: (dirty: boolean) => void;
+  onEditingChange?: (dirty: boolean, dateLocked: boolean) => void;
   onOriginal?: (digest: string) => Promise<OriginalProposal>;
   canEdit?: boolean;
 };
@@ -112,10 +111,8 @@ function changes(entry: TimeEntry, person: (id: string) => string, locale: strin
 function PrivateOriginal({
   entry,
   load,
-  consent,
 }: {
   entry: TimeEntry;
-  consent?: { checked: boolean; onChange: (checked: boolean) => void };
   load: (digest: string) => Promise<OriginalProposal>;
 }) {
   const [original, setOriginal] = useState<OriginalProposal | null>(null);
@@ -145,7 +142,7 @@ function PrivateOriginal({
           <div>
             <dt>{t("timesheets.ledger.original")}</dt>
             <dd>
-              {!consent && original.date + " · "}
+              {original.date + " · "}
               {original.activity} · {original.narrative} ·{" "}
               {original.workedMinutes === null
                 ? t("timesheets.ledger.unknown_minutes")
@@ -160,29 +157,11 @@ function PrivateOriginal({
               </dd>
             </div>
           )}
-          {consent && (
-            <div>
-              <dt>{t("timesheets.ledger.submitting")}</dt>
-              <dd>
-                {entry.activity} · {entry.narrative} · {duration(entry.workedMinutes)} h
-              </dd>
-            </div>
-          )}
         </dl>
       ) : (
         <Button variant="ghost" size="sm" disabled={pending} onClick={() => void open()}>
           {t("timesheets.ledger.compare_original")}
         </Button>
-      )}
-      {original && consent && (
-        <label>
-          <input
-            type="checkbox"
-            checked={consent.checked}
-            onChange={(e) => consent.onChange(e.currentTarget.checked)}
-          />
-          {t("timesheets.ledger.share_comparison")}
-        </label>
       )}
       {error && <span role="alert">{error}</span>}
     </div>
@@ -223,6 +202,9 @@ export function TimesheetLedger({
   const [period, setPeriod] = useState<TimePeriod>("day");
   const date = capture?.date ?? ledgerDate;
   const dates = capture?.dates ?? periodDates(date, period);
+  const previousDate = useRef(date);
+  const previousCapture = useRef(capture);
+  const parkedDrafts = useRef(new Map<string, { requestId: string; values: RowValues; participants: typeof participants }>());
   const { showBooking, bookings, receipt } = useBookingReceipt(date, day => chooseDate(day, true), visible);
   const [composerOpen, setComposerOpen] = useState(Boolean(initialDraft));
   useEffect(() => setComposerOpen(false), [date, visible]);
@@ -240,7 +222,9 @@ export function TimesheetLedger({
     return entry.billableMinutes > maximum ? maximum : null;
   }
   const own = person(state.userId);
-  const restored = Object.entries(capture?.drafts ?? {}).find(([, item]) => item.values.workflow && !item.proposalDigest);
+  const restored = Object.entries(capture?.drafts ?? {}).find(([id, item]) =>
+    item.date === date && item.values.workflow && !item.proposalDigest &&
+    !state.entries.some(entry => entry.groupId === id));
   const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
   const [draftChanged, setDraftChanged] = useState(false);
   const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
@@ -254,9 +238,30 @@ export function TimesheetLedger({
   const pending = useRef(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [shareRevisions, setShareRevisions] = useState(new Map<string, number>());
   const editing = Boolean(edit || draftChanged || provenance);
-  useEffect(() => onEditingChange?.(editing), [editing, onEditingChange]);
+  const dateLocked = Boolean(edit || provenance || busy);
+  const draftsOpen = editing || parkedDrafts.current.size > 0;
+  useEffect(() => onEditingChange?.(draftsOpen, dateLocked), [draftsOpen, dateLocked, onEditingChange]);
+  useLayoutEffect(() => {
+    const from = previousDate.current;
+    const oldCapture = previousCapture.current;
+    previousDate.current = date;
+    previousCapture.current = capture;
+    if (!capture || from === date) return;
+    if (draftChanged && !provenance) {
+      parkedDrafts.current.set(from, { requestId, values: draft, participants });
+      savePrivateDraft(from, oldCapture);
+    }
+    const parked = parkedDrafts.current.get(date);
+    parkedDrafts.current.delete(date);
+    setRequestId(parked?.requestId ?? crypto.randomUUID());
+    setDraft(parked?.values ?? emptyRow(date, own));
+    setDraftChanged(Boolean(parked));
+    setParticipants(parked?.participants ?? []);
+    setSelected("");
+    setHistory("");
+    setError("");
+  }, [date, capture]);
   useEffect(() => {
     if (!capture && initialDate && !editing) setLedgerDate(initialDate);
   }, [initialDate, editing]);
@@ -290,12 +295,10 @@ export function TimesheetLedger({
         a.id.localeCompare(b.id),
     );
   const countedRows = rows.filter(row => row.status !== "pending");
+  const awaitingConfirmation = rows.filter(row => row.status === "pending");
   const { totals, byDate } = periodTimeTotals(countedRows);
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
   const ready = rows.filter((e) => e.status === "confirmed");
-  const shareable = ready.filter(
-    (e) => e.source === "suggestion" && e.authorId === state.userId && e.proposalDigest && e.groupId,
-  );
   const copied = rows.find((e) => e.id === selected);
   const focus = (row: string, column: RowColumn) => {
     if (row === "new") setComposerOpen(true);
@@ -311,17 +314,19 @@ export function TimesheetLedger({
   };
   function chooseDate(next: string, openDay = false) {
     if (!next || (next === date && !openDay)) return;
-    if (edit || draftChanged || provenance) {
+    if (dateLocked || (!capture && draftChanged)) {
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
-    if (capture) capture.selectDate(next, openDay);
+    if (capture) {
+      capture.selectDate(next, openDay);
+      return;
+    }
     else {
       if (openDay) setPeriod("day");
       setLedgerDate(next);
       if (next !== date) onDateChange?.(next);
     }
-    setShareRevisions(new Map());
     setDraft((current) => (current.date === date ? { ...current, date: next } : current));
     setSelected("");
     setHistory("");
@@ -446,14 +451,21 @@ export function TimesheetLedger({
       focus(next?.id ?? "new", "matter");
     } else focus(row, "narrative");
   }
-  async function save(row: string, nextFocus = true, tabToNext = false) {
+  function valuesForSave(row: string, values: RowValues) {
+    return row === "new" && !provenance && !values.activity.trim()
+      ? { ...values, activity: "GEN" }
+      : values;
+  }
+  async function save(row: string, nextFocus = true, tabToNext = false,
+    review?: { values: RowValues; parsed: ReturnType<typeof parseRow> }) {
     if (!canEdit || pending.current) return false;
     if (row === "new" && edit) {
       setError(t("timesheets.ledger.finish_edit"));
       return false;
     }
-    const current = row === "new" ? draft : edit?.values;
-    if (!current) return false;
+    const before = review?.values ?? (row === "new" ? draft : edit?.values);
+    if (!before) return false;
+    const current = review ? before : valuesForSave(row, before);
     if (
       row !== "new" &&
       edit &&
@@ -466,7 +478,7 @@ export function TimesheetLedger({
       setNotice("");
       return true;
     }
-    const result = parseRow(current, state);
+    const result = review?.parsed ?? parseRow(current, state);
     if ("error" in result) {
       setError(result.error);
       focus(row, result.field);
@@ -534,6 +546,10 @@ export function TimesheetLedger({
       };
       if (!(await run(command))) return false;
       await clearPrivateDraft();
+      if (previousDate.current !== date) {
+        if (parkedDrafts.current.get(date)?.requestId === requestId) parkedDrafts.current.delete(date);
+        return true;
+      }
       setRequestId(crypto.randomUUID());
       setProvenance(undefined);
       setDraftChanged(false);
@@ -615,13 +631,13 @@ export function TimesheetLedger({
     focus("new", "narrative");
     setNotice(t("timesheets.ledger.pasted"));
   }
-  function savePrivateDraft() {
-    if (!capture?.privateAvailable || provenance || !draftChanged) return;
-    const fields: Record<string, string | boolean> = { workflow: true, billable: draft.billable, createProduct: Boolean(draft.createProduct) };
-    for (const column of rowColumns) fields[column] = draft[column];
-    if (draft.productId) fields.productId = draft.productId;
+  function savePrivateDraft(origin = date, target = capture, values = draft) {
+    if (!target?.privateAvailable || provenance || !draftChanged) return;
+    const fields: Record<string, string | boolean> = { workflow: true, billable: values.billable, createProduct: Boolean(values.createProduct) };
+    for (const column of rowColumns) fields[column] = values[column];
+    if (values.productId) fields.productId = values.productId;
     privateQueue.current = privateQueue.current.then(async () => {
-      if (!await capture.act({ type: "draft", key: requestId, date, values: fields })) setError(t("back_office.save_failed"));
+      if (!await target.act({ type: "draft", key: requestId, date: origin, values: fields })) setError(t("back_office.save_failed"));
     });
   }
   async function clearPrivateDraft() {
@@ -744,22 +760,32 @@ export function TimesheetLedger({
             }
             onChange={(e) => field(row, column, e.currentTarget.value)}
             onBlur={(e) => {
-              if (row === "new") savePrivateDraft();
+              const value = e.currentTarget.value;
               const destination = e.relatedTarget;
-              if (column === columns[columns.length - 1] && !(destination instanceof Element && (destination.closest("[data-time-row]")?.getAttribute("data-time-row") === row || destination.closest(".bo-time-participants")))) {
-                const parsed = parseRow(values, state);
-                if (!("error" in parsed)) void save(row, false);
-              }
-              const query = e.currentTarget.value.trim().toLocaleLowerCase();
-              if (!query || !list || list.some((item) => item === e.currentTarget.value)) return;
-              const matches = list.filter((choice) => choice.toLocaleLowerCase().includes(query));
+              const query = value.trim().toLocaleLowerCase();
+              const matches = query && list && !list.includes(value)
+                ? list.filter(choice => choice.toLocaleLowerCase().includes(query)) : [];
+              let reviewed = values;
               if (
                 matches.length === 1 &&
                 (column === "matter" ||
                   column === "workers" ||
                   (column === "activity" && matches[0].toLowerCase() === query))
-              )
+              ) {
                 field(row, column, matches[0]);
+                reviewed = { ...values, [column]: matches[0] };
+                if (column === "matter") Object.assign(reviewed, { product: "", productId: undefined, createProduct: false });
+              }
+              if (row === "new") savePrivateDraft(date, capture, reviewed);
+              const inside = destination instanceof Element &&
+                (destination.closest("[data-time-row]")?.getAttribute("data-time-row") === row ||
+                  row === "new" && destination.closest(".bo-time-participants"));
+              const saveOnLeave = (capture && row === "new" && !provenance) || column === columns[columns.length - 1];
+              if (saveOnLeave && !inside) {
+                const normalized = valuesForSave(row, reviewed);
+                const parsed = parseRow(normalized, state);
+                if (!("error" in parsed)) void save(row, false, false, { values: normalized, parsed });
+              }
             }}
             onFocus={(e) => {
               if (e.currentTarget.type === "text") e.currentTarget.select();
@@ -975,8 +1001,7 @@ export function TimesheetLedger({
       <div className="bo-view-toolbar bo-time-toolbar">
         {!capture && <><TimesheetPeriodSwitch period={period} onChange={value => {
           if (edit) return setError(t("timesheets.ledger.finish_edit"));
-          setShareRevisions(new Map());
-          setPeriod(value);
+                setPeriod(value);
         }} />
         <div className="bo-time-date">
           <button
@@ -1022,21 +1047,10 @@ export function TimesheetLedger({
                   setError(t("timesheets.ledger.finish_edit"));
                   return;
                 }
-                if (
-                  await run({
-                    type: "submit",
-                    entries: ready.map((e) => ({
-                      id: e.id,
-                      revision: e.revision,
-                      ...(e.proposalDigest && e.groupId && shareRevisions.get(e.id) === e.revision
-                        ? { shareOriginal: { key: e.groupId, digest: e.proposalDigest } }
-                        : {}),
-                    })),
-                  })
-                ) {
-                  setShareRevisions(new Map());
-                  setNotice(t("timesheets.ledger.submitted"));
-                }
+                if (await run({
+                  type: "submit",
+                  entries: ready.map(e => ({ id: e.id, revision: e.revision })),
+                })) setNotice(t("timesheets.ledger.submitted"));
               }}
             >
               {t("timesheets.ledger.submit")}
@@ -1044,30 +1058,6 @@ export function TimesheetLedger({
           )}
         </div>
       </div>
-      {canEdit && state.supportsBillingComparisons && onOriginal && shareable.length > 0 && (
-        <details className="bo-time-original">
-          <summary>{t("timesheets.ledger.submission_comparisons")}</summary>
-          {shareable.map((e) => (
-            <div key={e.id + ":" + e.revision}>
-              <strong>{e.narrative}</strong>
-              <PrivateOriginal
-                entry={e}
-                load={onOriginal}
-                consent={{
-                  checked: shareRevisions.get(e.id) === e.revision,
-                  onChange: (checked) =>
-                    setShareRevisions((previous) => {
-                      const next = new Map(previous);
-                      if (checked) next.set(e.id, e.revision);
-                      else next.delete(e.id);
-                      return next;
-                    }),
-                }}
-              />
-            </div>
-          ))}
-        </details>
-      )}
       <TimesheetWeekTotals dates={dates} date={date} totalsByDate={byDate} onDateChange={day => chooseDate(day, true)} />
       <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
@@ -1109,8 +1099,7 @@ export function TimesheetLedger({
             {t("timesheets.ledger.status")}
           </div>
         </div>
-        {rows.filter(entry => !bookings.some(item => item.id === entry.groupId)).map(renderEntry)}
-        {capture?.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={send} canEdit={canEdit} />)}
+        {countedRows.filter(entry => !bookings.some(item => item.id === entry.groupId)).map(renderEntry)}
         {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => focus("new", "matter")}>
           <Plus size={14} />{t("timesheets.ledger.new")}
         </Button>}
@@ -1128,6 +1117,9 @@ export function TimesheetLedger({
             {editors("new", draft)}
             <div role="gridcell" className="bo-grid-cell">
               {busy && <span>{t("projects.saving")}</span>}
+              {!busy && draftChanged && <Button type="button" size="sm" variant="ghost" onClick={() => void save("new")}>
+                {t("timeWorkspace.bookEntry")}
+              </Button>}
               {(draftChanged || draft.activity || draft.narrative || draft.worked || provenance) && (
                 <button
                   type="button"
@@ -1241,9 +1233,13 @@ export function TimesheetLedger({
           </div>
         )}
         {receipt(item => {
-          const created = state.entries.filter(entry => entry.groupId === item.id && entry.workerId === state.userId);
+          const created = countedRows.filter(entry => entry.groupId === item.id);
           return created.length ? created.map(renderEntry) : undefined;
         }, item => state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date)}
+        {awaitingConfirmation.length > 0 && <details className="bo-time-delegated">
+          <summary>{t("timeWorkspace.awaitingConfirmation")}</summary>
+          {awaitingConfirmation.map(renderEntry)}
+        </details>}
       </div>
       {delegated.length > 0 && (
         <details className="bo-time-delegated">

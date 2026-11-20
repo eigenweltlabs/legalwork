@@ -430,6 +430,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       '@aws-sdk/client-s3':
         specifier: ^3.1127.0
         version: 3.1127.0
@@ -642,6 +645,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       '@aws-sdk/client-s3':
         specifier: ^3.1127.0
         version: 3.1127.0

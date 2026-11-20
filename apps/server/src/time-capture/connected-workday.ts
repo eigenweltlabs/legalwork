@@ -14,7 +14,7 @@ import { createConnectorRequest, type ConnectorRequest } from "../connectors/req
 import { connectorIsActivated } from "../connectors/settings.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
-import { digest, type WorkdayEvidence } from "./private-workday.js";
+import { claimsFor, digest, type WorkdayEvidence } from "./private-workday.js";
 
 type Account = CaptureAccount & { id: string };
 export async function connectedWorkdayAccounts(config: ServerConfig) {
@@ -87,6 +87,7 @@ export async function accountWorkdayEvidence(
     startAt: string | null,
     endAt: string | null,
     uid?: string,
+    observedAt?: string,
   ) => {
     if (typeof subject !== "string" || !subject.trim()) return;
     const eventKey =
@@ -103,12 +104,19 @@ export async function accountWorkdayEvidence(
       narrative: subject.trim().slice(0, 2000),
       startAt,
       endAt,
+      observedAt,
       workedMinutes: !mail && minutes >= 1 && minutes <= 1440 ? minutes : null,
     };
-    items.set(eventKey, {
+    const item: WorkdayEvidence = {
       eventKey,
       proposal: { ...body, key: randomUUID(), digest: digest([eventKey, body]), dismissed: false },
-    });
+    };
+    if (uid && !mail) {
+      const [wireClaim] = claimsFor(item);
+      item.claims = [wireClaim, { ...wireClaim, observationStart: startAt ? Date.parse(startAt) : undefined,
+        id: digest(["calendar-provider-item", account.provider, account.account, id, date]) }];
+    }
+    items.set(eventKey, item);
   };
   let next: string | undefined;
   const seen = new Set<string>();
@@ -147,6 +155,8 @@ export async function accountWorkdayEvidence(
             data.payload?.headers?.find((h) => h.name.toLowerCase() === "subject")?.value,
             null,
             null,
+            undefined,
+            new Date(at).toISOString(),
           );
       }
       next = page.nextPageToken;
@@ -192,7 +202,7 @@ export async function accountWorkdayEvidence(
       for (const item of page.value) {
         if (mail) {
           const sent = typeof item.sentDateTime === "string" ? Date.parse(item.sentDateTime) : NaN;
-          if (!item.isDraft && sent >= first && sent < last) append(item.id, item.subject, null, null);
+          if (!item.isDraft && sent >= first && sent < last) append(item.id, item.subject, null, null, undefined, new Date(sent).toISOString());
         } else if (!item.isCancelled) {
           const from = graphDate.parse(item.start).dateTime,
             to = graphDate.parse(item.end).dateTime;
@@ -251,12 +261,13 @@ export async function readConnectedWorkday(
 }
 
 export function sourceAvailable(
-  proposal: CaptureProposal,
+  proposal: Pick<CaptureProposal, "source" | "account">,
   accounts: CaptureAccount[],
   settings: Omit<CaptureSettings, "intervalMinutes">,
 ) {
   if (proposal.source === "stopwatch") return true;
   if (proposal.source === "documents") return settings.documents === true;
+  if (proposal.source === "workspace" || proposal.source === "agent") return settings.workspaceActivity !== false;
   if (proposal.source === "calendar" || proposal.source === "tasks") return settings[proposal.source];
   const target = { provider: proposal.source, account: proposal.account };
   return accounts.some(

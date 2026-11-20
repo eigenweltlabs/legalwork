@@ -25,6 +25,7 @@ for (const [key, value] of Object.entries({
 
 import type {
   TimeEntry,
+  TimeInvoiceDraft,
   TimePolicy,
   TimesheetCommand,
   TimesheetState,
@@ -41,6 +42,7 @@ const { BackOfficeTheme } = await import("../../src/react-app/domains/back-offic
 const { reviewPeriod, feeTotals } = await import(
   "../../src/react-app/domains/back-office/billing-amounts"
 );
+const { standardInvoice } = await import("@legalwork/types/invoice-template");
 const today = reviewPeriod().to;
 const policy: TimePolicy = {
   scope: "firm",
@@ -78,9 +80,10 @@ const actor: TimesheetState = {
   scope: "team",
   canManage: true,
   canReview: true,
+  supportsInvoiceDrafts: true,
   entries: [row, { ...row, id: "own", workerId: "partner" }],
   matters: [{ id: "m", name: "Alpha", reference: "A", clientIds: ["c"] }],
-  clients: [{ id: "c", name: "Acme" }],
+  clients: [{ id: "c", name: "Acme", billingAddress: "Fixture Lane 1" }],
   projects: [],
   people: [
     { id: "lawyer", name: "Lawyer" },
@@ -98,6 +101,9 @@ const command = async (c: TimesheetCommand) => {
   calls.push(c);
 };
 const client = {
+  downloadTimesheetDraft: async () => {
+    throw new Error("Unused");
+  },
   downloadTimesheetAdjustment: async () => {
     throw new Error("Unused");
   },
@@ -119,7 +125,8 @@ const match = (s: string) => {
 const click = async (el: HTMLElement) => act(async () => el.click());
 const select = async (label: string, v: string) => {
   await act(async () => {
-    const el = host.querySelector<HTMLSelectElement>('select[aria-label="' + label + '"]');
+    const el = host.querySelector<HTMLSelectElement>('select[aria-label="' + label + '"]') ??
+      [...host.querySelectorAll("label")].find((item) => item.firstChild?.textContent === label)?.querySelector("select");
     assert.ok(el);
     el.value = v;
     el.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -205,11 +212,44 @@ try {
   assert.ok(!host.textContent?.includes("After cutoff"));
   await click(unbilled);
   assert.ok(!host.textContent?.includes(prior.narrative));
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await draw({ ...actor, supportsInvoiceDrafts: undefined, entries: [{ ...row, status: "approved" }] });
+  assert.ok(!host.textContent?.includes("Create Invoice"));
+  assert.match(host.textContent ?? "", /require support from the connected firm server/);
+  const open: TimesheetState = { ...actor, entries: [prior, { ...row, status: "approved" },
+    { ...row, id: "queued", narrative: "Waiting for review", status: "submitted" },
+    { ...row, id: "own-open", workerId: actor.userId, narrative: "Booked this morning", status: "confirmed" },
+  ] };
+  await draw(open);
+  await click(match("Create Invoice"));
+  assert.match(host.textContent ?? "", /Choose a matter/);
+  await select("Matter", "m");
+  assert.match(host.textContent ?? "", /Acme/);
+  assert.match(host.textContent ?? "", /Booked this morning/);
+  assert.match(host.textContent ?? "", /Open submitted entries/);
+  assert.ok(!host.textContent?.includes(prior.narrative));
+  const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector("input");
+  assert.ok(allOpen);
+  await click(allOpen);
+  assert.ok(host.textContent?.includes(prior.narrative));
+  await click(allOpen);
   await click(match("Preview invoice"));
-  assert.equal(calls.length, 2, "preview must not issue");
+  assert.ok(!host.textContent?.includes("Issue numbered invoice"));
+  const prepared = calls.at(-1);
+  assert.ok(prepared?.type === "prepareInvoice");
+  assert.deepEqual(prepared.draft.entries, [{ id: row.id, revision: row.revision }]);
+  const draft: TimeInvoiceDraft = {
+    id: crypto.randomUUID(), revision: "a".repeat(64), input: prepared.draft, currency: "EUR", showHours: true,
+    totalMinor: 20000, protectedMinor: 0, selectedBaseMinor: 20000, selectedTotalMinor: 20000,
+    snapshot: { date: today, client: "Acme", clientAddress: "Fixture Lane 1", template: standardInvoice },
+    lines: [{ entry: { ...row, status: "approved" }, originalNarrative: row.narrative, currentNarrative: row.narrative,
+      rules: [], amountMinor: 20000, baseAmountMinor: 20000, actualAmountMinor: 20000 }],
+  };
+  await draw({ ...open, invoiceDraft: draft });
+  await click(match("Approve this invoice"));
+  assert.deepEqual(calls.at(-1), { type: "approveInvoice", id: draft.id, revision: draft.revision });
+  await draw({ ...open, invoiceDraft: { ...draft, approval: { actorId: actor.userId, at: new Date().toISOString(), revision: draft.revision } } });
   await click(match("Issue numbered invoice"));
-  assert.equal(calls.at(-1)?.type, "invoice");
+  assert.equal(calls.at(-1)?.type, "issueInvoice");
   await draw({
     ...actor,
     entries: [row, { ...row, id: "b", workerId: "partner", billableMinutes: 20, hourlyRate: 240 }],
@@ -261,8 +301,12 @@ try {
   await click(match("Approve correction"));
   assert.deepEqual(calls.at(-1), { type: "decideAdjustment", id: "corr", revision: 1, approve: true });
   await select("View", "approved");
-  await click(field('input[aria-label="Select all eligible positions"]'));
-  assert.ok(match("Preview invoice").disabled, "unreviewed delta blocks issuance");
+  await click(match("Create Invoice"));
+  await select("Matter", "m");
+  const invoiceDates = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="date"]'));
+  await write(invoiceDates[0], today);
+  await write(invoiceDates[1], today);
+  assert.ok(match("Preview invoice").disabled, "an unreviewed delta blocks issuance");
   const revised = {
     ...locked,
     adjustments: [
@@ -271,11 +315,11 @@ try {
   };
   await draw(revised);
   await click(match("Preview invoice"));
-  assert.match(host.querySelector("iframe")?.getAttribute("srcdoc") ?? "", /Revised reply brief/);
-  await click(match("Issue numbered invoice"));
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, "Revised reply brief");
   const revisedInvoice = calls.at(-1);
-  assert.ok(revisedInvoice?.type === "invoice");
-  assert.deepEqual(revisedInvoice.adjustmentVersions, [{ id: "corr", revision: 2 }]);
+  assert.ok(revisedInvoice?.type === "prepareInvoice");
+  assert.deepEqual(revisedInvoice.draft.adjustmentVersions, [{ id: "corr", revision: 2 }]);
+  await click(match("Back"));
   await select("View", "costs");
   const totals = host.querySelector("tbody tr")?.textContent ?? "";
   assert.match(totals, /100.00/);
@@ -477,7 +521,6 @@ try {
   await draw({ ...actor, entries: [historical] });
   await select("View", "approved");
   await click(field('input[aria-label="Select all eligible positions"]'));
-  assert.ok(match("Preview invoice").disabled);
   const returnButton = match("Return for pricing review");
   assert.ok(returnButton.disabled);
   await write(field('input[aria-label="Reason for returning"]'), "Apply the agreed hourly rate");
@@ -490,13 +533,11 @@ try {
   await click(match("Pricing"));
   assert.match(host.textContent ?? "", /tracks time separately from its fee/);
   await click(field('input[aria-label="Select all eligible positions"]'));
-  assert.ok(match("Preview invoice").disabled);
   assert.ok(!host.textContent?.includes("Return for pricing review"));
 
   await draw({ ...actor, entries: [{ ...row, status: "approved" }], policies: [{ ...policy, maxMinutes: 30 }] });
   assert.equal(host.querySelector('[aria-label="10 min over limit"]'), null);
-  await click(field('input[aria-label="Select all eligible positions"]'));
-  assert.ok(!match("Preview invoice").disabled);
+  assert.ok(!match("Create Invoice").disabled);
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

@@ -6,6 +6,7 @@ import type { BackOfficeActor } from "./schema.js";
 import { BackOfficeStore } from "./store.js";
 import { readTimeDocument, readTimesheet, writeEntry } from "./timesheet-data.js";
 import { commandTimesheet } from "./timesheet.js";
+import { approveInvoice, prepareInvoice } from "./timesheet-invoice.test-support.js";
 
 const reviewer = { userId: "reviewer", edit: true, finance: true, model: true };
 const worker = { userId: "worker", edit: true, finance: false, model: false };
@@ -21,7 +22,7 @@ async function fixture(terms: Pick<TimePolicy, "hourlyRate" | "currency"> = {}) 
   const store = new BackOfficeStore(await openSqlite(":memory:"));
   stores.push(store);
   const client = store.saveRecord(scope, reviewer, {
-    objectId: "clients", revision: 0, values: { name: "Client" },
+    objectId: "clients", revision: 0, values: { name: "Client", billingAddress: "Testgasse 5, 1010 Wien" },
   });
   const matter = store.saveRecord(scope, reviewer, {
     objectId: "matters", revision: 0, values: { name: "Matter", clients: [client.id] },
@@ -57,7 +58,7 @@ test("issue uses the approved price and correction despite retroactive terms, an
     type: "adjust", ...entryRef(line), requestId: randomUUID(), reason: "Time checked",
     narrative: "Research and analysis", billableMinutes: 50,
   }).adjustments![0];
-  const invoice: TimesheetCommand = { type: "invoice", entries: [entryRef(line)], requestId: randomUUID() };
+  const invoice = prepareInvoice([line]);
   expect(() => run(worker, invoice)).toThrow(/Billing access/);
   expect(() => run(reviewer, invoice)).toThrow(/pending corrections/);
   const reviewed = run(reviewer, {
@@ -67,12 +68,13 @@ test("issue uses the approved price and correction despite retroactive terms, an
     ...policy, revision: 1, hourlyRate: 700, currency: "USD", maxMinutes: 30, incrementMinutes: 15,
   } });
   expect(() => run(reviewer, invoice)).toThrow(/approved corrections changed/);
-  const updated = { ...invoice, adjustmentVersions: [{ id: reviewed.id, revision: reviewed.revision }] };
+  const updated = prepareInvoice([line], [{ id: reviewed.id, revision: reviewed.revision }]);
   store.saveRecord(scope, reviewer, { ...matter, archived: true, values: {} });
   expect(() => run(reviewer, updated)).toThrow(/unavailable/);
   const archived = store.raw(scope, matter.id)!;
   store.saveRecord(scope, reviewer, { ...archived, archived: false, values: {} });
-  const issued = run(reviewer, updated).invoices[0];
+  const current = run(reviewer, updated);
+  const issued = run(reviewer, approveInvoice((command) => run(reviewer, command), current)).invoices[0];
   expect(issued).toMatchObject({ currency: "EUR", total: 250 });
   expect(issued.entries[0]).toMatchObject({
     revision: line.revision, workedMinutes: 60, billableMinutes: 50, hourlyRate: 300, narrative: "Research and analysis",
@@ -111,7 +113,7 @@ test.each(["Flat fee", "Flat fee with included time", "RVG"])("%s time remains a
   expect(approved.nonHourlyApproval).toBe(true);
   expect(approved.hourlyRate).toBeUndefined();
   store.saveRecord(scope, reviewer, { ...agreement, archived: true, values: {} });
-  expect(() => run(reviewer, { type: "invoice", entries: [entryRef(approved)], requestId: randomUUID() })).toThrow(/approved, priced/);
+  expect(() => run(reviewer, prepareInvoice([approved]))).toThrow(/approved, priced/);
   expect(() => run(reviewer, { type: "return", entries: [entryRef(approved)], reason: "Review price" })).toThrow(/submitted/);
 });
 
@@ -152,10 +154,8 @@ test("a historical unpriced approval is returned and reviewed at a new revision,
   }).adjustments![0];
   expect(correction.deltaAmount).toBeNull();
   run(reviewer, { type: "policy", policy: { ...policy, revision: 1, hourlyRate: 300, currency: "EUR" } });
-  const invoice: TimesheetCommand = { type: "invoice", entries: [entryRef(oldApproval)], requestId: randomUUID() };
-  expect(() => run(reviewer, {
-    ...invoice, adjustmentVersions: [{ id: correction.id, revision: correction.revision }],
-  })).toThrow(/approved, priced/);
+  const invoice = prepareInvoice([oldApproval], [{ id: correction.id, revision: correction.revision }]);
+  expect(() => run(reviewer, invoice)).toThrow(/approved, priced/);
   run(reviewer, sendBack);
   const returned = read(worker, true).entries[0];
   expect(returned).toMatchObject({
@@ -178,7 +178,8 @@ test("a historical unpriced approval is returned and reviewed at a new revision,
   const priced = approve(submitted);
   expect(priced).toMatchObject({ status: "approved", hourlyRate: 300, currency: "EUR" });
   expect(priced.history.find((h) => h.revision === oldApproval.revision)?.after.hourlyRate).toBeUndefined();
-  const issued = run(reviewer, { ...invoice, entries: [entryRef(priced)] }).invoices[0];
+  const preview = run(reviewer, prepareInvoice([priced]));
+  const issued = run(reviewer, approveInvoice((command) => run(reviewer, command), preview)).invoices[0];
   expect(issued.total).toBe(200);
   expect(issued.entries[0].narrative).toBe("Final analysis");
   expect(read(reviewer).adjustments).toContainEqual(correction);

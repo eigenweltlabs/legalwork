@@ -19,6 +19,7 @@ export function authorizeIncrement(
     agreementProjects: _legacyProjects,
     allocationUnavailable: _legacyAllocation,
     nonHourlyAgreement: _legacyBasis,
+    nonHourlyBasis: _legacyMode,
     incrementException: _untrusted,
     incrementExceptionReason: reason,
     ...rule

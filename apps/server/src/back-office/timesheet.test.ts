@@ -7,6 +7,7 @@ import {
   requiresTimeAllocations,
   resolveTimePolicy,
   type TimeDraft,
+  type InvoiceDraftInput,
   type TimesheetCommand,
   type TimeEntry,
   type TimePolicy,
@@ -15,8 +16,8 @@ import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
 import { unknownRecords } from "./first-sync.js";
 import { commandTimesheet } from "./timesheet.js";
+import { approveInvoice, invoiceDraftRef, prepareInvoice } from "./timesheet-invoice.test-support.js";
 import { queryDirectoryRecords } from "./dashboard-query.js";
-import { submitFirmComparisons } from "./timesheet-sharing.js";
 import { readTimeDocument, readTimesheet } from "./timesheet-data.js";
 import { memberSource, timeMemberContactId } from "./time-member-identity.js";
 import { timeMemberContact } from "./time-members.js";
@@ -35,7 +36,7 @@ async function fixture() {
   stores.push(store);
   const create = (objectId: string, values: Record<string, string | string[]>) =>
     store.saveRecord("local", owner, { objectId, values, revision: 0 });
-  const client = create("clients", { name: "Fixture client" }),
+  const client = create("clients", { name: "Fixture client", billingAddress: "Testgasse 5, 1010 Wien" }),
     matter = create("matters", {
       name: "Fixture matter",
       clients: [client.id],
@@ -183,22 +184,19 @@ test("issued numbers follow legacy, pins approvals, download is reproducible and
     }).entries.find((e) => e.id === created.id)!;
     run(eva, { type: "approve", entries: sel(submitted) });
   }
-  const entries = state(eva).entries,
-    one = {
-      type: "invoice",
-      requestId: randomUUID(),
-      entries: sel(entries[0]),
-    } as const;
-  const issued = run(eva, one).invoices[0];
+  const entries = state(eva).entries;
+  const runAsReviewer = (command: TimesheetCommand) => run(eva, command);
+  const firstDraft = runAsReviewer(prepareInvoice([entries[0]]));
+  expect(firstDraft.invoices).toEqual([]);
+  expect(() => runAsReviewer({ type: "issueInvoice", ...invoiceDraftRef(firstDraft), requestId: randomUUID() })).toThrow(/Approve/);
+  const one = approveInvoice(runAsReviewer, firstDraft);
+  const issued = runAsReviewer(one).invoices[0];
   expect(issued.number).toBe(1043);
   expect(issued.total).toBe(100);
-  expect(run(eva, one).invoices[0].id).toBe(issued.id);
-  expect(() => run(eva, { ...one, requestId: randomUUID() })).toThrow(/changed/);
-  const invoices = run(eva, {
-    type: "invoice",
-    requestId: randomUUID(),
-    entries: sel(entries[1]),
-  }).invoices;
+  expect(runAsReviewer(one).invoices[0].id).toBe(issued.id);
+  expect(() => runAsReviewer({ ...one, requestId: randomUUID() })).toThrow(/changed/);
+  const two = approveInvoice(runAsReviewer, runAsReviewer(prepareInvoice([entries[1]])));
+  const invoices = runAsReviewer(two).invoices;
   expect(invoices.map((i) => i.number).sort()).toEqual([1043, 1044]);
   const artifact = readTimeDocument(store, "local", issued.id);
   expect(artifact?.kind === "invoice" && artifact.document).toContain("&lt;file&gt;");
@@ -228,7 +226,8 @@ test.each([
   expect(approved.hourlyRate).toBe(rate);
   expect(backOfficeMajorAmount(BackOfficeMoneySchema.parse(store.raw("local", approved.id)?.values.hourlyRate))).toBe(rate);
 
-  const issued = run(eva, { type: "invoice", requestId: randomUUID(), entries: sel(approved) }).invoices[0];
+  const preview = run(eva, prepareInvoice([approved]));
+  const issued = run(eva, approveInvoice((cmd) => run(eva, cmd), preview)).invoices[0];
   expect(issued.total).toBe(total);
   const artifact = readTimeDocument(store, "local", issued.id);
   expect(artifact?.kind === "invoice" && artifact.document).toContain(new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(total));
@@ -276,12 +275,8 @@ test("old approved generic rows need a workflow review and audit failure rolls b
   const legacy = state(owner).entries[0];
   expect(legacy.legacy).toBe(true);
   expect(() =>
-    run(owner, {
-      type: "invoice",
-      requestId: randomUUID(),
-      entries: sel(legacy),
-    }),
-  ).toThrow(/approved, priced/);
+    run(owner, prepareInvoice([legacy])),
+  ).toThrow(/no longer open/);
   const original = store.journal.flush.bind(store.journal);
   store.journal.flush = () => {
     throw new Error("Journal write failed");
@@ -485,12 +480,8 @@ test("rename keeps the product and revision evidence while approved corrections 
   expect(proposed.deltaAmount).toBe(-50);
   expect(run(owner, correction).adjustments).toHaveLength(1);
   expect(() => run(owner, { ...correction, requestId: randomUUID() })).toThrow(/already pending/);
-  const issue = {
-    type: "invoice",
-    requestId: randomUUID(),
-    entries: sel(approved),
-  } as const;
-  expect(() => run(eva, issue)).toThrow(/pending corrections/);
+  const preview = prepareInvoice([approved]);
+  expect(() => run(eva, preview)).toThrow(/pending corrections/);
   const decide = {
     type: "decideAdjustment",
     id: proposed.id,
@@ -501,11 +492,9 @@ test("rename keeps the product and revision evidence while approved corrections 
   const adjusted = run(eva, decide).adjustments![0];
   expect(adjusted.status).toBe("approved");
   expect(() => run(eva, decide)).toThrow(/no longer pending/);
-  expect(() => run(eva, issue)).toThrow(/corrections changed/);
-  const issued = run(eva, {
-    ...issue,
-    adjustmentVersions: [{ id: adjusted.id, revision: adjusted.revision }],
-  }).invoices[0];
+  expect(() => run(eva, preview)).toThrow(/corrections changed/);
+  const currentPreview = run(eva, prepareInvoice([approved], [{ id: adjusted.id, revision: adjusted.revision }]));
+  const issued = run(eva, approveInvoice((cmd) => run(eva, cmd), currentPreview)).invoices[0];
   expect(issued.total).toBe(50);
   expect(issued.entries[0].billableMinutes).toBe(10);
   const invoiced = state(owner).entries[0];
@@ -560,11 +549,8 @@ test("an over-cap call reaches review with actual minutes intact and cannot be a
       maxMinutes: 90,
     },
   });
-  const invoice = run(eva, {
-    type: "invoice",
-    requestId: randomUUID(),
-    entries: sel(approved),
-  }).invoices[0];
+  const preview = run(eva, prepareInvoice([approved]));
+  const invoice = run(eva, approveInvoice((cmd) => run(eva, cmd), preview)).invoices[0];
   expect(invoice.entries[0].billableMinutes).toBe(120);
   expect(invoice.total).toBe(600);
   const review = run(owner, {
@@ -1023,50 +1009,12 @@ test("batch wording acceptance checks reviewed text, revision and current rules 
   expect(() => apply(checked)).toThrow(/changed/);
 });
 
-test("workers share only verified billing fields on their chosen submission, with fresh consent after return", async () => {
-  const { store, d, run, state } = await fixture();
-  const key = randomUUID(), digest = "a".repeat(64);
-  const first = run(owner, {
-    type: "create", entry: d, source: "suggestion", requestId: key, proposalDigest: digest,
-  }).entries[0];
-  const original = { activity: "RES", narrative: "Original work", workedMinutes: null };
-  const originals = new Map([[digest, original]]);
-  const submit = { type: "submit", entries: [{ ...sel(first)[0], shareOriginal: { key, digest } }] } as const;
-  const share = () => commandTimesheet(store, "local", owner, people, submit, [], originals);
-
-  // The device must resolve the original from its own verified store, never from client-supplied fields.
-  expect(() => commandTimesheet(store, "local", owner, people, submit)).toThrow(/verified original/);
-  expect(() => commandTimesheet(store, "local", owner, people, { ...submit, sharedBillingOriginals: [original] })).toThrow();
-  expect(() => commandTimesheet(store, "local", owner, people, {
-    ...submit, entries: [{ ...submit.entries[0], shareOriginal: { key: randomUUID(), digest } }],
-  }, [], originals)).toThrow(/verified original/);
-  expect(state(eva).entries).toHaveLength(0);
-  const shared = share().entries[0];
-  expect(state(eva).entries[0].sharedOriginal).toEqual({ ...original, submittedRevision: shared.revision });
-  expect(state(ben).entries).toHaveLength(0);
-  expect(() => share()).toThrow(/changed/);
-  run(eva, { type: "return", entries: sel(shared), reason: "Check text" });
-  const resubmitted = run(owner, { type: "submit", entries: sel(state(owner).entries[0]) }).entries[0];
-  expect(resubmitted.sharedOriginal).toBeUndefined();
-  expect(state(eva).entries[0].sharedOriginal).toBeUndefined();
-
-  const current = { ...state(owner), entries: [first] };
-  const cmd: Extract<TimesheetCommand, { type: "submit" }> = { type: "submit", entries: [...submit.entries] };
-  let reads = 0, sent = 0;
-  const read = async () => { reads++; return originals; };
-  const post = async (body: unknown) => {
-    sent++;
-    expect(body).toEqual({
-      type: "submit", entries: sel(first), reason: undefined,
-      sharedBillingOriginals: [{ ...original, id: first.id, revision: first.revision, digest }],
-    });
-    return { ...current, entries: [shared] };
-  };
-  await expect(submitFirmComparisons(cmd, { ...current, supportsBillingComparisons: false }, read, post)).rejects.toThrow(/does not support/);
-  await expect(submitFirmComparisons(cmd, { ...current, entries: [shared] }, read, post)).rejects.toThrow(/Refresh/);
-  expect([reads, sent]).toEqual([0, 0]);
-  expect((await submitFirmComparisons(cmd, current, read, post)).entries[0].sharedOriginal).toEqual(shared.sharedOriginal);
-  await expect(submitFirmComparisons(cmd, current, read, async () => current)).rejects.toThrow(/did not confirm/);
+test("a suggestion submission shares only the booked line, including when an older client asks for its private original", async () => {
+  const {d,run} = await fixture();
+  const key=randomUUID(), digest="a".repeat(64);
+  const row = run(owner,{type:"create",entry:d,source:"suggestion",requestId:key,proposalDigest:digest}).entries[0];
+  expect(()=>run(owner,{type:"submit",entries:[{...sel(row)[0],shareOriginal:{key,digest}}]})).toThrow(/original proposal/);
+  expect(run(owner,{type:"submit",entries:sel(row)}).entries[0].sharedOriginal).toBeUndefined();
 });
 
 test("a meeting books independently rounded work for each participant and exposes only the author's original allocation", async () => {
@@ -1183,4 +1131,156 @@ test("an attendee cannot double-book the same timed meeting from a colleague and
     entry: { ...meeting, startAt: d.date + "T11:00:00Z", endAt: d.date + "T11:17:00Z" },
   });
   expect(separate.entries.filter((e) => e.status === "confirmed")).toHaveLength(2);
+});
+
+test("invoice review keeps original manual wording and allocates a whole-invoice target against protected staff", async () => {
+  const { store, d, run, state } = await fixture();
+  const firm = state(eva).policies[0];
+  run(eva, { type: "policy", policy: { ...firm, workerRates: { [owner.userId]: 10500, [ben.userId]: 2000 } } });
+  const book = (worker: BackOfficeActor, narrative: string, minutes: number, date: string) => {
+    const saved = run(worker, {
+      type: "create", requestId: randomUUID(), entry: { ...d, date, narrative, workedMinutes: minutes, billableMinutes: minutes },
+    }).entries.find((entry) => entry.narrative === narrative)!;
+    const submitted = run(worker, { type: "submit", entries: sel(saved) }).entries.find((entry) => entry.id === saved.id)!;
+    return run(eva, { type: "approve", entries: sel(submitted) }).entries.find((entry) => entry.id === saved.id)!;
+  };
+  const earlier = book(owner, "Ammending earlier memo", 30, "2026-08-21");
+  const later = book(owner, "Later memo amended", 30, "2026-11-12");
+  const protectedLine = book(ben, "Independent review", 60, "2026-11-12");
+  const period = { to: "2026-11-12" };
+  expect(() => run(eva, prepareInvoice([later, protectedLine], [], { period }))).toThrow(/open entries/);
+  const entries = [earlier, later, protectedLine];
+  const selection: NonNullable<InvoiceDraftInput["reduction"]>["scope"] = { type: "people", ids: [owner.userId] };
+  const draftCommand = prepareInvoice(entries, [], {
+    period,
+    wording: [earlier.id],
+    reduction: { scope: selection, adjustment: { type: "target", amountMinor: 700001, basis: "invoice" } },
+  });
+  const preview = run(eva, draftCommand);
+  expect(preview.invoiceDraft).toMatchObject({ totalMinor: 700001, protectedMinor: 200000, selectedBaseMinor: 1050000, selectedTotalMinor: 500001 });
+  expect(preview.invoiceDraft?.lines[0]).toMatchObject({
+    originalNarrative: "Ammending earlier memo", currentNarrative: "Ammending earlier memo", suggestedNarrative: "Amending earlier memo",
+    entry: { narrative: "Amending earlier memo", workerId: owner.userId, authorId: owner.userId, workedMinutes: 30 },
+    actualAmountMinor: 525000, baseAmountMinor: 525000,
+  });
+  expect(preview.invoiceDraft?.lines[1]).toMatchObject({ suggestedNarrative: "Amending Later memo", entry: { narrative: "Later memo amended" } });
+  const fullAmounts = Object.fromEntries(preview.invoiceDraft?.lines.map(({ entry, amountMinor }) => [entry.id, amountMinor]) ?? []);
+  expect(fullAmounts[protectedLine.id]).toBe(200000);
+  const [first, second] = [earlier.id, later.id].sort();
+  expect(fullAmounts[first]).toBe(250001);
+  expect(fullAmounts[second]).toBe(250000);
+  expect(() => run(eva, prepareInvoice(entries, [], {
+    period, reduction: { scope: selection, adjustment: { type: "target", amountMinor: 199999, basis: "invoice" } },
+  }))).toThrow(/protected/);
+  const selectedTarget = run(eva, prepareInvoice(entries, [], {
+    period, reduction: { scope: selection, adjustment: { type: "target", amountMinor: 700001, basis: "selection" } },
+  }));
+  expect(selectedTarget.invoiceDraft).toMatchObject({ totalMinor: 900001, selectedTotalMinor: 700001 });
+  const percent = run(eva, prepareInvoice(entries, [], {
+    period, reduction: { scope: { type: "entries", ids: [earlier.id] }, adjustment: { type: "percent", basisPoints: 3333 } },
+  }));
+  expect(percent.invoiceDraft).toMatchObject({ totalMinor: 1075018, protectedMinor: 725000, selectedTotalMinor: 350018 });
+  const reviewed = run(eva, draftCommand);
+  const issueAsReviewer = (command: TimesheetCommand) => run(eva, command);
+  const issue = approveInvoice(issueAsReviewer, reviewed);
+  const invoice = issueAsReviewer(issue).invoices[0];
+  expect(invoice.approval).toMatchObject({ actorId: eva.userId, revision: reviewed.invoiceDraft?.revision });
+  expect(invoice.entries.find((entry) => entry.id === earlier.id)).toMatchObject({
+    originalNarrative: "Ammending earlier memo", narrative: "Amending earlier memo", amountMinor: fullAmounts[earlier.id],
+  });
+  expect(state(owner).entries.find((entry) => entry.id === earlier.id)?.narrative).toBe("Ammending earlier memo");
+  const correction = run(owner, {
+    type: "adjust", ...sel(state(owner).entries.find((entry) => entry.id === earlier.id)!)[0],
+    requestId: randomUUID(), reason: "Remove the billed line", narrative: "Removed service", billableMinutes: 0,
+  }).adjustments![0];
+  expect(correction.deltaAmount).toBe(-fullAmounts[earlier.id] / 100);
+  expect(store.raw("local", protectedLine.id)?.values.invoice).toBe(invoice.id);
+});
+
+test("changing fixed-price wording, hours, or the template requires a new invoice approval", async () => {
+  const { store, d, run } = await fixture();
+  const created = run(owner, { type: "create", requestId: randomUUID(), entry: d }).entries[0];
+  const submitted = run(owner, { type: "submit", entries: sel(created) }).entries[0];
+  const approved = run(eva, { type: "approve", entries: sel(submitted) }).entries[0];
+  const reviewer = (command: TimesheetCommand) => run(eva, command);
+  const fixedPrice = { mode: "fixed", currency: "EUR", amountMinor: 120000, showHours: true } as const;
+  const visibleHours = reviewer(prepareInvoice([approved], [], { pricing: fixedPrice }));
+  const oldIssue = approveInvoice(reviewer, visibleHours);
+  const hideHours = prepareInvoice([approved], [], {
+    pricing: { ...fixedPrice, showHours: false }, edits: [{ id: approved.id, narrative: "Reviewing the final memo" }],
+  });
+  const withoutHours = reviewer(hideHours);
+  expect(withoutHours.invoiceDraft?.approval).toBeUndefined();
+  expect(() => reviewer(oldIssue)).toThrow(/changed/);
+  const previousTemplateIssue = approveInvoice(reviewer, withoutHours);
+  reviewer({ type: "template", template: { revision: 0, locale: "en-GB", title: "Fixture invoice", letterhead: "Fixture firm", footer: "" } });
+  expect(() => reviewer(previousTemplateIssue)).toThrow(/template changed/);
+  const updated = reviewer(hideHours);
+  const issued = reviewer(approveInvoice(reviewer, updated)).invoices[0];
+  expect(issued).toMatchObject({ billingMode: "fixed", showHours: false, totalMinor: 120000, templateRevision: 1 });
+  const artifact = readTimeDocument(store, "local", issued.id);
+  expect(artifact?.kind === "invoice" && artifact.document).toContain("Fixture invoice 1");
+  expect(artifact?.kind === "invoice" && artifact.document).not.toContain("Actual hours");
+  expect(issued.entries[0].narrative).toBe("Reviewing the final memo");
+  expect(issued.entries[0].workedMinutes).toBe(d.workedMinutes);
+});
+
+test("a model wording suggestion for a manual entry stays separate until the reviewer selects it", async () => {
+  const { store, d, run, state } = await fixture();
+  const created = run(owner, { type: "create", requestId: randomUUID(), entry: { ...d, narrative: "Drafing a memo" } }).entries[0];
+  const submitted = run(owner, { type: "submit", entries: sel(created) }).entries[0];
+  const approved = run(eva, { type: "approve", entries: sel(submitted) }).entries[0];
+  const prepared = run(eva, prepareInvoice([approved]));
+  const model = { workspaceId: "fixture", providerID: "fixture", modelID: "proofreader" };
+  const request: TimesheetCommand = { type: "reviewInvoiceWording", ...invoiceDraftRef(prepared), model };
+  expect(() => run(eva, request)).toThrow(/No invoice wording review/);
+  const suggested = commandTimesheet(store, "local", eva, people, request, [], [
+    { id: approved.id, narrative: "Drafting a memo", rule: "spelling" },
+  ]);
+  expect(suggested.invoiceDraft?.lines[0]).toMatchObject({
+    originalNarrative: "Drafing a memo", suggestedNarrative: "Drafting a memo", modelRule: "spelling", entry: { narrative: "Drafing a memo" },
+  });
+  const selected = prepareInvoice([approved], [], {
+    wording: [approved.id], expectedSuggestions: [{ id: approved.id, narrative: "Drafting a memo" }],
+  });
+  expect(run(eva, selected).invoiceDraft?.lines[0].entry.narrative).toBe("Drafting a memo");
+  expect(state(owner).entries[0].narrative).toBe("Drafing a memo");
+});
+
+test("invoice wording uses the reviewing profile's authorized service-date guideline versions", async () => {
+  const { store, d, client, matter, create, run, state } = await fixture();
+  const anotherClient = create("clients", { name: "Another client" });
+  store.saveRecord("local", owner, { ...matter, values: { clients: [client.id, anotherClient.id] } });
+  const book = (date: string) => {
+    const created = run(owner, { type: "create", requestId: randomUUID(), entry: { ...d, date, narrative: "Drafing a memo" } })
+      .entries.find((entry) => entry.date === date)!;
+    const submitted = run(owner, { type: "submit", entries: sel(created) }).entries.find((entry) => entry.id === created.id)!;
+    return run(eva, { type: "approve", entries: sel(submitted) }).entries.find((entry) => entry.id === created.id)!;
+  };
+  const before = book("2026-08-21"), after = book("2026-11-12");
+  const guideline: import("@legalwork/types/time-capture").WorkdayGuideline = {
+    id: randomUUID(), revision: 1, name: "Client vocabulary", scope: "client", targetId: client.id, effectiveFrom: "2026-01-01",
+    rules: { narrativeCorrections: { Drafing: "Preparing" }, instructions: "Confidential early billing guidance." },
+  };
+  const september = { ...guideline, revision: 2, effectiveFrom: "2026-09-01", rules: {
+    narrativeCorrections: { Drafing: "Drafting" }, instructions: "Confidential billing guidance for this client." },
+  };
+  const unrelated = { ...september, id: randomUUID(), name: "Another client instructions", targetId: anotherClient.id };
+  const uploaded = [guideline, september, unrelated];
+  const profile = { profileId: "reviewer-one", versions: uploaded };
+  const reviewer = (command: TimesheetCommand, context = profile) => commandTimesheet(store, "local", eva, people, command, [], undefined, context);
+  const prepared = prepareInvoice([before, after]);
+  const preview = reviewer(prepared);
+  expect(preview.invoiceDraft?.lines.map((line) => [line.suggestedNarrative, line.guidelineVersions?.map(({ revision }) => revision)]))
+    .toEqual([["Preparing a memo", [1]], ["Drafting a memo", [2]]]);
+  expect(JSON.stringify(preview.invoiceDraft)).not.toContain("Confidential");
+  expect(state(eva).invoiceDraft).toBeUndefined();
+  expect(() => reviewer({ type: "approveInvoice", ...invoiceDraftRef(preview) }, { ...profile, profileId: "reviewer-two" })).toThrow(/draft changed/);
+  const issue = approveInvoice(reviewer, preview);
+  const irrelevant = { ...profile, versions: [...uploaded, { ...unrelated, revision: 3, rules: { instructions: "Unrelated change" } }] };
+  expect(reviewer(prepared, irrelevant).invoiceDraft?.approval?.revision).toBe(preview.invoiceDraft?.revision);
+  const changed = { ...profile, versions: [...uploaded, { ...september, revision: 3, rules: { ...september.rules, instructions: "New wording guidance" } }] };
+  expect(() => reviewer(issue, changed)).toThrow(/content or template changed/);
+  expect(reviewer(prepared, changed).invoiceDraft?.approval).toBeUndefined();
+  expect(state(owner).entries.every((entry) => entry.narrative === "Drafing a memo")).toBe(true);
 });

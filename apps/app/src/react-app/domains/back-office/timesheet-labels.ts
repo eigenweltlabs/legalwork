@@ -30,6 +30,7 @@ export const placeholderKeys = {
 };
 
 export const activityKeys: Readonly<Record<string, string | undefined>> = {
+  GEN: "timeWorkspace.generalActivity",
   RES: "timesheets.ledger.activity.RES",
   CF: "timesheets.ledger.activity.CF",
   EXM: "timesheets.ledger.activity.EXM",
@@ -150,6 +151,8 @@ export const sourceKeys = {
   "outlook-calendar": "timesheets.source.outlook-calendar",
   calendar: "timesheets.calendar",
   tasks: "timesheets.tasks",
+  workspace: "timeWorkspace.workspaceActivity",
+  agent: "timeWorkspace.agentActivity",
 };
 
 // Firms can add activity codes and older servers can emit additional history fields.

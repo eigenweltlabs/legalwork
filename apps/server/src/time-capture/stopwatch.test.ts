@@ -225,11 +225,8 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
       settings: { calendar: true, tasks: false, intervalMinutes: 0 },
     });
     const prepared = captureStateSchema.parse(await (await api(workday, { type: "calendar" })).json());
-    expect(prepared.proposals).toEqual(result.proposals);
-    await api(workday, { type: "dismiss", key: result.proposals[0].key });
-    expect(
-      captureStateSchema.parse(await (await api(workday, { type: "calendar" })).json()).proposals,
-    ).toEqual([]);
+    expect(prepared.proposals).toEqual([]);
+    expect((await api(workday, { type: "dismiss", key: result.proposals[0].key })).status).toBe(409);
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });

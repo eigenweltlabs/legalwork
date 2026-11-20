@@ -1,4 +1,6 @@
-# LegalWork time tracking and billing
+# LegalWork time tracking and billing (archived)
+
+Historical design record. The [accepted workspace and invoicing PRD](timekeeping-workspace-amendment.md) supersedes this document and all of its addenda.
 
 _Product requirements   /   Revision 4   /   14 November 2026_
 

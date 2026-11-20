@@ -260,3 +260,55 @@
 .bo-time-preferences > .bo-view-toolbar { gap:12px; padding-block:12px; align-items:end }
 .bo-time-preferences > .bo-view-toolbar > label { display:grid; gap:5px; font-size:12px }
 .bo-time-preferences > .bo-view-toolbar [data-slot="select-trigger"] { min-width:180px }
+
+.bo-invoice-draft fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+.bo-invoice-draft .bo-view-toolbar {
+  padding-inline: 12px;
+  gap: 12px;
+}
+.bo-invoice-draft .bo-invoice-currency {
+  width: 5ch;
+}
+.bo-invoice-table {
+  overflow: auto;
+}
+.bo-invoice-table table {
+  min-width: 720px;
+}
+.bo-invoice-table td {
+  min-width: 80px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.bo-invoice-table td small {
+  display: block;
+  color: var(--bo-muted);
+}
+.bo-invoice-adjustment-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 12px;
+}
+.bo-invoice-adjustment-choices label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+}
+.bo-invoice-draft-preview {
+  padding: 0 12px 12px;
+}
+.bo-invoice-table textarea {
+  width: 100%;
+  min-width: 120px;
+  resize: vertical;
+}
+.bo-invoice-link {
+  text-decoration: underline;
+  color: var(--bo-blue);
+}

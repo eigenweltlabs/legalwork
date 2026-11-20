@@ -1752,9 +1752,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   };
 
   return {
-    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: timeouts.binary }),
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean; timeoutMs?:number } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: options.timeoutMs ?? timeouts.binary }),
     downloadTimesheetAdjustment: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/adjustments/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
-    downloadTimesheetInvoice: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/invoices/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    previewBillingTemplate: (template:import("@legalwork/types/invoice-template").InvoiceTemplate,scope:string) => requestBinary(baseUrl,`/back-office/timesheet/template-preview?scope=${encodeURIComponent(scope)}`,{token,hostToken,method:"POST",body:template,timeoutMs:90_000}),
+    downloadTimesheetDraft: (id: string, scope: string, format:"docx"|"pdf") => requestBinary(baseUrl, `/back-office/timesheet/drafts/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}&format=${format}`, {token,hostToken,timeoutMs:90_000}),
+    downloadTimesheetInvoice: (id: string, scope: string, format:"docx"|"pdf"|"html" = "html") => requestBinary(baseUrl, `/back-office/timesheet/invoices/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}&format=${format}`, { token, hostToken, timeoutMs: timeouts.binary }),
     downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
     uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
 
@@ -1847,6 +1849,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    activityProfile: () => requestJson<{profileId:string}>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
+    observeActivity: (profileId:string, observations: {projectId:string;stream:string;kind:"foreground"|"passive"|"agent";start:number;end:number}[]) =>
+      requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
     privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
       requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId ? "?profileId=" + encodeURIComponent(profileId) : ""), {
         token, hostToken, method: action ? "POST" : "GET", body: action,
@@ -1858,6 +1863,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
         token, hostToken, method: action ? "POST" : "GET", body: action, signal, timeoutMs: 180_000,
       }),
+    privateGuidelineText: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, file: Blob, signal: AbortSignal) =>
+      requestJson<{ text: string; textlessPages: number[] }>(baseUrl,
+        "/private-timesheet/workday?" + new URLSearchParams({ ...context, preview: "guideline-pdf" }), {
+          token, hostToken, method: "POST", binaryBody: file, signal, timeoutMs: 360_000,
+        }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),

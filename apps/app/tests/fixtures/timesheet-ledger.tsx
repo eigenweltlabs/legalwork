@@ -2,9 +2,57 @@ import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
-import type { CaptureAction, CaptureProposal, CaptureSettings } from "@legalwork/types/time-capture";
+import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState } from "@legalwork/types/time-capture";
 
 const window = new Window({ url: "http://localhost" });
+let workspaceWidth = 1100;
+const workspaceObservers = new Set<ResizeObserverCallback>();
+class WorkspaceResizeObserver extends window.ResizeObserver {
+  private workspace = false;
+  constructor(private readonly change: ResizeObserverCallback) { super(change); }
+  observe(target: Element) {
+    if (target.classList.contains("time-workspace-panels")) {
+      this.workspace = true;
+      workspaceObservers.add(this.change);
+    }
+    super.observe(target);
+  }
+  disconnect() {
+    if (this.workspace) workspaceObservers.delete(this.change);
+    super.disconnect();
+  }
+}
+const offsetWidth = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "offsetWidth")?.get;
+const offsetLeft = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, "offsetLeft")?.get;
+const rectangle = window.HTMLElement.prototype.getBoundingClientRect;
+Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
+  configurable: true,
+  get() {
+    if (this.classList.contains("time-workspace-panels") || this.hasAttribute("data-group")) return workspaceWidth;
+    if (this.hasAttribute("data-panel")) return Math.round(workspaceWidth * (Number(this.style.flexGrow) || 50) / 100);
+    return offsetWidth?.call(this) ?? 0;
+  },
+});
+Object.defineProperty(window.HTMLElement.prototype, "offsetLeft", {
+  configurable: true,
+  get() {
+    const preceding = this.parentElement?.firstElementChild;
+    if (preceding instanceof window.HTMLElement && (this.id === "private" || this.hasAttribute("data-separator"))) {
+      return preceding.offsetWidth + (this.id === "private" ? 1 : 0);
+    }
+    return offsetLeft?.call(this) ?? 0;
+  },
+});
+Object.defineProperty(window.HTMLElement.prototype, "ariaDisabled", {
+  configurable: true,
+  get() { return this.getAttribute("aria-disabled"); },
+});
+window.HTMLElement.prototype.getBoundingClientRect = function () {
+  if (this.hasAttribute("data-panel") || this.hasAttribute("data-separator")) {
+    return new window.DOMRect(this.offsetLeft, 0, this.offsetWidth || 1, 500);
+  }
+  return rectangle.call(this);
+};
 window.document.write("<!doctype html><html><body><div id='root'></div></body></html>");
 Object.entries({
   window,
@@ -14,12 +62,15 @@ Object.entries({
   CSS: window.CSS,
   HTMLElement: window.HTMLElement,
   HTMLInputElement: window.HTMLInputElement,
+  HTMLTextAreaElement: window.HTMLTextAreaElement,
+  DOMRect: window.DOMRect,
+  DOMParser: window.DOMParser,
   Element: window.Element,
   Node: window.Node,
   Event: window.Event,
   PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver,
-  ResizeObserver: window.ResizeObserver,
+  ResizeObserver: WorkspaceResizeObserver,
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
   cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   getComputedStyle: window.getComputedStyle.bind(window),
@@ -108,9 +159,10 @@ const cell = (row: string, key: string) => {
   assert.ok(result);
   return result;
 };
-async function input(element: HTMLInputElement, value: string) {
+async function input(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {
-    const write = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    const prototype = element instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const write = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     assert.ok(write);
     element.focus();
     write.call(element, value);
@@ -476,7 +528,8 @@ try {
             date={base.date}
             proposals={[capture, unknown]}
             state={directory}
-            confirmed={[base]}
+            view="combined"
+            selected={undefined}
             onOpen={() => {}}
           />
         </BackOfficeTheme>
@@ -485,9 +538,18 @@ try {
   );
   const axis = document.querySelector<HTMLElement>(".bo-workday-axis");
   assert.ok(axis);
-  assert.equal(axis.querySelectorAll(".bo-workday-axis-event").length, 2);
+  assert.equal(axis.querySelectorAll(".bo-workday-axis-event").length, 1, "recorded work stays in the ledger");
+  assert.equal(axis.querySelectorAll(".bo-workday-axis-column").length, 1);
+  assert.equal(axis.querySelector(".bo-workday-now"), null);
+  assert.match(document.querySelector(".bo-workday-untimed")?.textContent ?? "", /Untimed/);
   assert.ok(!axis.textContent?.includes("Unused matter"));
   assert.ok(!axis.textContent?.includes("Untimed"));
+  const { calendarDay } = await import("../../src/react-app/domains/calendar/calendar-format");
+  await act(async () => root.render(
+    <WorkdayTimeline date={calendarDay(new Date())} proposals={[]} state={directory}
+      view="combined" selected={undefined} onOpen={() => {}} />,
+  ));
+  assert.match(document.querySelector(".bo-workday-now")?.textContent ?? "", /Current time/);
   let correctedMinutes: number | null | undefined;
   await act(async () =>
     root.render(
@@ -518,8 +580,11 @@ try {
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
   const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
+  const { TimesheetCommandSchema } = await import("@legalwork/types/timesheet");
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const writes: unknown[] = [];
+  const writes: TimesheetCommand[] = [];
+  const privateWrites: CaptureAction[] = [];
+  const confirmedEntries: TimeEntry[] = [];
   let captureProfileId = "profile-a";
   const overlayRunId = crypto.randomUUID();
   let stopped = false;
@@ -531,25 +596,31 @@ try {
       active: null,
       lastStopped: stopped ? { id: overlayRunId, date: base.date, stoppedAt: base.date + "T12:00:00Z" } : null,
     }),
-    privateWorkday: async (context: { profileId?: string }) => {
-      assert.equal(context.profileId, "profile-a");
+    privateWorkday: async (context: { profileId?: string; date: string }, action?: CaptureAction): Promise<CaptureState> => {
       workdayReads++;
+      if (action) privateWrites.push(action);
       return {
-        settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 as const },
-        proposals: [capture],
-        drafts: {},
-        connections: [],
-        modelReady: false,
+        settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
+        proposals: context.profileId === "profile-a" && context.date === base.date ? [capture, unknown] : [],
+        drafts: {}, connections: [], modelReady: false, chat: [], instructions: [], guidelines: [],
+        status: { type: "ready", message: "Synthetic internal status" },
       };
     },
     backOffice: async (path: string, options?: { body?: unknown }) => {
       if (path === "/projects") return { projects: [] };
       if (path.startsWith("/timesheet?")) {
         if (options?.body) {
-          assert.equal(new URL(path, "http://localhost").searchParams.get("profileId"), "profile-a");
-          writes.push(options.body);
+          const command = TimesheetCommandSchema.parse(options.body);
+          assert.equal(new URL(path, "http://localhost").searchParams.get("profileId"),
+            command.type === "create" && command.source === "suggestion" ? "profile-a" : null);
+          writes.push(command);
+          if (command.type === "create") confirmedEntries.push({
+            ...command.entry, id: crypto.randomUUID(), groupId: command.requestId, revision: 1,
+            status: "confirmed", workerId: state.userId, authorId: state.userId, history: [],
+            source: command.source ?? "manual", proposalDigest: command.proposalDigest,
+          });
         }
-        return { ...state, entries: [] };
+        return { ...state, entries: confirmedEntries };
       }
       assert.ok(path.startsWith("?manifest="), path);
       return {
@@ -576,76 +647,119 @@ try {
   const settle = () => act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
-  for (let i = 0; i < 20 && !document.querySelector('[aria-label="Accept suggestion"]'); i++) await settle();
-  const prepare = document.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
-  assert.ok(prepare, document.body.textContent?.slice(-800));
+  const block = (proposal: CaptureProposal) => document.querySelector<HTMLButtonElement>(`[data-proposal-id="${proposal.key}"]`);
+  async function openProposal(proposal: CaptureProposal) {
+    for (let i = 0; i < 20 && !block(proposal); i++) await settle();
+    const target = block(proposal);
+    assert.ok(target, proposal.narrative);
+    await act(async () => target.click());
+  }
+  const workspaceGroup = () => {
+    const group = document.querySelector<HTMLElement>(".time-workspace-group");
+    assert.ok(group);
+    return group;
+  };
+  const separator = () => {
+    const separator = workspaceGroup().querySelector<HTMLElement>('[role="separator"]');
+    assert.ok(separator);
+    return separator;
+  };
+  const press = async (label: string) => {
+    const target = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button =>
+      button.textContent?.trim() === label || button.getAttribute("aria-label") === label);
+    assert.ok(target, label);
+    await act(async () => target.click());
+  };
+  await openProposal(capture);
+  assert.equal(workspaceGroup().dataset.view, "split");
+  assert.equal(separator().getAttribute("aria-valuenow"), "67");
+  await act(async () => separator().dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })));
+  assert.equal(separator().getAttribute("aria-valuenow"), "62", "the split can be adjusted with the keyboard");
+  await press("Reset workspace layout");
+  assert.equal(separator().getAttribute("aria-valuenow"), "67");
   assert.equal(document.querySelector('header button[aria-label="Start stopwatch"]'), null);
   const initialReads = workdayReads;
   stopped = true;
   await act(async () => cache.invalidateQueries({ queryKey: ["private-stopwatch"] }));
   for (let i = 0; i < 20 && workdayReads === initialReads; i++) await settle();
   assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
+  await press("AI suggestion settings");
   const sourceSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
   assert.ok(sourceSwitch);
   assert.equal(sourceSwitch.dataset.size, "default");
   assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
-  const proposalRow = document.querySelector('[data-time-proposal]');
-  assert.ok(proposalRow);
-  const proposedText = proposalRow.querySelector<HTMLInputElement>('[data-column="narrative"]');
-  const proposedCharge = proposalRow.querySelector<HTMLInputElement>('[data-column="charge"]');
+  await press("AI suggestion settings");
+  const proposalPanel = document.querySelector<HTMLFormElement>('[data-time-proposal]');
+  assert.ok(proposalPanel);
+  const proposedText = proposalPanel.querySelector<HTMLTextAreaElement>('[data-column="narrative"]');
+  const proposedCharge = proposalPanel.querySelector<HTMLInputElement>('[data-column="charge"]');
   assert.equal(proposedText?.value, capture.narrative);
   assert.ok(proposedCharge);
   await input(proposedCharge, "30");
+  await press("Private chat");
+  assert.equal(workspaceGroup().dataset.view, "chat");
+  await press("Day timeline");
+  assert.equal(workspaceGroup().dataset.view, "timeline");
+  assert.equal(proposedCharge.value, "30", "switching tabs preserves the proposal editor and its contents");
+  await press("Split view");
+  await press("Move Day timeline to the left pane");
+  assert.equal(proposedCharge.closest("[data-pane]")?.getAttribute("data-pane"), "left");
+  assert.equal(proposedCharge.value, "30", "docking the timeline preserves the selected editor and unsaved proposal edit");
+  await press("Move Day timeline to the right pane");
   assert.equal(writes.length, 0, "editing a proposal does not publish it");
-  await act(async () => prepare.click());
+  await act(async () => proposalPanel.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  for (let i = 0; i < 20 && block(capture); i++) await settle();
   assert.equal(writes.length, 1);
+  assert.equal(block(capture), null);
+  assert.equal(document.querySelectorAll(`[data-time-row="${confirmedEntries[0]?.id}"]`).length, 1);
+  await press("Time entries");
   await input(cell("new", "narrative"), "First profile's unfinished line");
+  await act(async () => cell("new", "narrative").blur());
+  assert.ok(privateWrites.some(action => action.type === "draft" && action.values?.narrative === "First profile's unfinished line"));
+  await press("Next day");
+  assert.equal(document.querySelector<HTMLInputElement>(".bo-workday-controls input[type=date]")?.value, "2026-11-13");
+  assert.equal(cell("new", "narrative").value, "");
+  await press("Previous day");
+  assert.equal(cell("new", "narrative").value, "First profile's unfinished line");
   captureProfileId = "profile-b";
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   await settle();
   for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
   assert.equal(cell("new", "narrative").value, "");
+  assert.equal(workspaceGroup().dataset.view, "split", "another capture profile starts with its own layout");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Project");
+  await input(cell("new", "worked"), "30");
+  const manualNarrative = cell("new", "narrative");
+  await input(manualNarrative, "Manual untimed work");
+  assert.equal(writes.length, 1, "typing a complete line keeps the active editor open");
+  await act(async () => {
+    document.querySelector<HTMLButtonElement>(".time-workspace-views button[aria-pressed=true]")?.focus();
+  });
+  for (let i = 0; i < 20 && writes.length < 2; i++) await settle();
+  assert.equal(writes.length, 2, "leaving a complete manual line from its narrative cell books it once");
+  const manual = writes.at(-1);
+  assert.ok(manual?.type === "create");
+  assert.equal(manual.entry.activity, "GEN");
+  assert.equal(manual.entry.startAt, undefined);
+  assert.equal(manual.entry.workedMinutes, 30);
   const accepted: TimeEntry = {
     ...base, status: "confirmed", source: "suggestion", groupId: capture.key,
     proposalDigest: capture.digest, authorId: state.userId,
   };
-  const renderSharing = async (revision: number) => act(async () =>
+  await act(async () =>
     root.render(
       <MemoryRouter><BackOfficeTheme><TimesheetLedger
-        state={{ ...state, supportsBillingComparisons: true, entries: [{ ...accepted, revision }] }}
+        state={{ ...state, supportsBillingComparisons: true, entries: [accepted] }}
         initialDate={base.date} onCommand={send} onOriginal={async () => capture}
       /></BackOfficeTheme></MemoryRouter>,
     ),
   );
-  await renderSharing(4);
-  const submitPeriod = () => {
-    const submit = button("Submit period");
-    assert.ok(submit);
-    return act(async () => submit.click());
-  };
-  const preview = async () => {
-    const show = button("Compare with private proposal");
-    assert.ok(show);
-    await act(async () => show.click());
-    const consent = document.querySelector<HTMLInputElement>("details.bo-time-original input");
-    assert.ok(consent);
-    assert.equal(consent.checked, false);
-    await act(async () => consent.click());
-  };
-  await submitPeriod();
+  await press("Show revision history");
+  await press("Compare with private proposal");
+  assert.match(document.querySelector(".bo-time-original")?.textContent ?? "", new RegExp(capture.narrative));
+  assert.equal(document.querySelector(".bo-time-original input"), null);
+  await press("Submit period");
   assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 4 }] });
-  await preview();
-  await submitPeriod();
-  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{
-    id: base.id, revision: 4, shareOriginal: { key: capture.key, digest: capture.digest },
-  }] });
-  await renderSharing(5);
-  await preview();
-  await renderSharing(6);
-  await submitPeriod();
-  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 6 }] });
   cache.clear();
   const nearestPolicy = {
     scope: "project", targetId: "p2", effectiveFrom: "2026-01-01", revision: 1, stopwatchRoundUp: false,
@@ -720,18 +834,24 @@ try {
   assert.equal(savedPolicy.policy.stopwatchRoundUp, false);
 
   const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
+  const { TimeWorkflowProposal } = await import("../../src/react-app/domains/back-office/time-workflow-proposal");
   const otherDate = "2026-11-11";
   const at = (day: string, clock: string) => new Date(day + "T" + clock).toISOString();
   const booked = { ...base, id: crypto.randomUUID(), date: otherDate,
     startAt: at(otherDate, "10:00:00"), endAt: at(otherDate, "10:34:00") };
   const exact: CaptureProposal = { ...capture, key: crypto.randomUUID(), digest: "1".repeat(64),
-    date: otherDate, startAt: booked.startAt, endAt: booked.endAt };
+    narrative: "Already recorded interval", date: otherDate, startAt: booked.startAt, endAt: booked.endAt,
+    matterId: booked.matterId };
   const partial: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "2".repeat(64),
-    parentDigest: exact.digest, startAt: at(otherDate, "10:30:00"), endAt: at(otherDate, "10:50:00"), workedMinutes: 20 };
-  const inlineTimer: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "3".repeat(64),
-    source: "stopwatch", date: base.date, startAt: at(base.date, "09:00:00"), endAt: at(base.date, "09:10:01"), workedMinutes: 10 };
+    narrative: "Adjustable interval", parentDigest: exact.digest, startAt: at(otherDate, "10:30:00"),
+    endAt: at(otherDate, "10:50:00"), workedMinutes: 20 };
+  const inlineTimer: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "3".repeat(64), activity: "",
+    source: "stopwatch", date: base.date, startAt: at(base.date, "09:00:00"),
+    endAt: at(base.date, "09:10:01"), workedMinutes: 10 };
+  const unedited: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "7".repeat(64),
+    startAt: null, endAt: null, narrative: "Untimed item", projectId: null, matterId: undefined };
   const workdayDirectory: BackOfficeState = {
-    scope: "local", directoryId: "synthetic", model: defaultBackOfficeModel(), views: [],
+    scope: "local", directoryId: "second-synthetic-directory", model: defaultBackOfficeModel(), views: [],
     records: [{
       id: booked.id, objectId: "timeEntries", ownerId: state.userId, revision: 7, schemaRevision: 1,
       access: "org", members: [], sourceId: undefined, createdAt: booked.startAt, updatedAt: booked.startAt, archivedAt: null,
@@ -743,193 +863,297 @@ try {
   const { t } = await import("../../src/i18n");
   const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
-  const unedited = { ...exact, key: crypto.randomUUID(), digest: "7".repeat(64), startAt: null, endAt: null };
   let workdayProposals = [exact, partial, inlineTimer, unedited];
-  let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 as const };
+  let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 };
+  let modelStatus: NonNullable<CaptureState["status"]>["type"] = "ready";
+  const chatByDay = new Map<string, CaptureState["chat"]>();
+  let instructions: CaptureState["instructions"] = [];
+  const guidelines: CaptureState["guidelines"] = [];
+  const privateDrafts: CaptureState["drafts"] = {};
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
-    privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
+    privateGuidelineText: async (_context: unknown, file: Blob) => file instanceof window.File && file.name === "scan.pdf"
+      ? { text: "", textlessPages: [1] } : { text: "Use approved concise descriptions.", textlessPages: [2] },
+    privateWorkday: async (context: { date: string }, action?: CaptureAction): Promise<CaptureState> => {
       if (action) workdayActions.push(action);
       if (action?.type === "settings") workdaySettings = action.settings;
-      if (action?.type === "reconcile") workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
+      if (action?.type === "reconcile" || action?.type === "dismiss")
+        workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
         ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
         : proposal);
-      return { settings: workdaySettings, wording: action?.type === "refresh" && action.model && workdaySettings.aiSuggestions ? { [unedited.digest]: { activity: "EXM", narrative: "Generated meeting wording" } } : undefined,
-        modelReady: false, connections: [],
-        drafts: context.date === partial.date && workdaySettings.calendar ? {
-          [partial.key]: { date: partial.date, proposalDigest: partial.digest, values: { workflow: true, worked: "99" } },
-        } : {},
-        proposals: workdayProposals.filter(proposal => proposal.date === context.date && (workdaySettings.calendar || proposal.source !== "calendar")) };
+      if (action?.type === "draft") {
+        if (action.values) privateDrafts[action.key] = { date: context.date, values: action.values, proposalDigest: action.proposalDigest };
+        else delete privateDrafts[action.key];
+      }
+      if (action?.type === "chat") {
+        if (action.instruction) instructions.push({ id: action.id, text: action.text, ...action.instruction });
+        chatByDay.set(context.date, [
+          ...(chatByDay.get(context.date) ?? []), { id: action.id, role: "user", text: action.text },
+          { id: crypto.randomUUID(), role: "assistant", text: "Updated the private day draft." },
+        ]);
+      }
+      if (action?.type === "instruction") instructions = instructions.filter(item => item.id !== action.id);
+      if (action?.type === "guideline") guidelines.push({ ...action.guideline, revision: action.guideline.revision + 1 });
+      return {
+        settings: workdaySettings, modelReady: false, connections: [], guidelines: [...guidelines],
+        instructions: [...instructions], chat: chatByDay.get(context.date) ?? [],
+        status: { type: modelStatus, message: "Raw internal status must stay private" },
+        drafts: Object.fromEntries(Object.entries(privateDrafts).filter(([, draft]) => draft.date === context.date)),
+        proposals: workdayProposals.filter(proposal => proposal.date === context.date
+          && (workdaySettings.calendar || proposal.source !== "calendar")
+          && (proposal.source !== "stopwatch" || !workdaySettings.aiSuggestions ||
+            workdaySettings.stopwatchMode !== "evidence" || modelStatus !== "ready")),
+      };
     },
   };
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
   const renderWorkday = () => act(async () => root.render(
     <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
-      <TimesheetWorkday client={workdayClient} models={[{ ...selectedModel, label: "Haiku" }, { ...selectedModel, modelID: "luna", label: "Luna" }]} directory={workdayDirectory} state={weeklyState}
-        initialDate={base.date} onDraft={() => {}}>
-        {captureSheet => <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />}
+      <TimesheetWorkday client={workdayClient} models={[{ ...selectedModel, label: "Haiku" }]} directory={workdayDirectory} state={weeklyState}
+        initialDate={base.date} onDateChange={() => {}}>
+        {(captureSheet, workspace) => workspace(
+          <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />,
+          proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={weeklyState}
+            capture={captureSheet} onCommand={send} canEdit />,
+        )}
       </TimesheetWorkday>
     </BackOfficeTheme></MemoryRouter></QueryClientProvider>,
   ));
-  await renderWorkday();
+  const selectedPeriod = () => document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent;
+  const dayInput = () => document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]')?.value;
   const aiSwitch = () => {
     const control = document.querySelector<HTMLButtonElement>('.bo-workday-controls [role="switch"]');
     assert.ok(control);
     return control;
   };
-  for (let i = 0; i < 20 && aiSwitch().disabled; i++) await settle();
+  const selectNative = async (element: HTMLSelectElement, value: string) => {
+    await act(async () => { element.value = value; element.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  };
+  const selectPopup = async (label: string, value: string) => {
+    const select = document.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${label}"]`);
+    assert.ok(select, label);
+    await act(async () => select.click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === value);
+    assert.ok(option, value);
+    await act(async () => { option.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true })); option.click(); });
+    await settle();
+  };
+  const until = async (ready: () => unknown) => { for (let i = 0; i < 25 && !ready(); i++) await settle(); };
+  const proposalForm = (proposal: CaptureProposal) => document.querySelector<HTMLFormElement>(`[data-time-proposal="${proposal.key}"]`);
+  const acceptFor = (proposal: CaptureProposal) => proposalForm(proposal)?.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const submit = async (form: HTMLFormElement | null) => {
+    assert.ok(form);
+    await act(async () => form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  };
+
+  await renderWorkday();
+  await until(() => !aiSwitch().disabled);
   assert.equal(aiSwitch().getAttribute("aria-checked"), "false");
   assert.equal(workdayActions.some(action => action.type === "refresh"), false);
-  assert.equal(workdayActions.some(action => action.type === "refresh" && action.model), false);
-  await act(async () => aiSwitch().click());
-  assert.equal(aiSwitch().getAttribute("aria-checked"), "true");
-  const modelRefreshes = () => workdayActions.filter(action => action.type === "refresh" && action.model).length;
-  const initialRefreshes = modelRefreshes();
-  assert.equal(initialRefreshes, 1);
-  await act(async () => root.render(null));
-  await renderWorkday();
-  for (let i = 0; i < 20 && modelRefreshes() === initialRefreshes; i++) await settle();
-  assert.equal(aiSwitch().getAttribute("aria-checked"), "true");
-  assert.equal(modelRefreshes(), initialRefreshes + 1);
-  const navigateDay = async (label: string) => {
-    const arrow = document.querySelector<HTMLButtonElement>('[aria-label="' + label + '"]');
-    assert.ok(arrow);
-    await act(async () => arrow.click());
+  assert.ok(block(inlineTimer), "a manually stopped timer is visible with AI off");
+  await press("AI suggestion settings");
+  const guidelineForm = document.querySelector<HTMLFormElement>(".time-workspace-guidelines form");
+  const guidelineText = guidelineForm?.querySelector<HTMLTextAreaElement>("textarea");
+  const guidelineFile = guidelineForm?.querySelector<HTMLInputElement>('input[type="file"]');
+  assert.ok(guidelineForm && guidelineText && guidelineFile);
+  const file = async (content: string | ArrayBuffer, name: string) => {
+    Object.defineProperty(guidelineFile, "files", { configurable: true, value: [new window.File([content], name)] });
+    await act(async () => guidelineFile.dispatchEvent(new window.Event("change", { bubbles: true })));
   };
-  await navigateDay(t("calendar.next_day"));
-  await navigateDay(t("calendar.previous_day"));
-  assert.equal(document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]')?.value, base.date);
-  const weekly = button("Week");
-  assert.ok(weekly);
-  await act(async () => weekly.click());
-  const suggestionRow = (proposal: CaptureProposal) => document.querySelector<HTMLElement>(
-    `[data-time-proposal="${proposal.key}"]`,
-  );
-  for (let i = 0; i < 20 && !suggestionRow(partial); i++) await settle();
+  await file("Use approved action verbs.", "local-guideline.txt");
+  await until(() => guidelineText.value === "Use approved action verbs.");
+  assert.equal(guidelineText.value, "Use approved action verbs.");
+  const { default: JSZip } = await import("jszip");
+  const sampleDocx = new JSZip();
+  sampleDocx.file("word/document.xml", `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Use short descriptions.</w:t></w:r></w:p></w:body></w:document>`);
+  await file(await sampleDocx.generateAsync({ type: "arraybuffer" }), "sample.docx");
+  await until(() => guidelineText.value === "Use short descriptions.");
+  assert.equal(guidelineText.value, "Use short descriptions.");
+  await file("synthetic PDF", "scan.pdf");
+  await until(() => guidelineForm.textContent?.includes("no searchable text"));
+  assert.match(guidelineForm.textContent ?? "", /no searchable text/);
+  await file("synthetic PDF with text", "guideline.pdf");
+  await until(() => guidelineText.value === "Use approved concise descriptions.");
+  assert.equal(guidelineText.value, "Use approved concise descriptions.");
+  assert.equal(guidelines.length, 0, "extracting and reviewing the guideline does not save it");
+  await input(guidelineText, "Reviewed: use approved concise descriptions.");
+  await submit(guidelineForm);
+  await until(() => guidelines.length === 1);
+  assert.equal(guidelines[0]?.rules.instructions, "Reviewed: use approved concise descriptions.");
+  assert.equal(guidelines[0]?.scope, "firm");
+  assert.equal(guidelines[0]?.effectiveFrom, base.date);
+  await press("AI suggestion settings");
+  await act(async () => aiSwitch().click());
+  await until(() => workdayActions.some(action => action.type === "refresh"));
+  assert.deepEqual(workdayActions.find(action => action.type === "refresh"), { type: "refresh", model: selectedModel });
+  await press("AI suggestion settings");
+  await selectPopup(t("timesheets.source.stopwatch"), "Use as an AI source");
+  assert.equal(workdaySettings.stopwatchMode, "evidence");
+  await until(() => !block(inlineTimer));
+  assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
+  await press("AI suggestion settings");
+  modelStatus = "failed";
+  await press("Refresh day draft");
+  await until(() => Boolean(block(inlineTimer)));
+  assert.ok(block(inlineTimer), "a failed model leaves the manual timer accessible");
+  assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
+
+  await press("Week");
   const weekDays = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")];
   assert.equal(weekDays.length, 7);
-  const weekdayHeaders = [...document.querySelectorAll(".bo-time-week th[scope=col]")].map(cell => cell.textContent);
-  assert.deepEqual(weekdayHeaders, ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
   const wednesday = weekDays[2];
   assert.equal(wednesday.querySelector("time")?.dateTime, otherDate);
   assert.equal(wednesday.querySelector("span")?.textContent, "34 · 30");
-  assert.match(wednesday.getAttribute("aria-label") ?? "", /Recorded · 34 min.*Billable · 30 min/);
-  assert.equal(wednesday.getAttribute("aria-pressed"), "false");
-  const acceptFor = (proposal: CaptureProposal) => suggestionRow(proposal)?.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
+  assert.equal(block(partial), null, "the timeline stays on the selected date in the weekly view");
+  await act(async () => wednesday.click());
+  await until(() => Boolean(block(partial)));
+  assert.equal(selectedPeriod(), "Day");
+  assert.equal(dayInput(), otherDate);
+  assert.equal(block(inlineTimer), null, "a different day's timer stays out of the timeline");
+  assert.equal(document.querySelectorAll(".bo-workday-axis-column").length, 1);
+  await selectPopup("Timeline layout", "By matter");
+  assert.equal(document.querySelectorAll(".bo-workday-axis-column").length, 2);
+  assert.match(document.querySelector(".bo-workday-axis")?.textContent ?? "", /Unassigned matter/);
+  assert.ok(document.querySelector(`.bo-workday-untimed [data-proposal-id="${unedited.key}"]`));
+  await openProposal(exact);
   assert.equal(acceptFor(exact)?.disabled, true);
-  assert.equal(acceptFor(partial)?.disabled, true, "a previously corrected proposal can still conflict");
-  const proposalCell = (proposal: CaptureProposal, field: string) => {
-    const result = suggestionRow(proposal)?.querySelector<HTMLInputElement>(`[data-column="${field}"]`);
-    assert.ok(result);
-    return result;
-  };
-  const beforeConflict = commands.length;
-  await act(async () => proposalCell(partial, "narrative").dispatchEvent(new window.KeyboardEvent("keydown", {
-    key: "Enter", ctrlKey: true, bubbles: true,
-  })));
-  assert.equal(commands.length, beforeConflict, "the keyboard shortcut cannot accept an overlapping proposal");
-  const link = suggestionRow(exact)?.parentElement?.querySelector<HTMLSelectElement>("select");
+  const link = proposalForm(exact)?.querySelector<HTMLSelectElement>("select");
   assert.ok(link);
-  await act(async () => {
-    link.value = booked.id;
-    link.dispatchEvent(new window.Event("change", { bubbles: true }));
-  });
-  for (let i = 0; i < 20 && suggestionRow(exact); i++) await settle();
+  await selectNative(link, booked.id);
+  await until(() => !block(exact));
   assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
     type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7,
   });
-  assert.equal(suggestionRow(exact), null);
-  assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the remaining proposal");
-  await act(async () => wednesday.click());
-  for (let i = 0; i < 20 && !suggestionRow(unedited); i++) await settle();
-  assert.equal(document.querySelector(".bo-time-week"), null);
-  assert.equal(suggestionRow(inlineTimer), null, "the next day's stopwatch stays out of Day");
-  assert.deepEqual(workdayActions.find(action => action.type === "refresh" && action.model), { type: "refresh", model: selectedModel });
-  assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
-  assert.equal(workdayActions.some(action => action.type === "draft" && action.key === unedited.key), false);
-  assert.equal(commands.length, beforeConflict);
-  await act(async () => aiSwitch().click());
-  assert.equal(suggestionRow(unedited), null);
-  assert.equal(suggestionRow(inlineTimer), null);
-  await act(async () => aiSwitch().click());
-  assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
-  assert.equal(document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent, "Day");
-  const correctPartial = [...(suggestionRow(partial)?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
-    .find(button => button.textContent === "Correct");
-  assert.ok(correctPartial);
-  await act(async () => correctPartial.click());
+  assert.equal(block(exact), null);
+  await openProposal(partial);
+  assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the second suggestion");
+  await press("Edit source and times");
   const correctionForm = document.querySelector<HTMLFormElement>(".bo-workday-correction");
-  assert.ok(correctionForm);
-  const correctedStart = correctionForm.querySelector<HTMLInputElement>('input[type="time"]');
+  const correctedStart = correctionForm?.querySelector<HTMLInputElement>('input[type="time"]');
   assert.ok(correctedStart);
   await input(correctedStart, "10:34");
-  await act(async () => correctionForm.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
-  for (let i = 0; i < 20 && acceptFor(partial)?.disabled; i++) await settle();
-  assert.equal(acceptFor(partial)?.disabled, false, "touching the booking boundary clears the overlap");
-  assert.equal(proposalCell(partial, "billableWork").value, "16", "the corrected suggestion ignores the old draft");
-  await act(async () => weekly.click());
-  for (let i = 0; i < 20 && !suggestionRow(inlineTimer); i++) await settle();
-  assert.equal(proposalCell(inlineTimer, "charge").value, "20");
-  await input(proposalCell(inlineTimer, "matter"), "Client · M · 26/12 · Nearest");
-  assert.equal(proposalCell(inlineTimer, "charge").value, "10");
-  await input(proposalCell(inlineTimer, "date"), otherDate);
-  assert.equal(proposalCell(inlineTimer, "charge").value, "20", "the exact interval uses the new effective date's policy");
-  await input(proposalCell(inlineTimer, "charge"), "");
-  assert.equal(proposalCell(inlineTimer, "charge").value, "", "deleting an automatic charge leaves the input blank for editing");
-  await input(proposalCell(inlineTimer, "charge"), "40");
-  await input(proposalCell(inlineTimer, "date"), base.date);
-  await input(proposalCell(inlineTimer, "nonBillable"), "3");
-  assert.equal(proposalCell(inlineTimer, "charge").value, "40", "an explicit charge survives date and allocation changes");
-  await input(proposalCell(inlineTimer, "billableWork"), "0");
-  assert.equal(proposalCell(inlineTimer, "charge").value, "0");
-  const thursday = document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")[3];
-  assert.ok(thursday);
-  await act(async () => thursday.click());
-  const selectedPeriod = () => document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent;
-  assert.equal(selectedPeriod(), "Day", "clicking a date in Week opens Day");
-  for (let i = 0; i < 20 && aiSwitch().disabled; i++) await settle();
-  assert.equal(suggestionRow(partial), null, "Wednesday suggestions are absent from Thursday");
-  assert.equal(document.querySelector(`[data-time-row="${booked.id}"]`), null);
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]')?.click());
-  const modelSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Model"]');
-  assert.ok(modelSelect);
-  assert.match(modelSelect.textContent ?? "", /Automatic.*Haiku/);
-  await act(async () => modelSelect.click());
-  const luna = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent === "Luna");
-  assert.ok(luna);
-  await act(async () => {
-    luna.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
-    luna.click();
-  });
-  await settle();
-  assert.deepEqual(workdaySettings.model, { providerID: "eigenwelt", modelID: "luna" });
-  assert.ok(workdayActions.some(action => action.type === "refresh" && action.model?.modelID === "luna"));
-  const calendarSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
-  assert.ok(calendarSwitch);
-  await act(async () => calendarSwitch.click());
-  for (let i = 0; i < 20 && suggestionRow(partial); i++) await settle();
-  assert.equal(suggestionRow(partial), null, "a source disabled on Thursday disappears from Wednesday");
-  assert.ok(suggestionRow(inlineTimer), "the stopwatch source stays available");
-  const settingsButton = document.querySelector<HTMLButtonElement>('[aria-label="AI suggestion settings"]');
-  await act(async () => settingsButton?.click());
-  const month = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-period button")].find(button => button.textContent === "Month");
-  assert.ok(month);
-  await act(async () => month.click());
+  await submit(correctionForm);
+  await until(() => acceptFor(partial)?.disabled === false);
+  assert.equal(acceptFor(partial)?.disabled, false, "touching boundaries do not overlap");
+  assert.equal(proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="billableWork"]')?.value, "16");
+
+  await openProposal(unedited);
+  await press(t("timesheets.sheet.decline"));
+  await until(() => !block(unedited));
+  assert.equal(block(unedited), null);
+  assert.deepEqual(workdayActions.find(action => action.type === "dismiss"),
+    { type: "dismiss", key: unedited.key, digest: unedited.digest });
+
+  await press("Private chat");
+  const chatPanel = document.querySelector<HTMLElement>(".time-workspace-chat");
+  const chatForm = chatPanel?.querySelector("form") ?? null;
+  const message = chatForm?.querySelector("textarea");
+  assert.ok(message);
+  await input(message, "Rename the draft item today");
+  await submit(chatForm);
+  await until(() => chatPanel?.textContent?.includes("Updated the private day draft."));
+  assert.match(chatPanel?.textContent ?? "", /Rename the draft item today/);
+  const dayCorrection = workdayActions.find(action => action.type === "chat");
+  assert.ok(dayCorrection?.type === "chat" && !dayCorrection.instruction);
+  const purpose = chatForm?.querySelector("select");
+  assert.ok(purpose);
+  await selectNative(purpose, "personal");
+  await input(message, "Use a short action verb for future drafts");
+  await submit(chatForm);
+  await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
+  assert.deepEqual(workdayActions.filter(action => action.type === "chat").at(-1)?.instruction, { scope: "personal" });
+
+  await press("Time entries");
+  await press("Month");
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
   const firstWeek = document.querySelector(".bo-time-month tbody tr");
-  assert.equal(firstWeek?.children.length, 7);
   assert.equal(firstWeek?.children[6].querySelector("time")?.dateTime, "2026-11-01", "November begins under Sunday");
-  assert.equal(firstWeek?.querySelectorAll("button").length, 1);
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Next month"]')?.click());
-  assert.equal(document.querySelectorAll(".bo-time-month button").length, 31);
-  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Previous month"]')?.click());
-  const recordedDay = document.querySelector<HTMLButtonElement>(`.bo-time-month button:has(time[datetime="${otherDate}"])`);
-  assert.ok(recordedDay);
-  await act(async () => recordedDay.click());
+  const day = document.querySelector<HTMLButtonElement>(`.bo-time-month button:has(time[datetime="${base.date}"])`);
+  assert.ok(day);
+  await act(async () => day.click());
   assert.equal(selectedPeriod(), "Day");
-  assert.equal(document.querySelector<HTMLInputElement>(".bo-workday-controls input[type=date]")?.value, otherDate);
-  assert.ok(document.querySelector(`[data-time-row="${booked.id}"]`));
-  assert.equal(suggestionRow(inlineTimer), null, "Thursday stopwatch is absent from Wednesday");
+  assert.equal(dayInput(), base.date);
+  await press("Private chat");
+  assert.doesNotMatch(chatPanel?.textContent ?? "", /Rename the draft item today/);
+  await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
+  assert.match(chatPanel?.querySelector(".time-workspace-rules")?.textContent ?? "", /Use a short action verb/);
+
+  const pane = (side: "left" | "right") => {
+    const element = workspaceGroup().querySelector<HTMLElement>(`[data-pane="${side}"]`);
+    assert.ok(element);
+    return element;
+  };
+  const paneTabs = (side: "left" | "right") => [...pane(side).querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  const activeTab = (side: "left" | "right") => pane(side).querySelector('[role="tab"][aria-selected="true"]');
+  const storedKey = "legalwork.time-workspace:" + JSON.stringify([workdayClient.baseUrl, workdayDirectory.directoryId,
+    { scope: workdayDirectory.scope, user: workdayDirectory.permissions.userId, principal: "" }]);
+  await act(async () => root.render(null));
+  localStorage.setItem(storedKey, JSON.stringify({ layout: { entries: 59, private: 41 }, view: "chat", timeline: "matters" }));
+  await renderWorkday();
+  assert.equal(workspaceGroup().dataset.view, "chat", "older view preferences still load");
+  await press("Split view");
+  assert.equal(separator().getAttribute("aria-valuenow"), "59");
+  assert.match(document.querySelector('[role="combobox"][aria-label="Timeline layout"]')?.textContent ?? "", /By matter/);
+  await press("Reset workspace layout");
+  assert.equal(workspaceGroup().dataset.view, "split");
+  assert.deepEqual(paneTabs("left").map(tab => tab.textContent), ["Time entries"]);
+  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Day timeline", "Private chat"]);
+  const defaultCalendar = activeTab("right");
+  assert.ok(defaultCalendar);
+  await act(async () => defaultCalendar.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  assert.equal(activeTab("right")?.textContent, "Private chat");
+  const dockedMessage = pane("right").querySelector<HTMLTextAreaElement>('[data-workspace-tab="chat"] textarea');
+  assert.ok(dockedMessage);
+  await input(dockedMessage, "Keep this draft while moving chat");
+  await press("Move Private chat to the left pane");
+  assert.equal(activeTab("left")?.textContent, "Private chat");
+  assert.equal(activeTab("right")?.textContent, "Day timeline");
+  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"] textarea'), dockedMessage);
+  assert.equal(dockedMessage.value, "Keep this draft while moving chat");
+  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"]')?.hasAttribute("hidden"), false);
+  assert.equal(pane("right").querySelector('[data-workspace-tab="timeline"]')?.hasAttribute("hidden"), false);
+
+  const dragSource = paneTabs("left").find(tab => tab.textContent === "Time entries");
+  const dropTarget = activeTab("right");
+  assert.ok(dragSource && dropTarget);
+  const drag = new window.DataTransfer();
+  const dragEvent = (name: string, target: Element) => {
+    const event = new window.Event(name, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: drag });
+    target.dispatchEvent(event);
+  };
+  await act(async () => {
+    dragEvent("dragstart", dragSource);
+    dragEvent("dragover", dropTarget);
+    dragEvent("drop", dropTarget);
+  });
+  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Time entries", "Day timeline"]);
+  const calendarTab = paneTabs("right")[1];
+  await act(async () => calendarTab.click());
+  await act(async () => root.render(null));
+  await renderWorkday();
+  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Time entries", "Day timeline"]);
+  assert.equal(activeTab("left")?.textContent, "Private chat");
+  assert.equal(activeTab("right")?.textContent, "Day timeline");
+  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"]')?.hasAttribute("hidden"), false);
+  assert.equal(pane("right").querySelector('[data-workspace-tab="timeline"]')?.hasAttribute("hidden"), false);
+  await press("Reset workspace layout");
+  assert.deepEqual(paneTabs("left").map(tab => tab.textContent), ["Time entries"]);
+  assert.equal(activeTab("left")?.textContent, "Time entries");
+  assert.equal(activeTab("right")?.textContent, "Day timeline");
+  assert.equal(separator().getAttribute("aria-valuenow"), "67");
+  await act(async () => {
+    workspaceWidth = 540;
+    for (const resize of workspaceObservers) resize([], new window.ResizeObserver(() => {}));
+  });
+  assert.equal(workspaceGroup().dataset.view, "entries");
+  assert.equal(button("Split view"), undefined);
+  await press("Day timeline");
+  assert.equal(workspaceGroup().dataset.view, "timeline");
+  assert.equal(dayInput(), base.date);
+  await act(async () => root.render(null));
+  await renderWorkday();
+  assert.equal(workspaceGroup().dataset.view, "timeline", "the layout is restored for the same account and directory");
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

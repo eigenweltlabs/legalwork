@@ -164,6 +164,7 @@ import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
 import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts.js";
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
+import { observationBatch, recordWorkspaceObservations, recordCompletedTask, currentActivityProfile } from "./time-capture/activity-workday.js";
 import { registerWorkdayRoutes, startWorkdaySchedule } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
@@ -1964,6 +1965,13 @@ function createRoutes(
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace});
+  for (const method of ["GET","POST"]) addRoute(routes, method, "/private-timesheet/activity", "host-token", async ctx => {
+    if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
+    if (method === "GET") return jsonResponse({profileId: (await currentActivityProfile(config)).profileId});
+    ensureWritable(config);
+    await recordWorkspaceObservations(config, observationBatch.parse(await readJsonBodyLimited(ctx.request, 128 * 1024)));
+    return jsonResponse({ok:true});
+  });
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
@@ -4031,7 +4039,13 @@ function createRoutes(
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     const patch = parseTaskPatch(body);
     if (patch.projectId) await resolveWorkspace(config, patch.projectId);
+    const observe = patch.status === "done" && ctx.actor?.type === "host" && !ctx.agentAccess &&
+      ["localhost","127.0.0.1","::1","[::1]"].includes(config.host) && store.getTask(ctx.params.taskId)?.status !== "done";
+    const activityProfile = observe ? await currentActivityProfile(config).catch(() => undefined) : undefined;
     const task = store.patchTask(ctx.params.taskId, patch, actor);
+    if (activityProfile && (!actor.userId || activityProfile.captureUser === actor.userId)) {
+      await recordCompletedTask(config, activityProfile, task).catch(() => {});
+    }
     tasksChanged();
     return jsonResponse({ ok: true, task });
   });

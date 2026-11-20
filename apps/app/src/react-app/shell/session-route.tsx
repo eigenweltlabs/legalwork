@@ -156,6 +156,8 @@ import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/
 import type { HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
 import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
+import { isInternalSession } from "@legalwork/types/session-visibility";
+import { useWorkdayActivity } from "./workday-activity";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
@@ -843,6 +845,20 @@ export function SessionRoute() {
   // full list for resolving their agent sessions, while project navigation
   // shows only project folders.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
+  const sessionActivityByWorkspaceId = useSessionActivityStore(state => state.statusesByWorkspaceId);
+  const observedAgents = useMemo(() => workspaces.flatMap(workspace => {
+    const projectId = workspaceServerId(workspace);
+    if (!projectId || workspace.preset === "main-assistant" || hiddenTemplateWorkspaceIds.includes(workspace.id)) return [];
+    return (sessionsByWorkspaceId[workspace.id] ?? []).flatMap(session => {
+      if (!session.id || isInternalSession(session)) return [];
+      const activity = sessionActivityByWorkspaceId[projectId]?.[session.id];
+      const running = activity ? ["thinking", "responding", "compacting"].includes(activity) : isActiveSessionStatus(getSessionStatus(session));
+      return running ? [{projectId, stream:session.id}] : [];
+    });
+  }), [workspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId, hiddenTemplateWorkspaceIds]);
+  const observedWorkspace = !mainPage && !backOfficePage && selectedWorkspace && selectedWorkspace.preset !== "main-assistant" &&
+    !hiddenTemplateWorkspaceIds.includes(selectedWorkspace.id) ? workspaceServerId(selectedWorkspace) : null;
+  useWorkdayActivity(hostToken ? client : null, observedWorkspace, observedAgents);
   const sidebarWorkspaces = useMemo(
     () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
@@ -860,7 +876,6 @@ export function SessionRoute() {
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
-  const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
   useEffect(() => {
     for (const group of workspaceSessionGroups) {

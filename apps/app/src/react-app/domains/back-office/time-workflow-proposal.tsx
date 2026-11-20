@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from "react";
-import { proposalAssignment } from "./time-record-values";
-import { Check, Timer, Sparkles, X } from "lucide-react";
+import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
+import { Button } from "@/components/ui/button";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
 import {
@@ -11,20 +11,19 @@ import {
   fromDraft, matchMatter, matterOptions, workerOptions, productOptions, parseRow, changeAmounts,
   rowColumns, stopwatchRowCharge, type RowColumn, type RowValues,
 } from "./timesheet-row";
-import { ledgerColumnKeys, sourceKeys } from "./timesheet-labels";
+import { ledgerColumnKeys } from "./timesheet-labels";
 import { timeRecordDate } from "./time-record-values";
 import type { TimeCaptureSheet } from "./time-record-sheet";
 
-export function TimeWorkflowProposal({ proposal, state, columns, capture, onCommand, canEdit }: {
+export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canEdit }: {
   proposal: CaptureProposal;
   state: TimesheetState;
-  columns: RowColumn[];
   capture: TimeCaptureSheet;
   onCommand: (command: TimesheetCommand) => Promise<unknown>;
   canEdit: boolean;
 }) {
-  const id = useId(), host = useRef<HTMLDivElement>(null);
-  const matters = matterOptions(state), people = workerOptions(state);
+  const id = useId();
+  const matters = matterOptions(state), worker = workerOptions(state).find(person => person.id === state.userId);
   const { project, matter, clientId, policy: initialPolicy } = proposalAssignment(proposal, state);
   const stopwatch = proposal.source === "stopwatch";
   const duration = captureChargeMinutes(proposal);
@@ -36,14 +35,19 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
   const [edited, setValues] = useState<RowValues>(() => {
     const initial = fromDraft({
       date: proposal.date, activity: proposal.activity, projectId: project?.id, matterId: matter?.id, clientId,
-      narrative: stopwatch && !proposal.parentDigest ? "" : proposal.narrative,
+      narrative: isUntitledStopwatch(proposal) ? "" : proposal.narrative,
       workedMinutes: proposal.workedMinutes ?? undefined,
-      billableMinutes: duration === null || stopwatch ? undefined : proposedCharge(duration, initialPolicy),
-    }, people.find(person => person.id === state.userId)?.label ?? "", proposal.date, state, matters);
+      billableMinutes: duration === null || stopwatch ? undefined : proposal.chargeMinutes ?? proposedCharge(duration, initialPolicy),
+      workProductId: state.products.find(product =>
+        product.id === (proposal.workProductId ?? proposal.documentId) && product.matterId === matter?.id)?.id,
+    }, worker?.label ?? "", proposal.date, state, matters);
     const saved = capture.drafts[proposal.key];
     if (saved?.proposalDigest !== proposal.digest || !saved.values.workflow) return initial;
     const result = { ...initial };
-    for (const column of rowColumns) if (typeof saved.values[column] === "string") result[column] = saved.values[column];
+    for (const column of rowColumns) {
+      if (column !== "date" && column !== "workers" && typeof saved.values[column] === "string") result[column] = saved.values[column];
+    }
+    if (typeof saved.values.productId === "string") result.productId = saved.values.productId;
     if (typeof saved.values.billable === "boolean") result.billable = saved.values.billable;
     if (stopwatch) {
       result.manualCharge = typeof saved.values.manualCharge === "boolean"
@@ -59,18 +63,26 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
   const inFlight = useRef(false);
   const queue = useRef(Promise.resolve());
   const policy = policyFor(edited);
-  const charge = stopwatch ? stopwatchRowCharge(proposal, edited, policy) : null;
+  const assignment = matchMatter(matters, edited.matter);
+  const unchangedTimer = edited.worked === (proposal.workedMinutes?.toString() ?? "") &&
+    Number(edited.nonBillable) === 0 && assignment?.matterId === matter?.id &&
+    assignment?.projectId === project?.id && (assignment?.clientId ?? "") === clientId;
+  const charge = stopwatch
+    ? (unchangedTimer ? proposal.chargeMinutes : undefined) ?? stopwatchRowCharge(proposal, edited, policy)
+    : null;
   const values = charge !== null && !edited.manualCharge && Number.isFinite(charge)
     ? { ...edited, charge: edited.worked || (duration !== null && proposal.workedMinutes === null) ? String(charge) : "" }
     : suggestion ? { ...edited, ...suggestion } : edited;
   const conflict = capture.overlaps.has(proposal.key);
   const selectedMatter = matchMatter(matters, values.matter);
-  const selectedWorker = people.find(person => person.label.toLocaleLowerCase() === values.workers.trim().toLocaleLowerCase());
+  const fields: RowColumn[] = state.supportsTimeAllocations
+    ? ["matter", "activity", "product", "narrative", "worked", "billableWork", "nonBillable", "charge"]
+    : ["matter", "activity", "product", "narrative", "worked", "charge"];
 
   function saveFields() {
     const fields: Record<string, BackOfficeValue> = {
       workflow: true, billable: values.billable,
-      matterId: selectedMatter?.matterId ?? null, workerId: selectedWorker?.id ?? null,
+      matterId: selectedMatter?.matterId ?? null, workerId: state.userId, productId: values.productId ?? null,
     };
     if (stopwatch) fields.manualCharge = Boolean(values.manualCharge);
     for (const column of rowColumns) fields[column] = values[column];
@@ -106,7 +118,7 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     }
     await run(async () => {
       const entry = parsed.entry;
-      if (entry.date === values.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
+      if (entry.date === proposal.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
         entry.startAt = proposal.startAt;
         entry.endAt = proposal.endAt;
       }
@@ -114,18 +126,16 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
         type: "create", requestId: proposal.key, source: "suggestion", proposalDigest: proposal.digest,
         entry, workerIds: parsed.workerIds,
       });
-      await capture.act({ type: "draft", key: proposal.key, values: null });
     });
   }
   const choices: Partial<Record<RowColumn, string[]>> = {
     matter: matters.map(matter => matter.label),
-    workers: people.map(person => person.label),
     product: productOptions(state, selectedMatter?.matterId).map(product => product.label),
     activity: Object.keys({ ...timeActivities, ...policy.activityLabels }),
   };
   const linkMatter = selectedMatter?.matterId;
   const entriesById = new Map(state.entries.map(entry => [entry.id, entry]));
-  const matches = linkMatter && selectedWorker?.id === state.userId ? capture.linkableRecords?.filter(record => {
+  const matches = linkMatter ? capture.linkableRecords?.filter(record => {
     const entry = entriesById.get(record.id);
     return entry
       ? entry.workerId === state.userId && entry.status !== "declined" && entry.status !== "pending"
@@ -139,77 +149,68 @@ export function TimeWorkflowProposal({ proposal, state, columns, capture, onComm
     });
   }
 
+  function change(column: RowColumn, value: string) {
+    setChanged(true);
+    setValues(current => {
+      const previous = suggestion ? { ...current, ...suggestion } : current;
+      if (column === "worked" || column === "billableWork" || column === "nonBillable" || column === "charge") {
+        const effective = policyFor(previous);
+        return { ...previous, ...changeAmounts(previous, column, value, effective,
+          stopwatch ? amounts => stopwatchRowCharge(proposal, amounts, effective) : undefined) };
+      }
+      if (column === "matter" && previous.matter !== value) {
+        const next = { ...previous, matter: value, product: "", productId: undefined };
+        if (!stopwatch && previous.billable && Number(previous.charge) === proposedCharge(Number(previous.billableWork), policyFor(previous)))
+          next.charge = String(proposedCharge(Number(previous.billableWork), policyFor(next)));
+        return next;
+      }
+      if (column === "product") return { ...previous, product: value,
+        productId: productOptions(state, selectedMatter?.matterId).find(product => product.label === value)?.id };
+      return { ...previous, [column]: value };
+    });
+  }
+
   return (
-    <div ref={host} className="time-workflow-proposal">
-      <div role="row" className="bo-grid-row" data-time-proposal={proposal.key}>
-        <div className="bo-check-cell"><div className="time-proposal-actions">
-          <button type="button" aria-label={t("timesheets.sheet.decline")} title={t("timesheets.sheet.decline")}
-            disabled={busy} onClick={() => updateSource({ type: "dismiss", key: proposal.key })}><X size={14} /></button>
-          <button type="button" aria-label={t("timesheets.sheet.accept")}
-            title={t(conflict ? "timesheets.workday.overlap" : "timesheets.sheet.accept")}
-            disabled={busy || !canEdit || conflict} onClick={() => void accept()}><Check size={14} /></button>
-        </div></div>
-        {columns.map((column, index) => (
-          <div className="bo-grid-cell bo-time-input-cell" role="gridcell" key={column}>
-            <input aria-label={t(ledgerColumnKeys[column])} data-column={column}
-              value={column === "charge" && !values.billable ? "0" : values[column]}
-              type={column === "date" ? "date" : "text"} disabled={!canEdit || busy}
-              readOnly={column === "charge" && !values.billable || column === "workers" && people.length <= 1} list={choices[column] ? id + column : undefined}
-              onChange={event => {
-                const value = event.target.value;
-                setChanged(true);
-                setValues(current => {
-                  const previous = suggestion ? { ...current, ...suggestion } : current;
-                  if (column === "worked" || column === "billableWork" || column === "nonBillable" || column === "charge") {
-                    const effective = policyFor(previous);
-                    return { ...previous, ...changeAmounts(previous, column, value, effective,
-                      stopwatch ? amounts => stopwatchRowCharge(proposal, amounts, effective) : undefined) };
-                  }
-                  if (column === "matter" && previous.matter !== value) return { ...previous, matter: value, product: "" };
-                  return { ...previous, [column]: value };
-                });
-              }}
-              onBlur={privateSave}
-              onKeyDown={event => {
-                if (event.key === "Tab") {
-                  const next = index + (event.shiftKey ? -1 : 1);
-                  if (next >= 0 && next < columns.length) {
-                    event.preventDefault();
-                    host.current?.querySelector<HTMLInputElement>(`[data-column="${columns[next]}"]`)?.focus();
-                  }
-                }
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  void accept();
-                }
-              }}
-            />
-            {choices[column] && <datalist id={id + column}>{choices[column]?.map(value => <option key={value} value={value} />)}</datalist>}
-          </div>
-        ))}
-        <div className="bo-grid-cell"><span>{t(proposal.source === "stopwatch" ? "timesheets.source.stopwatch" : "timesheets.ai_tab")}</span></div>
-      </div>
-      <div className="time-proposal-details time-workflow-source">
-        <button type="button" className="time-proposal-source" onClick={() => capture.openSource(proposal)}>
-          {proposal.source === "stopwatch" ? <Timer size={13} /> : <Sparkles size={13} />}{proposal.source === "stopwatch" ? t(sourceKeys.stopwatch) : t("timesheets.sheet.because", { source: t(sourceKeys[proposal.source]) })}
-          {proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}{project && " · " + project.name}
-        </button>
-        {conflict && <>
-          <span>{t("timesheets.workday.overlap")}</span>
-          <button type="button" className="time-proposal-source" onClick={() => capture.openSource(proposal)}>{t("timesheets.workday.correct")}</button>
-        </>}
-        {matches.length > 0 && <select aria-label={t("timesheets.sheet.reconcile")} value="" disabled={busy || !canEdit}
-          onChange={event => {
-            const match = matches.find(record => record.id === event.target.value);
-            if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
-          }}>
-          <option value="">{t("timesheets.sheet.reconcile")}</option>
+    <form className="time-workspace-form" data-time-proposal={proposal.key} onSubmit={event => {
+      event.preventDefault();
+      void accept();
+    }}>
+      {fields.map(column => (
+        <label key={column}>
+          {t(ledgerColumnKeys[column])}
+          {column === "narrative"
+            ? <textarea rows={3} maxLength={2000} data-column={column} value={values.narrative} disabled={!canEdit || busy}
+                onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />
+            : <input data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
+                disabled={!canEdit || busy} readOnly={column === "charge" && !values.billable}
+                list={choices[column] ? id + column : undefined}
+                onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />}
+          {choices[column] && <datalist id={id + column}>{choices[column]?.map(value => <option key={value} value={value} />)}</datalist>}
+        </label>
+      ))}
+      {conflict && <p role="status">{t("timesheets.workday.overlap")}</p>}
+      {error && <p role="alert">{error}</p>}
+      {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
+        <select value="" disabled={busy || !canEdit} onChange={event => {
+          const match = matches.find(record => record.id === event.target.value);
+          if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
+        }}>
+          <option value="">{t("timeWorkspace.chooseRecorded")}</option>
           {matches.map(record => <option key={record.id} value={record.id}>
             {String(record.values.billingNarrative || record.values.name)} · {String(record.values.recordedMinutes)} min
           </option>)}
-        </select>}
-        {error && <span className="bo-error" role="alert">{error}</span>}
+        </select>
+      </label>}
+      <div className="time-workspace-actions">
+        <Button type="submit" size="sm" disabled={busy || !canEdit || conflict}>{t("timesheets.sheet.accept")}</Button>
+        <Button type="button" size="sm" variant="outline" disabled={busy}
+          onClick={() => capture.openSource({ ...proposal,
+            matterId: selectedMatter?.matterId, projectId: selectedMatter?.projectId ?? null,
+            workProductId: values.productId, activity: values.activity, narrative: values.narrative || proposal.narrative,
+          })}>{t("timeWorkspace.editTimes")}</Button>
+        <Button type="button" size="sm" variant="ghost" disabled={busy}
+          onClick={() => updateSource({ type: "dismiss", key: proposal.key, digest: proposal.digest })}>{t("timesheets.sheet.decline")}</Button>
       </div>
-    </div>
+    </form>
   );
 }

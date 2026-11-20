@@ -741,7 +741,7 @@ export function registerBackOfficeRoutes(options: {
     await refreshBackOfficeActor(options.config, scope, actor);
     return store.syncState(scope, actor);
   });
-  route("POST", "/native/:kind", async (ctx, store,{scope,actor}) => writeNative(options.config,store,scope,actor,z.enum(["task","deadline"]).parse(ctx.params.kind),await input(ctx)));
+  route("POST", "/native/:kind", async (ctx, store,{scope,actor}) => writeNative(options.config,store,scope,actor,z.enum(["task","deadline"]).parse(ctx.params.kind),await input(ctx),ctx.actor?.type === "host" && !ctx.agentAccess));
   route("GET", "/native/:kind", async (ctx, store, { scope, actor }) => {
     const kind = z.enum(["task","deadline"]).parse(ctx.params.kind);
     return nativeRows(options.config, store, scope, actor, kind, ctx.url.searchParams.get("archived")==="true",ctx.url.searchParams.get("project"));

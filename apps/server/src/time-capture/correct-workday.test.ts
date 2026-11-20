@@ -165,3 +165,28 @@ test("booking only the current private segment serializes a stale draft, preserv
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("accepting a document proposal binds its local file UUID to the confirmed work product within the profile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-private-document-binding-"));
+  try {
+    const config = backOfficeTestConfig(root);
+    const { parent, saved } = sample(false);
+    const documentId = randomUUID(), workProductId = randomUUID(), matterId = randomUUID();
+    const proposal = { ...parent, source: "documents" as const, documentId, activity: "MOD" };
+    proposal.digest = proposalCommitment(proposal);
+    saved.days[parent.date][0].proposal = proposal;
+    saved.originals[proposal.digest] = proposal;
+    const profileId = digest(["local", "local"]), dir = join(root, "private-timesheets");
+    const path = join(dir, profileId + ".json");
+    await mkdir(dir);
+    await writeFile(path, JSON.stringify({ ...saved, lastRun: 0,
+      settings: { calendar: false, tasks: false, documents: true, intervalMinutes: 0 } }));
+    await acceptPrivateProposal(config, { user: "local", principal: "", scope: "local", profileId }, proposal.key, proposal.digest, async () => ({
+      entries: [{ groupId: proposal.key, proposalDigest: proposal.digest, workerId: "local", matterId, workProductId, status: "confirmed" }],
+      products: [{ id: workProductId, matterId }],
+    }));
+    expect(JSON.parse(await readFile(path, "utf8")).fileProducts).toEqual({ [documentId]: { [matterId]: workProductId } });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

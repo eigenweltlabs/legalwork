@@ -1,7 +1,7 @@
 import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
-import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
+import { formatInvoiceMinor } from "@legalwork/types/invoice-template";
 import { Link } from "react-router-dom";
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
@@ -16,8 +16,10 @@ import {
   timeCapWarning,
 } from "@legalwork/types/timesheet";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { BillingInvoiceDraft, saveInvoiceDownload } from "./billing-invoice-draft";
 import { BillingWordingCheck } from "./billing-wording-check";
 import { BillingEditCell } from "./billing-edit-cell";
 import { BillingAdjustments } from "./billing-adjustments";
@@ -100,10 +102,14 @@ export function BillingReview({
   client,
   canEdit,
   initialDate,
+  initialMatterId = "",
+  workdayModels,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
-  client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment">;
+  initialMatterId?: string;
+  workdayModels?: WorkdayModelOption[];
+  client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
   const [mode, setMode] = useState<Mode>("submitted");
@@ -112,7 +118,7 @@ export function BillingReview({
   );
   const [allUnbilled, setAllUnbilled] = useState(false);
   const throughEndDate = mode === "approved" && allUnbilled;
-  const [matter, setMatter] = useState("");
+  const [matter, setMatter] = useState(initialMatterId);
   const [billTo, setBillTo] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [revisionPick, setRevisionPick] = useState(new Map<string, number>());
@@ -127,9 +133,8 @@ export function BillingReview({
       return next;
     });
   }, []);
-  const [previewKey, setPreview] = useState("");
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [downloadError, setDownloadError] = useState("");
-  const request = useRef({ key: "", id: "" });
   const { send, error, pending } = useBillingAction(onCommand);
   const groups = useMemo(
     () => ({
@@ -142,7 +147,7 @@ export function BillingReview({
   const all = state.entries.filter(
     (e) =>
       (throughEndDate || !dates.from || dates.from <= e.date) &&
-      (!throughEndDate || (e.billable && !e.nonHourlyApproval && !e.legacy)) &&
+      (!throughEndDate || (e.billable && !e.legacy)) &&
       (!dates.to || e.date <= dates.to) &&
       (!matter || matter === e.matterId) &&
       (!billTo || billTo === e.clientId),
@@ -191,20 +196,13 @@ export function BillingReview({
   const effective = (line: TimeEntry) =>
     mode === "approved" ? adjustedTimeEntry(line, adjustments) : line;
   const linkedAdjustments = adjustments.filter((a) => selected.some((line) => appliesTimeAdjustment(line, a)));
-  const adjustmentVersions = linkedAdjustments
-    .filter((a) => a.status === "approved")
-    .map(({ id, revision }) => ({ id, revision }));
   const hasPendingCorrections = linkedAdjustments.some((a) => a.status === "pending");
   const canReturnUnpriced = mode === "approved" && selected.length > 0 && selected.every((e) =>
     e.billable && !e.legacy && !e.nonHourlyApproval && !hasTimeEntryPrice(e) && reviewInfo.get(e.id)?.eligible &&
     !reviewInfo.get(e.id)?.policy.nonHourlyAgreement,
   );
-  const creditState = linkedAdjustments.map((a) => [a.id, a.revision]);
-  const invoiceKey = JSON.stringify([state.template?.revision ?? 0, refs(selected), creditState]);
-  const preview = previewKey === invoiceKey;
   const issuesCount = all.filter((e) => e.status === "submitted" && issues(e)).length;
   const pick = (e: TimeEntry, checked: boolean) => {
-    setPreview("");
     setRevisionPick((prev) => {
       const next = new Map(prev);
       if (checked) next.set(e.id, e.revision);
@@ -214,25 +212,10 @@ export function BillingReview({
   };
   const reset = () => {
     setRevisionPick(new Map());
-    setPreview("");
     setDetail("");
     setReason("");
     setDownloadError("");
   };
-  const invoiceable =
-    !hasPendingCorrections &&
-    selected.length > 0 &&
-    selected.every(
-      (e) =>
-        !e.legacy &&
-        e.billable &&
-        !e.nonHourlyApproval &&
-        e.matterId === selected[0].matterId &&
-        e.clientId &&
-        e.clientId === selected[0].clientId &&
-        hasTimeEntryPrice(e) &&
-        e.currency === selected[0].currency,
-    );
   const invoices = state.invoices
     .filter(
       (i) =>
@@ -245,44 +228,32 @@ export function BillingReview({
         ),
     )
     .sort((a, b) => b.number - a.number);
-  async function issue() {
-    if (!invoiceable || !preview) return;
-    if (request.current.key !== invoiceKey)
-      request.current = { key: invoiceKey, id: crypto.randomUUID() };
-    try {
-      await send({
-        type: "invoice",
-        adjustmentVersions,
-        templateRevision: state.template?.revision ?? 0,
-        requestId: request.current.id,
-        entries: refs(selected),
-      });
-      reset();
-      setMode("invoices");
-    } catch {
-      /* Keep the same request ID for retry. */
-    }
-  }
   function returnSelection() {
     void send({ type: "return", entries: refs(selected), reason: reason.trim() }).then(reset).catch(() => {});
   }
-  async function download(id: string, number?: number) {
+  async function download(id: string, number?: number, format?: "docx" | "pdf") {
     setDownloadError("");
     try {
       const file =
         number === undefined
           ? await client.downloadTimesheetAdjustment(id, state.scope)
-          : await client.downloadTimesheetInvoice(id, state.scope);
-      const url = URL.createObjectURL(new Blob([file.data], { type: "text/html" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = number === undefined ? "Adjustment-" + id + ".html" : "Invoice-" + number + ".html";
-      a.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          : await client.downloadTimesheetInvoice(id, state.scope, format);
+      saveInvoiceDownload(file, number === undefined ? "Adjustment-" + id + ".html" : "Invoice-" + number + "." + (format ?? "html"));
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : t("back_office.billing.download_failed"));
     }
   }
+  const canCreate = state.canReview && canEdit && state.supportsInvoiceDrafts === true;
+  if (creatingInvoice && canCreate) return (
+    <section className="bo-billing">
+      <BillingInvoiceDraft
+        state={state} onCommand={onCommand} client={client} dates={dates} initialMatterId={matter} workdayModels={workdayModels}
+        onCancel={() => setCreatingInvoice(false)}
+        onReviewSubmitted={() => { reset(); setCreatingInvoice(false); setMode("submitted"); }}
+        onIssued={() => { reset(); setDates({ from: "", to: "" }); setCreatingInvoice(false); setMode("invoices"); }}
+      />
+    </section>
+  );
   return (
     <section className="bo-billing">
       <div className="bo-view-toolbar">
@@ -366,6 +337,11 @@ export function BillingReview({
             date: dates.from || reviewPeriod().to,
           })}>{t("timesheets.review_rules")}</Link>
         )}
+        {(mode === "submitted" || mode === "approved" || mode === "invoices") && state.canReview && canEdit && (
+          canCreate ? <Button size="sm" variant="outline" onClick={() => setCreatingInvoice(true)}>
+            {t(state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
+          </Button> : <span className="bo-billing-muted">{t("invoiceReview.firm_unavailable")}</span>
+        )}
         {mode === "submitted" && (
           <label>
             <input
@@ -407,15 +383,19 @@ export function BillingReview({
                   <td>{new Date(i.issuedAt).toLocaleDateString(locale)}</td>
                   <td>{groups.clients.get(i.clientId) || i.clientId}</td>
                   <td>{i.entries.length}</td>
-                  <td>{formatFee(locale, i.total, i.currency)}</td>
+                  <td>{i.totalMinor === undefined ? formatFee(locale, i.total, i.currency) : formatInvoiceMinor(locale, i.currency, i.totalMinor)}</td>
                   <td>
-                    <button
+                    {i.snapshot ? (["docx", "pdf"] as const).map((format) => (
+                      <Button key={format} size="sm" variant="ghost" onClick={() => void download(i.id, i.number, format)}>
+                        {format.toUpperCase()}
+                      </Button>
+                    )) : <button
                       type="button"
                       aria-label={t("back_office.billing.download")}
                       onClick={() => void download(i.id, i.number)}
                     >
                       <Download size={15} />
-                    </button>
+                    </button>}
                   </td>
                 </tr>
               ))}
@@ -448,7 +428,6 @@ export function BillingReview({
                             ? new Map(eligibleRows.map((r) => [r.id, r.revision]))
                             : new Map(),
                         );
-                        setPreview("");
                       }}
                     />
                   </th>
@@ -692,29 +671,7 @@ export function BillingReview({
                       {t("back_office.billing.approve")}
                     </Button>
                   </>
-                ) : (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={pending || !invoiceable}
-                      onClick={() => setPreview(invoiceKey)}
-                    >
-                      {t("back_office.billing.preview")}
-                    </Button>
-                    {!invoiceable && (
-                      <span>
-                        {t(
-                          hasPendingCorrections
-                            ? "back_office.billing.invoice_correction_pending"
-                            : canReturnUnpriced
-                              ? "back_office.billing.price_return_help"
-                              : "back_office.billing.invoice_requirements",
-                        )}
-                      </span>
-                    )}
-                  </>
-                )}
+                ) : null}
                 {(mode === "submitted" || (canReturnUnpriced && !hasPendingCorrections)) && (
                   <>
                     <input
@@ -736,39 +693,6 @@ export function BillingReview({
               </>
             )}
           </footer>
-          {preview && selected.length > 0 && (
-            <div className="bo-billing-subrow">
-              <iframe
-                className="bo-invoice-preview"
-                title={t("timesheets.template_preview")}
-                sandbox=""
-                srcDoc={renderInvoice(state.template ?? standardInvoice, {
-                  client: groups.clients.get(selected[0].clientId) || selected[0].clientId,
-                  entries: selected.map(effective),
-                  currency: selected[0].currency!,
-                  date: new Date().toISOString().slice(0, 10),
-                })}
-              />
-              <span>
-                {t("back_office.billing.invoice_preview", {
-                  client: groups.clients.get(selected[0].clientId) || selected[0].clientId,
-                  count: selected.length,
-                  fee: feeSummary(selected.map(effective)),
-                })}
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending || !invoiceable}
-                onClick={() => void issue()}
-              >
-                {t("back_office.billing.issue")}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPreview("")}>
-                {t("common.cancel")}
-              </Button>
-            </div>
-          )}
         </>
       )}
       {(error || downloadError) && (

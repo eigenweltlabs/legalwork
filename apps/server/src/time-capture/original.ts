@@ -19,6 +19,8 @@ export function proposalCommitment(p: CaptureProposal) {
         p.endAt,
         p.workedMinutes,
         ...(p.matterId || p.parentDigest ? [p.matterId ?? null, p.parentDigest ?? null] : []),
+        ...(p.documentId || p.workProductId || p.chargeMinutes !== undefined
+          ? ["scoped-context", p.documentId ?? null, p.workProductId ?? null, p.chargeMinutes ?? null] : []),
       ]),
     )
     .digest("hex");

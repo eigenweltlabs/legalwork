@@ -33,6 +33,7 @@ export function documentEvidence(
   reference: string,
   created: boolean,
   observedAt: Date,
+  stableId?: string,
 ): WorkdayEvidence | undefined {
   if (!eligibleDocumentReference(reference)) return;
   const parts = reference.split(/[\\/]/);
@@ -46,13 +47,15 @@ export function documentEvidence(
     date,
     source: "documents" as const,
     projectId,
+    documentId: stableId ?? digest([projectId, "path", parts.join("/")]),
     activity: created ? "DFT" : "MOD",
     narrative: name.slice(0, 240),
     startAt: null,
     endAt: null,
     workedMinutes: null,
+    observedAt: observedAt.toISOString(),
   };
-  const eventKey = digest([body.source, date, projectId, parts.join("/")]);
+  const eventKey = digest([body.source, date, projectId, body.documentId, ...(stableId ? [body.observedAt] : [])]);
   return {
     eventKey,
     proposal: { ...body, key: randomUUID(), digest: digest([eventKey, body]), dismissed: false },

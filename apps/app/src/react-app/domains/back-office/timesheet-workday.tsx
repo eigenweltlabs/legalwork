@@ -1,176 +1,181 @@
-import { documentDraftWording } from "./time-record-values";
-import { sourceKeys } from "./timesheet-labels";
-import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, Settings, Sparkles, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CalendarDays, Settings, Sparkles, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
-import { LayoutStack } from "../settings/settings-layout";
 import { Button } from "@/components/ui/button";
-import type { TimeCaptureSheet } from "./time-record-sheet";
-import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
-import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
 import {
-  captureEnabled,
-  captureAccountEnabled,
-  sameCaptureAccount,
-  type CaptureAction,
-  type CaptureState,
-  type WorkdayModelOption,
-  type CaptureProposal,
+  captureAccountEnabled, localWorkdayModel, sameCaptureAccount,
+  type CaptureAction, type CaptureState, type WorkdayModelOption, type CaptureProposal,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
-import { t, currentLocale } from "@/i18n";
+import { t } from "@/i18n";
 import { isLoopbackLegalworkServerUrl, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { calendarDay } from "../calendar/calendar-format";
 import { calendarClientScope } from "../calendar/calendar-cache";
+import { LayoutStack } from "../settings/settings-layout";
 import type { BackOfficeState } from "./api";
-import { overlappingWorkdayRanges, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
+import type { TimeCaptureSheet } from "./time-record-sheet";
+import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
+import { TimeWorkspacePanels } from "./time-workspace-panels";
+import { TimeWorkspaceChat } from "./time-workspace-chat";
+import { TimeWorkspaceGuidelines } from "./time-workspace-guidelines";
+import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
+import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
+import { sourceKeys } from "./timesheet-labels";
+import { overlappingWorkdayRanges, proposalTitle, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import "./timesheet-workday.css";
 
-const at = (instant: string) =>
-  new Date(instant).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
+export type RenderTimeWorkspace = (entries: ReactNode, renderProposal: (proposal: CaptureProposal) => ReactNode) => ReactNode;
+
 export function TimesheetWorkday({
-  client,
-  directory,
-  state,
-  onDraft,
-  ledgerDirty = false,
-  visible = true,
-  initialDate,
-  models = [],
-  onDateChange,
-  children,
+  client, directory, state, dateLocked = false, visible = true,
+  initialDate, models = [], onDateChange, children,
 }: {
-  children?: (capture: TimeCaptureSheet) => ReactNode;
+  children: (capture: TimeCaptureSheet, workspace: RenderTimeWorkspace) => ReactNode;
   initialDate?: string;
   models?: WorkdayModelOption[];
-  onDateChange?: (value: string) => void;
+  onDateChange: (value: string) => void;
   client: LegalworkServerClient;
   directory: BackOfficeState;
   state: TimesheetState;
-  ledgerDirty?: boolean;
+  dateLocked?: boolean;
   visible?: boolean;
-  onDraft: (p: CaptureProposal) => void;
 }) {
-  const [editing, setEditing] = useState("");
-  const [date, setDate] = useState(() => initialDate ?? calendarDay(new Date())),
-    [error, setError] = useState(""),
-    [running, setRunning] = useState(false);
+  const [date, setDate] = useState(() => initialDate ?? calendarDay(new Date()));
   const [period, setPeriod] = useState<TimePeriod>("day");
-  const [wording, setWording] = useState<CaptureState["wording"]>();
+  const [selection, setSelection] = useState<string>();
+  const [correction, setCorrection] = useState<CaptureProposal>();
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshRequest, requestRefresh] = useState(0);
+  const editor = useRef<HTMLDivElement>(null);
+  const chatRequest = useRef<AbortController | undefined>(undefined);
+  const inFlight = useRef(false);
+  const cache = useQueryClient();
   const dates = periodDates(date, period);
-  const navigate = useNavigate(),
-    cache = useQueryClient();
-  useEffect(() => {
-    if (initialDate) setDate(initialDate);
-  }, [initialDate]);
+  useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
+  useLayoutEffect(() => {
+    if (selection) editor.current?.scrollIntoView({ block: "nearest" });
+  }, [selection, correction?.key]);
+
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
+  const profileId = directory.captureProfileId;
   const identity = {
     scope: directory.scope,
     user: directory.permissions.userId,
     principal: directory.permissions.principalKey ?? "",
-    ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
+    ...(profileId ? { profileId } : {}),
   };
-  const queryPrefix = ["back-office", ...calendarClientScope(client), "workday"];
-  const scopeKey = [...queryPrefix, identity];
-  const key = [...queryPrefix, { ...identity, date: dates[0] }, period];
-  const query = useQuery<CaptureState>({
-    queryKey: key,
-    queryFn: async ({ signal }) => {
-      const days: CaptureState[] = [];
-      for (let i = 0; i < dates.length; i += 7) {
-        signal.throwIfAborted();
-        days.push(...await Promise.all(dates.slice(i, i + 7).map(date => client.privateWorkday({ ...identity, date }, undefined, signal))));
-      }
-      return { ...days[0], proposals: days.flatMap(day => day.proposals), drafts: days.reduce<CaptureState["drafts"]>((all, day) => ({ ...all, ...day.drafts }), {}) };
-    },
-    enabled: local,
-    retry: false,
-    refetchInterval: 60000,
+  const scopeKey = ["back-office", ...calendarClientScope(client), "workday", directory.directoryId, identity];
+  const dayKey = (target: string) => [...scopeKey, "day", target];
+  const workday = useQuery({
+    queryKey: dayKey(date), enabled: local && visible, retry: false, refetchInterval: 60000,
+    queryFn: ({ signal }) => client.privateWorkday({ ...identity, date }, undefined, signal),
   });
-  const profileId = directory.captureProfileId;
-  const { data: lastStoppedId } = useQuery({
+  const otherDays = dates.filter(day => day !== date);
+  const overview = useQuery({
+    queryKey: [...scopeKey, "overview", otherDays],
+    enabled: local && visible && otherDays.length > 0, retry: false,
+    queryFn: async ({ signal }) => {
+      const drafts: CaptureState["drafts"] = {};
+      for (let i = 0; i < otherDays.length; i += 7) {
+        signal.throwIfAborted();
+        const days = await Promise.all(otherDays.slice(i, i + 7).map(
+          target => client.privateWorkday({ ...identity, date: target }, undefined, signal),
+        ));
+        for (const day of days) Object.assign(drafts, day.drafts);
+      }
+      return drafts;
+    },
+  });
+  const { data: lastStopped } = useQuery({
     queryKey: ["private-stopwatch", ...calendarClientScope(client), profileId],
     queryFn: () => client.privateStopwatch(undefined, profileId),
-    select: (status) => status.lastStopped?.id,
-    enabled: local && Boolean(profileId),
-    retry: false,
-    refetchInterval: 5000,
+    select: status => status.lastStopped,
+    enabled: local && visible && Boolean(profileId), retry: false, refetchInterval: 5000,
   });
-  const refetchWorkday = query.refetch;
+  const stoppedId = lastStopped?.date === date ? lastStopped.id : undefined;
+  const refetchWorkday = workday.refetch;
   useEffect(() => {
-    if (local && profileId && lastStoppedId) void refetchWorkday();
-  }, [local, profileId, lastStoppedId, refetchWorkday]);
+    if (visible && local && stoppedId) void refetchWorkday();
+  }, [visible, local, stoppedId, refetchWorkday]);
+
+  const data = workday.data;
+  const settings = data?.settings;
+  const drafts = { ...overview.data, ...data?.drafts };
+  const aiEnabled = settings?.aiSuggestions === true;
+  const modelKey = (item: { providerID: string; modelID: string }) => JSON.stringify([item.providerID, item.modelID]);
+  const preferred = settings?.model;
+  const modelOptions = [
+    ...models.filter(item => modelKey(item) !== modelKey(localWorkdayModel)),
+    ...(data?.modelReady ? [{ ...localWorkdayModel, label: t("timeWorkspace.localModel") }] : []),
+  ];
+  const automatic = ["haiku", "luna"].map(name => modelOptions.find(item => item.providerID === "eigenwelt" &&
+    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean);
+  const selectedModel = preferred ? modelOptions.find(item => modelKey(item) === modelKey(preferred)) : automatic;
+  const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
+  const modelSelection = JSON.stringify([preferred, model]);
+  useEffect(() => {
+    return () => { chatRequest.current?.abort(); };
+  }, [date, modelSelection, visible, aiEnabled]);
+
   async function act(action: CaptureAction, signal?: AbortSignal) {
-    setError("");
     const foreground = action.type !== "draft" && action.type !== "refresh";
-    if (foreground) setRunning(true);
+    if (foreground && inFlight.current) return false;
+    if (foreground) {
+      inFlight.current = true;
+      setRunning(true);
+    }
+    setError("");
+    const target = action.type === "draft" ? action.date ?? drafts[action.key]?.date ?? date : date;
+    const key = dayKey(target);
     try {
-      const targetDate = action.type === "draft" && action.date ? action.date : "key" in action ? query.data?.proposals.find(proposal => proposal.key === action.key)?.date ?? query.data?.drafts[action.key]?.date ?? date : date;
-      const { wording: generated, ...next } = await client.privateWorkday({ ...identity, date: targetDate }, action, signal);
+      const next = await client.privateWorkday({ ...identity, date: target }, action, signal);
       if (signal?.aborted) return false;
-      if (action.type === "refresh") {
-        setWording(generated);
-      }
-      if (action.type === "settings" || action.type === "calendar") {
-        setWording(undefined);
-      }
       if (action.type === "settings") {
         await cache.cancelQueries({ queryKey: scopeKey });
-        // Settings apply to every day in this profile. Retire the cached suggestions
-        // until the server returns the eligible sources for each visible date.
-        cache.setQueriesData<CaptureState>({ queryKey: scopeKey }, previous =>
+        cache.setQueriesData<CaptureState>({ queryKey: [...scopeKey, "day"] }, previous =>
           previous && { ...previous, settings: next.settings, connections: next.connections, proposals: [] });
       } else {
         await cache.cancelQueries({ queryKey: key, exact: true });
       }
+      if (signal?.aborted) return false;
       cache.setQueryData<CaptureState>(key, previous => {
-        if (!dates.includes(targetDate)) return previous;
-        if (previous && action.type === "draft") {
-          if (action.proposalDigest && !previous.proposals.some(proposal => proposal.key === action.key && proposal.digest === action.proposalDigest))
-            return previous;
-          const drafts = { ...previous.drafts };
-          const updated = next.drafts[action.key];
-          if (updated) drafts[action.key] = updated;
-          else delete drafts[action.key];
-          return { ...previous, drafts };
-        }
-        if (!previous || period === "day") return next;
-        return { ...next, proposals: [...previous.proposals.filter(proposal => proposal.date !== targetDate), ...next.proposals],
-          drafts: { ...Object.fromEntries(Object.entries(previous.drafts).filter(([, draft]) => draft.date !== targetDate)), ...next.drafts } };
+        if (!previous || action.type !== "draft") return next;
+        const drafts = { ...previous.drafts };
+        const updated = next.drafts[action.key];
+        if (updated) drafts[action.key] = updated;
+        else delete drafts[action.key];
+        return { ...previous, drafts };
       });
-      if (action.type === "settings") await cache.invalidateQueries({ queryKey: scopeKey });
+      if (action.type === "draft" && target !== date) {
+        void cache.invalidateQueries({ queryKey: [...scopeKey, "overview"] });
+      } else if (action.type === "settings") {
+        await cache.invalidateQueries({ queryKey: [...scopeKey, "day"] });
+      }
       return true;
     } catch (e) {
       if (!signal?.aborted) setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
       return false;
     } finally {
-      if (foreground) setRunning(false);
+      if (foreground) {
+        inFlight.current = false;
+        setRunning(false);
+      }
     }
   }
 
-  const data = query.data, settings = data?.settings;
-  const aiEnabled = settings?.aiSuggestions === true;
-  const modelKey = (item: { providerID: string; modelID: string }) => JSON.stringify([item.providerID, item.modelID]);
-  const preferred = settings?.model;
-  const eigenwelt = models.filter(item => item.providerID === "eigenwelt");
-  const automatic = ["haiku", "luna"].map(name => eigenwelt.find(item =>
-    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean);
-  const selectedModel = preferred ? models.find(item => modelKey(item) === modelKey(preferred)) : automatic;
-  const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
-  const refreshKey = visible && local && aiEnabled && settings && captureEnabled(settings, data?.connections)
-    ? JSON.stringify([identity, date, period, settings, aiEnabled ? model : null, aiEnabled && data?.modelReady])
+  const refreshKey = visible && local && aiEnabled && settings
+    ? JSON.stringify([date, settings, model, data?.modelReady, stoppedId, refreshRequest])
     : null;
   const prepareView = useEffectEvent(async (signal: AbortSignal) => {
     setRefreshing(true);
-    try { await act({ type: "refresh", model: aiEnabled ? model : undefined }, signal); }
+    try { await act({ type: "refresh", model }, signal); }
     finally { if (!signal.aborted) setRefreshing(false); }
   });
   useEffect(() => {
-    setWording(undefined);
     setRefreshing(false);
     if (!refreshKey) return;
     const controller = new AbortController();
@@ -178,61 +183,112 @@ export function TimesheetWorkday({
     return () => controller.abort();
   }, [refreshKey]);
 
-  const shown = data?.proposals.filter(
-        (p) =>
-          dates.includes(p.date) && (aiEnabled || p.source === "stopwatch") &&
-          !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
-          !state.entries.some(
-            (e) =>
-              (e.groupId === p.key ||
-                e.proposalDigest === p.digest ||
-                (e.proposalDigest && p.versions?.includes(e.proposalDigest))) &&
-              e.workerId === identity.user,
-          ),
-      ) ?? [];
-  const draftWording: NonNullable<CaptureState["wording"]> = {};
-  if (aiEnabled) {
-    for (const proposal of shown) {
-      const suggestion = documentDraftWording(proposal, wording?.[proposal.digest], state);
-      if (suggestion) draftWording[proposal.digest] = suggestion;
-    }
+  async function chat(action: Extract<CaptureAction, { type: "chat" | "instruction" }>) {
+    if (action.type !== "chat" || action.instruction) return act(action);
+    if (inFlight.current) return false;
+    const controller = new AbortController();
+    chatRequest.current = controller;
+    try { return await act({ ...action, model }, controller.signal); }
+    finally { if (chatRequest.current === controller) chatRequest.current = undefined; }
   }
-  const selected = shown.find((p) => p.key === editing);
-  const bookedEntries = state.entries.filter(
-    (e) =>
-      e.workerId === identity.user &&
-      ["confirmed", "submitted", "approved", "invoiced"].includes(e.status),
-  );
-  const ownEntries = bookedEntries.filter(entry => entry.date === date);
+  const shown = data?.proposals.filter(p =>
+    p.date === date && !p.dismissed && (aiEnabled || (p.source === "stopwatch" && !p.suggested)) &&
+    !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
+    !state.entries.some(e => e.workerId === identity.user && (
+      e.groupId === p.key || e.proposalDigest === p.digest ||
+      (e.proposalDigest && p.versions?.includes(e.proposalDigest))
+    )),
+  ) ?? [];
+  const selected = shown.find(proposal => proposal.key === selection);
   const ownContactIds = new Set(directory.records.filter(person =>
     person.objectId === "people" && !person.archivedAt && person.values.active !== false &&
     person.sourceId === "eigenwelt-member:" + identity.user,
   ).map(person => person.id));
+  const confirmed = state.entries.filter(entry => entry.workerId === identity.user &&
+    entry.status !== "pending" && entry.status !== "declined");
+  const ownEntries = new Set(confirmed.map(entry => entry.id));
   const ownRecords = directory.records.filter(record => {
     if (record.objectId !== "timeEntries" || record.archivedAt) return false;
+    if (state.service !== "records") return ownEntries.has(record.id);
     const timekeeper = record.values.timekeeper;
     if (!timekeeper) return record.ownerId === identity.user;
     return typeof timekeeper === "string" && ownContactIds.has(timekeeper);
   });
-  const recordsOnly = state.service === "records";
-  const overlaps = overlappingWorkdayRanges(shown, recordsOnly ? ownRecords.flatMap(({ values }) =>
+  const booked = state.service === "records" ? ownRecords.flatMap(({ values }) =>
     typeof values.startedAt === "string" && values.startedAt.includes("T") && typeof values.endedAt === "string"
-      ? [{ startAt: values.startedAt, endAt: values.endedAt }]
-      : [],
-  ) : bookedEntries);
+      ? [{ startAt: values.startedAt, endAt: values.endedAt }] : [],
+  ) : confirmed;
+  const overlaps = overlappingWorkdayRanges(shown, booked);
   function selectDate(next: string, openDay = false) {
     if (!next || (next === date && !openDay)) return;
-    if (ledgerDirty) {
+    if (dateLocked && next !== date) {
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
     setError("");
     if (openDay) setPeriod("day");
-    setDate(next);
-    if (next !== date) onDateChange?.(next);
+    if (next !== date) {
+      setSelection(undefined);
+      setCorrection(undefined);
+      setDate(next);
+      onDateChange(next);
+    }
   }
+  const capture: TimeCaptureSheet = {
+    proposals: shown, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
+    overlaps, linkableRecords: ownRecords, selectDate, act,
+    openSource: setCorrection,
+  };
+  const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal) => (
+    <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
+      entries={entries}
+      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={shown}
+        pending={running} aiEnabled={aiEnabled} onAction={chat} />}
+      timeline={(view, choose) => (
+        <>
+          <div className="time-workspace-private-toolbar">
+            {local && <TimeSelect label={t("timeWorkspace.timelineView")} value={view} options={[
+              { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
+            ]} onChange={value => {
+              if (value === "combined" || value === "matters") choose(value);
+            }} />}
+          </div>
+          {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
+          {selected && (
+            <div ref={editor} className="time-workspace-editor">
+              <header>
+                <h3>{proposalTitle(selected)}</h3>
+                <Button size="icon-xs" variant="ghost" aria-label={t("timesheets.workday.cancel")} onClick={() => {
+                  setSelection(undefined);
+                  setCorrection(undefined);
+                }}><X size={14} /></Button>
+              </header>
+              <p className="time-workspace-note">{t(sourceKeys[selected.source])}
+                {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
+                {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
+              </p>
+              {correction?.digest === selected.digest
+                ? <WorkdayCorrectionForm key={selected.digest} proposal={correction} state={state}
+                  pending={running} save={act} close={() => setCorrection(undefined)} />
+                : renderProposal(selected)}
+            </div>
+          )}
+          {local && (
+            <>
+              {data && shown.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
+              <WorkdayTimeline date={date} proposals={shown} state={state} view={view} selected={selection} onOpen={proposal => {
+                setCorrection(undefined);
+                setSelection(proposal.key);
+              }} />
+            </>
+          )}
+        </>
+      )}
+    />
+  );
+  const status = data?.status;
   return (
-    <section className={"bo-workday" + (children ? " time-unified" : "")}>
+    <section className="bo-workday time-unified">
       <div className="bo-workday-controls">
         <div className="time-sheet-period">
           <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
@@ -250,7 +306,7 @@ export function TimesheetWorkday({
             onClick={() => selectDate(adjacentPeriod(date, period, 1))}><ChevronRight size={16} /></Button>
         </div>
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
-        {children && <TimesheetPeriodSwitch period={period} onChange={setPeriod} />}
+        <TimesheetPeriodSwitch period={period} onChange={setPeriod} />
         <span className="bo-workday-toolbar-space" />
         <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
           aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
@@ -265,27 +321,27 @@ export function TimesheetWorkday({
             <LayoutStack>
               <TimeSettingsGroup title={t("timesheets.ai_settings")}>
                 <TimeSetting title={t("timesheets.ai_model")}
-                  description={!model && !data?.modelReady ? t("timesheets.no_model") : undefined}>
+                  description={!selectedModel && !data?.modelReady ? t("timesheets.no_model") : undefined}>
                   <TimeSelect label={t("timesheets.ai_model")} value={preferred ? modelKey(preferred) : "auto"}
                     disabled={running} options={[
                       { id: "auto", name: [t("timesheets.ai_automatic"), automatic?.label].filter(Boolean).join(" · ") },
                       ...(preferred && !selectedModel ? [{ id: modelKey(preferred), name: preferred.modelID }] : []),
-                      ...models.map(item => ({ id: modelKey(item), name: item.label })),
+                      ...modelOptions.map(item => ({ id: modelKey(item), name: item.label })),
                     ]} onChange={value => {
-                      const choice = models.find(item => modelKey(item) === value);
+                      const choice = modelOptions.find(item => modelKey(item) === value);
                       void act({ type: "settings", settings: { ...settings,
-                        model: choice && { providerID: choice.providerID, modelID: choice.modelID } } });
+                        model: choice && { workspaceId: choice.workspaceId, providerID: choice.providerID, modelID: choice.modelID } } });
                     }} />
                 </TimeSetting>
               </TimeSettingsGroup>
               <TimeSettingsGroup title={t("timesheets.sources")}>
-                {(["calendar", "tasks", "documents"] as const).map((source) => {
-                  const label = t(sourceKeys[source]);
+                {(["calendar", "tasks", "documents", "workspaceActivity"] as const).map((source) => {
+                  const label = t(source === "workspaceActivity" ? "timeWorkspace.workspaceActivity" : sourceKeys[source]);
                   return (
                     <TimeSwitch
                       key={source}
                       label={label}
-                      checked={Boolean(settings[source])}
+                      checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
                       disabled={running}
                       onChange={(checked) =>
                         void act({ type: "settings", settings: { ...settings, [source]: checked } })
@@ -293,6 +349,17 @@ export function TimesheetWorkday({
                     />
                   );
                 })}
+                <TimeSetting title={t("timesheets.source.stopwatch")}>
+                  <TimeSelect label={t("timesheets.source.stopwatch")} disabled={running} value={settings.stopwatchMode ?? "always"}
+                    options={[
+                      { id: "always", name: t("timeWorkspace.timerAlways") },
+                      { id: "evidence", name: t("timeWorkspace.timerEvidence") },
+                    ]}
+                    onChange={value => {
+                      if (value === "always" || value === "evidence")
+                        void act({ type: "settings", settings: { ...settings, stopwatchMode: value } });
+                    }} />
+                </TimeSetting>
                 {data?.connections.map((account) => {
                   const enabled = captureAccountEnabled(settings, account);
                   return (
@@ -316,7 +383,7 @@ export function TimesheetWorkday({
                   <TimeSelect
                     id="time-source-schedule"
                     label={t("timesheets.schedule")}
-                    disabled={running || !data?.modelReady || !aiEnabled}
+                    disabled={running || (!data?.modelReady && !selectedModel) || !aiEnabled}
                     value={String(settings.intervalMinutes)}
                     options={[
                       { id: "0", name: t("timesheets.on_demand") },
@@ -331,7 +398,10 @@ export function TimesheetWorkday({
                 </TimeSetting>
               </TimeSettingsGroup>
             </LayoutStack>
-          <p>{t("timesheets.sources_hint")}</p>
+          {data?.guidelines && <TimeWorkspaceGuidelines key={date} date={date} guidelines={data.guidelines}
+            state={state} pending={running} save={act}
+            readPdf={(file, signal) => client.privateGuidelineText({ ...identity, date }, file, signal)} />}
+          <p className="time-workspace-note">{t("timesheets.sources_hint")}</p>
           <div className="bo-workday-links">
             <Link to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
             <Link to="/workflows">{t("timesheets.workflow_settings")}</Link>
@@ -339,106 +409,23 @@ export function TimesheetWorkday({
           </PopoverContent>}
         </Popover>
       </div>
-      {!local && <small>{t("timesheets.local_only")}</small>}
-      <div className="time-sheet-tools">
-      {data && (shown.some(p => p.date === date && p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
-        <details className="bo-workday-timeline">
-        <summary><CalendarDays size={14} /><ChevronDown size={12} className="time-detail-chevron" />{t("timesheets.timeline")}</summary>
-        <WorkdayTimeline
-          date={date}
-          proposals={shown.filter(proposal => proposal.date === date)}
-          state={state}
-          confirmed={ownEntries}
-          onOpen={(p) => setEditing(p.key)}
-        />
-        </details>
+      {(error || workday.error || overview.error) && <p className="time-workspace-status" role="alert">
+        {error || workday.error?.message || overview.error?.message}
+        {workday.error && <Button variant="ghost" size="xs" onClick={() => void workday.refetch()}>{t("timesheets.retry")}</Button>}
+        {overview.error && <Button variant="ghost" size="xs" onClick={() => void overview.refetch()}>{t("timesheets.retry")}</Button>}
+      </p>}
+      {refreshing ? <p className="time-workspace-status" role="status">{t("timesheets.preparing")}</p> : aiEnabled && status && (
+        <p className="time-workspace-status" role="status">
+          {t(status.type === "ready" ? "timeWorkspace.ready" : status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
+          <Button variant="ghost" size="xs" disabled={running}
+            onClick={() => requestRefresh(previous => previous + 1)}>
+            {t(status.type === "ready" ? "timeWorkspace.refresh" : "timesheets.retry")}
+          </Button>
+        </p>
       )}
-      </div>
-      {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
-      {(running || refreshing) && <p role="status">{t("timesheets.preparing")}</p>}
-      {selected && (
-        <WorkdayCorrectionForm
-          key={selected.digest}
-          proposal={selected}
-          state={state}
-          pending={running}
-          save={act}
-          close={() => setEditing("")}
-        />
-      )}
-      {children?.({ proposals: shown, wording: draftWording, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
-      {data && !children && (
-        <div className="bo-workday-list">
-          {!shown.length ? (
-            <p className="bo-workday-empty">{t("timesheets.activity_empty")}</p>
-          ) : (
-            shown.map((p) => (
-              <div className="bo-workday-row" key={p.key}>
-                <time>
-                  {p.startAt ? at(p.startAt) : t("timesheets.workday.no_clock")}
-                  {p.endAt && " – " + at(p.endAt)}
-                  <span className="bo-workday-duration">{p.workedMinutes === null ? "–" : p.workedMinutes + " min"}</span>
-                </time>
-                <span>
-                  {p.source === "stopwatch" && !p.parentDigest
-                    ? t("timesheets.source.stopwatch")
-                    : p.narrative}
-                  {overlaps.has(p.key) && <small>{t("timesheets.workday.overlap")}</small>}
-                  <small>
-                    {state.projects.find(project => project.id === p.projectId)?.name
-                      || state.matters.find(matter => matter.id === p.matterId)?.name
-                      || t("timesheets.project_missing")}
-                    {" · "}{t(sourceKeys[p.source])}
-                  </small>
-                </span>
-                <div>
-                  <Button size="sm" variant="ghost" disabled={running} onClick={() => setEditing(p.key)}>
-                    {t("timesheets.workday.correct")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    title={ledgerDirty ? t("timesheets.ledger.finish_edit") : undefined}
-                    disabled={
-                      !directory.permissions.edit ||
-                      ledgerDirty ||
-                      running ||
-                      !!selected ||
-                      overlaps.has(p.key)
-                    }
-                    onClick={() => {
-                      onDraft(p);
-                      navigate("/time?date=" + p.date);
-                    }}
-                  >
-                    {t(recordsOnly ? "timesheets.prepare_record" : "timesheets.prepare_draft")}
-                  </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={running}
-                  onClick={() => void act({ type: "dismiss", key: p.key })}
-                >
-                  {t("timesheets.dismiss")}
-                </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-      {data && ownEntries.some((e) => !e.startAt || !e.endAt) && (
-        <details>
-          <summary>{t("timesheets.workday.booked_without_clock")}</summary>
-          {ownEntries
-            .filter((e) => !e.startAt || !e.endAt)
-            .map((e) => (
-              <p key={e.id}>
-                {e.workedMinutes} min · {e.narrative}
-              </p>
-            ))}
-        </details>
-      )}
+      {aiEnabled && !refreshing && !status && error && <Button variant="ghost" size="xs" className="time-workspace-status"
+        onClick={() => requestRefresh(previous => previous + 1)}>{t("timesheets.retry")}</Button>}
+      {children(capture, renderWorkspace)}
     </section>
   );
 }

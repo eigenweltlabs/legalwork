@@ -54,9 +54,17 @@ export function documentDraftWording(proposal: CaptureProposal, generated: Pick<
 export function proposalValues(proposal: CaptureProposal, state: TimesheetState): Values {
   const { matter, clientId, policy } = proposalAssignment(proposal, state);
   const duration = captureChargeMinutes(proposal);
-  const narrative = proposal.source === "stopwatch" && !proposal.parentDigest ? "" : proposal.narrative;
+  const stopwatch = proposal.source === "stopwatch";
+  const narrative = isUntitledStopwatch(proposal) ? "" : proposal.narrative;
   return { name: narrative.slice(0, 240), billingNarrative: narrative, status: "Draft", matter: matter?.id ?? null, client: clientId || null,
-    serviceDate: proposal.date, startedAt: proposal.startAt ?? proposal.date, endedAt: proposal.endAt, recordedMinutes: proposal.source === "stopwatch" && duration !== null ? proposedStopwatchCharge(duration, policy) : proposal.workedMinutes,
-    billableMinutes: duration === null ? null : proposal.source === "stopwatch" ? proposedStopwatchCharge(duration, policy) : proposedCharge(duration, policy) };
+    serviceDate: proposal.date, startedAt: proposal.startAt ?? proposal.date, endedAt: proposal.endAt,
+    recordedMinutes: stopwatch && duration !== null ? Math.round(duration) : proposal.workedMinutes,
+    billableMinutes: proposal.chargeMinutes ?? (duration === null ? null
+      : stopwatch ? proposedStopwatchCharge(duration, policy) : proposedCharge(duration, policy)),
+  };
+}
+
+export function isUntitledStopwatch(proposal: CaptureProposal) {
+  return proposal.source === "stopwatch" && !proposal.suggested && !proposal.activity && !proposal.parentDigest;
 }
 
