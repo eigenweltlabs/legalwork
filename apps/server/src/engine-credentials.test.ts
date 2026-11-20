@@ -9,13 +9,16 @@ import { registerEngineCredentialRoutes } from "./routes/engine-credentials.js";
 
 test("credential routes handle an available local provider without an auth integration", async () => {
   const calls: string[] = [];
+  let integrationStatus = 404;
+  let explicitIntegration = false;
   const engine = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     calls.push(path);
     if (path === "/api/provider/ollama") return Response.json({
       location: { directory: "/synthetic-project" },
-      data: { id: "ollama", name: "Ollama", activation: "auto", package: "@opencode/ai/providers/openai-compatible" },
+      data: { id: "ollama", name: "Ollama", activation: "auto", package: "@opencode/ai/providers/openai-compatible", ...(explicitIntegration ? { integrationID: "ollama" } : {}) },
     });
+    if (path === "/api/integration/ollama") return Response.json({ message: "Integration unavailable" }, { status: integrationStatus });
     return Response.json({ message: "Integration not found" }, { status: 404 });
   } });
   const config: ServerConfig = {
@@ -44,14 +47,22 @@ test("credential routes handle an available local provider without an auth integ
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.json()).toEqual({ items: [] });
-    expect(calls).toEqual(["/api/provider/ollama"]);
+    expect(calls).toEqual(["/api/provider/ollama", "/api/integration/ollama"]);
     await expect(call("DELETE", "/workspace/test/providers/ollama/credentials/unrelated")).rejects.toMatchObject({
       status: 404, code: "credential_not_found",
     });
-    expect(calls.every(path => path === "/api/provider/ollama")).toBe(true);
+    expect(calls.some(path => path.startsWith("/api/credential"))).toBe(false);
     expect(await call("GET", "/workspace/test/providers/missing/credentials").catch(findApiError)).toMatchObject({
       status: 404, code: "opencode_request_failed",
     });
+    // Authentication and service failures must not masquerade as an empty list.
+    for (const status of [401, 503]) {
+      integrationStatus = status;
+      expect(await call("GET", "/workspace/test/providers/ollama/credentials").catch(findApiError)).toMatchObject({ status: 502, details: { status } });
+    }
+    integrationStatus = 404;
+    explicitIntegration = true;
+    expect(await call("GET", "/workspace/test/providers/ollama/credentials").catch(findApiError)).toMatchObject({ status: 404 });
   } finally {
     engine.stop(true);
   }

@@ -30,12 +30,15 @@ export function registerEngineCredentialRoutes(options: {
     const client = createEngineClient(options.config, workspace);
     const providerID = ctx.params.providerId;
     const provider = await client.provider.get({ providerID, location: workspaceEngineLocation(workspace) }).catch(error => { if (findApiError(error)?.status === 404) return null; throw error; });
-    // Local providers such as Ollama can be available without an auth integration.
-    if (provider && !provider.data.integrationID) return { client, integrationID: null };
     const integrationID = provider?.data.integrationID ?? providerID;
     // Disabled providers are absent from provider.list but keep their integration.
-    await client.integration.get({ integrationID, location: workspaceEngineLocation(workspace) });
-    return { client, integrationID };
+    const integration = await client.integration.get({ integrationID, location: workspaceEngineLocation(workspace) }).catch(error => {
+      // A local provider may have a same-name integration despite omitting its
+      // integrationID. Only a confirmed absence means it has no saved login.
+      if (provider && !provider.data.integrationID && findApiError(error)?.status === 404) return null;
+      throw error;
+    });
+    return { client, integrationID: integration ? integrationID : null };
   };
   addRoute(options.routes, "GET", "/workspace/:id/providers/:providerId/credentials", "client", async ctx => {
     const { client, integrationID } = await target(ctx);
