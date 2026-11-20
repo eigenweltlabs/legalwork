@@ -1,5 +1,5 @@
 import { sourceKeys } from "./timesheet-labels";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { CalendarDays, Settings2, Sparkles, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -33,6 +33,7 @@ export function TimesheetWorkday({
   state,
   onDraft,
   ledgerDirty = false,
+  visible = true,
   initialDate,
   model,
   onDateChange,
@@ -46,6 +47,7 @@ export function TimesheetWorkday({
   directory: BackOfficeState;
   state: TimesheetState;
   ledgerDirty?: boolean;
+  visible?: boolean;
   onDraft: (p: CaptureProposal) => void;
 }) {
   const [editing, setEditing] = useState("");
@@ -55,7 +57,7 @@ export function TimesheetWorkday({
   const [period, setPeriod] = useState<"day" | "week">("day");
   const [wording, setWording] = useState<CaptureState["wording"]>();
   const [runResult, setRunResult] = useState<{ date: string; count: number }>();
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const dates = period === "week" ? weekDates(date) : [date];
   const navigate = useNavigate(),
     cache = useQueryClient();
@@ -95,17 +97,17 @@ export function TimesheetWorkday({
   useEffect(() => {
     if (local && profileId && lastStoppedId) void refetchWorkday();
   }, [local, profileId, lastStoppedId, refetchWorkday]);
-  async function act(action: CaptureAction) {
+  async function act(action: CaptureAction, signal?: AbortSignal) {
     setError("");
-    const foreground = action.type !== "draft";
+    const foreground = action.type !== "draft" && action.type !== "refresh";
     if (foreground) setRunning(true);
     try {
       const targetDate = action.type === "draft" && action.date ? action.date : "key" in action ? query.data?.proposals.find(proposal => proposal.key === action.key)?.date ?? query.data?.drafts[action.key]?.date ?? date : date;
-      const { wording: generated, ...next } = await client.privateWorkday({ ...identity, date: targetDate }, action);
-      if (action.type === "suggest") {
-        setShowSuggestions(true);
+      const { wording: generated, ...next } = await client.privateWorkday({ ...identity, date: targetDate }, action, signal);
+      if (signal?.aborted) return false;
+      if (action.type === "refresh") {
         setWording(generated);
-        setRunResult({ date: targetDate, count: Object.keys(generated ?? {}).length });
+        setRunResult(generated && { date: targetDate, count: Object.keys(generated).length });
       }
       if (action.type === "settings" || action.type === "calendar") {
         setWording(undefined);
@@ -138,18 +140,36 @@ export function TimesheetWorkday({
       if (action.type === "settings") await cache.invalidateQueries({ queryKey: scopeKey });
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
+      if (!signal?.aborted) setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
       return false;
     } finally {
       if (foreground) setRunning(false);
     }
   }
 
-  const data = query.data,
-    settings = data?.settings,
-    shown =
-      data?.proposals.filter(
+  const data = query.data, settings = data?.settings;
+  const aiEnabled = settings?.aiSuggestions === true;
+  const refreshKey = visible && local && settings && captureEnabled(settings)
+    ? JSON.stringify([identity, date, period, settings, aiEnabled ? model : null, aiEnabled && data?.modelReady])
+    : null;
+  const prepareView = useEffectEvent(async (signal: AbortSignal) => {
+    setRefreshing(true);
+    try { await act({ type: "refresh", model: aiEnabled ? model : undefined }, signal); }
+    finally { if (!signal.aborted) setRefreshing(false); }
+  });
+  useEffect(() => {
+    setWording(undefined);
+    setRunResult(undefined);
+    setRefreshing(false);
+    if (!refreshKey) return;
+    const controller = new AbortController();
+    queueMicrotask(() => { if (!controller.signal.aborted) void prepareView(controller.signal); });
+    return () => controller.abort();
+  }, [refreshKey]);
+
+  const shown = data?.proposals.filter(
         (p) =>
+          (aiEnabled || p.source === "stopwatch" || p.parentDigest || data.drafts[p.key]) &&
           !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
           !state.entries.some(
             (e) =>
@@ -213,23 +233,11 @@ export function TimesheetWorkday({
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
         {children && <div className="time-sheet-period">{(["day", "week"] as const).map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(value === "day" ? "timesheets.ledger.day" : "timesheets.ledger.week")}</Button>)}</div>}
         <span className="bo-workday-toolbar-space" />
-        {children && <Button size="sm" variant="ghost" aria-pressed={showSuggestions} onClick={() => setShowSuggestions(value => !value)}><Sparkles size={14} />{t("timesheets.sheet.suggestions", { count: shown.length })}</Button>}
-        <Button
-          size="sm"
-          disabled={running || !settings || !captureEnabled(settings)}
-          variant="outline"
-          onClick={() => void act({ type: "calendar" })}
-        >
-          {t("timesheets.read_sources")}
-        </Button>
-        <Button
-          size="sm"
-          title={model ? t("timesheets.model_hint", { model: model.modelID }) : data?.modelReady ? undefined : t("timesheets.no_model")}
-          disabled={running || !(model || data?.modelReady) || !settings || !captureEnabled(settings)}
-          onClick={() => void act({ type: "suggest", model })}
-        >
-          <Sparkles size={14} />
-          {t("timesheets.run_local")}
+        <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
+          aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
+          title={model ? t("timesheets.model_hint", { model: model.modelID }) : undefined}
+          onClick={() => settings && void act({ type: "settings", settings: { ...settings, aiSuggestions: !aiEnabled } })}>
+          <Sparkles size={14} />{t("timesheets.ai_tab")} · {t(aiEnabled ? "common.on" : "common.off")}
         </Button>
       </div>
       <small className="time-model-hint">{!local ? t("timesheets.local_only") : settings && (
@@ -287,7 +295,7 @@ export function TimesheetWorkday({
                 <TimeSelect
                   id="time-source-schedule"
                   label={t("timesheets.schedule")}
-                  disabled={running || !data?.modelReady}
+                  disabled={running || !data?.modelReady || !aiEnabled}
                   value={String(settings.intervalMinutes)}
                   options={[
                     { id: "0", name: t("timesheets.on_demand") },
@@ -324,7 +332,7 @@ export function TimesheetWorkday({
       </div>
       {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
       {!running && runResult?.date === date && <p role="status">{t("timesheets.run_result", { count: runResult.count })}</p>}
-      {running && <p role="status">{t("timesheets.preparing")}</p>}
+      {(running || refreshing) && <p role="status">{t("timesheets.preparing")}</p>}
       {selected && (
         <WorkdayCorrectionForm
           key={selected.digest}
@@ -335,7 +343,7 @@ export function TimesheetWorkday({
           close={() => setEditing("")}
         />
       )}
-      {children?.({ proposals: shown, wording, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
+      {children?.({ proposals: shown, wording: aiEnabled ? wording : undefined, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
       {data && !children && (
         <div className="bo-workday-list">
           {!shown.length ? (

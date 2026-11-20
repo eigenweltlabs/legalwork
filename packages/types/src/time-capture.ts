@@ -14,6 +14,7 @@ export const captureSettingsSchema = z.strictObject({
   calendar: z.boolean(),
   tasks: z.boolean(),
   documents: z.boolean().optional(),
+  aiSuggestions: z.boolean().optional(),
   connections: z.array(captureAccountSchema).max(16).optional(),
   intervalMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
 });
@@ -75,7 +76,7 @@ export type CaptureState = z.infer<typeof captureStateSchema>;
 export type CaptureAction =
   | WorkdayCorrection
   | { type: "settings"; settings: CaptureSettings }
-  | { type: "suggest"; model?: WorkdayModel }
+  | { type: "suggest" | "refresh"; model?: WorkdayModel }
   | { type: "run" | "calendar" }
   | { type: "dismiss"; key: string }
   | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }

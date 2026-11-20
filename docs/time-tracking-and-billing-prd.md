@@ -349,4 +349,4 @@ The stopwatch project panel must fit inside the overlay at every dock position, 
 
 ### Connected-model wording update
 
-For an explicit **Suggest with AI** request, the selected project chat model may receive activity titles and codes from enabled sources. This supersedes the on-device-only inference requirement for that button. Session-scoped generation applies the project's provider policy and leaves no chat messages. The wording is held in the open view until edited or accepted. Background schedules retain on-device inference. Only the reviewed booking enters firm record sync.
+The **AI suggestions** switch starts off. After the worker enables it, opening the view or selecting a day can send activity titles and codes from enabled sources to the selected project chat model. This opt-in supersedes the original on-device-only requirement for the open view. Session-scoped generation applies the project's provider policy and leaves no chat messages. The wording is held in the open view until edited or accepted. Background schedules retain on-device inference. Only the reviewed booking enters firm record sync.

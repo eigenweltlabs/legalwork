@@ -9,7 +9,7 @@ import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-supp
 import { startServer } from "../server.js";
 import { beginDocumentCapture, captureProfile } from "./routes.js";
 
-test.skipIf(!nativeMcpBinary)("manual AI uses the connected model without writing wording to the chat or workday", async () => {
+test.skipIf(!nativeMcpBinary)("opening a workday uses AI only after opt-in and keeps generated wording out of chat and storage", async () => {
   const narrative = "Reviewed the synthetic agreement";
   const prompts: string[] = [];
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -48,7 +48,13 @@ test.skipIf(!nativeMcpBinary)("manual AI uses the connected model without writin
     await request({ type: "settings", settings: { documents: true, calendar: false, tasks: false, intervalMinutes: 0 } });
     const capture = await beginDocumentCapture(config, { actor: { type: "host" } }, "example", "Folder/Example.docx");
     await capture?.(true);
-    const result = await request({ type: "suggest", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } });
+    const refresh: CaptureAction = { type: "refresh", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
+    const initial = await request(refresh);
+    expect(initial.proposals).toHaveLength(1);
+    expect(initial.wording).toBeUndefined();
+    expect(prompts).toHaveLength(0);
+    await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: true } });
+    const result = await request(refresh);
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
     expect(prompts).toHaveLength(1);

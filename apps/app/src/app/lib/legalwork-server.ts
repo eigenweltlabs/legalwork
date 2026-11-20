@@ -1854,9 +1854,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string;profileId?:string}) =>
       requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"digest">>(baseUrl,
         "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),
-    privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction) =>
+    privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction, signal?: AbortSignal) =>
       requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
-        token, hostToken, method: action ? "POST" : "GET", body: action, timeoutMs: 180_000,
+        token, hostToken, method: action ? "POST" : "GET", body: action, signal, timeoutMs: 180_000,
       }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),

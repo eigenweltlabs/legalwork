@@ -1145,7 +1145,7 @@ export function TimesheetLedger({
             </div>
           );
         })}
-        {capture?.showSuggestions && capture.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={onCommand} canEdit={canEdit} />)}
+        {capture?.proposals.map(proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state} columns={columns} capture={capture} onCommand={onCommand} canEdit={canEdit} />)}
         {canEdit && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
             <div className="bo-check-cell" title={t("timesheets.ledger.new")}>

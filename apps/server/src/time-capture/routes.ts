@@ -250,16 +250,26 @@ export async function acceptPrivateProposal<T>(
     }
   });
 }
-const workdaysRunning = new Map<string, AbortController>();
+const workdaysRunning = new Map<string, { controller: AbortController; done: Promise<void> }>();
 async function prepare(config: ServerConfig, path: string, date: string, withModel: boolean,
-  generate?: (proposals: z.infer<typeof captureProposalSchema>[], verify: () => Promise<void>, signal: AbortSignal) => Promise<CaptureState["wording"]>) {
-  if (workdaysRunning.has(path))
-    throw new ApiError(409, "timesheet_running", "A workday is already being prepared.");
+  generate?: (proposals: z.infer<typeof captureProposalSchema>[], verify: () => Promise<void>, signal: AbortSignal) => Promise<CaptureState["wording"]>,
+  refreshSignal?: AbortSignal) {
+  // A page can reopen or change dates while its previous preparation is winding down.
+  let previous;
+  while ((previous = workdaysRunning.get(path))) {
+    if (!refreshSignal) throw new ApiError(409, "timesheet_running", "A workday is already being prepared.");
+    refreshSignal.throwIfAborted();
+    await previous.done;
+  }
+  refreshSignal?.throwIfAborted();
   const controller = new AbortController();
-  workdaysRunning.set(path, controller);
+  const signal = refreshSignal ? AbortSignal.any([controller.signal, refreshSignal]) : controller.signal;
+  const { promise, resolve } = Promise.withResolvers<void>();
+  workdaysRunning.set(path, { controller, done: promise });
   try {
     const initial = await load(path);
     if (!captureEnabled(initial.settings)) return;
+    if (refreshSignal && !initial.settings.aiSuggestions) generate = undefined;
     const currentProfile = await profile(config);
     if (currentProfile.path !== path) return;
     const events =
@@ -276,7 +286,7 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
       config,
       initial.settings.connections ?? [],
       date,
-      controller.signal,
+      signal,
     );
     const byEvidence = new Map<string, WorkdayEvidence>();
     // Prefer a project-linked local event when the same iCalendar occurrence appears in both feeds.
@@ -292,12 +302,12 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
     const proposed: WorkdayEvidence[] = [];
     if (withModel) {
       for (let i = 0; i < evidence.length; i += 20)
-        proposed.push(...(await draftWithLocalModel(evidence.slice(i, i + 20), controller.signal)));
+        proposed.push(...(await draftWithLocalModel(evidence.slice(i, i + 20), signal)));
     } else proposed.push(...evidence);
     const candidates = await withFileWriteLock(path, async () => {
       const current = await load(path);
       if (
-        controller.signal.aborted ||
+        signal.aborted ||
         (await profile(config)).path !== path ||
         JSON.stringify(current.settings) !== JSON.stringify(initial.settings)
       )
@@ -335,14 +345,15 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
     });
     if (generate && candidates) {
       const verify = async () => {
-        controller.signal.throwIfAborted();
+        signal.throwIfAborted();
         if ((await profile(config)).path !== path || JSON.stringify((await load(path)).settings) !== JSON.stringify(initial.settings))
           throw new ApiError(409, "private_workday_changed", "The account or activity sources changed.");
       };
-      return await generate(candidates, verify, controller.signal);
+      return await generate(candidates, verify, signal);
     }
   } finally {
     workdaysRunning.delete(path);
+    resolve();
   }
 }
 function localDay() {
@@ -366,7 +377,7 @@ export function startWorkdaySchedule(config: ServerConfig) {
         interval = state.settings.intervalMinutes;
       if (
         !closed &&
-        interval &&
+        interval && state.settings.aiSuggestions &&
         Date.now() - state.lastRun >= interval * 60000 &&
         captureEnabled(state.settings) &&
         (await localModel())
@@ -470,7 +481,7 @@ export function registerWorkdayRoutes(options: {
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             z.strictObject({ type: z.enum(["run", "calendar"]) }),
-            z.strictObject({ type: z.literal("suggest"), model: workdayModelSchema.optional() }),
+            z.strictObject({ type: z.enum(["suggest", "refresh"]), model: workdayModelSchema.optional() }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
             reconcileCaptureSchema,
@@ -479,14 +490,18 @@ export function registerWorkdayRoutes(options: {
           .safeParse(await options.readJsonBodyLimited(ctx.request, 8192));
         if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
         const action = parsed.data;
-        if (action.type === "suggest") {
+        if (action.type === "suggest" || action.type === "refresh") {
           const model = action.model;
-          const workspace = model && await options.resolveWorkspace(config, model.workspaceId);
           const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
-          wording = await prepare(config, path, date, false, (proposals, verify, cancel) =>
-            model && workspace
-              ? connectedWorkdayWording(config, workspace, model, proposals, verify, AbortSignal.any([signal, cancel]))
-              : previewWorkdayWording(proposals, verify, AbortSignal.any([signal, cancel])));
+          wording = await prepare(config, path, date, false, async (proposals, verify, cancel) => {
+            const active = AbortSignal.any([signal, cancel]);
+            if (model) {
+              const workspace = await options.resolveWorkspace(config, model.workspaceId);
+              return connectedWorkdayWording(config, workspace, model, proposals, verify, active);
+            }
+            if (action.type === "refresh" && !await localModel()) return;
+            return previewWorkdayWording(proposals, verify, active);
+          }, action.type === "refresh" ? signal : undefined);
         } else if (action.type === "run" || action.type === "calendar")
           await prepare(config, path, date, action.type === "run");
         else
@@ -498,7 +513,7 @@ export function registerWorkdayRoutes(options: {
                 throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
             }
             if (action.type === "settings") {
-              workdaysRunning.get(path)?.abort();
+              workdaysRunning.get(path)?.controller.abort();
               if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
                 s.documentEpoch++;
               s.settings = action.settings;

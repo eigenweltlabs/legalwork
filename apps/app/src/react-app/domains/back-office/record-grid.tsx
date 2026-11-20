@@ -125,7 +125,6 @@ export function RecordGrid({
 }: {
   sheet?: {
     columns: string[];
-    requiredColumns?: readonly string[];
     allowedRelationIds?: (record: BackOfficeRecord, field: string) => readonly string[] | undefined;
     widths?: Record<string, number>;
     onFocus?: (record: BackOfficeRecord) => void;
@@ -133,7 +132,7 @@ export function RecordGrid({
     trailing?: (record: BackOfficeRecord) => ReactNode;
     blankId: string;
     leading?: (record: BackOfficeRecord) => ReactNode;
-    details?: (record: BackOfficeRecord) => ReactNode;
+    details?: (record: BackOfficeRecord, columns: readonly string[]) => ReactNode;
   };
   lockedSchema?: boolean;
   readOnlyFields?: readonly string[];
@@ -252,10 +251,10 @@ export function RecordGrid({
     setViewMenu(false);
     setSavingView(true);
   };
-  const visibleFields = useMemo(() => [...new Set([...columns, ...(sheet?.requiredColumns ?? [])])].flatMap((id) => {
+  const visibleFields = useMemo(() => [...new Set(columns)].flatMap((id) => {
     const field = object.fields.find((field) => field.id === id);
     return field && (field.visibility !== "finance" || finance) ? [field] : [];
-  }), [columns, object, finance, sheet?.requiredColumns]);
+  }), [columns, object, finance]);
   const localIds = useMemo(() => {
     if (!localRows?.length) return new Set<string>();
     const shared = new Set(records.map(record => record.id));
@@ -513,7 +512,7 @@ export function RecordGrid({
     );
   }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
-    <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
+    <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}

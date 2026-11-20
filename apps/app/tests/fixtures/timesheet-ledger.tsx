@@ -528,7 +528,7 @@ try {
       assert.equal(context.profileId, "profile-a");
       workdayReads++;
       return {
-        settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
+        settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 as const },
         proposals: [capture],
         drafts: {},
         connections: [],
@@ -578,7 +578,7 @@ try {
   await act(async () => cache.invalidateQueries({ queryKey: ["private-stopwatch"] }));
   for (let i = 0; i < 20 && workdayReads === initialReads; i++) await settle();
   assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
-  const sourceSwitch = document.querySelector<HTMLElement>('.bo-workday [role="switch"]');
+  const sourceSwitch = document.querySelector<HTMLElement>('.bo-workday details [role="switch"]');
   assert.ok(sourceSwitch);
   assert.equal(sourceSwitch.dataset.size, "default");
   assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
@@ -737,16 +737,16 @@ try {
   const workdayActions: CaptureAction[] = [];
   const unedited = { ...exact, key: crypto.randomUUID(), digest: "7".repeat(64), startAt: null, endAt: null };
   let workdayProposals = [exact, partial, inlineTimer, unedited];
-  let workdaySettings = { calendar: true, tasks: false, intervalMinutes: 0 as const };
+  let workdaySettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 as const };
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
     privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
       if (action) workdayActions.push(action);
-      if (action?.type === "settings") workdaySettings = { ...workdaySettings, calendar: action.settings.calendar };
+      if (action?.type === "settings") workdaySettings = { ...workdaySettings, calendar: action.settings.calendar, aiSuggestions: Boolean(action.settings.aiSuggestions) };
       if (action?.type === "reconcile") workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
         ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
         : proposal);
-      return { settings: workdaySettings, wording: action?.type === "suggest" ? { [unedited.digest]: { activity: "EXM", narrative: "Generated meeting wording" } } : undefined,
+      return { settings: workdaySettings, wording: action?.type === "refresh" && action.model && workdaySettings.aiSuggestions ? { [unedited.digest]: { activity: "EXM", narrative: "Generated meeting wording" } } : undefined,
         modelReady: false, connections: [],
         drafts: context.date === partial.date && workdaySettings.calendar ? {
           [partial.key]: { date: partial.date, proposalDigest: partial.digest, values: { workflow: true, worked: "99" } },
@@ -755,7 +755,7 @@ try {
     },
   };
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
-  await act(async () => root.render(
+  const renderWorkday = () => act(async () => root.render(
     <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
       <TimesheetWorkday client={workdayClient} model={selectedModel} directory={workdayDirectory} state={weeklyState}
         initialDate={base.date} onDraft={() => {}}>
@@ -763,6 +763,26 @@ try {
       </TimesheetWorkday>
     </BackOfficeTheme></MemoryRouter></QueryClientProvider>,
   ));
+  await renderWorkday();
+  const aiSwitch = () => {
+    const control = document.querySelector<HTMLButtonElement>('.bo-workday-controls [role="switch"]');
+    assert.ok(control);
+    return control;
+  };
+  for (let i = 0; i < 20 && !workdayActions.some(action => action.type === "refresh"); i++) await settle();
+  assert.equal(aiSwitch().getAttribute("aria-checked"), "false");
+  assert.ok(workdayActions.some(action => action.type === "refresh" && !action.model));
+  assert.equal(workdayActions.some(action => action.type === "refresh" && action.model), false);
+  await act(async () => aiSwitch().click());
+  assert.equal(aiSwitch().getAttribute("aria-checked"), "true");
+  const modelRefreshes = () => workdayActions.filter(action => action.type === "refresh" && action.model).length;
+  const initialRefreshes = modelRefreshes();
+  assert.equal(initialRefreshes, 1);
+  await act(async () => root.render(null));
+  await renderWorkday();
+  for (let i = 0; i < 20 && modelRefreshes() === initialRefreshes; i++) await settle();
+  assert.equal(aiSwitch().getAttribute("aria-checked"), "true");
+  assert.equal(modelRefreshes(), initialRefreshes + 1);
   const navigateDay = async (label: string) => {
     const arrow = document.querySelector<HTMLButtonElement>('[aria-label="' + label + '"]');
     assert.ok(arrow);
@@ -809,13 +829,15 @@ try {
   assert.equal(suggestionRow(exact), null);
   assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the remaining proposal");
   await act(async () => wednesday.click());
-  const suggestButton = button(t("timesheets.run_local"));
-  assert.ok(suggestButton && !suggestButton.disabled);
-  await act(async () => suggestButton.click());
-  assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest", model: selectedModel });
+  assert.deepEqual(workdayActions.find(action => action.type === "refresh" && action.model), { type: "refresh", model: selectedModel });
   assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
   assert.equal(workdayActions.some(action => action.type === "draft" && action.key === unedited.key), false);
   assert.equal(commands.length, beforeConflict);
+  await act(async () => aiSwitch().click());
+  assert.equal(suggestionRow(unedited), null);
+  assert.ok(suggestionRow(inlineTimer));
+  await act(async () => aiSwitch().click());
+  assert.equal(proposalCell(unedited, "narrative").value, "Generated meeting wording");
   assert.equal(wednesday.getAttribute("aria-pressed"), "true");
   const correctPartial = [...(suggestionRow(partial)?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
     .find(button => button.textContent === "Correct");
@@ -846,7 +868,7 @@ try {
   const thursday = document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")[3];
   assert.ok(thursday);
   await act(async () => thursday.click());
-  const calendarSwitch = document.querySelector<HTMLElement>('.bo-workday [role="switch"]');
+  const calendarSwitch = document.querySelector<HTMLElement>('.bo-workday details [role="switch"]');
   assert.ok(calendarSwitch);
   await act(async () => calendarSwitch.click());
   for (let i = 0; i < 20 && suggestionRow(partial); i++) await settle();

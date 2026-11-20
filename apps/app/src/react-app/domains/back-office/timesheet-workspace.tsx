@@ -210,7 +210,7 @@ export function TimesheetWorkspace({
       )}
       {state && !recordsOnly && (page === "timesheets" || page === "timesheet-workday" || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={page !== "timesheets" && page !== "timesheet-workday"}>
-          <TimesheetWorkday ledgerDirty={ledgerDirty} model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
+          <TimesheetWorkday visible={page === "timesheets" || page === "timesheet-workday"} ledgerDirty={ledgerDirty} model={workdayModel} client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
           {capture => <TimesheetLedger
             capture={capture}
             onOriginal={
