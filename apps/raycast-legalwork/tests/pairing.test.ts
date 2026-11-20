@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { RaycastPairing } from "../../desktop/electron/launcher/raycast-pairing.mjs";
-import { raycastHandoffUrl, readPairing } from "../src/pairing.ts";
+import { raycastHandoffUrl, readPairing, requireCurrentPairing } from "../src/pairing.ts";
 
 test("the extension discovers the desktop writer for installed, dev and legacy profiles", async () => {
   const appData = await mkdtemp(path.join(tmpdir(), "legalwork-raycast-"));
@@ -34,6 +34,14 @@ test("the URL given to the operating system contains only the opaque handoff ID"
   assert.equal(url.hostname + url.pathname, "assistant/open");
   assert.deepEqual([...url.searchParams], [["handoff", id]]);
   assert.throws(() => raycastHandoffUrl("legalwork-dev", "Synthetic/Private.md"));
+});
+
+test("a displayed row can use only the pairing that issued it", async () => {
+  const issuedBy = { serverUrl: "http://127.0.0.1:4123", token: "fixture-old", scheme: "legalwork" };
+  assert.equal(await requireCurrentPairing(issuedBy, "Refresh Search", async () => ({ ...issuedBy })), issuedBy);
+  for (const current of [null, { ...issuedBy, token: "fixture-new" }, { ...issuedBy, serverUrl: "http://127.0.0.1:4999" }, { ...issuedBy, scheme: "legalwork-dev" }]) {
+    await assert.rejects(requireCurrentPairing(issuedBy, "Refresh Search", async () => current), /Refresh Search/);
+  }
 });
 
 test("the extension ignores a legacy file containing the workspace credential", async () => {

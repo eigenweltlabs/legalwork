@@ -1,6 +1,7 @@
 import { Action, ActionPanel, Color, Icon, List, showToast, Toast } from "@raycast/api";
 import { useEffect, useState } from "react";
-import { launch, readPairing, requirePairing, request, type Pairing, type WorkItem } from "./legalwork";
+import { launch, readPairing, request, type Pairing, type WorkItem } from "./legalwork";
+import { requireCurrentPairing } from "./pairing";
 import { completedLabel, label } from "./status-labels";
 
 const STATUS = {
@@ -16,17 +17,18 @@ const STATUS = {
 
 export default function Command() {
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
-  const [items, setItems] = useState<WorkItem[]>([]);
+  const [results, setResults] = useState<{ pairing: Pairing; items: WorkItem[] } | null>(null);
+  const items = results?.items ?? [];
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setResults(null);
     void readPairing().then(async found => {
       if (controller.signal.aborted) return;
       setPairing(found);
-      if (!found) { setItems([]); return; }
+      if (!found) return;
       const work: WorkItem[] = []; let snapshot: string | undefined; let offset: number | null = 0;
       do {
         const page: { items: WorkItem[]; nextOffset: number | null; snapshot?: string } = await request(found, `/assistant/work?limit=100&offset=${offset}${snapshot ? "&snapshot=" + encodeURIComponent(snapshot) : ""}`, { signal: controller.signal });
@@ -35,15 +37,15 @@ export default function Command() {
         if (next !== null && next <= offset) throw new Error("LegalWork returned an invalid work page. Refresh to try again.");
         offset = next;
       } while (offset !== null);
-      if (!controller.signal.aborted) setItems(work);
-    }).catch(reason => { if (!controller.signal.aborted) { setItems([]); setError(reason instanceof Error ? reason.message : String(reason)); } })
+      if (!controller.signal.aborted) setResults({ pairing: found, items: work });
+    }).catch(reason => { if (!controller.signal.aborted) { setResults(null); setError(reason instanceof Error ? reason.message : String(reason)); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [refresh]);
   const openWork = async (item: WorkItem, origin = false) => {
-    const found = await requirePairing();
-    if (!found) return;
+    if (!results) return;
     try {
+      const found = await requireCurrentPairing(results.pairing, "Refresh Work");
       await launch(origin ? { action: "resume", conversationId: item.originConversationId ?? undefined } : {
         action: "open", result: { kind: "chats", id: item.sessionId, workspaceId: item.workspaceId, sourceId: `local:${item.workspaceId}`, sessionId: item.sessionId },
       }, found);

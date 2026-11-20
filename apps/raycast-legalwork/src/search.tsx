@@ -1,9 +1,10 @@
 import { Action, ActionPanel, Color, Clipboard, Icon, List, open, showInFinder, showToast, Toast } from "@raycast/api";
 import { useEffect, useState } from "react";
 import { launcherResultActions } from "@legalwork/types/launcher";
-import { launch, localResultPath, readPairing, requirePairing, request, type Pairing, type SearchKind, type SearchResult, type SourceState } from "./legalwork";
+import { launch, localResultPath, readPairing, request, type Pairing, type SearchKind, type SearchResult, type SourceState } from "./legalwork";
 import { completedLabel, coverageLabels, label } from "./status-labels";
 import { resultReference } from "./result-files";
+import { requireCurrentPairing } from "./pairing";
 
 const KINDS: { value: SearchKind | "all"; title: string }[] = [{ value: "all", title: "Everything" }, { value: "files", title: "Files" }, { value: "projects", title: "Projects" }, { value: "chats", title: "Chats" }, { value: "tasks", title: "Tasks" }, { value: "recordings", title: "Recordings" }];
 const ICONS: Record<SearchKind, Icon> = { files: Icon.Document, projects: Icon.Folder, chats: Icon.Message, tasks: Icon.CheckCircle, recordings: Icon.Microphone };
@@ -12,35 +13,32 @@ export default function Command() {
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<SearchKind | "all">("all");
-  const [items, setItems] = useState<SearchResult[]>([]);
-  const [sources, setSources] = useState<SourceState[]>([]);
+  const [results, setResults] = useState<{ pairing: Pairing; items: SearchResult[]; sources: SourceState[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
-  useEffect(() => { let active = true; void readPairing().then(value => { if (active) setPairing(value); }); return () => { active = false; }; }, [refresh]);
   useEffect(() => {
-    if (!pairing) return;
-    setItems([]); setSources([]); setError(null);
-    if (!query.trim() && kind === "all") { setLoading(false); return; }
     const current = new AbortController();
-    setLoading(true);
+    setResults(null); setError(null); setLoading(true);
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ q: query.trim(), content: "1", limit: "60", ...(kind !== "all" ? { kinds: kind } : {}) });
-      // The desktop changes its token on restart, even while this command stays open.
-      void readPairing().then(found => {
-        if (!found) throw new Error("Raycast pairing is disabled. Enable it in LegalWork Settings, Assistant launcher.");
-        return request<{ items: SearchResult[]; sources: SourceState[] }>(found, `/launcher/search?${params}`, { signal: current.signal });
-      }).then(response => { if (!current.signal.aborted) { setItems(response.items); setSources(response.sources); } })
-        .catch(reason => { if (!current.signal.aborted) { const message = reason instanceof Error ? reason.message : String(reason); setError(message); void showToast({ style: Toast.Style.Failure, title: "Search failed", message }); } })
+      void readPairing().then(async found => {
+        if (current.signal.aborted) return;
+        setPairing(found);
+        if (!found || !query.trim() && kind === "all") return;
+        const response = await request<{ items: SearchResult[]; sources: SourceState[] }>(found, `/launcher/search?${params}`, { signal: current.signal });
+        if (!current.signal.aborted) setResults({ ...response, pairing: found });
+      }).catch(reason => { if (!current.signal.aborted) { const message = reason instanceof Error ? reason.message : String(reason); setError(message); void showToast({ style: Toast.Style.Failure, title: "Search failed", message }); } })
         .finally(() => { if (!current.signal.aborted) setLoading(false); });
     }, 150);
     return () => { clearTimeout(timer); current.abort(); };
-  }, [pairing, query, kind]);
+  }, [query, kind, refresh]);
+  const items = results?.items ?? [], sources = results?.sources ?? [];
 
   const run = async (item: SearchResult, action: "open" | "legalwork" | "reveal" | "copy-file" | "chat-with-assistant" | "ask" | "summarize") => {
-    const found = await requirePairing();
-    if (!found) return;
+    if (!results) return;
     try {
+      const found = await requireCurrentPairing(results.pairing, "Refresh Search");
       if (action === "chat-with-assistant" || action === "ask" || action === "summarize") {
         await launch({ action: "open", result: resultReference(item), resultAction: action }, found);
       } else if (action === "legalwork" || item.kind !== "files") {

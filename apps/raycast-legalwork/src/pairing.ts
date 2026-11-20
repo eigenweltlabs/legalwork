@@ -4,6 +4,14 @@ import path from "node:path";
 
 export type Pairing = { serverUrl: string; token: string; scheme: string };
 
+export async function requireCurrentPairing(issuedBy: Pairing, refreshAction: string, read = readPairing): Promise<Pairing> {
+  const current = await read();
+  if (!current || current.serverUrl !== issuedBy.serverUrl || current.token !== issuedBy.token || current.scheme !== issuedBy.scheme) {
+    throw new Error(`The LegalWork connection changed. Choose ${refreshAction} and try again.`);
+  }
+  return issuedBy;
+}
+
 export function raycastHandoffUrl(scheme: Pairing["scheme"], id: string): string {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error("LegalWork returned an invalid handoff ID.");
   const url = new URL(`${scheme}://assistant/open`);

@@ -24,6 +24,7 @@ export async function request<T>(pairing: Pairing, route: string, init: { method
   const response = await fetch(`${pairing.serverUrl}${route}`, { method: init.method ?? "GET", headers: { Authorization: `Bearer ${pairing.token}`, "Content-Type": "application/json" }, body: init.body === undefined ? undefined : JSON.stringify(init.body), signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout, redirect: "error" });
   const text = await response.text();
   const json = text ? JSON.parse(text) : null;
+  if (response.status === 401) throw new Error("LegalWork rejected this pairing. Refresh the list or reopen the Raycast command and try again.");
   if (!response.ok) throw new Error(typeof json?.message === "string" ? json.message : `LegalWork request failed (${response.status})`);
   return json as T;
 }

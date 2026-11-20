@@ -14,10 +14,10 @@ An optional entry point into the same LegalWork Assistant: the panel, files, act
 - **Open LegalWork Assistant**: resume the current conversation, or pass a question.
 - **Ask LegalWork with Selection**: stages the front app's selection and opens the Assistant with it attached.
 - **Search LegalWork** finds files, projects, chats, tasks and recording titles in sources available to the paired extension. Recording transcripts open in LegalWork. For local files, **Open** uses the default app, **Show in Finder** locates the source and **Copy File** puts the file on the clipboard. **Chat with Assistant** attaches the item to the current general Assistant draft. **Ask About This** opens a fresh project chat with the item attached and waits for your question. **Summarize**, available for files, sends a summary request in a fresh project chat. Wiki and search-folder items ask you to choose a project when there is no current project. Files from added folders are copied after you choose a destination. Project chats can use your own AI provider. **Chat with Assistant** uses the Assistant plan.
-- **Run LegalWork Quick Action**: saved quick actions on the selection or clipboard.
+- **Run LegalWork Quick Action** uses the exact selection or clipboard text, including whitespace. Select or copy a shorter passage if the input exceeds 200,000 characters.
 - **LegalWork Work**: delegated work and what needs your decision. **Open in LegalWork** opens the selected job's chat; **Open Origin Conversation** returns to the conversation that delegated it. A green **✓ Done** marks a final reply. **Idle** indicates that the job has no active turn or confirmed result.
 
-Use **Refresh Search**, **Refresh Work** or **Refresh Actions** after changing a source or restarting LegalWork. Unavailable sources and failed requests are shown explicitly.
+Use **Refresh Search**, **Refresh Work** or **Refresh Actions** after changing a source, switching profiles or restarting LegalWork. If the pairing changes while a list is open, refresh the list before using its results.
 
 The Raycast extension uses the published Raycast List API, which does not expose a custom native drag-out handler. Use **Copy File** and paste into Finder or another app, or drag the result from LegalWork's own Assistant mini-bar. The extension does not provide multi-selection or incoming file drops.
 
