@@ -27,7 +27,18 @@ import { sourceKeys } from "./timesheet-labels";
 import { overlappingWorkdayRanges, proposalTitle, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import "./timesheet-workday.css";
 
-export type RenderTimeWorkspace = (entries: ReactNode, renderProposal: (proposal: CaptureProposal) => ReactNode) => ReactNode;
+export type RenderTimeWorkspace = (
+  entries: ReactNode,
+  renderProposal: (proposal: CaptureProposal) => ReactNode,
+  proposals?: CaptureProposal[],
+) => ReactNode;
+
+function CommitProposalFocus({ apply }: { apply: () => void }) {
+  // Records mode can acknowledge a booking and update the panel before the
+  // directory query updates the enclosing workday.
+  useLayoutEffect(apply);
+  return null;
+}
 
 export function TimesheetWorkday({
   client, directory, state, dateLocked = false, visible = true,
@@ -72,7 +83,7 @@ export function TimesheetWorkday({
       focusRequest.current = { target: "editor", removed: editorForm.current };
     editorForm.current = element;
   }, []);
-  useLayoutEffect(() => {
+  function applyFocusRequest() {
     const request = focusRequest.current;
     focusRequest.current = undefined;
     if (!request || request.removed?.isConnected || !visible || timelineBody.current?.closest("[hidden]")) return;
@@ -83,7 +94,7 @@ export function TimesheetWorkday({
       buttons[from.index] ?? buttons.at(-1));
     const target = request.target === "editor" && editorTitle.current ? editorTitle.current : nearby || panel;
     target?.focus();
-  });
+  }
 
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
   const profileId = directory.captureProfileId;
@@ -221,12 +232,10 @@ export function TimesheetWorkday({
       (e.proposalDigest && p.versions?.includes(e.proposalDigest))
     )),
   ) ?? [];
-  const selected = shown.find(proposal => proposal.key === selection);
-  const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
   function openEditor(proposal: CaptureProposal, trigger: HTMLButtonElement) {
     const buttons = [...(timelineBody.current?.querySelectorAll<HTMLButtonElement>("[data-proposal-id]") ?? [])];
     origin.current = { key: proposal.key, index: buttons.indexOf(trigger) };
-    if (selected?.key === proposal.key && !correcting) {
+    if (selection === proposal.key && correction?.digest !== proposal.digest) {
       editorTitle.current?.focus();
       return;
     }
@@ -281,10 +290,12 @@ export function TimesheetWorkday({
       setCorrection(proposal);
     },
   };
-  const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal) => (
-    <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
+  const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown) => {
+    const selected = proposals.find(proposal => proposal.key === selection);
+    const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
+    return <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
-      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={shown}
+      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={proposals}
         pending={running} aiEnabled={aiEnabled} onAction={requestModel} />}
       timeline={(view, choose) => (
         <>
@@ -327,15 +338,16 @@ export function TimesheetWorkday({
           )}
           {local && (
             <div ref={timelineBody}>
-              {data && shown.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
-              <WorkdayTimeline date={date} proposals={shown} state={state} view={view} selected={selected?.key}
+              {data && proposals.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
+              <WorkdayTimeline date={date} proposals={proposals} state={state} view={view} selected={selected?.key}
                 editorId={editorId} onOpen={openEditor} />
             </div>
           )}
+          <CommitProposalFocus apply={applyFocusRequest} />
         </>
       )}
-    />
-  );
+    />;
+  };
   const status = data?.status;
   return (
     <section className="bo-workday time-unified">

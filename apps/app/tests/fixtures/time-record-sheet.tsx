@@ -11,7 +11,7 @@ window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
   window, document: window.document, navigator: window.navigator,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
-  Element: window.Element, Node: window.Node, Event: window.Event,
+  Element: window.Element, Node: window.Node, Event: window.Event, DOMRect: window.DOMRect,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
   getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window),
@@ -427,6 +427,42 @@ try {
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
   await render(active, [workerContact, current]);
   assert.equal(host.querySelector(".time-sheet-summary select"), null);
+
+  const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
+  const beforeDirectoryRefresh = captureProposalSchema.parse({
+    ...proposal, key: crypto.randomUUID(), digest: "e".repeat(64),
+    narrative: "Book before directory refresh", matterId: singleClientMatter.id,
+  });
+  const nextSuggestion = captureProposalSchema.parse({
+    ...beforeDirectoryRefresh, key: crypto.randomUUID(), digest: "f".repeat(64), narrative: "Other private work",
+  });
+  const pendingDirectory = { ...directory, records: [workerContact, singleClientMatter, ...clientRecords] };
+  client.privateStopwatch = async () => ({ profileId: directory.captureProfileId ?? "", active: null, lastStopped: null, projects: [] });
+  client.privateWorkday = async () => ({
+    settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
+    drafts: {}, proposals: [beforeDirectoryRefresh, nextSuggestion], modelReady: false,
+    connections: [], chat: [], instructions: [], guidelines: [],
+  });
+  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
+    <TimesheetWorkday client={client} directory={pendingDirectory} state={state} initialDate={first} onDateChange={() => {}}>
+      {(capture, workspace) => <TimeRecordSheet client={client} directory={pendingDirectory} state={state}
+        capture={capture} workspace={workspace} />}
+    </TimesheetWorkday>
+  </BackOfficeTheme></QueryClientProvider></MemoryRouter>));
+  function timelineButton(id: string) {
+    return host.querySelector<HTMLButtonElement>('[data-proposal-id="' + id + '"]');
+  }
+  for (let i = 0; i < 20 && !timelineButton(beforeDirectoryRefresh.key); i++) {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  }
+  const toBook = timelineButton(beforeDirectoryRefresh.key);
+  assert.ok(toBook);
+  await act(async () => { toBook.focus(); toBook.click(); });
+  const acceptFromTimeline = button(host, t("timesheets.sheet.accept"));
+  await act(async () => { acceptFromTimeline.focus(); acceptFromTimeline.click(); });
+  assert.equal(timelineButton(beforeDirectoryRefresh.key), null, "the locally acknowledged proposal leaves the timeline before directory refresh");
+  assert.equal(host.querySelector(".time-workspace-editor"), null);
+  assert.equal(document.activeElement, timelineButton(nextSuggestion.key), "the Records editor restores focus on local acknowledgement");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

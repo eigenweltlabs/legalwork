@@ -628,5 +628,5 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         </div>
       </div>
     );
-  });
+  }, proposals);
 }
