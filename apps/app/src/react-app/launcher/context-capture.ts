@@ -63,6 +63,33 @@ export function screenshotName(capture: LauncherCapture) {
   return `${capture.capture}-${new Date(capture.capturedAt).toISOString().replace(/[:.]/g, "-")}.png`;
 }
 
+export type CaptureSaveSource = { name: string } & (
+  | { dataUrl: string }
+  | { workspaceId: string; path: string }
+);
+
+export function captureSavePath(folder: string, filename: string) {
+  const name = filename.trim();
+  if (name.startsWith(".") || !/^[^/\\:*?"<>|\x00-\x1f]+\.png$/i.test(name)) throw new Error(t("launcher.capture.invalid_filename"));
+  if (folder && folder.split("/").some(part => !part || part.startsWith(".") || /[\\\x00-\x1f]/.test(part))) {
+    throw new Error(t("launcher.folder.unavailable"));
+  }
+  return folder ? `${folder}/${name}` : name;
+}
+
+export async function saveCaptureToProject(
+  client: Pick<LegalworkServerClient, "writeWorkspaceBinaryFile" | "downloadWorkspaceFile">,
+  source: CaptureSaveSource, workspaceId: string, folder: string, filename: string,
+) {
+  const path = captureSavePath(folder, filename);
+  const data = "dataUrl" in source
+    ? dataUrlToFile(source.dataUrl, filename)
+    : new Blob([(await client.downloadWorkspaceFile(source.workspaceId, source.path)).data], { type: "image/png" });
+  const result = await client.writeWorkspaceBinaryFile(workspaceId, { path, data, createOnly: true, requireExistingParent: true });
+  if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
+  return result.path;
+}
+
 export async function captureScreen(kind: "window" | "region"): Promise<LauncherCaptureResult> {
   return kind === "window" ? launcherCaptureWindow() : launcherCaptureRegion();
 }
@@ -71,7 +98,7 @@ export function screenCaptureError(result: Extract<LauncherCaptureResult, { ok: 
   return result.reason === "failed" ? result.message || t(captureErrorKeys.failed) : t(captureErrorKeys[result.reason]);
 }
 
-/** The direct Fusion runner uses the same protected workspace download as Save image. */
+/** The direct Fusion runner loads staged images through protected workspace downloads. */
 export async function loadStagedCaptureParts(client: Pick<LegalworkServerClient, "downloadWorkspaceFile">, workspaceId: string, items: AssistantContextItem[]) {
   const parts: { type: "file"; mime: string; filename: string; url: string }[] = [];
   let remainingBytes = MAX_CAPTURE_BYTES;

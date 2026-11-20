@@ -14,6 +14,8 @@ export function LauncherNavigationRows({ rows, selected, onSelect, onError, onOp
     <div className="launcher-row-main"><div className="launcher-row-title">{title}</div>{(meta ?? subtitle) && <div className="launcher-row-meta">{meta ?? subtitle}</div>}</div>
     {result?.kind === "tasks" && result.completed && <span className="launcher-task-status" data-status="done">✓ {t("tasks.status_done")}</span>}
     {shortcut && <kbd className="launcher-row-shortcut">{shortcut}</kbd>}
-    {onOpenActions && selected === id && <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); onOpenActions(id); }}><ChevronRight className="size-4" /></button>}
+    {onOpenActions && <span className="launcher-row-action">{selected === id &&
+      <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); onOpenActions(id); }}><ChevronRight className="size-4" /></button>
+    }</span>}
   </div></Fragment>)}</>;
 }

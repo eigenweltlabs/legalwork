@@ -6,8 +6,9 @@ function draw(x, y) {
   const bottom = Math.max(0, Math.min(window.innerHeight, y));
   const box = { x: Math.min(start.x, right), y: Math.min(start.y, bottom), width: Math.abs(right - start.x), height: Math.abs(bottom - start.y) };
   Object.assign(rect().style, { display: "block", left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` });
-  Object.assign(size().style, { display: "block", left: `${box.x}px`, top: `${box.y + box.height + 6}px` });
-  size().textContent = `${box.width} × ${box.height}`;
+  Object.assign(size().style, { left: `${Math.min(box.x, Math.max(0, window.innerWidth - size().offsetWidth - 8))}px`,
+    top: `${Math.min(box.y + box.height + 6, window.innerHeight - 26)}px` });
+  window.regionOverlay.measure(box);
   return box;
 }
 window.addEventListener("DOMContentLoaded", () => {
@@ -16,6 +17,11 @@ window.addEventListener("DOMContentLoaded", () => {
     document.title = "Bildschirmbereich aufnehmen";
     document.getElementById("hint").textContent = "Bereich mit der Maus auswählen · Esc zum Abbrechen";
   }
+  window.regionOverlay.onSize(({ width, height }) => {
+    if (!start) return;
+    size().style.display = "block";
+    size().textContent = `${width} × ${height} px`;
+  });
   document.addEventListener("keydown", event => { if (event.key === "Escape") window.regionOverlay.cancel(); });
   document.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;

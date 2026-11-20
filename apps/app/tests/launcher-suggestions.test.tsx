@@ -42,10 +42,12 @@ test("explicit sorts override relevance with natural alphabetical order and actu
 
 test("New lists creation actions in the foreground context and narrows by English or German noun", () => {
   for (const query of ["n", "NE", "new ", "neu", "Neuer Chat", "new chat"]) {
-    expect(launcherCreationActions(query, true).slice(0, 2)).toEqual(["project-chat", "mini-chat"]);
+    expect(launcherCreationActions(query, true).filter(action => action.endsWith("chat"))).toEqual(["project-chat"]);
     expect(launcherCreationActions(query, false).slice(0, 2)).toEqual(["mini-chat", "project-chat"]);
   }
-  expect(launcherCreationActions("new", true)).toEqual(["project-chat", "mini-chat", "document", "docx", "text", "task", "project", "recording"]);
+  expect(launcherCreationActions("new mini", true)).toEqual([]);
+  expect(launcherCreationActions("new mini", false)).toEqual(["mini-chat"]);
+  expect(launcherCreationActions("new", true)).toEqual(["project-chat", "document", "docx", "text", "task", "project", "recording"]);
   expect(launcherCreationActions("new doc", true)).toEqual(["document", "docx"]);
   for (const query of ["new docx", "neues Word", "NEW WORD DOCUMENT"]) expect(launcherCreationActions(query, false)).toEqual(["docx"]);
   expect(launcherCreationActions("neue aufg", true)).toEqual(["task"]);

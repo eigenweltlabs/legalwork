@@ -106,7 +106,7 @@ export function LauncherResultList(props: {
             {item.excerpt && item.excerpt !== item.path && <div className="launcher-row-excerpt"><Highlight text={item.excerpt} query={props.query} /></div>}
           </div>
           {item.kind === "tasks" && item.completed && <span className="launcher-task-status" data-status="done">✓ {t("tasks.status_done")}</span>}
-          <span className="launcher-row-hint">{props.selectedKey === key ? <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); props.onOpenActions(key); }}><ChevronRight className="size-4" /></button> : item.kind === "projects" ? <Folder className="size-3.5" /> : null}</span>
+          <span className="launcher-row-action">{props.selectedKey === key ? <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); props.onOpenActions(key); }}><ChevronRight className="size-4" /></button> : item.kind === "projects" ? <Folder className="size-3.5" /> : null}</span>
         </div>;
       })}
     </section>)}

@@ -14,6 +14,7 @@ interface MessageListContextValue {
   onOpenSession?: (sessionId: string) => void
   pendingInteractionSessionIds: string[]
   assistantChat?: boolean
+  inlineReplyActions?: boolean
   readOnly?: boolean
   onCopyMessage?: (text: string) => Promise<void>
   replyActionsMessageId?: string
@@ -38,6 +39,7 @@ interface MessageListProviderProps {
   onOpenSession?: (sessionId: string) => void
   pendingInteractionSessionIds?: string[]
   assistantChat?: boolean
+  inlineReplyActions?: boolean
   readOnly?: boolean
   onCopyMessage?: (text: string) => Promise<void>
   replyActionsMessageId?: string
@@ -71,6 +73,7 @@ export function MessageListProvider({
   onCopyMessage,
   replyActionsMessageId,
   assistantChat = false,
+  inlineReplyActions = false,
   showThinking,
   developerMode,
   displaySuggestions,
@@ -92,6 +95,7 @@ export function MessageListProvider({
       onCopyMessage,
       replyActionsMessageId,
       assistantChat,
+      inlineReplyActions,
       showThinking,
       developerMode,
       displaySuggestions,
@@ -112,6 +116,7 @@ export function MessageListProvider({
       onCopyMessage,
       replyActionsMessageId,
       assistantChat,
+      inlineReplyActions,
       showThinking,
       developerMode,
       displaySuggestions,

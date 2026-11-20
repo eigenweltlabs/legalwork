@@ -3538,12 +3538,13 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
 
     writeWorkspaceBinaryFile: (
       workspaceId: string,
-      payload: { path: string; data: ArrayBuffer | Blob; baseUpdatedAt?: number | null; force?: boolean; createOnly?: boolean },
+      payload: { path: string; data: ArrayBuffer | Blob; baseUpdatedAt?: number | null; force?: boolean; createOnly?: boolean; requireExistingParent?: boolean },
     ) =>
       "stream" in payload.data ? requestJson<LegalworkWorkspaceFileWriteResult>(baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/raw?${new URLSearchParams({ path: payload.path,
           ...(payload.baseUpdatedAt != null ? { baseUpdatedAt: String(payload.baseUpdatedAt) } : {}),
-          ...(payload.force ? { force: "true" } : {}), ...(payload.createOnly ? { createOnly: "true" } : {}) })}`,
+          ...(payload.force ? { force: "true" } : {}), ...(payload.createOnly ? { createOnly: "true" } : {}),
+          ...(payload.requireExistingParent ? { requireExistingParent: "true" } : {}) })}`,
         { token, hostToken, method: "POST", binaryBody: payload.data, timeoutMs: 900_000 }) :
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,
@@ -3558,6 +3559,7 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
             baseUpdatedAt: payload.baseUpdatedAt,
             force: payload.force,
             createOnly: payload.createOnly,
+            requireExistingParent: payload.requireExistingParent,
           },
         },
       ),

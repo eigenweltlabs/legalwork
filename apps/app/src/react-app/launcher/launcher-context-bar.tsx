@@ -1,12 +1,12 @@
 import { Download, ListChecks, X } from "lucide-react";
+import type { LauncherCapture } from "@legalwork/types/launcher";
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import { useLauncherShell } from "./launcher-shell";
-import { contextItemDetail, contextItemLabel } from "./context-capture";
+import { contextItemDetail, contextItemLabel, screenshotName, type CaptureSaveSource } from "./context-capture";
 import { useLauncherStore } from "./launcher-store";
 
 /** Staged context with visible provenance; every item is removable before sending. */
-export function LauncherContextBar({ readOnly = false }: { readOnly?: boolean }) {
-  const { client } = useLauncherShell();
+export function LauncherContextBar({ readOnly = false, onSaveCapture }: { readOnly?: boolean; onSaveCapture: (source: CaptureSaveSource) => void }) {
   const context = useLauncherStore(state => state.context);
   const previews = useLauncherStore(state => state.previews);
   const removeContext = useLauncherStore(state => state.removeContext);
@@ -22,16 +22,32 @@ export function LauncherContextBar({ readOnly = false }: { readOnly?: boolean })
           <summary className="launcher-context-detail" title={t("launcher.capture.inspect_selection")}>{item.text.slice(0, 120)}{item.text.length > 120 ? "…" : ""}</summary>
           <pre className="launcher-selection-text" tabIndex={0}>{item.text}</pre>
         </details> : <span className="launcher-context-detail">{contextItemDetail(item)}</span>}
-        {item.type === "image" && <button type="button" aria-label={t("launcher.capture.save_image")} title={t("launcher.capture.save_image")} onClick={async () => {
-          try {
-            if (!preview && (!item.workspaceId || !item.path)) throw new Error(t("launcher.chat.context_unavailable"));
-            const url = preview?.dataUrl ?? URL.createObjectURL(new Blob([(await client.downloadWorkspaceFile(item.workspaceId ?? "", item.path ?? "")).data], { type: "image/png" }));
-            const link = document.createElement("a"); link.href = url; link.download = item.name; link.click();
-            if (!preview) setTimeout(() => URL.revokeObjectURL(url), 60_000);
-          } catch (error) { useLauncherStore.getState().notify({ tone: "error", text: String(error) }); }
+        {item.type === "image" && (preview || item.workspaceId && item.path) && <button type="button" disabled={readOnly} aria-label={t("launcher.capture.save_image")} title={t("launcher.capture.save_image")} onClick={() => {
+          if (preview) onSaveCapture({ name: item.name, dataUrl: preview.dataUrl });
+          else if (item.workspaceId && item.path) onSaveCapture({ name: item.name, workspaceId: item.workspaceId, path: item.path });
         }}><Download className="size-4" />{t("launcher.capture.save_image")}</button>}
         <button type="button" disabled={readOnly} aria-label={t("launcher.context.remove", { name: contextItemLabel(item) })} onClick={() => removeContext(item.id)}><X className="size-3.5" /></button>
       </span>;
     })}
+  </div>;
+}
+
+
+export function LauncherCapturePreview({ capture, attachDisabled, onAsk, onAttach, onSave, onClose }: {
+  capture: LauncherCapture;
+  attachDisabled: boolean;
+  onAsk: () => void;
+  onAttach: () => void;
+  onSave: (source: CaptureSaveSource) => void;
+  onClose: () => void;
+}) {
+  return <div className="launcher-capture-preview">
+    <img src={capture.dataUrl} alt={t(capture.capture === "region" ? "launcher.context.region" : "launcher.context.window")} />
+    <div className="launcher-context-actions">
+      <Button type="button" size="sm" variant="outline" onClick={onAsk}>{t("launcher.capture.ask_image")}</Button>
+      <Button type="button" size="sm" variant="ghost" disabled={attachDisabled} onClick={onAttach}>{t("launcher.capture.attach_image")}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => onSave({ name: screenshotName(capture), dataUrl: capture.dataUrl })}><Download className="size-4" />{t("launcher.capture.save_image")}</Button>
+      <Button type="button" variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={onClose}><X className="size-4" /></Button>
+    </div>
   </div>;
 }

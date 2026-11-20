@@ -979,7 +979,7 @@ function MessageGroup({
   isStreaming,
   showTyping = false,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat, inlineReplyActions } = useMessageList()
   const showCosts = useSessionCosts() !== null;
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const searchLimit = webSearchUsageLimitError(items.flatMap(item => item.message.parts));
@@ -1027,7 +1027,7 @@ function MessageGroup({
   }
 
   return (
-      <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && !showCosts && "pb-5")}>
+      <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && !inlineReplyActions && !showCosts && "pb-5")}>
       {displayItems.map(renderItem)}
       {searchLimit && !items.some(item => isSessionErrorMessage(item.message) && parseProviderUsageLimit(getMessagesText([item.message]))?.providerId === "eigenwelt") && <ErrorMessage error={searchLimit} scope="web-search" />}
       {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
@@ -1053,7 +1053,7 @@ function MessageGroup({
           className={cn(
           "flex min-w-0 flex-wrap items-center gap-2 transition-opacity duration-150",
           !showCosts && "opacity-0 group-hover/message-group:opacity-100 focus-within:opacity-100",
-          assistantChat && !showCosts
+          assistantChat && !inlineReplyActions && !showCosts
             ? "pointer-events-none absolute left-0 -bottom-4 z-10 group-hover/message-group:pointer-events-auto focus-within:pointer-events-auto"
             : "w-full"
         )}>

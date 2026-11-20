@@ -635,14 +635,13 @@ export function SessionRoute() {
     if (params.get("newChat") !== "1" || !selectedSessionId || !routeWorkspaceId || !params.get("conversation")) return;
     registerEmptySession(selectedSessionId);
     rememberPendingCreatedSession(routeWorkspaceId, selectedSessionId);
-    const panels = usePanelTabStore.getState(), scope = workspacePanelKey(routeWorkspaceId), pane = params.get("pane");
-    if (pane && panels.sessions[scope]?.panes.some(item => item.id === pane)) {
-      panels.openTab(scope, { id: `chat:${selectedSessionId}`, type: "chat", sessionId: selectedSessionId, label: t("session.new_task") }, pane);
-    }
-    params.delete("newChat"); params.delete("pane");
-    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+    // SessionPage adopts the route with the project's saved placement, like
+    // New Chat in the main app. Ignore a pane sent by an older mini-bar.
+    params.delete("newChat");
+    params.delete("pane");
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true, state: location.state });
     focusPromptSoon();
-  }, [location.pathname, location.search, selectedSessionId, routeWorkspaceId, rememberPendingCreatedSession, navigate]);
+  }, [location.pathname, location.search, location.state, selectedSessionId, routeWorkspaceId, rememberPendingCreatedSession, navigate]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage && Boolean(selectedSessionId);
   const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, draftCacheScope(client?.draftProfile), selectedSessionId], enabled: Boolean(selectedSessionId && client),
     queryFn: async () => {

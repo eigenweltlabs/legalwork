@@ -1,5 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
+const channel = "legalwork:launcher:region";
 contextBridge.exposeInMainWorld("regionOverlay", {
-  select: (rect) => ipcRenderer.send("legalwork:launcher:region", { type: "select", ...rect }),
-  cancel: () => ipcRenderer.send("legalwork:launcher:region", { type: "cancel" }),
+  measure: rect => ipcRenderer.send(channel, { ...rect, type: "measure" }),
+  onSize: callback => ipcRenderer.on(channel, (_event, size) => callback(size)),
+  select: rect => ipcRenderer.send(channel, { ...rect, type: "select" }),
+  cancel: () => ipcRenderer.send(channel, { type: "cancel" }),
 });

@@ -49,10 +49,8 @@ export class ScreenCapture {
       } catch (error) { return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: error instanceof Error ? error.message : String(error) }; }
       if (!shot || shot.thumbnail.isEmpty()) return { ok: false, reason: permissionDenied() ? "denied" : "failed", message: "The selected display could not be matched to a capture source." };
       try {
-        const rect = await this.selectRegion(display);
-        if (!rect) return { ok: false, reason: "cancelled", message: "" };
-        const pixels = capturePixelRect(rect, display.bounds, shot.thumbnail.getSize());
-        if (!pixels) return { ok: false, reason: "failed", message: "The selected region is outside the captured display." };
+        const pixels = await this.selectRegion(display, shot.thumbnail.getSize());
+        if (!pixels) return { ok: false, reason: "cancelled", message: "" };
         const crop = shot.thumbnail.crop(pixels);
         return { ok: true, capture: { dataUrl: dataUrl(crop), ...crop.getSize(), capture: "region", sourceApp: null, sourceWindow: null, capturedAt: Date.now() } };
       } catch (error) { return { ok: false, reason: "failed", message: error instanceof Error ? error.message : String(error) }; }
@@ -94,8 +92,8 @@ export class ScreenCapture {
       }).catch(error => finish(null, error));
     });
   }
-  /** @param {import("electron").Display} display @returns {Promise<{ x: number, y: number, width: number, height: number } | null>} */
-  selectRegion(display) {
+  /** @param {import("electron").Display} display @param {import("electron").Size} imageSize @returns {Promise<{ x: number, y: number, width: number, height: number } | null>} */
+  selectRegion(display, imageSize) {
     return new Promise((resolve, reject) => {
       const overlay = new BrowserWindow({ ...display.bounds, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false, movable: false, hasShadow: false, show: false, enableLargerThanScreen: true,
         webPreferences: { preload: fileURLToPath(new URL("./region-overlay-preload.cjs", import.meta.url)), contextIsolation: true, nodeIntegration: false, sandbox: true } });
@@ -115,13 +113,20 @@ export class ScreenCapture {
       const onMessage = (event, payload) => {
         if (event.sender !== overlay.webContents) return;
         if (!payload || payload.type === "cancel") finish(null);
-        else if (payload.type === "select" && [payload.x, payload.y, payload.width, payload.height].every(Number.isFinite) && payload.width >= 4 && payload.height >= 4) {
+        else if (payload.type === "measure" || payload.type === "select") {
+          if (![payload.x, payload.y, payload.width, payload.height].every(Number.isFinite)) return;
           const bounds = overlay.getContentBounds();
           if (screen.getDisplayMatching(bounds).id !== display.id) {
             finish(null, new Error("The display changed during capture. Open the capture again."));
             return;
           }
-          finish({ x: payload.x + bounds.x - display.bounds.x, y: payload.y + bounds.y - display.bounds.y, width: payload.width, height: payload.height });
+          const pixels = capturePixelRect({ x: payload.x + bounds.x - display.bounds.x,
+            y: payload.y + bounds.y - display.bounds.y, width: payload.width, height: payload.height }, display.bounds, imageSize);
+          if (payload.type === "measure") event.sender.send(OVERLAY_CHANNEL, { width: pixels?.width ?? 0, height: pixels?.height ?? 0 });
+          else if (payload.width >= 4 && payload.height >= 4) {
+            if (pixels) finish(pixels);
+            else finish(null, new Error("The selected region is outside the captured display."));
+          }
         }
       };
       ipcMain.on(OVERLAY_CHANNEL, onMessage);

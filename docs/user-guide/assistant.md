@@ -194,10 +194,10 @@ retyping it. A new question from inside a project opens a fresh chat in that
 project. A follow-up typed in an open mini-bar chat stays in that chat.
 
 Type **n**, **new** or **neu** for creation actions. In an active project, press
-**Enter** on **New chat in [project]** to open a fresh project chat directly in
-the Eigenwelt main window. Choose **New chat in mini-bar** to start a fresh chat
-in the same project and keep typing in the floating window. When invoked from
-another app, the new mini-bar chat opens as a blank composer. Choose a destination when you send, as described below. **New chat in a project…**
+**Enter** on **New chat** to open a chat in that project. Eigenwelt uses the
+same work pane as the project’s **New chat** button, following your left or
+right pane preference. When invoked from another app, **New chat in mini-bar**
+opens a blank composer. Choose a destination when you send, as described below. **New chat in a project…**
 lets you type a project name, choose it with the arrow keys and press **Enter** to
 open the chat in Eigenwelt. A separate Assistant conversation shows only its own
 messages when you scroll up. In the daily Assistant, scrolling up loads earlier days.
@@ -350,15 +350,22 @@ Automation permission. macOS lists it under **System Settings > Privacy &
 Security > Automation**. If you prefer, copy the passage in Word and choose
 **+ > Paste clipboard**.
 
+To use a selection in an existing project conversation, choose **Add selection
+to project chat**, select the project and chat, then choose **Attach to chat
+draft**. The selection stays in that draft until you send it.
+
 ### Capture a screenshot
 
 1. Search for **Capture Region** or **Capture Window** from the mini-bar start
    screen. In an open chat, find the same commands under **+**.
-2. For a region, drag over the display where the pointer is. For a window, choose its
+2. For a region, drag over the display where the pointer is. The counter shows the
+   width and height of the resulting image in pixels. For a window, choose its
    thumbnail from the picker. Press **Esc** to cancel. On macOS, allow LegalWork
    under **System Settings > Privacy & Security > Screen & System Audio Recording**
    if your Mac asks for permission.
-3. Review the local preview. Choose **Save image** to save a PNG without a project.
+3. Review the local preview. Choose **Save image**, select a LegalWork project
+   and folder, and confirm the PNG filename. Saving uses the selected project’s
+   document folder and keeps your chat draft available.
    Choose **Ask about this image**, edit the question, and send it to the current
    chat or the destination you select. Use a model that accepts images.
    Choose **Attach to chat** to add it to the open chat or select a destination without sending a message.

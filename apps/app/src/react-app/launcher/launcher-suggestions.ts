@@ -30,7 +30,7 @@ export type LauncherCreationAction = keyof typeof creationTerms;
 export function launcherCreationActions(raw: string, inProject: boolean): LauncherCreationAction[] {
   const match = /^(?:n|ne|new|neu|neue|neuer|neues|neuen)(?:\s+(.+))?$/u.exec(raw.trim().toLocaleLowerCase());
   if (!match) return [];
-  const actions: LauncherCreationAction[] = inProject ? ["project-chat", "mini-chat"] : ["mini-chat", "project-chat"];
+  const actions: LauncherCreationAction[] = inProject ? ["project-chat"] : ["mini-chat", "project-chat"];
   actions.push("document", "docx", "text", "task", "project", "recording");
   const term = match[1];
   return term ? actions.filter(action => creationTerms[action].some(alias => alias.startsWith(term))) : actions;

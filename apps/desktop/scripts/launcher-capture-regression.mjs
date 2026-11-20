@@ -54,15 +54,31 @@ app.whenReady().then(async () => {
   const { width, height } = display.bounds;
   const from = { x: Math.floor(width / 4), y: Math.floor(height / 4) };
   const to = { x: Math.floor(3 * width / 4), y: Math.floor(3 * height / 4) };
+  const x = Math.floor(from.x * 80 / width), y = Math.floor(from.y * 60 / height);
+  const cropped = thumbnail.crop({ x, y, width: Math.ceil(to.x * 80 / width) - x, height: Math.ceil(to.y * 60 / height) - y });
+  const { width: cropWidth, height: cropHeight } = cropped.getSize();
+  const label = `${cropWidth} × ${cropHeight} px`;
   overlay.focus();
   overlay.webContents.sendInputEvent({ type: "mouseDown", button: "left", clickCount: 1, ...from });
   overlay.webContents.sendInputEvent({ type: "mouseMove", modifiers: ["leftButtonDown"], ...to });
+  const measurement = await overlay.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const expected = ${JSON.stringify(label)};
+    // macOS can send a hover at the physical cursor during synthetic pointer capture.
+    // Ask for the same box explicitly before comparing it to the native release.
+    window.regionOverlay.measure(${JSON.stringify({ ...from, width: to.x - from.x, height: to.y - from.y })});
+    const timeout = setTimeout(() => reject(new Error("Unexpected crop size: " + document.getElementById("size").textContent)), 1000);
+    const poll = () => {
+      const value = document.getElementById("size").textContent;
+      if (value !== expected) { requestAnimationFrame(poll); return; }
+      clearTimeout(timeout); resolve(value);
+    };
+    poll();
+  })`);
   overlay.webContents.sendInputEvent({ type: "mouseUp", button: "left", clickCount: 1, ...to });
   const region = await regional;
   assert.equal(region.ok, true);
-  const x = Math.floor(from.x * 80 / width), y = Math.floor(from.y * 60 / height);
-  const cropped = thumbnail.crop({ x, y, width: Math.ceil(to.x * 80 / width) - x, height: Math.ceil(to.y * 60 / height) - y });
   assert.equal(region.capture.dataUrl, cropped.toDataURL());
+  assert.equal(measurement, `${region.capture.width} × ${region.capture.height} px`);
   console.log("PASS native pointer drag returns the selected rectangle with synthetic pixels.");
 
   const cancelled = capture.captureRegion();
