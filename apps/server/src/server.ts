@@ -317,6 +317,7 @@ import {
   projectSyncStatus,
   resolveProjectSync,
   runProjectSync,
+  scheduleProjectSync,
   saveProjectSyncSettings,
   signOutOfFirmProjects,
   startProjectSyncTimer,
@@ -3094,6 +3095,7 @@ function createRoutes(
       }
       return view;
     });
+    if (view.connected) scheduleProjectSync(config, 0);
     // Global credential commits must not hold the account lock while scanning
     // projects or checking remote model readiness. Those reads may themselves
     // need token refresh. Publications read the latest committed credentials.
