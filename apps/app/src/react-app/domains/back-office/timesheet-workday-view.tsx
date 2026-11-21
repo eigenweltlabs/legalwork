@@ -1,6 +1,5 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { Button } from "twenty-ui/primitives/input";
-import type { CalendarOccurrence } from "@legalwork/types/calendar";
 import { captureChargeMinutes, type CaptureProposal, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
@@ -10,8 +9,8 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
-import { layoutCalendarDay } from "../calendar/calendar-layout";
-import { calendarDay, formatCalendarDay } from "../calendar/calendar-format";
+import { CalendarGrid } from "../calendar/calendar-grid";
+import type { CalendarDisplayOccurrence } from "../calendar/connected-calendars";
 import type { TimelineView } from "./time-workspace-panels";
 import { sourceKeys } from "./timesheet-labels";
 import { isUntitledStopwatch } from "./time-record-values";
@@ -51,17 +50,8 @@ export function proposalTitle(proposal: CaptureProposal) {
     ? t("timesheets.source.stopwatch") : proposal.narrative;
 }
 
-const hourHeight = 54;
-const minuteHeight = hourHeight / 60;
-function matterTone(matterId: string) {
-  if (!matterId) return 0;
-  let hash = 0;
-  for (const character of matterId) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return 1 + Math.abs(hash) % 6;
-}
-
 export function WorkdayTimeline({
-  date, proposals, state, view, selected, editorId, onOpen,
+  date, proposals, state, view, selected, editorId, preamble, onOpen,
 }: {
   date: string;
   proposals: CaptureProposal[];
@@ -69,111 +59,64 @@ export function WorkdayTimeline({
   view: TimelineView;
   selected: string | undefined;
   editorId?: string;
+  preamble?: ReactNode;
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
 }) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 15000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const nowMinute = calendarDay(now) === date ? now.getHours() * 60 + now.getMinutes() : null;
-  const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const loose = t("timesheets.workday.unassigned");
-  const day = proposals.filter(proposal => proposal.date === date);
-  const byMatter = new Map<string, string>([["", loose]]);
-  const untimed: CaptureProposal[] = [];
-  const timed = day.flatMap(proposal => {
+  const anchor = useMemo(() => new Date(date + "T12:00:00"), [date]);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const unassigned = t("timesheets.workday.unassigned");
+  const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>([
+    [null, { id: "unassigned", title: unassigned, colorKey: null, items: [] }],
+  ]);
+  const items: CalendarDisplayOccurrence[] = [];
+  const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
+  for (const proposal of proposals) {
+    if (proposal.date !== date) continue;
     const matter = matterFor(proposal, state);
-    if (matter) byMatter.set(matter.id, matter.name);
-    if (!proposal.startAt || !proposal.endAt || !interval(proposal)) {
-      untimed.push(proposal);
-      return [];
-    }
-    return [{
+    const matterId = matter?.id ?? null;
+    const span = interval(proposal);
+    const item: CalendarDisplayOccurrence = {
       id: proposal.key, itemId: proposal.key, uid: proposal.key,
-      projectId: proposal.projectId, projectName: matter?.name ?? loose,
+      projectId: proposal.projectId, projectName: matter?.name ?? unassigned,
       kind: "event", title: proposalTitle(proposal),
-      start: new Date(proposal.startAt).toISOString(), end: new Date(proposal.endAt).toISOString(),
-      allDay: false, timeZone: localZone, status: "active", assigneeUserId: null, provenance: null,
-      verified: true, recurring: false, proposal, matterId: matter?.id ?? "",
-    } satisfies CalendarOccurrence & { proposal: CaptureProposal; matterId: string }];
-  });
-  const groups = view === "matters" ? [...byMatter] : [["", ""]];
-  const columns = groups.map(([id, title]) => ({
-    id, title, segments: layoutCalendarDay(view === "combined" ? timed : timed.filter(item => item.matterId === id), date),
-  }));
-  const visibleSegments = columns.flatMap(column => column.segments);
-  const visibleStart = Math.min(8 * 60, nowMinute ?? 1440, ...visibleSegments.map(segment => segment.displayStart));
-  const visibleEnd = Math.max(18 * 60, nowMinute === null ? 0 : nowMinute + 1, ...visibleSegments.map(segment => segment.displayEnd));
-  const low = Math.floor(visibleStart / 60) * 60;
-  const high = Math.ceil(visibleEnd / 60) * 60;
-  const hours = Array.from({ length: (high - low) / 60 }, (_, i) => low + i * 60);
-  return (
-    <>
-      <div
-        className="bo-workday-axis"
-        aria-label={t("timesheets.workday.timeline")}
-        style={{ gridTemplateColumns: "44px repeat(" + columns.length + ",minmax(" + (view === "matters" ? "116px" : "0") + ",1fr))" }}
-      >
-        <div className="bo-workday-axis-label">{formatCalendarDay(date, { day: "numeric", month: "short" })}</div>
-        {columns.map(({ id, title }) => (
-          <div key={id} data-tone={matterTone(id)} className="bo-workday-axis-heading">{title}</div>
-        ))}
-        <div className="bo-workday-axis-times">
-          {hours.map(hour => <time key={hour}>{clock(hour)}</time>)}
-        </div>
-        {columns.map(column => (
-          <div key={column.id} className="bo-workday-axis-column" style={{ height: hours.length * hourHeight }}>
-            {column.segments.map(segment => {
-              const item = segment.item;
-              const time = localClock(item.start) + "–" + localClock(item.end);
-              return (
-                <button
-                  key={item.id} type="button" className="bo-workday-axis-event" data-proposal-id={item.id}
-                  data-tone={matterTone(item.matterId)} aria-expanded={selected === item.id}
-                  aria-controls={selected === item.id ? editorId : undefined}
-                  data-short={segment.displayEnd - segment.displayStart < 32 || undefined}
-                  style={{
-                    top: (segment.displayStart - low) * minuteHeight,
-                    height: (segment.displayEnd - segment.displayStart) * minuteHeight - 1,
-                    left: (100 * segment.column) / segment.columns + "%",
-                    width: (100 * segment.span) / segment.columns + "%",
-                  }}
-                  title={[time, item.title, item.projectName].join(" · ")}
-                  aria-label={[time, item.title, item.projectName].join(" · ")}
-                  onClick={event => onOpen(item.proposal, event.currentTarget)}
-                >
-                  <span>{time} · {item.title}</span>
-                  <small>{item.projectName}</small>
-                </button>
-              );
-            })}
-            {nowMinute !== null && <div className="bo-workday-now" style={{ top: (nowMinute - low) * minuteHeight }}
-              aria-hidden={column !== columns[0] || undefined}>
-              {column === columns[0] && <span className="sr-only">{t("timeWorkspace.now", { time: clock(nowMinute) })}</span>}
-            </div>}
-          </div>
-        ))}
-      </div>
-      {untimed.length > 0 && (
-        <section className="bo-workday-untimed" aria-label={t("timeWorkspace.untimed")}>
-          <h3>{t("timeWorkspace.untimed")}</h3>
-          {untimed.map(proposal => {
-            const matter = matterFor(proposal, state);
-            return (
-              <button type="button" key={proposal.key} data-proposal-id={proposal.key} data-tone={matterTone(matter?.id ?? "")}
-                aria-expanded={selected === proposal.key} aria-controls={selected === proposal.key ? editorId : undefined}
-                onClick={event => onOpen(proposal, event.currentTarget)}>
-                <strong>{proposalTitle(proposal)}</strong>
-                <small>{matter?.name ?? loose} · {t(sourceKeys[proposal.source])}
-                  {proposal.workedMinutes !== null && " · " + proposal.workedMinutes + " min"}</small>
-              </button>
-            );
-          })}
-        </section>
-      )}
-    </>
-  );
+      start: span ? new Date(span.start).toISOString() : date,
+      end: span ? new Date(span.end).toISOString() : null,
+      allDay: !span, timeZone, status: "active", assigneeUserId: null,
+      provenance: null, verified: true, recurring: false,
+    };
+    items.push(item);
+    privateById.set(item.id, { proposal, matterId });
+    if (view === "matters") {
+      const lane = groups.get(matterId) ?? { id: "matter-" + matterId, title: item.projectName, colorKey: matterId, items: [] };
+      lane.items.push(item);
+      groups.set(matterId, lane);
+    }
+  }
+  return <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
+    dayLanes={view === "matters" ? [...groups.values()] : undefined} preamble={preamble}
+    label={t("timesheets.workday.timeline")} untimedLabel={t("timeWorkspace.untimed")}
+    nowLabel={time => t("timeWorkspace.now", { time })}
+    entryAppearance={item => {
+      const source = privateById.get(item.id);
+      if (!source) return;
+      return {
+        colorKey: source.matterId,
+        secondaryLabel: item.allDay ? [
+          item.projectName,
+          t(sourceKeys[source.proposal.source]),
+          source.proposal.workedMinutes === null ? undefined : source.proposal.workedMinutes + " min",
+        ].filter(Boolean).join(" · ") : item.projectName,
+        buttonAttributes: {
+          "data-proposal-id": item.id,
+          "aria-expanded": selected === item.id,
+          "aria-controls": selected === item.id ? editorId : undefined,
+        },
+      };
+    }}
+    onOpen={(item, trigger) => {
+      const source = privateById.get(item.id);
+      if (source) onOpen(source.proposal, trigger);
+    }} />;
 }
 
 export function WorkdayCorrectionForm({

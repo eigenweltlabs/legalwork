@@ -11,7 +11,7 @@ class WorkspaceResizeObserver extends window.ResizeObserver {
   private workspace = false;
   constructor(private readonly change: ResizeObserverCallback) { super(change); }
   observe(target: Element) {
-    if (target.classList.contains("time-workspace-panels")) {
+    if (target.hasAttribute("data-document-layout")) {
       this.workspace = true;
       workspaceObservers.add(this.change);
     }
@@ -28,7 +28,7 @@ const rectangle = window.HTMLElement.prototype.getBoundingClientRect;
 Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
   configurable: true,
   get() {
-    if (this.classList.contains("time-workspace-panels") || this.hasAttribute("data-group")) return workspaceWidth;
+    if (this.hasAttribute("data-document-layout") || this.hasAttribute("data-group")) return workspaceWidth;
     if (this.hasAttribute("data-panel")) return Math.round(workspaceWidth * (Number(this.style.flexGrow) || 50) / 100);
     return offsetWidth?.call(this) ?? 0;
   },
@@ -37,8 +37,8 @@ Object.defineProperty(window.HTMLElement.prototype, "offsetLeft", {
   configurable: true,
   get() {
     const preceding = this.parentElement?.firstElementChild;
-    if (preceding instanceof window.HTMLElement && (this.id === "private" || this.hasAttribute("data-separator"))) {
-      return preceding.offsetWidth + (this.id === "private" ? 1 : 0);
+    if (preceding instanceof window.HTMLElement && (this.id === "side" || this.hasAttribute("data-separator"))) {
+      return preceding.offsetWidth + (this.id === "side" ? 1 : 0);
     }
     return offsetLeft?.call(this) ?? 0;
   },
@@ -57,7 +57,7 @@ window.document.write("<!doctype html><html><body><div id='root'></div></body></
 Object.entries({
   window,
   document: window.document,
-  navigator: window.navigator,
+  navigator: window.navigator, sessionStorage: window.sessionStorage,
   localStorage: window.localStorage,
   CSS: window.CSS,
   HTMLElement: window.HTMLElement,
@@ -77,6 +77,13 @@ Object.entries({
   IS_REACT_ACT_ENVIRONMENT: true,
 }).forEach(([key, value]) => Object.defineProperty(globalThis, key, { value, configurable: true }));
 
+// Initialize Lexical after the test DOM exists and before the shared composer is loaded.
+const { $getRoot, CONTROLLED_TEXT_INSERTION_COMMAND, getNearestEditorFromDOMNode } = await import("lexical");
+// The Bun DOM fixture has no asset bundler. Panel avatar URLs are supplied by Vite in the app.
+const { mock } = await import("bun:test");
+mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-assets", () => ({
+  assistantAvatarImages: {}, assistantAvatarIcon: () => "flower",
+}));
 const { act } = await import("react");
 const { MemoryRouter } = await import("react-router-dom");
 const { WorkdayTimeline, WorkdayCorrectionForm, overlappingWorkdayRanges } = await import(
@@ -536,20 +543,20 @@ try {
       </MemoryRouter>,
     ),
   );
-  const axis = document.querySelector<HTMLElement>(".bo-workday-axis");
+  const axis = document.querySelector<HTMLElement>("[data-calendar-time-grid]");
   assert.ok(axis);
-  assert.equal(axis.querySelectorAll(".bo-workday-axis-event").length, 1, "recorded work stays in the ledger");
-  assert.equal(axis.querySelectorAll(".bo-workday-axis-column").length, 1);
-  assert.equal(axis.querySelector(".bo-workday-now"), null);
-  assert.match(document.querySelector(".bo-workday-untimed")?.textContent ?? "", /Untimed/);
+  assert.equal(axis.querySelectorAll("[data-calendar-column] [data-proposal-id]").length, 1, "recorded work stays in the ledger");
+  assert.equal(axis.querySelectorAll("[data-calendar-column]").length, 1);
+  assert.equal(axis.querySelector("[data-calendar-now]"), null);
+  assert.match(document.querySelector("[data-calendar-untimed]")?.textContent ?? "", /Untimed/);
   assert.ok(!axis.textContent?.includes("Unused matter"));
-  assert.ok(!axis.textContent?.includes("Untimed"));
+  assert.ok(!axis.querySelector("[data-calendar-column]")?.textContent?.includes("Untimed"));
   const { calendarDay } = await import("../../src/react-app/domains/calendar/calendar-format");
   await act(async () => root.render(
     <WorkdayTimeline date={calendarDay(new Date())} proposals={[]} state={directory}
       view="combined" selected={undefined} onOpen={() => {}} />,
   ));
-  assert.match(document.querySelector(".bo-workday-now")?.textContent ?? "", /Current time/);
+  assert.match(document.querySelector("[data-calendar-now]")?.textContent ?? "", /Current time/);
   let correctedMinutes: number | null | undefined;
   await act(async () =>
     root.render(
@@ -687,10 +694,52 @@ try {
     assert.equal(target.getAttribute("aria-controls"), proposalHeading()?.closest("[id].time-workspace-editor")?.id);
   }
   const workspaceGroup = () => {
-    const group = document.querySelector<HTMLElement>(".time-workspace-group");
+    const group = document.querySelector<HTMLElement>("[data-document-layout]");
     assert.ok(group);
     return group;
   };
+  const panes = () => [...workspaceGroup().querySelectorAll<HTMLElement>("[data-document-pane]")];
+  const tabNode = (id: string) => document.querySelector<HTMLElement>(`[data-panel-tab-id="timekeeping:${id}"]`);
+  const selectTab = async (id: string) => {
+    const target = tabNode(id)?.querySelector<HTMLButtonElement>("button[aria-pressed]");
+    assert.ok(target, id);
+    await act(async () => target.click());
+    assert.equal(target.getAttribute("aria-pressed"), "true");
+  };
+  const strips = () => [...document.querySelectorAll<HTMLElement>(".time-workspace-header .lw-panel-tab-list")];
+  const paneOf = (id: string) => tabNode(id)?.closest(".lw-panel-tab-list");
+  const paneOrder = (pane: Element) => [...pane.querySelectorAll<HTMLElement>("[data-panel-tab-id]")]
+    .map(el => el.dataset.panelTabId?.replace("timekeeping:", ""));
+  async function menuItem(label: string) {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent?.trim() === label);
+    assert.ok(item, label);
+    await act(async () => item.click());
+    await settle();
+  }
+  async function newTab(label: string) {
+    const add = document.querySelector<HTMLButtonElement>('button[aria-label="New tab"]');
+    assert.ok(add, "workspace New tab menu");
+    await act(async () => { add.focus(); add.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); });
+    await menuItem(label);
+  }
+  async function tabMenu(id: string, label: string) {
+    const source = tabNode(id);
+    assert.ok(source);
+    await act(async () => source.dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+    await menuItem(label);
+  }
+  const moveTab = (id: string, destination: number) => tabMenu(id, "Move to pane " + destination);
+  const composerSelector = '[contenteditable="true"][role="textbox"]';
+  async function typeMessage(editor: HTMLElement, message: string) {
+    await act(async () => {
+      editor.focus();
+      // happy-dom has no native text entry. Use the same insertion command as the Lexical contenteditable.
+      const lexical = getNearestEditorFromDOMNode(editor);
+      assert.ok(lexical);
+      lexical.update(() => { $getRoot().selectEnd(); lexical.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, message); });
+    });
+    assert.equal(editor.textContent?.trim(), message);
+  }
   const separator = () => {
     const separator = workspaceGroup().querySelector<HTMLElement>('[role="separator"]');
     assert.ok(separator);
@@ -721,11 +770,11 @@ try {
   assert.equal(proposalHeading(), null);
   assert.equal(document.activeElement, block(unknown), "an untimed proposal restores its originating action");
   await openProposal(capture);
-  assert.equal(workspaceGroup().dataset.view, "split");
+  assert.equal(panes().length, 2);
   assert.equal(separator().getAttribute("aria-valuenow"), "67");
   await act(async () => separator().dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true })));
   assert.equal(separator().getAttribute("aria-valuenow"), "62", "the split can be adjusted with the keyboard");
-  await press("Reset workspace layout");
+  await newTab("Reset workspace layout");
   assert.equal(separator().getAttribute("aria-valuenow"), "67");
   const initialReads = workdayReads;
   lastStopped = { id: overlayRunId, date: base.date, stoppedAt: base.date + "T12:00:00Z" };
@@ -797,16 +846,13 @@ try {
   assert.equal(document.activeElement, proposalHeading());
   assert.equal(proposalPanel.querySelector('[data-column="charge"]'), proposedCharge);
   assert.equal(proposedCharge.value, "30", "returning from correction keeps the existing private edit mounted");
-  await press("Private chat");
-  assert.equal(workspaceGroup().dataset.view, "chat");
-  await press("Day timeline");
-  assert.equal(workspaceGroup().dataset.view, "timeline");
+  await selectTab("chat");
+  await selectTab("timeline");
   assert.equal(proposedCharge.value, "30", "switching tabs preserves the proposal editor and its contents");
-  await press("Split view");
-  await press("Move Day timeline to the left pane");
-  assert.equal(proposedCharge.closest("[data-pane]")?.getAttribute("data-pane"), "left");
+  await moveTab("timeline", 1);
+  assert.equal(paneOf("timeline"), paneOf("entries"));
   assert.equal(proposedCharge.value, "30", "docking the timeline preserves the selected editor and unsaved proposal edit");
-  await press("Move Day timeline to the right pane");
+  await moveTab("timeline", 2);
   assert.equal(writes.length, 0, "editing a proposal does not publish it");
   const acceptButton = proposalPanel.querySelector<HTMLButtonElement>('button[type="submit"]');
   assert.ok(acceptButton);
@@ -819,7 +865,7 @@ try {
   assert.equal(block(capture), null);
   assert.equal(document.activeElement, block(recordedTimer), "accepting a focused proposal moves to the next surviving block");
   assert.equal(document.querySelectorAll(`[data-time-row="${confirmedEntries[0]?.id}"]`).length, 1);
-  await press("Time entries");
+  await selectTab("entries");
   await input(cell("new", "narrative"), "First profile's unfinished line");
   await act(async () => cell("new", "narrative").blur());
   assert.ok(privateWrites.some(action => action.type === "draft" && action.values?.narrative === "First profile's unfinished line"));
@@ -828,19 +874,22 @@ try {
   assert.equal(cell("new", "narrative").value, "");
   await press("Previous day");
   assert.equal(cell("new", "narrative").value, "First profile's unfinished line");
+  await moveTab("chat", 1);
+  assert.equal(paneOf("entries"), paneOf("chat"));
   captureProfileId = "profile-b";
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   await settle();
   for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
   assert.equal(cell("new", "narrative").value, "");
-  assert.equal(workspaceGroup().dataset.view, "split", "another capture profile starts with its own layout");
+  assert.equal(panes().length, 2, "another capture profile starts with its own layout");
+  assert.equal(paneOf("timeline"), paneOf("chat"), "another profile does not inherit the previous user’s tab move");
   await input(cell("new", "matter"), "Client · M · 26/12 · Project");
   await input(cell("new", "worked"), "30");
   const manualNarrative = cell("new", "narrative");
   await input(manualNarrative, "Manual untimed work");
   assert.equal(writes.length, 1, "typing a complete line keeps the active editor open");
   await act(async () => {
-    document.querySelector<HTMLButtonElement>(".time-workspace-views button[aria-pressed=true]")?.focus();
+    tabNode("entries")?.querySelector<HTMLButtonElement>("button[aria-pressed]")?.focus();
   });
   for (let i = 0; i < 20 && writes.length < 2; i++) await settle();
   assert.equal(writes.length, 2, "leaving a complete manual line from its narrative cell books it once");
@@ -1122,11 +1171,11 @@ try {
   assert.equal(selectedPeriod(), "Day");
   assert.equal(dayInput(), otherDate);
   assert.equal(block(inlineTimer), null, "a different day's timer stays out of the timeline");
-  assert.equal(document.querySelectorAll(".bo-workday-axis-column").length, 1);
+  assert.equal(document.querySelectorAll("[data-calendar-column]").length, 1);
   await selectPopup("Timeline layout", "By matter");
-  assert.equal(document.querySelectorAll(".bo-workday-axis-column").length, 2);
-  assert.match(document.querySelector(".bo-workday-axis")?.textContent ?? "", /Unassigned matter/);
-  assert.ok(document.querySelector(`.bo-workday-untimed [data-proposal-id="${unedited.key}"]`));
+  assert.equal(document.querySelectorAll("[data-calendar-column]").length, 2);
+  assert.match(document.querySelector("[data-calendar-time-grid]")?.textContent ?? "", /Unassigned matter/);
+  assert.ok(document.querySelector(`[data-calendar-untimed] [data-proposal-id="${unedited.key}"]`));
   await openProposal(exact);
   assert.equal(acceptFor(exact)?.disabled, true);
   const link = proposalForm(exact)?.querySelector<HTMLSelectElement>("select");
@@ -1184,12 +1233,12 @@ try {
   await until(() => !block(remaining));
   assert.equal(document.activeElement?.getAttribute("data-workspace-tab"), "timeline", "dismissing the last suggestion focuses the timeline");
 
-  await press("Private chat");
+  await selectTab("chat");
   const chatPanel = document.querySelector<HTMLElement>(".time-workspace-chat");
-  const chatForm = chatPanel?.querySelector("form") ?? null;
-  const message = chatForm?.querySelector("textarea");
+  const chatForm = chatPanel?.querySelector<HTMLFormElement>("form[data-workday-chat-composer]") ?? null;
+  const message = chatForm?.querySelector<HTMLElement>(composerSelector);
   assert.ok(message);
-  await input(message, "Rename the draft item today");
+  await typeMessage(message, "Rename the draft item today");
   await submit(chatForm);
   await until(() => chatPanel?.textContent?.includes("Updated the private day draft."));
   assert.match(chatPanel?.textContent ?? "", /Rename the draft item today/);
@@ -1198,12 +1247,12 @@ try {
   const purpose = chatForm?.querySelector("select");
   assert.ok(purpose);
   await selectNative(purpose, "personal");
-  await input(message, "Use a short action verb for future drafts");
+  await typeMessage(message, "Use a short action verb for future drafts");
   await submit(chatForm);
   await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
   assert.deepEqual(workdayActions.filter(action => action.type === "chat").at(-1)?.instruction, { scope: "personal" });
 
-  await press("Time entries");
+  await selectTab("entries");
   await press("Month");
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
   const firstWeek = document.querySelector(".bo-time-month tbody tr");
@@ -1213,95 +1262,78 @@ try {
   await act(async () => day.click());
   assert.equal(selectedPeriod(), "Day");
   assert.equal(dayInput(), base.date);
-  await press("Private chat");
+  await selectTab("chat");
   assert.doesNotMatch(chatPanel?.textContent ?? "", /Rename the draft item today/);
   await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
   assert.match(chatPanel?.querySelector(".time-workspace-rules")?.textContent ?? "", /Use a short action verb/);
 
-  const pane = (side: "left" | "right") => {
-    const element = workspaceGroup().querySelector<HTMLElement>(`[data-pane="${side}"]`);
-    assert.ok(element);
-    return element;
+  const remount = async () => {
+    await act(async () => root.render(null));
+    await renderWorkday();
+    await settle();
   };
-  const paneTabs = (side: "left" | "right") => [...pane(side).querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-  const activeTab = (side: "left" | "right") => pane(side).querySelector('[role="tab"][aria-selected="true"]');
-  const storedKey = "legalwork.time-workspace:" + JSON.stringify([workdayClient.baseUrl, workdayDirectory.directoryId,
+  const originalDirectoryId = workdayDirectory.directoryId;
+  workdayDirectory.directoryId = "migration-synthetic-directory";
+  const legacyKey = "legalwork.time-workspace:" + JSON.stringify([workdayClient.baseUrl, workdayDirectory.directoryId,
     { scope: workdayDirectory.scope, user: workdayDirectory.permissions.userId, principal: "" }]);
-  await act(async () => root.render(null));
-  localStorage.setItem(storedKey, JSON.stringify({ layout: { entries: 59, private: 41 }, view: "chat", timeline: "matters" }));
-  await renderWorkday();
-  assert.equal(workspaceGroup().dataset.view, "chat", "older view preferences still load");
-  await press("Split view");
-  assert.equal(separator().getAttribute("aria-valuenow"), "59");
+  localStorage.setItem(legacyKey, JSON.stringify({ layout: { entries: 59, private: 41 }, view: "chat", timeline: "matters" }));
+  await remount();
+  assert.equal(panes().length, 1, "a legacy single-view layout is restored for this directory");
+  assert.equal(tabNode("chat")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
+  await selectTab("timeline");
   assert.match(document.querySelector('[role="combobox"][aria-label="Timeline layout"]')?.textContent ?? "", /By matter/);
-  await press("Reset workspace layout");
-  assert.equal(workspaceGroup().dataset.view, "split");
-  assert.deepEqual(paneTabs("left").map(tab => tab.textContent), ["Time entries"]);
-  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Day timeline", "Private chat"]);
-  const defaultCalendar = activeTab("right");
-  assert.ok(defaultCalendar);
-  await act(async () => defaultCalendar.dispatchEvent(new window.KeyboardEvent("keydown", {
-    key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true,
-  })));
-  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Private chat", "Day timeline"]);
-  assert.equal(document.activeElement, activeTab("right"));
-  assert.match(document.querySelector(".time-workspace-panels > [role='status']")?.textContent ?? "", /position 2 of 2/);
-  await press("Move Day timeline earlier in this pane");
-  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Day timeline", "Private chat"]);
-  await act(async () => defaultCalendar.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  assert.equal(activeTab("right")?.textContent, "Private chat");
-  const dockedMessage = pane("right").querySelector<HTMLTextAreaElement>('[data-workspace-tab="chat"] textarea');
-  assert.ok(dockedMessage);
-  await input(dockedMessage, "Keep this draft while moving chat");
-  await press("Move Private chat to the left pane");
-  assert.equal(activeTab("left")?.textContent, "Private chat");
-  assert.equal(activeTab("right")?.textContent, "Day timeline");
-  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"] textarea'), dockedMessage);
-  assert.equal(dockedMessage.value, "Keep this draft while moving chat");
-  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"]')?.hasAttribute("hidden"), false);
-  assert.equal(pane("right").querySelector('[data-workspace-tab="timeline"]')?.hasAttribute("hidden"), false);
-
-  const dragSource = paneTabs("left").find(tab => tab.textContent === "Time entries");
-  const dropTarget = activeTab("right");
-  assert.ok(dragSource && dropTarget);
-  const drag = new window.DataTransfer();
-  const dragEvent = (name: string, target: Element) => {
-    const event = new window.Event(name, { bubbles: true, cancelable: true });
-    Object.defineProperty(event, "dataTransfer", { value: drag });
-    target.dispatchEvent(event);
-  };
-  await act(async () => {
-    dragEvent("dragstart", dragSource);
-    dragEvent("dragover", dropTarget);
-    dragEvent("drop", dropTarget);
-  });
-  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Time entries", "Day timeline"]);
-  const calendarTab = paneTabs("right")[1];
-  await act(async () => calendarTab.click());
-  await act(async () => root.render(null));
-  await renderWorkday();
-  assert.deepEqual(paneTabs("right").map(tab => tab.textContent), ["Time entries", "Day timeline"]);
-  assert.equal(activeTab("left")?.textContent, "Private chat");
-  assert.equal(activeTab("right")?.textContent, "Day timeline");
-  assert.equal(pane("left").querySelector('[data-workspace-tab="chat"]')?.hasAttribute("hidden"), false);
-  assert.equal(pane("right").querySelector('[data-workspace-tab="timeline"]')?.hasAttribute("hidden"), false);
-  await press("Reset workspace layout");
-  assert.deepEqual(paneTabs("left").map(tab => tab.textContent), ["Time entries"]);
-  assert.equal(activeTab("left")?.textContent, "Time entries");
-  assert.equal(activeTab("right")?.textContent, "Day timeline");
+  workdayDirectory.directoryId = originalDirectoryId;
+  await remount();
+  await newTab("Reset workspace layout");
+  assert.deepEqual(paneOrder(strips()[0]), ["entries"]);
+  assert.deepEqual(paneOrder(strips()[1]), ["timeline", "chat"]);
   assert.equal(separator().getAttribute("aria-valuenow"), "67");
+  const timelineTab = tabNode("timeline")?.querySelector<HTMLButtonElement>("button[aria-pressed]");
+  assert.ok(timelineTab);
+  await act(async () => {
+    timelineTab.focus();
+    timelineTab.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true }));
+  });
+  assert.deepEqual(paneOrder(strips()[1]), ["chat", "timeline"]);
+  assert.equal(document.activeElement, timelineTab);
+  await selectTab("chat");
+  const draftEditor = document.querySelector<HTMLElement>(`.time-workspace-chat ${composerSelector}`);
+  assert.ok(draftEditor);
+  await typeMessage(draftEditor, "Keep this draft while moving chat");
+  await moveTab("chat", 1);
+  assert.equal(paneOf("chat"), paneOf("entries"));
+  assert.equal(document.querySelector(`.time-workspace-chat ${composerSelector}`), draftEditor);
+  assert.equal(draftEditor.textContent?.trim(), "Keep this draft while moving chat");
+  await remount();
+  assert.deepEqual(paneOrder(strips()[0]), ["entries", "chat"]);
+  assert.deepEqual(paneOrder(strips()[1]), ["timeline"]);
+  await tabMenu("chat", "Split right");
+  assert.equal(panes().length, 3);
+  assert.notEqual(paneOf("chat"), paneOf("entries"));
+  assert.notEqual(paneOf("chat"), paneOf("timeline"));
+  for (const id of ["entries", "chat", "timeline"]) {
+    const close = tabNode(id)?.querySelector<HTMLButtonElement>('button[aria-label^="Close tab"]');
+    assert.ok(close, id);
+    await act(async () => close.click());
+  }
+  assert.equal(document.querySelectorAll("[data-panel-tab-id]").length, 0);
+  await remount();
+  assert.equal(document.querySelectorAll("[data-panel-tab-id]").length, 0, "closing the last tab survives reopening the workspace");
+  await newTab("Time entries");
+  assert.deepEqual(paneOrder(strips()[0]), ["entries"]);
+  await newTab("Reset workspace layout");
   await act(async () => {
     workspaceWidth = 540;
     for (const resize of workspaceObservers) resize([], new window.ResizeObserver(() => {}));
   });
-  assert.equal(workspaceGroup().dataset.view, "entries");
-  assert.equal(button("Split view"), undefined);
-  await press("Day timeline");
-  assert.equal(workspaceGroup().dataset.view, "timeline");
-  assert.equal(dayInput(), base.date);
-  await act(async () => root.render(null));
-  await renderWorkday();
-  assert.equal(workspaceGroup().dataset.view, "timeline", "the layout is restored for the same account and directory");
+  for (const [id, label] of [["chat", "Private chat"], ["entries", "Time entries"], ["timeline", "Day timeline"]]) {
+    await newTab(label);
+    assert.equal(panes().length, 1, "only the selected workspace pane is rendered at narrow width");
+    assert.equal(tabNode(id)?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
+    assert.equal(dayInput(), base.date);
+  }
+  await remount();
+  assert.equal(tabNode("timeline")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
   workdaySettings = { ...workdaySettings, aiSuggestions: false };
   privateDrafts[inlineTimer.key] = {
     date: inlineTimer.date, proposalDigest: inlineTimer.digest,

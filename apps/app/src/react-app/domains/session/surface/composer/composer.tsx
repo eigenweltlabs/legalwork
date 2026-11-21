@@ -5,11 +5,10 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentInfo as Agent } from "@opencode/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { IconTile } from "@/react-app/design-system/surface";
-import "@/components/chat/session-surfaces.css";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -35,6 +34,7 @@ import { t } from "@/i18n";
 import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
+import { ComposerSendButton, ComposerSurface } from "./composer-surface";
 import { LexicalPromptEditor, type LexicalPromptEditorHandle } from "./editor";
 import { listRunningAppsForMention } from "./app-mentions";
 import { createPluginComposerMention, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
@@ -830,9 +830,9 @@ export function ReactSessionComposer(props: ComposerProps) {
       <div className="lw-session-column">
         {props.queueAccessory}
         {/* Main composer panel */}
-        <div
+        <ComposerSurface
           data-workspace-file-intake="composer"
-          className={`lw-composer relative overflow-visible rounded-[22px] border ${
+          className={`${
             props.fusionEnabled ? "fusion-rainbow-border border-transparent" : "border-dls-border"
           } ${panelRoundedClass}`}
         >
@@ -1257,43 +1257,30 @@ export function ReactSessionComposer(props: ComposerProps) {
                       <Square size={12} fill="currentColor" />
                       {!props.assistantName && <span>{t("composer.stop")}</span>}
                     </button>
-                    <button
-                      type="button"
+                    <ComposerSendButton
                       onClick={canSend ? props.onSend : undefined}
                       disabled={!canSend || props.disabled}
-                      className={`lw-composer-send inline-flex h-9 items-center justify-center gap-2 ${props.assistantName ? "w-9 rounded-full" : "rounded-xl px-4"} text-[13px] font-medium ${
-                        canSend ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]" : "bg-gray-4 text-gray-10"
-                      }`}
+                      iconOnly={Boolean(props.assistantName)}
+                      queued
+                      highlighted={canSend}
                       title={t("composer.queue_hint")}
-                      aria-label={t("composer.add_to_queue")}
-                    >
-                      <ArrowUp size={15} />
-                      {!props.assistantName && <span>{t("composer.add_to_queue")}</span>}
-                    </button>
+                      label={t("composer.add_to_queue")}
+                    />
                   </>
                 ) : (
-                  <button
-                    type="button"
+                  <ComposerSendButton
                     onClick={canSend ? props.onSend : undefined}
                     disabled={props.disabled || !canSend}
-                    className={`lw-composer-send inline-flex h-9 max-h-9 items-center justify-center gap-2 ${props.assistantName ? "w-9 rounded-full" : "rounded-xl px-4"} text-[13px] font-medium ${
-                      !canSend || props.disabled
-                        ? "bg-gray-4 text-gray-10"
-                        : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                    }`}
-                    title={t(props.assistantName ? "assistant.send_message" : "composer.run_task")}
-                    aria-label={t(props.assistantName ? "assistant.send_message" : "composer.run_task")}
-                  >
-                    <ArrowUp size={15} />
-                    {!props.assistantName && <span>{t("composer.run_task")}</span>}
-                  </button>
+                    iconOnly={Boolean(props.assistantName)}
+                    label={t(props.assistantName ? "assistant.send_message" : "composer.run_task")}
+                  />
                 )}
               </div>
             </div>
             )}
             <ComposerDictationError dictation={dictation} />
           </div>
-        </div>
+        </ComposerSurface>
 
       </div>
       <Dialog open={Boolean(previewPastedText)} onOpenChange={(open) => { if (!open) setPreviewPastedLabel(null); }}>

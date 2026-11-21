@@ -9,7 +9,7 @@ import type { BackOfficeState } from "../../src/react-app/domains/back-office/ap
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
-  window, document: window.document, navigator: window.navigator,
+  window, document: window.document, navigator: window.navigator, sessionStorage: window.sessionStorage, localStorage: window.localStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
   Element: window.Element, Node: window.Node, Event: window.Event, DOMRect: window.DOMRect,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
@@ -19,6 +19,13 @@ for (const [key, value] of Object.entries({
   IS_REACT_ACT_ENVIRONMENT: true,
 })) Object.defineProperty(globalThis, key, { value, configurable: true });
 
+// Initialize Lexical after the test DOM exists and before the shared composer is loaded.
+await import("lexical");
+// The Bun DOM fixture has no asset bundler. Panel avatar URLs are supplied by Vite in the app.
+const { mock } = await import("bun:test");
+mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-assets", () => ({
+  assistantAvatarImages: {}, assistantAvatarIcon: () => "flower",
+}));
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");

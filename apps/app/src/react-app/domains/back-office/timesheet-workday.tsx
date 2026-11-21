@@ -62,6 +62,7 @@ export function TimesheetWorkday({
   const [running, setRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const editorId = useId();
+  const [tabHeader, setTabHeader] = useState<HTMLDivElement | null>(null);
   const editor = useRef<HTMLDivElement>(null);
   const editorForm = useRef<HTMLDivElement>(null);
   const editorTitle = useRef<HTMLHeadingElement>(null);
@@ -293,13 +294,13 @@ export function TimesheetWorkday({
   const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown) => {
     const selected = proposals.find(proposal => proposal.key === selection);
     const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
-    return <TimeWorkspacePanels scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
+    return <TimeWorkspacePanels visible={visible} fallbackHeader={tabHeader} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
-      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={proposals}
+      chat={<TimeWorkspaceChat key={date} date={date} data={data} state={state} proposals={proposals}
         pending={running} aiEnabled={aiEnabled} onAction={requestModel} />}
       timeline={(view, choose) => (
         <>
-          <div className="time-workspace-private-toolbar">
+          <div className="time-workspace-private-toolbar shrink-0">
             {local && <TimeSelect label={t("timeWorkspace.timelineView")} value={view} options={[
               { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
             ]} onChange={value => {
@@ -307,40 +308,41 @@ export function TimesheetWorkday({
             }} />}
           </div>
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
-          {selected && (
-            <div ref={bindEditor} id={editorId} className="time-workspace-editor"
-              role="region" aria-labelledby={editorId + "-title"}
-              onKeyDown={event => {
-                if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing ||
-                    !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-                event.preventDefault();
-                event.stopPropagation();
-                closeEditor();
-              }}>
-              <header>
-                <h3 ref={editorTitle} id={editorId + "-title"} tabIndex={-1}>{proposalTitle(selected)}</h3>
-                <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
-                  onClick={closeEditor}><X size={14} /></Button>
-              </header>
-              <p className="time-workspace-note">{t(sourceKeys[selected.source])}
-                {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
-                {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
-              </p>
-              <div key={selected.digest} ref={bindEditorForm}>
-                <div hidden={Boolean(correcting)}>{renderProposal(selected)}</div>
-                {correcting && <WorkdayCorrectionForm proposal={correcting} state={state}
-                    pending={running} save={act} close={() => {
-                      if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
-                      setCorrection(undefined);
-                    }} />}
-              </div>
-            </div>
-          )}
           {local && (
-            <div ref={timelineBody}>
-              {data && proposals.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
+            <div ref={timelineBody} className="min-h-0 flex-1">
               <WorkdayTimeline date={date} proposals={proposals} state={state} view={view} selected={selected?.key}
-                editorId={editorId} onOpen={openEditor} />
+                editorId={editorId} onOpen={openEditor} preamble={<>
+                  {selected && (
+                    <div ref={bindEditor} id={editorId} className="time-workspace-editor"
+                      role="region" aria-labelledby={editorId + "-title"}
+                      onKeyDown={event => {
+                        if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing ||
+                            !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        closeEditor();
+                      }}>
+                      <header>
+                        <h3 ref={editorTitle} id={editorId + "-title"} tabIndex={-1}>{proposalTitle(selected)}</h3>
+                        <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
+                          onClick={closeEditor}><X size={14} /></Button>
+                      </header>
+                      <p className="time-workspace-note">{t(sourceKeys[selected.source])}
+                        {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
+                        {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
+                      </p>
+                      <div key={selected.digest} ref={bindEditorForm}>
+                        <div hidden={Boolean(correcting)}>{renderProposal(selected)}</div>
+                        {correcting && <WorkdayCorrectionForm proposal={correcting} state={state}
+                            pending={running} save={act} close={() => {
+                              if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
+                              setCorrection(undefined);
+                            }} />}
+                      </div>
+                    </div>
+                  )}
+                  {data && proposals.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
+                </>} />
             </div>
           )}
           <CommitProposalFocus apply={applyFocusRequest} />
@@ -351,6 +353,7 @@ export function TimesheetWorkday({
   const status = data?.status;
   return (
     <section className="bo-workday time-unified">
+      <div ref={setTabHeader} className="time-workspace-header empty:hidden" />
       <div className="bo-workday-controls">
         <div className="time-sheet-period">
           <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
