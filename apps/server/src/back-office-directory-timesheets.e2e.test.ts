@@ -67,7 +67,7 @@ test("firm invoice draft documents preserve the requested revision through the p
   }
 }, 30000);
 
-test("firm workflow unfreezes a rejected replay only after resolving the original booking ID", async () => {
+test.each([400, 422])("firm workflow unfreezes an HTTP %i replay only after resolving the original booking ID", async (validationStatus) => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-booking-recovery-"));
   const config = backOfficeTestConfig(root);
   const day = "2026-11-20", matter = { id: crypto.randomUUID(), name: "Synthetic matter", reference: "S-10", clientIds: [] };
@@ -91,7 +91,7 @@ test("firm workflow unfreezes a rejected replay only after resolving the origina
     writes++;
     const command = TimesheetCommandSchema.parse(await request.json());
     if (command.type !== "create") throw Error("Expected a booking command");
-    if (mode === "reject") return Response.json({ message: "The selected matter is closed. Choose another." }, { status: 400 });
+    if (mode === "reject") return Response.json({ message: "The selected matter is closed. Choose another." }, { status: validationStatus });
     if ((mode === "commit-timeout" || mode === "save") && !entries.has(command.requestId)) {
       const booked = TimeEntrySchema.parse({ ...command.entry, id: crypto.randomUUID(), groupId: command.requestId,
         revision: 1, authorId: "worker", workerId: "worker", status: "confirmed", source: command.source ?? "manual", history: [] });
@@ -139,7 +139,7 @@ test("firm workflow unfreezes a rejected replay only after resolving the origina
     expect((await api(missing.url, missing.command)).status).toBeGreaterThanOrEqual(500);
     mode = "reject";
     readAvailable = false;
-    expect((await api(missing.url, missing.command)).status).toBe(400);
+    expect((await api(missing.url, missing.command)).status).toBe(validationStatus);
     expect(reads).toBe(1);
     const edit = { ...missing.patch, revision: missing.revision, changes: { narrative: "Corrected work" } };
     expect((await api(workday, edit)).status).toBe(409);
@@ -149,7 +149,9 @@ test("firm workflow unfreezes a rejected replay only after resolving the origina
     expect(writes).toBe(beforeChangedRetry);
 
     readAvailable = true;
-    expect((await api(missing.url, missing.command)).status).toBe(400);
+    const rejected = await api(missing.url, missing.command);
+    expect(rejected.status).toBe(validationStatus);
+    expect(await rejected.json()).toMatchObject({ message: "The selected matter is closed. Choose another." });
     expect(reads).toBe(2);
     const correction = await api(workday, edit);
     expect(correction.status).toBe(200);
@@ -179,7 +181,7 @@ test("firm workflow unfreezes a rejected replay only after resolving the origina
     mode = "timeout";
     expect((await api(suggested.url, suggested.command)).status).toBeGreaterThanOrEqual(500);
     mode = "reject";
-    expect((await api(suggested.url, suggested.command)).status).toBe(400);
+    expect((await api(suggested.url, suggested.command)).status).toBe(validationStatus);
     expect((await api(workday, { ...suggested.patch, revision: suggested.revision, changes: null })).status).toBe(200);
     expect(captureStateSchema.parse(await (await api(workday)).json()).proposals.some(item => item.key === proposal.key)).toBe(true);
   } finally {
