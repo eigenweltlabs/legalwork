@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { savedWorkdayInstructionSchema } from "@legalwork/types/time-capture";
+import { savedWorkdayInstructionSchema } from "../back-office/timesheet-schema.js";
 import { z } from "zod";
 
 const term = z.string().regex(/^[\p{L}\p{N}][\p{L}\p{N}-]{0,119}$/u);

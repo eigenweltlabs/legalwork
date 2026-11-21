@@ -1,6 +1,5 @@
-import { guidelineRuleFields, guidelineRuleSuggestionsSchema } from "../back-office/timesheet-schema.js";
+import { guidelineRuleFields, guidelineRuleSuggestionsSchema, timeActivities } from "../back-office/timesheet-schema.js";
 import { ApiError } from "../errors.js";
-import { timeActivities } from "@legalwork/types/timesheet";
 
 /** Extraction proposes private draft values. Saving a reviewed guideline is a separate action. */
 export async function extractGuidelineRules(text: string, generate: (prompt: string) => Promise<string>) {
