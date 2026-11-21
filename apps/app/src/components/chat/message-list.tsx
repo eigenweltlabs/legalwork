@@ -412,6 +412,29 @@ type AssistantMessageProps = {
   isLastStep: boolean
 }
 
+function ChatMessageRow({ id, role, children }: { id: string; role: UIMessage["role"]; children: React.ReactNode }) {
+  return <Message
+    className={cn("flex w-full min-w-0 flex-col gap-2", role === "assistant" ? "items-start" : "items-end")}
+    data-message-id={id}
+    data-message-role={role}
+  >{children}</Message>;
+}
+
+function UserMessageBubble({ children }: { children: React.ReactNode }) {
+  return <MessageContent
+    data-user-message-bubble=""
+    className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
+  >{children}</MessageContent>;
+}
+
+function AssistantMessageBubble({ text, markdown = false }: { text: string; markdown?: boolean }) {
+  return <MessageContent
+    data-assistant-message-bubble=""
+    className={cn("text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0", !markdown && "whitespace-pre-wrap")}
+    markdown={markdown}
+  >{text}</MessageContent>;
+}
+
 const AssistantMessage = React.memo(
   ({ message, isStreaming }: AssistantMessageProps) => {
     const { showThinking } = useMessageList()
@@ -421,23 +444,12 @@ const AssistantMessage = React.memo(
     )
 
     return (
-      <Message
-        className="flex w-full min-w-0 flex-col items-start gap-2"
-        data-message-id={message.id}
-        data-message-role={message.role}
-      >
+      <ChatMessageRow id={message.id} role="assistant">
         <div className="group flex w-full flex-col gap-0 space-y-2">
           {assistantRenderGroups.map((group, index) => {
             if (group.kind === "text") {
               return (
-                <MessageContent
-                  key={`text-${index}`}
-                  data-assistant-message-bubble=""
-                  className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
-                  markdown
-                >
-                  {group.text}
-                </MessageContent>
+                <AssistantMessageBubble key={`text-${index}`} text={group.text} markdown />
               )
             }
 
@@ -483,7 +495,7 @@ const AssistantMessage = React.memo(
             )
           })}
         </div>
-      </Message>
+      </ChatMessageRow>
     )
   }
 )
@@ -652,11 +664,7 @@ const UserMessage = React.memo(
     const scheduledRun = React.useMemo(() => parseScheduledRunMessage(message), [message])
 
     return (
-      <Message
-        className="flex w-full min-w-0 flex-col items-end gap-2"
-        data-message-id={message.id}
-        data-message-role={message.role}
-      >
+      <ChatMessageRow id={message.id} role={message.role}>
         <ContextMenu>
           <ContextMenuTrigger
             className="select-text"
@@ -670,15 +678,12 @@ const UserMessage = React.memo(
                   <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
                 ))}
                 {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : preparingAttachments.length > 0 || message.parts.some((part) => part.type === "text" && part.text) ? (
-                  <MessageContent
-                    data-user-message-bubble=""
-                    className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
-                  >
+                  <UserMessageBubble>
                     {preparingAttachments.map((name, index) => <span key={`${index}:${name}`} data-preparing-attachment="" title={name} className="mr-1 inline-flex max-w-full items-center gap-1.5 rounded-full border border-gray-6 px-2.5 py-1 text-xs font-medium align-middle"><FileIcon className="size-3.5 shrink-0" /><span className="truncate">{name}</span></span>)}
                     {renderUserMessageText(message)}
                     {preparingAttachments.length > 0 && <div role="status" className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><LoaderCircle className="size-3 animate-spin" />{t("composer.preparing_attachments")}</div>}
                     {reaction && <span role="img" aria-label={t("assistant.reaction", { emoji: reaction })} data-assistant-reaction="" className="absolute -top-3 -left-3 flex h-7 min-w-8 items-center justify-center rounded-full border-2 border-background bg-muted px-1.5 text-base shadow-sm">{reaction}</span>}
-                  </MessageContent>
+                  </UserMessageBubble>
                 ) : null}
                 {files.map(file => <AssistantSharedFileCard key={file.path} file={{ path: file.path, title: file.name, filename: file.name, description: t("assistant.shared_with_project") }} />)}
                 <MessageActions
@@ -751,7 +756,7 @@ const UserMessage = React.memo(
             </ContextMenuItem></>}
           </ContextMenuContent>
         </ContextMenu>
-      </Message>
+      </ChatMessageRow>
     )
   }
 )
@@ -1090,7 +1095,7 @@ function MessageGroup({
   )
 }
 
-interface MessageListProps {
+interface SessionMessageListProps {
   showWelcome?: boolean
   renderUsageLimit?: UsageLimitRenderer
 
@@ -1102,7 +1107,28 @@ interface MessageListProps {
   retryStatus?: RetryStatus | null
 }
 
-export function MessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: MessageListProps) {
+type PlainTextMessageListProps = {
+  plainText: true
+  messages: ReadonlyArray<{ id: string; role: "user" | "assistant"; text: string }>
+}
+
+const messageListClass = "flex flex-col gap-2 @container/message-list";
+
+export function MessageList(props: SessionMessageListProps | PlainTextMessageListProps) {
+  if ("plainText" in props) {
+    // A device-local transcript has no project tools, attachments or chat session.
+    return <div className={messageListClass}>{props.messages.map(message => (
+      <ChatMessageRow key={message.id} id={message.id} role={message.role}>
+        {message.role === "user"
+          ? <UserMessageBubble>{message.text}</UserMessageBubble>
+          : <AssistantMessageBubble text={message.text} />}
+      </ChatMessageRow>
+    ))}</div>;
+  }
+  return <SessionMessageList {...props} />;
+}
+
+function SessionMessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: SessionMessageListProps) {
   const { assistantChat, showThinking } = useMessageList();
   const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
   const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
@@ -1125,7 +1151,7 @@ export function MessageList({ showWelcome = true, eigenweltPlan = null, messages
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
-    <div className={cn("flex flex-col gap-2 @container/message-list")}>
+    <div className={messageListClass}>
       {showWelcome && messages.length === 0 && <SessionWelcome />}
 
       {items.map((item) => {

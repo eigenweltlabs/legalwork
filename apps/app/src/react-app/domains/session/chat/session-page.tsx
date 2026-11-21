@@ -2,6 +2,7 @@ import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
 import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
+import { timePage } from "../../back-office/time-routes";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
@@ -176,7 +177,7 @@ export type SessionPageSidebarProps = {
   onShowRecorder?: () => void;
   /** Omitted when the firm's plan has no intake, which hides the nav row. */
   onShowTasks?: () => void;
-  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | "time" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -600,6 +601,8 @@ export function SessionPage(props: SessionPageProps) {
   });
   const [viewerHeaderWidth, setViewerHeaderWidth] = useState(browserPanelWidth);
   const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
+  const page = timePage(location.pathname);
+  const workdayPage = page === "timesheets" || page === "timesheet-workday";
   const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
@@ -1184,6 +1187,7 @@ export function SessionPage(props: SessionPageProps) {
   const windowTitle = props.projectPage ? `${workspaceName} · ${projectViewLabel(props.projectPage)}`
     : props.homePage ? t("home.nav_label")
     : props.projectsPage ? t("projects.plural")
+    : props.sidebar.activeNav === "time" ? t("timesheets.workspace_title")
     : props.sidebar.activeNav === "back-office" ? "Back Office"
     : props.sidebar.activeNav === "scheduled" ? t("scheduled.title")
     : props.sidebar.activeNav === "calendar" ? t("calendar.title")
@@ -1236,7 +1240,7 @@ export function SessionPage(props: SessionPageProps) {
                 <WorkspaceWindowButton workspaceId={props.selectedWorkspaceId} showButton={!hasMainView} />
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
-              {hasMainView && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
+              {hasMainView && !workdayPage && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
               <NotificationBell />
               {props.developerMode ? (
                 <Button

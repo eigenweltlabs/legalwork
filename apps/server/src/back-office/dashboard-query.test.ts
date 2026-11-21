@@ -103,7 +103,8 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
       z.object({ record: BackOfficeRecordSchema }).parse(JSON.parse(
         await crm.tool.legalwork_back_office_save.execute({ objectId, revision: 0, values }),
       )).record;
-    const matter = await create("matters", { name: "Contract review" });
+    const client = await create("clients", { name: "Billing client" });
+    const matter = await create("matters", { name: "Contract review", clients: [client.id] });
     const sameName = await create("matters", { name: "Contract review" });
     const billing = {
       ...binding, objectId: "invoices", fields: ["name", "matter", "netTotal"], currency: "EUR",
@@ -111,7 +112,9 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
     } satisfies BackOfficeDataQuery;
     const invoice = await create("invoices", { name: "Invoice 1", matter: matter.id, netTotal: { currency: "EUR", amountMinor: 58000 } });
     await create("invoices", { name: "Invoice 2", matter: sameName.id, netTotal: { currency: "EUR", amountMinor: 10000 } });
-    const time = await create("timeEntries", { name: "Review", matter: matter.id, invoice: invoice.id, billableMinutes: 120 });
+    const time = await create("timeEntries", {
+      name: "Review", matter: matter.id, client: client.id, startedAt: "2026-11-16", billableMinutes: 120,
+    });
     const claim = await create("claims", { name: "Related claim", parentMatter: matter.id });
     expect((await query(billing)).rows).toEqual([{
       $id: invoice.id, $archived: false, $url: backOfficeRecordUrl(invoice),

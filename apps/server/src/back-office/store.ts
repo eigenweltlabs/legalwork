@@ -3,6 +3,8 @@ import type { DirectoryPosition } from "./paged-sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { validateGenericTime } from "./timesheet-data.js";
+import { isTimeMemberSource, memberSource, timeMemberContactId, timeMemberUserId } from "./time-member-identity.js";
 import { BackOfficeJournal } from "./journal.js";
 import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
 import {
@@ -57,6 +59,8 @@ CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
 CREATE TABLE IF NOT EXISTS native_directory_links (
   account TEXT NOT NULL, kind TEXT NOT NULL, sourceId TEXT NOT NULL, projectKey TEXT NOT NULL, recordId TEXT NOT NULL,
   present INTEGER NOT NULL, stamp TEXT, generation TEXT, PRIMARY KEY(account,kind,sourceId,projectKey,recordId));
+CREATE TABLE IF NOT EXISTS bo_invoice_files (scope TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, docx TEXT NOT NULL, pdf TEXT NOT NULL, PRIMARY KEY(scope,id));
+CREATE TABLE IF NOT EXISTS bo_timesheets (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);
 CREATE TABLE IF NOT EXISTS bo_replicas (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -534,6 +538,8 @@ export class BackOfficeStore {
     scope: string,
     actor: BackOfficeActor,
     input: unknown,
+    verifiedTimeMemberId?: string,
+    recordableWorkers?: ReadonlySet<string>,
   ): BackOfficeRecord {
     if (!actor.edit)
       throw new ApiError(
@@ -583,6 +589,25 @@ export class BackOfficeStore {
             "back_office_record",
             "The record is unavailable.",
           );
+        if (object.id === "timeEntries" && scope !== "local") {
+          const memberFor = (contact: BackOfficeRecord["values"][string] | undefined) =>
+            typeof contact === "string" ? timeMemberUserId(scope, this.raw(scope, contact)) : undefined;
+          const permitted = (worker: string | undefined) => worker === actor.userId || Boolean(worker && recordableWorkers?.has(worker));
+          const owner = existing?.ownerId ?? actor.userId;
+          const invoiceLink = existing && actor.finance && parsed.archived === undefined && parsed.access === undefined && parsed.members === undefined &&
+            Object.keys(parsed.values).length === 1 && Object.hasOwn(parsed.values, "invoice");
+          const changingWorker = Object.hasOwn(parsed.values, "timekeeper") && parsed.values.timekeeper !== existing?.values.timekeeper;
+          if ((existing && !invoiceLink && !permitted(memberFor(existing.values.timekeeper) ?? owner)) ||
+              (changingWorker && !permitted(parsed.values.timekeeper == null ? owner : memberFor(parsed.values.timekeeper))))
+            throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
+        }
+        if (object.id === "people" && parsed.sourceId !== undefined && parsed.sourceId !== existing?.sourceId &&
+            (isTimeMemberSource(parsed.sourceId) || timeMemberUserId(scope, existing)) &&
+            !(verifiedTimeMemberId && parsed.id === timeMemberContactId(scope, verifiedTimeMemberId) &&
+              parsed.sourceId === memberSource(verifiedTimeMemberId)))
+          throw new ApiError(403, "time_member_source", "Select a firm account in the timekeeper picker to link a member.");
+        if (existing && this.db.get("SELECT 1 FROM bo_timesheets WHERE scope=? AND id=?", [scope,existing.id]))
+          throw new ApiError(409,"timesheet_managed","Edit this entry in Timesheets to preserve its reviewed revision.");
         if (parsed.create && existing) {
           if (parsed.revision === 0 && existing.revision === 1 && existing.ownerId === actor.userId &&
               parsed.sourceId === undefined && existing.sourceId == null && existing.access === (parsed.access ?? "org") &&
@@ -591,6 +616,13 @@ export class BackOfficeStore {
               canonicalBackOfficeAudit(existing.values) === canonicalBackOfficeAudit({ ...defaultBackOfficeValues(object), ...parsed.values }))
             return readableBackOfficeRecord(existing, object, actor);
           conflict("This record identity already exists.");
+        }
+        if (object.id === "invoices" && typeof parsed.values.invoiceNumber === "string") {
+          const number = parsed.values.invoiceNumber.trim();
+          if (/^\d+$/.test(number) && this.db.get(
+            "SELECT 1 FROM bo_timesheets WHERE scope=? AND json_extract(data,'$.kind')='invoice' AND json_extract(data,'$.value.number')=?",
+            [scope, Number(number)],
+          )) conflict("This invoice number has already been issued.");
         }
         const revision = existing?.revision ?? 0;
         const mergeable = existing && parsed.revision > 0 && parsed.revision <= revision &&
@@ -699,6 +731,8 @@ export class BackOfficeStore {
             error instanceof Error ? error.message : "Check the values.",
           );
         }
+        if (scope === "local" && object.id === "timeEntries")
+          validateGenericTime(this, scope, actor, existing, values);
         if (
           object.id === "projectLinks" &&
           (!values.matter ||

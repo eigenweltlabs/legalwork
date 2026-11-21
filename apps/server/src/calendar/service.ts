@@ -33,15 +33,15 @@ export async function calendarOccurrences(config: ServerConfig, workspace: Works
   return result.sort((a, b) => a.start.localeCompare(b.start));
 }
 /** The same aggregate used by the global Calendar view and the Assistant, including inbox tasks. */
-export async function globalCalendarOccurrences(config: ServerConfig, from: string, to: string, workspaces = config.workspaces): Promise<CalendarOccurrence[]> {
+export async function globalCalendarOccurrences(config: ServerConfig, from: string, to: string, workspaces = config.workspaces, sources = { calendar: true, tasks: true }): Promise<CalendarOccurrence[]> {
   if (to <= from || to > addDays(from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
-  const store = await calendarStore(config), links = await projectSyncStore(config);
+  const store = sources.calendar ? await calendarStore(config) : null, links = await projectSyncStore(config);
   const visible = (await Promise.all(workspaces.map(async workspace => await calendarVisible(config, workspace) ? workspace : null)))
     .filter((workspace): workspace is WorkspaceInfo => workspace !== null);
   const names = new Map(visible.map(workspace => [workspace.id, workspace.displayName || workspace.name || workspace.id]));
-  const result = visible.flatMap(workspace => store.list(workspace.id).flatMap(item => occurrences(item, names.get(workspace.id)!, from, to)));
+  const result = store ? visible.flatMap(workspace => store.list(workspace.id).flatMap(item => occurrences(item, names.get(workspace.id)!, from, to))) : [];
   // Load tasks once for the global view, rather than once per project.
-  for (const task of await datedTasks(config)) {
+  for (const task of sources.tasks ? await datedTasks(config) : []) {
     if (!task.dueDate || task.deletedAt || task.status === "cancelled") continue;
     if (task.projectId) {
       const link = links.linkByWorkspace(task.projectId);

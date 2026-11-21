@@ -3,7 +3,7 @@ import { allRecordsTarget, nativeKind } from "./native-model";
 import { NativeDateEditor } from "./native-date-editor";
 import { cellInputText, parseCellInput } from "./cell-input";
 import { FileCellEditor } from "./record-files";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "@/components/ui/sonner";
 import { Plus, X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
@@ -37,6 +37,9 @@ export function CellEditor({
   onCancel,
   creationFilters,
   projectScope,
+  canTab,
+  allowedRelationIds,
+  onTab,
 }: {
   field: BackOfficeField;
   record?: BackOfficeRecord;
@@ -46,15 +49,24 @@ export function CellEditor({
   onCancel: () => void;
   creationFilters?: ProjectReferenceFilters | null;
   projectScope?: string;
+  canTab?: (backward: boolean) => boolean;
+  allowedRelationIds?: readonly string[];
+  onTab?: (event: KeyboardEvent<HTMLElement>) => void;
 }) {
   const locale = useLocale();
   const creation = useRecordCreation();
   const [targetType,setTargetType] = useState("");
   const polymorphic = field.target === allRecordsTarget;
   const targetId = polymorphic ? targetType : field.target;
-  const target = field.type === "relation" ? creatableRecordObject(creation?.state, targetId) : undefined;
+  const target = field.type === "relation" && !allowedRelationIds ? creatableRecordObject(creation?.state, targetId) : undefined;
   const [creating, setCreating] = useState(false), [created, setCreated] = useState<{ record: BackOfficeRecord; replica?: string }[]>([]);
-  const [text, setText] = useState(() => cellInputText(value));
+  const [text, setText] = useState(() => {
+    if (field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))) {
+      const date = new Date(value);
+      return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+    return cellInputText(value);
+  });
   const [month, setMonth] = useState(
     (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? value
@@ -76,6 +88,7 @@ export function CellEditor({
     try {
       await onSave(next, previous);
       onCancel();
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : t("back_office.save_failed");
       setError(`${newlyCreated || created.length ? t("back_office.create.not_linked") + " " : ""}${message}`);
@@ -88,7 +101,7 @@ export function CellEditor({
   let options: { id: string; label: string; subtitle?: string }[];
   if (field.type === "relation") {
     const available = [...new Map([...created.filter(item => item.replica === creation?.state.permissions.replicaId).map(item => item.record), ...records].map(item => [item.id, item])).values()]
-      .filter(item => (polymorphic ? !item.objectId.startsWith("@") && !isInternalBackOfficeObject(item.objectId) && (!targetType || item.objectId === targetType) : item.objectId === field.target) && !item.archivedAt);
+      .filter(item => (polymorphic ? !item.objectId.startsWith("@") && !isInternalBackOfficeObject(item.objectId) && (!targetType || item.objectId === targetType) : item.objectId === field.target) && !item.archivedAt && (!allowedRelationIds || allowedRelationIds.includes(item.id)));
     options = relationPickerOptions(available, query, field.target === "matters" ? projectScope : undefined, creation?.state.records)
       .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle:polymorphic ? creation?.state.model.objects.find(o=>o.id===record.objectId)?.label : subtitle }))
       .sort((a, b) => {
@@ -144,6 +157,15 @@ export function CellEditor({
       className="bo-cell-form"
       aria-label={t("projects.edit_value", { name: field.label })}
       onKeyDown={(event) => {
+        if (event.key === "Tab" && onTab && canTab?.(event.shiftKey) !== false) {
+          event.preventDefault(); event.stopPropagation();
+          try {
+            const next = isChoices ? (multiple ? selected : query ? options[0]?.id : selected[0]) : parseCellInput(field.type, text, value);
+            if (isChoices && query && !options.length) { setError(t("back_office.invalid_value")); return; }
+            void queue.current.then(() => save(next ?? null)).then(saved => { if (saved) onTab(event); });
+          } catch (error) { setError(error instanceof Error ? error.message : t("back_office.invalid_value")); }
+          return;
+        }
         if (event.key === "Escape") onCancel();
         if (projectScope && multiple && event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
           event.preventDefault();
@@ -287,7 +309,7 @@ export function CellEditor({
                 step="any"
               />
             )}
-            <Button
+            {!onTab && <Button
               type="submit"
               size="sm"
               variant="solid"
@@ -296,7 +318,7 @@ export function CellEditor({
               fullWidth
             >
               {t("scheduled.save")}
-            </Button>
+            </Button>}
           </>
         )}
         {error && (
@@ -304,7 +326,7 @@ export function CellEditor({
             {error}
           </p>
         )}
-        {!isChoices && (
+        {!isChoices && !onTab && (
           <div className="bo-editor-footer">
             <Button
               type="button"

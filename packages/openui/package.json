@@ -14,6 +14,7 @@
     "@types/react-dom": "^19.2.2"
   },
   "dependencies": {
+    "@legalwork/types": "workspace:*",
     "@openuidev/lang-core": "0.4.1",
     "@openuidev/react-lang": "0.4.1",
     "@openuidev/react-ui": "0.17.1",

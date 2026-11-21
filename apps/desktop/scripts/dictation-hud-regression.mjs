@@ -14,6 +14,13 @@ app.commandLine.appendSwitch("mute-audio");
 // Finish cleanup and report assertion failures before Electron exits.
 app.on("window-all-closed", () => {});
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function waitFor(check, message) {
+  const deadline = Date.now() + 3000;
+  while (!await check()) {
+    assert.ok(Date.now() < deadline, message);
+    await delay(25);
+  }
+}
 async function streamLevel(hud, level, duration = 100) {
   const until = Date.now() + duration;
   do {
@@ -34,7 +41,26 @@ app.whenReady().then(async () => {
   let cursor = nativeCursor();
   // Simulate the OS pointer as well as Chromium input without moving the user's mouse.
   screen.getCursorScreenPoint = () => cursor;
-  const hud = new DictationHud({ onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
+  const testingStopwatch = process.argv.includes("--stopwatch");
+  const timerState = {
+    profileId: "fixture", active: null, lastStopped: null,
+    projects: [{ id: "test-project", name: "Project review · Demo" }, { id: "other-project", name: "Due diligence · Demo" }],
+    suggestedProjectId: "test-project",
+  };
+  const stopwatchRequest = async (action, profile) => {
+    if (action) {
+      assert.equal(profile, "fixture");
+      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId ?? null };
+      else if (action.type === "assign") timerState.active.projectId = action.projectId ?? null;
+      else {
+        assert.equal(action.id, timerState.active.id);
+        timerState.active = null;
+        timerState.lastStopped = { id: action.id, stoppedAt: new Date().toISOString(), date: "2026-11-15" };
+      }
+    }
+    return structuredClone(timerState);
+  };
+  const hud = new DictationHud({ stopwatchRequest: testingStopwatch ? stopwatchRequest : undefined, onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
   try {
     if (output) await mkdir(output, { recursive: true });
     await writeFile(hud.positionPath, JSON.stringify({ dock: "top" }));
@@ -82,8 +108,124 @@ app.whenReady().then(async () => {
       const bounds = window.getBounds();
       cursor = { x: bounds.x + event.x, y: bounds.y + event.y };
       window.webContents.sendInputEvent({ ...event, globalX: cursor.x, globalY: cursor.y });
+      if (event.type === "mouseMove" && !hud.drag) hud.sendCursor();
     };
     const center = id => window.webContents.executeJavaScript(`(() => {const r=document.getElementById('${id}').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
+    if (testingStopwatch) {
+      const read = source => window.webContents.executeJavaScript(source);
+      const move = point => input({ type: "mouseMove", ...point });
+      const click = async point => {
+        move(point);
+        await delay(150);
+        input({ type: "mouseDown", button: "left", clickCount: 1, ...point });
+        input({ type: "mouseUp", button: "left", clickCount: 1, ...point });
+        await delay(150);
+      };
+      for (const dock of DOCKS) {
+        hud.dock = dock;
+        hud.positionWindow();
+        await hud.setState("idle", "", dock === "bottom" ? "en" : "de");
+        move({ x: 220, y: 8 });
+        await delay(400);
+        const mic = await center("start");
+        const compact = () => read(`(() => {
+          const bar = document.getElementById("bar").getBoundingClientRect();
+          return [bar.width, bar.height, getComputedStyle(document.getElementById("stopwatch")).pointerEvents];
+        })()`);
+        assert.deepEqual(await compact(), [30, 28, "none"], dock + " starts with only the microphone");
+        move(mic);
+        await delay(400);
+        const pinnedMic = await center("start");
+        assert.ok(Math.hypot(mic.x - pinnedMic.x, mic.y - pinnedMic.y) <= 2, dock + " keeps the microphone anchored");
+        const axis = dock === "bottom" ? "x" : "y";
+        let previous = mic;
+        for (const id of ["meeting-start", "stopwatch"]) {
+          const next = await center(id);
+          assert.ok(next[axis] > previous[axis], dock + " displays " + id + " in sequence");
+          for (let step = 1; step <= 5; step++) {
+            move({ x: Math.round(previous.x + (next.x - previous.x) * step / 5), y: Math.round(previous.y + (next.y - previous.y) * step / 5) });
+            await delay(25);
+          }
+          previous = next;
+        }
+        await delay(220);
+        assert.deepEqual(await read(`(() => {
+          const bar = document.getElementById("bar"), box = bar.getBoundingClientRect();
+          const buttons = [...bar.querySelectorAll(":scope > button")].filter(b => {
+            const r = b.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom;
+          });
+          return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("stopwatch-label")).opacity];
+        })()`), [["start", "meeting-start", "stopwatch"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 94, "1"]);
+        await click(previous);
+        assert.equal(await read('document.querySelector("#stopwatch-projects button[aria-pressed=true]").textContent'), "Project review · Demo");
+        assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " project panel stays on screen");
+        if (output) await writeFile(path.join(output, "stopwatch-project-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
+        await click(await center("stopwatch-confirm"));
+        assert.equal(timerState.active?.projectId, "test-project", "start retains the suggested project");
+        await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "starting closes the project panel");
+        assert.ok(timerState.active, dock + " starts the timer");
+        move({ x: 220, y: 8 });
+        await delay(1100);
+        await waitFor(async () => (await compact())[0] === 30, dock + " collapses after starting");
+        assert.deepEqual(await compact(), [30, 28, "none"]);
+        assert.equal(await read('getComputedStyle(document.querySelector("#bar"), "::after").width'), "5px");
+        await waitFor(async () => {
+          const elapsed = await read('document.querySelector("#stopwatch-time").textContent');
+          return /^0:[0-5]\d$/.test(elapsed) && elapsed !== "0:00";
+        }, dock + " displays elapsed time");
+
+        await hud.setMeeting({ ...idleMeeting, state: "recording", startedAt: Date.now(), recordingId: "synthetic" });
+        await delay(350);
+        move(await center("bar"));
+        await delay(350);
+        const running = await window.webContents.executeJavaScript(`(() => {
+          const b = document.querySelector("#stopwatch"), r = b.getBoundingClientRect();
+          const m = document.querySelector("#meeting-stop").getBoundingClientRect();
+          return {
+            visible: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+            hit: document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest("button")?.id,
+            meeting: document.elementFromPoint(m.x+m.width/2,m.y+m.height/2)?.closest("button")?.id,
+            label: b.getAttribute("aria-label")
+          };
+        })()`);
+        assert.deepEqual(running, { visible: true, hit: "stopwatch", meeting: "meeting-stop", label: dock === "bottom" ? "Stop stopwatch and save time" : "Stoppuhr stoppen und Zeit speichern" });
+        await click(await center("stopwatch"));
+        assert.ok(await read(`(() => {
+          return ["stopwatch-panel", "stopwatch-heading", "stopwatch-confirm"].every(id => {
+            const r = document.getElementById(id).getBoundingClientRect();
+            return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+          });
+        })()`), dock + " expanded project list keeps its heading and start/stop action inside the overlay");
+        const alternate = await read(`(() => {
+          const option = [...document.querySelectorAll("#stopwatch-projects button")].find(button => button.textContent === "Due diligence · Demo");
+          option.scrollIntoView({ block: "nearest" });
+          const r = option.getBoundingClientRect();
+          return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};
+        })()`);
+        await click(alternate);
+        assert.equal(timerState.active?.projectId, "other-project", "a running interval can be assigned to another project");
+        await click(await center("stopwatch-confirm"));
+        assert.equal(timerState.active, null);
+        assert.equal(hud.meeting.state, "recording");
+        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /Time tracking|Zeiterfassung/);
+        await hud.setMeeting(idleMeeting);
+      }
+      timerState.suggestedProjectId = null;
+      await hud.setState("idle");
+      move(await center("start"));
+      await delay(400);
+      await click(await center("stopwatch"));
+      await waitFor(() => read('!document.querySelector("#stopwatch-projects").hidden'), "missing context opens the project chooser");
+      assert.equal(await read('document.querySelector("#stopwatch-projects button:first-child").getAttribute("aria-pressed")'), "true");
+      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
+      await click(await center("stopwatch-confirm"));
+      assert.ok(timerState.active);
+      assert.equal(timerState.active.projectId, null);
+      assert.deepEqual(actions, [], "operating the timer never triggers dictation or meeting actions");
+      console.log("PASS: the anchored mini bar reveals Dictate, Record meeting and Stopwatch on all three docks; timing survives collapse and stops independently during a meeting");
+      return;
+    }
     const rendererErrors = [];
     window.webContents.on("console-message", (_event, level, message) => {
       if (level === 3) rendererErrors.push(message);
@@ -197,6 +339,9 @@ app.whenReady().then(async () => {
       const point = await center("start");
       input({ type: "mouseMove", ...point });
       await delay(350);
+      await waitFor(() => window.webContents.executeJavaScript(
+        "document.getElementById('meeting-start').getBoundingClientRect().width === 28"
+      ), locale + " meeting icon completes its expansion");
       const icon = await window.webContents.executeJavaScript(`(() => {const r=document.querySelector('#start svg').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,hit:document.elementFromPoint(${point.x},${point.y})?.closest('button')?.id};})()`);
       assert.ok(Math.abs(icon.x - point.x) < 1 && Math.abs(icon.y - point.y) < 1, `${locale}: bottom microphone stays under the pointer on hover`);
       assert.equal(icon.hit, "start");
@@ -300,9 +445,10 @@ app.whenReady().then(async () => {
         await delay(350);
         const point = await center("start");
         input({ type: "mouseDown", button: "left", clickCount: 1, ...point });
+        // Let Chromium establish pointer capture before moving the native cursor.
+        await window.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(resolve))");
         input({ type: "mouseMove", modifiers: ["leftButtonDown"], x: point.x + 12, y: point.y - 12 });
-        await delay(100);
-        assert.ok(hud.drag, `${dock}/${finish}: pressing and moving the microphone begins dragging`);
+        await waitFor(() => hud.drag, `${dock}/${finish}: pressing and moving the microphone begins dragging`);
         const offset = { x: hud.drag.offsetX, y: hud.drag.offsetY };
         cursor = { x: cursor.x + 90, y: cursor.y - 70 };
         await delay(80);

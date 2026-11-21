@@ -82,7 +82,7 @@ Back Office opens one directory automatically. When a platform administrator ena
 
 Offline record edits remain queued. Model changes require an online connection. Open **More actions > Team sync** to compare your edits with the team version. **Apply my changes** reapplies the reviewed fields to the latest team record. If that record changes again, review it again. **Discard queued edit** removes that record's queued edits and reloads the team version after confirmation. If access is revoked, the managed replica is cleared while queued edits remain available for resolution. Signing out warns about pending changes.
 
-The starter model includes fee agreements, time entries, billing items and invoices under **More** as data foundations. Currency amounts are kept separate by currency. A matter's value in dispute describes the case value. Private work notes, client-facing narratives and financial fields have separate access rules. Stopwatch, timesheet review and invoice issuance are later workflows.
+The starter model includes fee agreements, time entries, billing items and invoices under **More** as data foundations. Currency amounts are kept separate by currency. A matter's value in dispute describes the case value. Private work notes, client-facing narratives and financial fields have separate access rules. Open **Time** to record work, review submitted entries and issue invoices.
 
 ### History and verification
 
@@ -101,3 +101,5 @@ Local record history works without team sync or a platform connection. Shared hi
 If your firm removes record or field access, LegalWork clears those copied values from its managed record and history cache. The firm history is checked with your current permissions. Queued edits keep the fields you actually changed, with inaccessible fields removed and affected drafts held for review. A disconnected team directory retains only the remaining plain authored fields for review; copied file/relationship details and privileged values are removed from those proposals. Reconnect with permission before sending them.
 
 Queued drafts belong to the account and platform that created them. Switching accounts clears managed team records and history from the previous connection. The remaining plain fields you authored stay held for review, and another account cannot send or discard them. Sign back in with the same account on the same platform, open **Back Office > More actions > Team sync**, and compare them before choosing **Apply my changes** or **Discard queued edit**. Drafts from older builds without a recorded author are preserved outside the automatic sync queue. An administrator must investigate and manually re-enter authorized changes; the app does not assign these old drafts to a new account.
+
+Time entries, workday sources, approvals, work products and invoices are covered in [Time tracking and billing](time-tracking.md).

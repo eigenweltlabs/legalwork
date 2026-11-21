@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
-import { BriefcaseBusiness, Settings } from "lucide-react";
+import { BriefcaseBusiness, Timer, Settings } from "lucide-react";
+import { timePage } from "../../back-office/time-routes";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
@@ -78,7 +79,16 @@ export function MainActionRail({ actions, onOpenWindow, onOpenSettings, settings
           </Tooltip>
         );
       })}
-      <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className={cn("relative size-9 cursor-pointer rounded-lg text-muted-foreground hover:bg-foreground/10 hover:text-foreground", location.pathname.startsWith("/back-office") && "bg-sidebar-accent text-foreground")} aria-label="Back Office" aria-pressed={location.pathname.startsWith("/back-office")} onClick={() => navigate("/back-office/matters")} />}><BriefcaseBusiness className="size-[18px]" strokeWidth={1.6} /></TooltipTrigger><TooltipContent side="right" sideOffset={10}>Back Office</TooltipContent></Tooltip>
+      {[{ path: "/back-office/matters", label: "Back Office", Icon: BriefcaseBusiness, active: location.pathname.startsWith("/back-office") && !timePage(location.pathname) },
+        { path: "/time", label: t("timesheets.workspace_title"), Icon: Timer, active: Boolean(timePage(location.pathname)) }].map(({ path, label, Icon, active }) => (
+        <Tooltip key={path}>
+          <TooltipTrigger render={<Button variant="ghost" size="icon" className={cn(RAIL_BUTTON_CLASS, active && RAIL_BUTTON_ACTIVE_CLASS)}
+            aria-label={label} aria-current={active ? "page" : undefined} onClick={() => navigate(path)} />}>
+            <Icon className="size-[18px]" strokeWidth={1.6} />
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={10}>{label}</TooltipContent>
+        </Tooltip>
+      ))}
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1.5 pt-4">
         <Tooltip>
           <TooltipTrigger render={<Button ref={settingsButtonRef} variant="ghost" size="icon" className={cn("size-9 rounded-lg text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15", settingsActive && "bg-sidebar-accent text-foreground")} aria-label={t("status.settings")} aria-pressed={settingsActive} onClick={openSettings} />}>

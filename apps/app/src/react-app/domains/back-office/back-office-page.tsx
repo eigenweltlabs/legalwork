@@ -1,3 +1,6 @@
+import type { WorkdayModelOption } from "@legalwork/types/time-capture";
+import { timePage } from "./time-routes";
+import { TimesheetWorkspace } from "./timesheet-workspace";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
 import { NativeBacklinks } from "./native-backlinks";
@@ -5,7 +8,7 @@ import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
 import {
@@ -29,13 +32,15 @@ import type {
 import {
   BackOfficeRecordSchema,
   BackOfficeViewSchema,
+  backOfficeMajorAmount,
   defaultBackOfficeValues,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "@legalwork/types/back-office";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
-import { applySavedRecord, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState, ModelPreviewSchema } from "./api";
+import { calendarClientScope } from "../calendar/calendar-cache";
+import { applySavedRecord, backOfficeReadFailure, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeReadFailure, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
 import { ValueDisplay } from "./record-values";
@@ -70,14 +75,19 @@ const pendingChangesSchema = z.object({
   })),
 });
 
-export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
+export function BackOfficePage({ client, embeddedObject, workdayModels }: {
+  client: LegalworkServerClient;
+  workdayModels?: WorkdayModelOption[];
+  embeddedObject?: "timeEntries" | "invoices";
+}) {
   const locale = useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
-  const selected = location.pathname.split("/")[2] ?? "matters";
+  const timesheet = embeddedObject ? undefined : timePage(location.pathname);
+  const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
-  const moreSelected = !primaryObjectIcons.has(selected) && selected !== "data-model";
+  const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
     ),
@@ -98,13 +108,29 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(() => new URLSearchParams(location.search).get("archived") === "true");
-  const key = ["back-office", client.baseUrl, "auto", selected];
+  const directoryView = timesheet ? "timesheets" : selected;
+  const protectedDirectory = Boolean(timesheet || embeddedObject);
+  const credential = protectedDirectory ? calendarClientScope(client)[1] : undefined;
+  const key = ["back-office", client.baseUrl, "auto", protectedDirectory ? [directoryView, credential] : directoryView];
   const query = useQuery({
     queryKey: key,
-    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal, undefined, selected),
+    queryFn: async ({ signal }) => {
+      const cached = cache.getQueryData<BackOfficeState | BackOfficeReadFailure>(key);
+      try {
+        return await loadBackOfficeState(client, cached && "records" in cached ? cached : undefined, signal, undefined, timesheet ? undefined : selected);
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!protectedDirectory) throw error;
+        const failure = backOfficeReadFailure(error);
+        if (timesheet) cache.removeQueries({ queryKey: ["back-office", client.baseUrl, credential, "timesheet"] });
+        return failure;
+      }
+    },
     refetchInterval: 30_000,
   });
-  const data = query.isError ? undefined : query.data;
+  const outcome = query.data;
+  const data = outcome && "records" in outcome && (protectedDirectory || !query.isError) ? outcome : undefined;
+  const directoryError = query.error ?? (outcome && "loadError" in outcome ? outcome.loadError : undefined);
   useEffect(() => () => { conflictDecision.current?.(false); }, [selected, data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model]);
   const team = Boolean(data && data.scope !== "local");
   const pendingChanges = useQuery({
@@ -159,7 +185,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError]);
   const localDirectory = archived && archivedRecords.data?.directoryId === data?.directoryId ? archivedRecords.data : data;
   const pendingDetail = team ? localDirectory?.localRows?.find(record => record.id === detailId && !records.some(shared => shared.id === detailId)) : undefined;
-  const detail = draft && draft.id === detailId ? draft : records.find((record) => record.id === detailId) ?? pendingDetail,
+  const detail = timesheet ? undefined : draft && draft.id === detailId ? draft : records.find((record) => record.id === detailId) ?? pendingDetail,
     detailObject = data?.model.objects.find(
       (object) =>
         object.id === detail?.objectId &&
@@ -315,7 +341,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                       )
                       .join("|")
                   : typeof value === "object" && value !== null
-                    ? value.amountMinor / 100
+                    ? backOfficeMajorAmount(value)
                     : value,
               );
             })
@@ -346,7 +372,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
-    <BackOfficeTheme>
+    <BackOfficeTheme time={Boolean(timesheet)}>
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
@@ -358,7 +384,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           className={`bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
-          <nav className="bo-tabs" aria-label="Back Office">
+          {!timesheet && !embeddedObject && <nav className="bo-tabs" aria-label="Back Office">
             {Array.from(primaryObjectIcons.keys(), id => (
               <Button
                 key={id}
@@ -413,21 +439,28 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             >
               {t("back_office.data_model")}
             </Button>
-          </nav>
+          </nav>}
           {!data && (
             <div className="bo-loading">
-              {query.error ? (
+              {directoryError ? (
                 <>
-                  <strong>{query.error.message}</strong>
+                  <strong>{directoryError.message}</strong>
+                  {protectedDirectory && <Button size="sm" variant="ghost" disabled={query.isFetching} onClick={() => void query.refetch()}>
+                    {t("timesheets.retry")}
+                  </Button>}
                 </>
               ) : (
                 <>
                   <RefreshCw size={18} className="animate-spin" />
-                  {t("back_office.loading")}
+                  {timesheet ? t("timesheets.loading") : t("back_office.loading")}
                 </>
               )}
             </div>
           )}
+          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,credential,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
+            client={client} directory={data} page={timesheet} workdayModels={workdayModels}
+            directoryRefresh={directoryError ? { error: directoryError, fetching: query.isFetching, retry: () => void query.refetch() } : undefined}
+            renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor
@@ -452,7 +485,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onRecords={show}
             />
           )}
-          {data && object && (
+          {data && object && !timesheet && (
             <>
               <header className="bo-object-header">
                 <h1>
@@ -468,7 +501,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     onClick={() => void beginCreate()}
                     disabled={!data.permissions.edit}
                   >
-                    {t("welcome.project_create")}
+                    {embeddedObject === "invoices" ? t("back_office.create.title", { name: object.label }) : t("welcome.project_create")}
                   </Button>
                   <DirectoryMenu
                     open={more}
@@ -576,7 +609,17 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
               onSave={save}
               onOpen={openRecord}
-            >{!pendingDetail && detail.revision > 0 && !detail.archivedAt && <NativeBacklinks client={client} state={data} id={detail.id}/>}</RecordDetail>
+            >
+              {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
+                {object && data.directoryId && ["matters", "clients"].includes(object.id) && (
+                  <Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+                    [object.id === "matters" ? "matter" : "client"]: detail.id,
+                    directory: data.directoryId,
+                  })}>{t("timesheets.review_rules")}</Link>
+                )}
+                <NativeBacklinks client={client} state={data} id={detail.id}/>
+              </>}
+            </RecordDetail>
           )}
           {syncDetailsOpen && data && team && (
             <DirectoryDialog title={t("back_office.team_sync")} onClose={() => { setSyncDetailsOpen(false); setError(""); }}>

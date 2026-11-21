@@ -67,11 +67,12 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       const data = forCopy && !source.connectionId && isViewFile(source.path) ? await prepareViewFileCopy(owner.client, owner.workspaceId, download.data) : download.data;
       return { ...download, data, version, projectName: owner.name, filename: attachmentFilename(path) };
     },
-    async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[]) {
+    async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[], prompt?: string) {
       const sources = Array.isArray(source) ? source : [source];
       sources.forEach(sourceProject);
       const id = await createChat(projectId);
       if (!id) throw new Error(t("project_files.chat_unavailable"));
+      if (prompt) useComposerStateStore.getState().setDraft(id,prompt);
       sources.forEach(source => attach(source, id));
     },
   };

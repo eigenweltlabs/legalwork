@@ -11,7 +11,7 @@ function minuteOfDay(value: string, timeZone: string) {
 }
 
 /** Split overnight events at local midnight. Date-only entries stay in the all-day strip. */
-export function calendarDaySegments<T extends CalendarOccurrence>(items: T[], day: string) {
+export function calendarDaySegments<T extends CalendarOccurrence>(items: T[], day: string, minimumMinutes = MINIMUM_MINUTES) {
   return items.filter(item => !item.allDay && occursOnDay(item, day)).map(item => {
     const start = occurrenceDay(item) < day ? 0 : minuteOfDay(item.start, item.timeZone);
     const hasEnd = Boolean(item.end && item.end > item.start);
@@ -19,12 +19,12 @@ export function calendarDaySegments<T extends CalendarOccurrence>(items: T[], da
       ? occurrenceDay({ ...item, start: item.end }) > day ? 1440 : minuteOfDay(item.end, item.timeZone)
       : start;
     // Point deadlines and short meetings need a readable, clickable minimum size.
-    return { item, start, end: Math.max(start, end), displayStart: Math.min(start, 1440 - MINIMUM_MINUTES), displayEnd: Math.min(1440, Math.max(end, start + MINIMUM_MINUTES)) };
+    return { item, start, end: Math.max(start, end), displayStart: Math.min(start, 1440 - minimumMinutes), displayEnd: Math.min(1440, Math.max(end, start + minimumMinutes)) };
   }).sort((a, b) => a.displayStart - b.displayStart || b.displayEnd - a.displayEnd || a.start - b.start || a.item.id.localeCompare(b.item.id));
 }
 
 /** Allocate overlapping intervals to columns; expand into adjacent columns when free. */
-export function layoutCalendarDay<T extends CalendarOccurrence>(items: T[], day: string) {
+export function layoutCalendarDay<T extends CalendarOccurrence>(items: T[], day: string, minimumMinutes?: number) {
   type Segment = ReturnType<typeof calendarDaySegments<T>>[number] & { column: number; columns: number; span: number };
   const result: Segment[] = [];
   let group: Segment[] = [], ends: number[] = [], groupEnd = 0;
@@ -37,7 +37,7 @@ export function layoutCalendarDay<T extends CalendarOccurrence>(items: T[], day:
     result.push(...group);
     group = []; ends = []; groupEnd = 0;
   };
-  for (const segment of calendarDaySegments(items, day)) {
+  for (const segment of calendarDaySegments(items, day, minimumMinutes)) {
     if (group.length && segment.displayStart >= groupEnd) finish();
     let column = ends.findIndex(end => end <= segment.displayStart);
     if (column < 0) column = ends.length;

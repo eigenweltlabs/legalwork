@@ -20,7 +20,10 @@ export const directoryTheme = {
   "--t-font-size-xxl": "24px",
 };
 
-export function BackOfficeTheme({ children }: { children: ReactNode }) {
+// Time screens mix an editable directory table with LegalWork settings surfaces.
+const timeTheme = { ...directoryTheme, "--t-corner-shape": "round", "--t-font-family": "var(--lw-font-sans)" };
+
+export function BackOfficeTheme({ children, time = false }: { children: ReactNode; time?: boolean }) {
   const colorScheme = useSyncExternalStore(
     subscribeToTheme,
     getResolvedThemeMode,
@@ -30,7 +33,7 @@ export function BackOfficeTheme({ children }: { children: ReactNode }) {
     <ThemeProvider
       colorScheme={colorScheme}
       applyToRoot={false}
-      overrides={directoryTheme}
+      overrides={time ? timeTheme : directoryTheme}
       className="bo-theme"
     >
       {children}
@@ -42,7 +45,7 @@ export function DirectoryEditorPopup({ children, className = "", style, finalFoc
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
-  finalFocus?: RefObject<HTMLElement | null>;
+  finalFocus?: RefObject<HTMLElement | null> | false;
   id?: string;
 }) {
   const popup = useRef<HTMLDivElement>(null);

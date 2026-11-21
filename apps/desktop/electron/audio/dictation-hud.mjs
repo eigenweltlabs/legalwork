@@ -3,19 +3,26 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dockBounds, DOCKS, nearestDock } from "./dictation-dock.mjs";
+import { HudStopwatch } from "./hud-stopwatch.mjs";
 import { watchFocusedDisplay } from "./focused-display.mjs";
 
 const CHANNEL = "legalwork:dictation-hud";
 
 /** A non-activating control bar: clicking it must preserve the paste target. */
 export class DictationHud {
-  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void }} actions */
+  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string) => Promise<unknown> }} actions */
   constructor(actions) {
     this.actions = actions;
     /** @type {BrowserWindow | null} */
     this.window = null;
     /** @type {Promise<BrowserWindow> | null} */
     this.windowPromise = null;
+    this.stopwatchState = null;
+    this.stopwatch = actions.stopwatchRequest && new HudStopwatch(actions.stopwatchRequest, value => {
+      this.stopwatchState = value;
+      this.sendState();
+    });
+    this.stopwatchTimer = null;
     this.state = "idle";
     this.message = "";
     this.microphoneName = "";
@@ -50,17 +57,22 @@ export class DictationHud {
     this.onDisplayChange = () => {
       if (!this.drag && this.window && !this.window.isDestroyed()) { this.followDisplay(); this.positionWindow(); }
     };
-    this.onAction = (event, action) => {
+    this.onAction = (event, action, version, projectId) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
       if (!this.status.miniBarEnabled) return;
+      if (["stopwatch-start", "stopwatch-stop", "stopwatch-retry", "stopwatch-prepare", "stopwatch-assign"].includes(action))
+        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof projectId === "string" ? projectId : undefined);
       if (action === "meeting-start" && ["idle", "meeting-error"].includes(this.displayState)) this.actions.onMeetingStart?.();
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();
       if (action === "meeting-open") this.actions.onMeetingOpen?.();
       if (this.meeting && this.meeting.state !== "idle") return;
       if (action === "microphone-menu" && this.state === "idle") this.actions.onMicrophoneMenu?.();
-      if (action === "start" && this.state === "idle" && this.status.enabled && this.status.registered) this.actions.onStart();
+      if (action === "start" && this.state === "idle") {
+        if (this.status.enabled) this.actions.onStart();
+        else this.actions.onSetup?.();
+      }
       if (action === "stop" && this.state === "listening") this.actions.onStop();
       if (action === "stop" && this.state === "starting") this.actions.onCancel();
       if (action === "cancel" && ["starting", "listening", "transcribing", "inserting"].includes(this.state)) this.actions.onCancel();
@@ -270,6 +282,7 @@ export class DictationHud {
     this.window.webContents.send(`${CHANNEL}:state`, {
       state: this.displayState,
       meeting: this.meeting,
+      stopwatch: this.stopwatchState,
       message: this.message,
       microphoneName: this.microphoneName,
       dock: this.dock,
@@ -317,6 +330,14 @@ export class DictationHud {
 
   /** @param {import("@legalwork/types/audio").AudioSystemDictationStatus} status */
   async setStatus(status) {
+    if (this.stopwatch && status.miniBarEnabled !== this.status.miniBarEnabled) {
+      clearInterval(this.stopwatchTimer);
+      if (status.miniBarEnabled) {
+        void this.stopwatch.refresh();
+        this.stopwatchTimer = setInterval(() => void this.stopwatch.refresh(), 10_000);
+        this.stopwatchTimer.unref();
+      }
+    }
     this.status = status;
     await this.setState(this.state, this.message);
   }
@@ -364,6 +385,7 @@ export class DictationHud {
   }
 
   destroy() {
+    clearInterval(this.stopwatchTimer);
     this.updateVersion += 1;
     clearInterval(this.cursorTimer);
     clearInterval(this.dragTimer);

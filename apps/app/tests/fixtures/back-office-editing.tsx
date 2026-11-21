@@ -40,9 +40,9 @@ const onSave = async (record: BackOfficeRecord, values: Record<string, BackOffic
   saved.push({ record, values });
   if (fail) throw new Error("Save failed; draft must survive");
 };
-function Row({ record, popup = false }: { record: BackOfficeRecord; popup?: boolean }) {
+function Row({ record, popup = false, sheet = false }: { record: BackOfficeRecord; popup?: boolean; sheet?: boolean }) {
   const [editing, setEditing] = useState<EditingCell | null>(null);
-  return <RecordGridRow record={record} index={0} template="32px 200px" fields={[popup ? nameField : field]}
+  return <RecordGridRow sheet={sheet} record={record} index={0} template="32px 200px" fields={[popup ? nameField : field]}
     records={[record]} recordById={new Map([[record.id, record]])} editable userId="owner" selected={false}
     editing={editing ?? undefined} onEdit={setEditing} onError={message => { failure = message; }}
     onSelect={() => {}} onMove={() => {}} onOpen={() => {}} onSave={onSave} />;
@@ -151,6 +151,35 @@ try {
   assert.deepEqual(viewWrites[0].expected, view, "A refresh must not silently advance the settings' base");
   assert.equal(viewWrites[0].view.query, "My filter");
   assert.equal(input("Search records").value, "My filter", "A view conflict must preserve unsaved settings");
+  await reset();
+  fail = false;
+  function Sheet() {
+    const [record, setRecord] = useState(original);
+    return <MemoryRouter><RecordGrid object={{ ...object!, fields: [nameField, field] }} records={[record]} views={[]}
+      sheet={{ columns: ["name", "notes"], blankId: "new" }} editable finance userId="owner" archived={false}
+      onArchivedChange={() => {}} onOpen={() => {}} onCreate={() => {}}
+      onSave={async (base, patch) => { await onSave(base, patch); setRecord(current => ({ ...current, values: { ...current.values, ...patch }, revision: current.revision + 1 })); }}
+      onSaveView={async view => view} /></MemoryRouter>;
+  }
+  await render(<Sheet />);
+  await openCell();
+  await type("Name", "Keyboard edit");
+  await act(async () => input("Name").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  assert.equal(saved.at(-1)?.values.name, "Keyboard edit");
+  assert.equal(document.activeElement, input("Notes"), "Tab commits then opens the cell to the right");
+  await type("Notes", "Reverse navigation");
+  await act(async () => input("Notes").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  assert.equal(saved.at(-1)?.values.notes, "Reverse navigation");
+  assert.equal(document.activeElement, input("Name"), "Shift+Tab opens the preceding cell");
+  assert.equal(input("Name").value, "Keyboard edit");
+  await reset();
+  await render(<Row sheet record={{ ...original, revision: 0 }} />);
+  await openCell();
+  await act(async () => input("Notes").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  assert.equal(saved.length, 1, "Tab confirms a copied private row even when its cell is unchanged");
+  assert.equal(saved[0].values.notes, original.values.notes);
   console.log("All editing regressions passed");
 } finally {
   await act(async () => root.unmount());

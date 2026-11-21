@@ -382,6 +382,13 @@ jobs:
       - uses: ./.github/actions/install-dependencies
         with:
           filter: ${{ (matrix.area == 'app' || matrix.area == 'openui' || startsWith(matrix.area, 'server')) && fromJSON('"@legalwork/app...\nlegalwork-server..."') || '' }}
+      - name: Provide the Word-to-PDF renderer for invoice tests
+        if: startsWith(matrix.area, 'server')
+        run: |
+          if ! command -v soffice >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libreoffice-writer fonts-liberation
+          fi
       - name: Reserve sign-in ports for server fixtures
         if: startsWith(matrix.area, 'server')
         run: |
@@ -397,6 +404,7 @@ jobs:
           node scripts/ci/affected-tests.mjs app
       - if: startsWith(matrix.area, 'server')
         env:
+          LEGALWORK_TEST_LIBREOFFICE: "1"
           SERVER_TEST_SHARD: ${{ matrix.area == 'server-1' && '1/2' || matrix.area == 'server-2' && '2/2' || '' }}
         run: |
           node apps/desktop/scripts/prepare-node-runtime.mjs
@@ -431,7 +439,7 @@ jobs:
       needs.changes.outputs.electron != '[]' && (needs.pr-renderer.result == 'success' ||
       (needs.pr-renderer.result == 'skipped' && needs.changes.outputs.renderer == 'false'))
     # Native window lifecycle and hidden WebContents capture require a Mac session.
-    runs-on: ${{ (needs.changes.outputs.renderer == 'true' || contains(fromJSON(needs.changes.outputs.electron), 'browser')) && 'macos-15' || 'ubuntu-latest' }}
+    runs-on: ${{ (needs.changes.outputs.renderer == 'true' || contains(fromJSON(needs.changes.outputs.electron), 'browser') || contains(fromJSON(needs.changes.outputs.electron), 'stopwatch')) && 'macos-15' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -472,6 +480,9 @@ jobs:
           fs.unlinkSync(helper);
           fs.symlinkSync(process.argv[2], helper);
           NODE
+      - name: Exercise the floating stopwatch on macOS
+        if: contains(fromJSON(needs.changes.outputs.electron), 'stopwatch')
+        run: pnpm --filter @legalwork/desktop test:stopwatch-hud
       - name: Run selected Chromium fixtures
         if: needs.changes.outputs.electron != '["renderer"]'
         env:

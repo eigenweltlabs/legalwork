@@ -1,0 +1,439 @@
+.time-storage-notice {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--bo-border);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.time-storage-notice > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+}
+.time-storage-notice > summary::-webkit-details-marker { display: none }
+.time-storage-notice > summary:hover { color: var(--bo-text) }
+.time-storage-notice > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.time-storage-notice > summary svg { flex-shrink: 0; transform: rotate(-90deg) }
+.time-storage-notice[open] > summary svg { transform: rotate(0) }
+.time-storage-details { max-width: 90ch; padding-left: 20px }
+.time-storage-details p { margin: 8px 0 4px }
+.time-record-settings { min-height: 0; overflow: auto; padding: 24px 32px }
+.time-record-draft {
+  overflow: auto;
+  min-height: 0;
+}
+.time-record-draft .bo-create-record {
+  max-width: 760px;
+  margin: 12px auto;
+}
+.bo-time-toolbar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 34px;
+  padding-block: 3px;
+}
+.bo-time-toolbar select,
+.bo-time-toolbar input,
+.bo-time-toolbar > button,
+.bo-time-state button,
+.bo-time-new button {
+  font-size: 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 3px 5px;
+}
+.bo-time-toolbar select {
+  font-weight: 600;
+}
+.bo-time-toolbar button:hover,
+.bo-time-new button:hover,
+.bo-time-state button:hover {
+  background: var(--bo-surface);
+}
+.bo-time-totals,
+.bo-time-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 15px;
+  padding: 3px 18px 6px;
+  font-size: 11px;
+  color: var(--bo-muted);
+  font-variant-numeric: tabular-nums;
+}
+.bo-time-totals span {
+  white-space: nowrap;
+}
+.bo-time-totals b {
+  font-weight: 500;
+  color: var(--t-font-color-primary);
+}
+.bo-time-week {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: auto;
+  margin: 0 16px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--lw-radius-lg);
+  font-size: 11px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.bo-time-month { max-height: 34vh }
+.bo-time-week table { width: 100%; min-width: 38rem; table-layout: fixed; border-spacing: 0; border-collapse: separate }
+.bo-time-week th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--bo-border);
+  background: var(--bo-bg);
+  color: var(--bo-text);
+  font-weight: 700;
+  text-align: start;
+}
+.bo-time-week td { vertical-align: top; padding: 2px }
+.bo-time-week button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 0 4px;
+  padding: 3px 5px;
+  border-radius: var(--lw-radius-md);
+  color: var(--bo-muted);
+  text-align: start;
+}
+.bo-time-week button span { white-space: nowrap }
+.bo-time-week time { font-weight: 600; color: var(--bo-text) }
+.bo-time-week button:hover, .bo-time-week button[aria-pressed="true"] { background: var(--bo-surface) }
+.bo-time-week button[aria-pressed="true"] time { text-decoration: underline; text-underline-offset: 2px }
+.bo-time-week button:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px }
+.bo-time-scroll {
+  padding-bottom: 12px;
+}
+.bo-time-scroll .bo-grid-row,
+.bo-time-scroll .bo-grid-header {
+  grid-template-columns: var(--time-tracks);
+  width: 100%;
+  min-width: var(--time-min-width);
+}
+.bo-time-new {
+  border-bottom: 1px dashed var(--bo-border);
+  background: var(--bo-bg);
+}
+.bo-time-input-cell {
+  padding: 0 2px;
+}
+.bo-time-input-cell input:not([type="checkbox"]) {
+  width: 100%;
+  height: 28px;
+  padding: 2px 5px;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+}
+.bo-time-input-cell input:focus-visible,
+.bo-time-value:focus-visible {
+  outline: 2px solid var(--t-color-blue8, currentColor);
+  outline-offset: -2px;
+}
+.bo-time-input-cell input:disabled {
+  color: var(--bo-muted);
+}
+.bo-time-input-cell input[type="checkbox"] {
+  margin-left: 6px;
+}
+.bo-time-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 24px;
+}
+.bo-time-state {
+  gap: 4px;
+  color: var(--bo-muted);
+  font-size: 11px;
+}
+.bo-time-state > button:last-child {
+  margin-inline-start: auto;
+}
+.bo-time-history {
+  list-style: none;
+  margin: 0;
+  padding: 8px 16px 8px 42px;
+  border-bottom: 1px solid var(--bo-border);
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-time-history li + li {
+  margin-top: 5px;
+}
+.bo-time-footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--bo-border);
+  padding-block: 4px;
+}
+
+.bo-time-original {
+  padding: 6px 16px 0 42px;
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-time-original dl {
+  display: grid;
+  gap: 6px;
+}
+.bo-time-original dt {
+  font-weight: 600;
+}
+.bo-time-original dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.bo-time-cap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 17px 6px;
+  font-size: 11px;
+  color: var(--t-color-orange11, #905a20);
+}
+.bo-time-cap-icon {
+  color: var(--t-color-orange11, #905a20);
+}
+
+.bo-time-new-product {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  color: var(--bo-muted);
+}
+.bo-time-new-product:hover,
+.bo-time-new-product[aria-pressed="true"] {
+  background: var(--t-color-blue3);
+  color: var(--t-color-blue11);
+}
+
+.time-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px 20px;
+  min-height: 48px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--bo-border);
+}
+.time-section-header nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bo-time-toolbar {
+  padding: 10px 16px 4px;
+  gap: 5px;
+}
+.bo-time-period,
+.bo-time-date {
+  display: inline-flex;
+  align-items: center;
+}
+.bo-time-period {
+  padding: 2px;
+  border: 1px solid var(--bo-border);
+  border-radius: var(--lw-radius-lg);
+  background: var(--bo-surface);
+}
+.bo-time-period button,
+.bo-time-date button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: var(--lw-radius-md);
+  font-size: 12px;
+  color: var(--t-font-color-secondary);
+}
+.bo-time-period button[aria-pressed="true"] {
+  color: var(--bo-text);
+  background: var(--bo-bg);
+  box-shadow: 0 1px 2px var(--bo-border);
+}
+.bo-time-date {
+  margin: 0 3px;
+}
+.bo-time-date input {
+  max-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+.bo-time-totals {
+  padding: 5px 18px 11px;
+  gap: 12px;
+}
+.bo-time-totals span + span {
+  border-inline-start: 1px solid var(--bo-border);
+  padding-inline-start: 12px;
+}
+.bo-time-new:focus-within {
+  background: var(--bo-hover);
+}
+.bo-time-scroll .bo-grid-heading {
+  overflow: hidden;
+  white-space: nowrap;
+  padding-inline: 6px;
+}
+.bo-time-scroll .bo-grid-heading,
+.bo-time-scroll .bo-grid-cell {
+  font-size: 12px;
+}
+.bo-time-scroll .bo-time-value {
+  min-width: 0;
+}
+.bo-time-input-cell {
+  min-width: 0;
+}
+.bo-time-input-cell input {
+  min-width: 0;
+}
+.bo-time-input-cell input::placeholder {
+  color: var(--bo-muted);
+}
+.bo-time-participants {
+  padding: 4px 0 8px 30px;
+}
+.bo-time-add-person,
+.bo-time-participant button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  color: var(--t-font-color-secondary);
+  font-size: 12px;
+  border-radius: 4px;
+}
+.bo-time-add-person:hover,
+.bo-time-participant button:hover {
+  background: var(--bo-surface);
+}
+.bo-time-participant {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+  padding: 6px;
+}
+.bo-time-participant label {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--t-font-color-secondary);
+}
+.bo-time-participant input,
+.bo-time-participant select {
+  background: var(--bo-bg);
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  height: 27px;
+  font-size: 12px;
+  padding: 2px 5px;
+  color: var(--bo-text);
+}
+.bo-time-participant input {
+  width: 80px;
+}
+.bo-time-delegated {
+  flex-shrink: 0;
+  max-height: 26%;
+  overflow: auto;
+  padding: 5px 17px;
+  font-size: 12px;
+  border-top: 1px solid var(--bo-border);
+}
+.bo-time-delegated summary {
+  cursor: pointer;
+}
+.bo-time-delegated small,
+.bo-time-delegated summary span {
+  color: var(--bo-muted);
+}
+.bo-time-delegated li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 4px;
+}
+@media (max-width: 760px) {
+  .time-section-header {
+    padding: 9px 12px;
+    gap: 7px;
+  }
+  .time-section-header nav {
+    order: 2;
+    width: 100%;
+  }
+  .time-record-settings { padding: 20px 16px }
+  .bo-time-toolbar {
+    padding-inline: 10px;
+  }
+  .bo-time-totals {
+    padding-inline: 12px;
+    gap: 4px 8px;
+  }
+}
+.time-ledger-pane:not([hidden]) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.time-unified { display:flex; flex-direction:column; flex:1; min-height:0; padding:0; overflow:hidden }
+.time-sheet-period { display:flex; gap:2px }
+.time-record-sheet { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden }
+.time-sheet-summary { display:flex; flex-shrink:0; align-items:center; gap:16px; padding:6px 16px; font-size:12px; color:var(--muted-foreground) }
+.time-sheet-sync { margin-left:auto; display:inline-flex; align-items:center; gap:5px }
+.time-record-sheet .bo-grid-row-details { grid-column:1 / -1; min-width:0; padding:0 8px 8px 8px; font-size:12px; color:var(--muted-foreground) }
+.time-record-sheet .bo-grid-row-detail { background:var(--t-accent-quaternary, var(--bo-surface)) }
+.time-proposal-actions, .bo-billing-wording-actions {
+  display:inline-flex; align-items:center; width:max-content; gap:0; padding:1px;
+  background:#fff; border:1px solid #d4d4d4; border-radius:999px; color:#242424;
+}
+.time-proposal-actions button { display:grid; place-items:center; width:24px; height:24px; border-radius:999px }
+.time-proposal-actions button:hover, .bo-billing-wording-actions button:hover { background:#eee; color:#171717 }
+.bo-billing-wording-actions button { border:0; box-shadow:none; background:transparent; color:inherit; border-radius:999px }
+.time-new-entry { display:flex; width:fit-content; margin:3px auto 3px 4px }
+.time-booking-receipt { margin:4px 6px; padding:4px; border:1px dashed var(--bo-border); border-radius:6px; font-size:12px }
+.time-booking-receipt > strong, .time-created-date, .time-created-entry > div > small { display:block; padding:2px 4px; color:var(--muted-foreground) }
+.time-created-date { text-decoration:underline; text-underline-offset:2px }
+.time-proposal-details { display:flex; align-items:center; gap:12px; flex-wrap:wrap; max-width:100ch }
+.time-proposal-source { display:inline-flex; align-items:center; gap:5px; text-align:left }
+.time-proposal-source:hover { color:var(--foreground) }
+.time-proposal-evidence { flex-basis:100%; padding:8px 12px; border-left:2px solid var(--bo-border); line-height:1.5 }
+.time-proposal-details select { max-width:300px; border:0; background:transparent; font:inherit }
+.time-record-sheet .bo-grid-cell { min-height:36px }
+.time-record-sheet .bo-editor-footer { display:none }
+
+.time-unified .bo-time-ledger { min-height:0 }
+
+.time-record-sheet .bo-grid-fill { display:flex; justify-content:flex-end; align-items:center; padding-right:10px; color:var(--muted-foreground); }

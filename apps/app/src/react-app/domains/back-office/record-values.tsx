@@ -14,10 +14,11 @@ import {
   Type,
 } from "lucide-react";
 import { Avatar, Chip, Tag } from "twenty-ui/primitives/data-display";
-import type {
-  BackOfficeField,
-  BackOfficeRecord,
-  BackOfficeValue,
+import {
+  backOfficeMajorAmount,
+  type BackOfficeField,
+  type BackOfficeRecord,
+  type BackOfficeValue,
 } from "@legalwork/types/back-office";
 import { selectColor } from "./select-colors";
 import { ObjectIcon } from "./object-icon";
@@ -50,23 +51,24 @@ export const RecordChip = memo(function RecordChip({
   onOpen: (record: BackOfficeRecord) => void;
 }) {
   const name = String(record.values.name ?? "");
+  const synthetic = record.objectId.startsWith("@");
   return (
     <Chip
       size="sm"
       variant="soft"
-      clickable
+      clickable={!synthetic}
       maxWidth={240}
       startElement={
         <Avatar
           size="xs"
-          shape={record.objectId === "people" ? "circle" : "square"}
+          shape={synthetic || record.objectId === "people" ? "circle" : "square"}
           name={name}
           colorSeed={record.id}
         />
       }
-      onPointerDown={(event) => event.stopPropagation()}
-      onMouseDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
+      onPointerDown={synthetic ? undefined : (event) => event.stopPropagation()}
+      onMouseDown={synthetic ? undefined : (event) => event.stopPropagation()}
+      onClick={synthetic ? undefined : (event) => {
         event.stopPropagation();
         onOpen(record);
       }}
@@ -118,7 +120,7 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
         {new Intl.NumberFormat(locale, {
           style: "currency",
           currency: value.currency,
-        }).format(value.amountMinor / 100)}
+        }).format(backOfficeMajorAmount(value))}
       </span>
     );
   if ((field.type === "date" || (field.type === "datetime" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))) && typeof value === "string")
