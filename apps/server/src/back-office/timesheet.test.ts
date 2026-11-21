@@ -10,6 +10,7 @@ import {
   type InvoiceDraftInput,
   type TimesheetCommand,
   type TimeEntry,
+  type TimesheetState,
   type TimePolicy,
 } from "@legalwork/types/timesheet";
 import { openSqlite } from "../runtime-db.js";
@@ -17,6 +18,7 @@ import { BackOfficeStore } from "./store.js";
 import { unknownRecords } from "./first-sync.js";
 import { commandTimesheet } from "./timesheet.js";
 import { approveInvoice, invoiceDraftRef, prepareInvoice } from "./timesheet-invoice.test-support.js";
+import { invoiceWordingReviewLines } from "./timesheet-invoice-wording.js";
 import { queryDirectoryRecords } from "./dashboard-query.js";
 import { readTimeDocument, readTimesheet } from "./timesheet-data.js";
 import { memberSource, timeMemberContactId } from "./time-member-identity.js";
@@ -1244,6 +1246,47 @@ test("a model wording suggestion for a manual entry stays separate until the rev
     wording: [approved.id], expectedSuggestions: [{ id: approved.id, narrative: "Drafting a memo" }],
   });
   expect(run(eva, selected).invoiceDraft?.lines[0].entry.narrative).toBe("Drafting a memo");
+  const selectedDraft = run(eva, selected);
+  expect(selectedDraft.invoiceDraft?.modelWording).toBeUndefined();
+  const manual = prepareInvoice([approved], [], {
+    edits: [{ id: approved.id, narrative: "Drafing a revised memo" }],
+  });
+  const edited = run(eva, manual);
+  expect(edited.invoiceDraft && invoiceWordingReviewLines(edited.invoiceDraft, edited)).toMatchObject([
+    { id: approved.id, narrative: "Drafing a revised memo" },
+  ]);
+  const review = (preview: TimesheetState, narrative: string) => commandTimesheet(store, "local", eva, people,
+    { type: "reviewInvoiceWording", ...invoiceDraftRef(preview), model }, [],
+    [{ id: approved.id, narrative, rule: "spelling" }]);
+  expect(() => review(selectedDraft, "Preparing a memo")).toThrow(/draft changed/);
+  const reviewedEdit = review(edited, "Drafting a revised memo");
+  expect(reviewedEdit.invoiceDraft?.lines[0]).toMatchObject({
+    entry: { narrative: "Drafing a revised memo" },
+    suggestedNarrative: "Drafting a revised memo",
+    modelRule: "spelling",
+  });
+  expect(() => run(eva, { type: "approveInvoice", ...invoiceDraftRef(edited) })).toThrow(/draft changed/);
+
+  const accepted = prepareInvoice([approved], [], {
+    wording: [approved.id], expectedSuggestions: [{ id: approved.id, narrative: "Drafting a revised memo" }],
+  });
+  const acceptedDraft = run(eva, accepted);
+  expect(acceptedDraft.invoiceDraft?.lines[0].entry.narrative).toBe("Drafting a revised memo");
+  expect(acceptedDraft.invoiceDraft?.modelWording).toBeUndefined();
+  expect(acceptedDraft.invoiceDraft && invoiceWordingReviewLines(acceptedDraft.invoiceDraft, acceptedDraft)).toMatchObject([
+    { id: approved.id, narrative: "Drafting a revised memo" },
+  ]);
+  const reviewedSelection = review(acceptedDraft, "Preparing the revised memo");
+  expect(reviewedSelection.invoiceDraft?.lines[0]).toMatchObject({
+    entry: { narrative: "Drafting a revised memo" },
+    suggestedNarrative: "Preparing the revised memo",
+    modelRule: "spelling",
+  });
+  expect(run(eva, accepted).invoiceDraft?.revision).toBe(reviewedSelection.invoiceDraft?.revision);
+  const issue = approveInvoice((command) => run(eva, command), reviewedSelection);
+  expect(() => review(reviewedSelection, "Revised memo")).toThrow(/before approving/);
+  const issued = run(eva, issue).invoices[0];
+  expect(issued.entries[0].narrative).toBe("Drafting a revised memo");
   expect(state(owner).entries[0].narrative).toBe("Drafing a memo");
 });
 

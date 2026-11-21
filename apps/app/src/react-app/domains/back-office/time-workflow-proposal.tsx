@@ -274,9 +274,15 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       <div className="time-workspace-actions">
         <TimeProposalActions busy={busy} canAccept={canEdit && !conflict} onDismiss={() => void dismiss()} />
         <Button type="button" size="sm" variant="outline" disabled={busy}
-          onClick={() => capture.openSource({ ...proposal,
-            matterId: selectedMatter?.matterId, projectId: selectedMatter?.projectId ?? null,
-            workProductId: values.productId, activity: values.activity, narrative: values.narrative || proposal.narrative,
+          onClick={() => void run(async () => {
+            const reviewed = current.current;
+            const selected = matchMatter(matters, reviewed.matter);
+            const unchangedAssignment = selected?.matterId === matter?.id && selected?.projectId === project?.id;
+            capture.openSource({ ...proposal,
+              ...(unchangedAssignment ? {} : { matterId: selected?.matterId, projectId: selected?.projectId ?? null }),
+              workProductId: reviewed.productId, activity: reviewed.activity, narrative: reviewed.narrative || proposal.narrative,
+            }, capture.drafts[proposal.key] || baseline.current.revision > 0 ? baseline.current.revision : undefined);
+            return true;
           })}>{t("timeWorkspace.editTimes")}</Button>
       </div>
     </form>

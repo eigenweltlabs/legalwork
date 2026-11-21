@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { CaptureProposal, CaptureState, WorkdayCorrection } from "@legalwork/types/time-capture";
+import type { CaptureProposal, WorkdayCorrection } from "@legalwork/types/time-capture";
 import { dayInZone } from "../calendar/dates.js";
 import { ApiError } from "../errors.js";
+import { rebasePrivateDraft, type DraftStore } from "./private-edits.js";
 import { proposalCommitment } from "./original.js";
 import { claimsFor, type EvidenceClaim, type WorkdayEvidence } from "./private-workday.js";
 
-type Day = Pick<CaptureState, "drafts"> & {
+type Day = DraftStore & {
   days: Record<string, WorkdayEvidence[]>;
   originals: Record<string, CaptureProposal>;
 };
 export function correctWorkday(saved: Day, date: string, command: WorkdayCorrection, zone: string,
-  charge?: (proposal: CaptureProposal, split: boolean) => number | undefined) {
+  charge?: (proposal: CaptureProposal, split: boolean) => number | undefined,
+  matterOf = (proposal: CaptureProposal) => proposal.matterId) {
   const day = saved.days[date] ?? [];
   const item = day.find((item) => item.proposal.key === command.key);
   if (!item || item.proposal.dismissed || item.proposal.digest !== command.digest)
@@ -59,18 +61,30 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     workedMinutes: total === null ? null : total - moved,
     projectId: command.projectId,
     matterId: command.matterId ?? undefined,
-    workProductId: parent.matterId === command.matterId ? parent.workProductId : undefined,
     activity: command.activity === undefined ? parent.activity : command.activity ?? "",
     narrative: command.narrative,
     parentDigest: parent.digest,
   };
-  remaining.chargeMinutes = charge?.(remaining, false);
+  const timeChanged = parent.startAt !== remaining.startAt || parent.endAt !== remaining.endAt ||
+    parent.workedMinutes !== remaining.workedMinutes;
+  const matterChanged = matterOf(parent) !== matterOf(remaining);
+  if (matterChanged) delete remaining.workProductId;
+  const assignmentChanged = matterChanged || parent.projectId !== remaining.projectId;
+  const activityChanged = parent.activity !== remaining.activity;
+  const chargeChanged = timeChanged || assignmentChanged || activityChanged;
+  if (chargeChanged) remaining.chargeMinutes = charge?.(remaining, false);
+  const replaced = [
+    ...(parent.narrative !== remaining.narrative ? ["name", "billingNarrative", "narrative"] : []),
+    ...(activityChanged ? ["activity"] : []),
+    ...(timeChanged ? ["worked", "billableWork", "billable", "workedMinutes", "recordedMinutes", "startedAt", "endedAt", "nonBillable", "nonBillableMinutes"] : []),
+    ...(assignmentChanged ? ["matter", "matterId", "client", "clientId", "projectId", "workProduct", "workProductId", "workProductTitle", "createWorkProduct", "product", "productId", "createProduct"] : []),
+    ...(chargeChanged ? ["charge", "chargeMinutes", "billableMinutes", "manualCharge"] : []),
+  ];
   remaining.digest = proposalCommitment(remaining);
+  rebasePrivateDraft(saved, parent.key, date, parent.digest, remaining.digest, command.draftRevision, replaced);
   saved.originals[parent.digest] = parent;
   saved.originals[remaining.digest] = remaining;
   item.proposal = remaining;
-  if (saved.drafts[parent.key]?.proposalDigest !== remaining.digest)
-    delete saved.drafts[parent.key];
   if (command.split) {
     // Only the interval a human assigned to each segment can carry an existing claim.
     const sourceClaims = claimsFor({ ...item, proposal: parent });
@@ -96,6 +110,6 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     saved.originals[segment.digest] = segment;
     const eventKey = item.eventKey + "/" + segment.key;
     const claims = sourceClaims.flatMap(claim => part(claim, true));
-    day.push({ eventKey, proposal: segment, ...(claims.length ? { claims } : {}) });
+    day.push({ eventKey, proposal: segment, sourceDocumentTitle: item.sourceDocumentTitle, ...(claims.length ? { claims } : {}) });
   }
 }

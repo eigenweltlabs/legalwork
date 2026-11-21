@@ -254,7 +254,7 @@ export function TimeWorkspaceChat({
                               <li key={instruction.id}>
                                 <small>
                                   {[
-                                    t(scopes[instruction.scope]),
+                                    t(instruction.kind === "wording-example" ? "timeWorkspace.learnedWording" : scopes[instruction.scope]),
                                     matter?.name,
                                     doc && proposalTitle(doc),
                                   ]

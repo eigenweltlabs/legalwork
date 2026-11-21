@@ -36,7 +36,7 @@ export const draftClockSchema = z.object({
 });
 type DraftClock = z.infer<typeof draftClockSchema>;
 type Draft = CaptureState["drafts"][string];
-type DraftStore = { drafts: CaptureState["drafts"]; draftClocks: Record<string, DraftClock> };
+export type DraftStore = { drafts: CaptureState["drafts"]; draftClocks: Record<string, DraftClock> };
 type AuditValue = Parameters<typeof canonicalBackOfficeAudit>[0];
 const equal = (a: AuditValue | undefined, b: AuditValue | undefined) => canonicalBackOfficeAudit(a ?? null) === canonicalBackOfficeAudit(b ?? null);
 
@@ -111,4 +111,24 @@ export function patchPrivateDraft(store: DraftStore, action: PrivateDraftPatch) 
   for (const [field] of edits) fields[field] = nextRevision;
   store.draftClocks[key] = { ...clock, guarded: true, fields };
   store.drafts[key] = { date, proposalDigest, revision: nextRevision, values: { ...current, ...Object.fromEntries(edits) } };
+}
+
+export function rebasePrivateDraft(store: DraftStore, key: string, date: string, digest: string,
+  nextDigest: string, revision: number | undefined, replaced: string[]) {
+  const draft = store.drafts[key];
+  if (draft || revision !== undefined)
+    requireDraftRevision(store, key, revision ?? (store.draftClocks[key]?.guarded ? undefined : 0), date, digest);
+  if (!draft) {
+    delete store.drafts[key];
+    delete store.draftClocks[key];
+    return;
+  }
+  const nextRevision = (draft.revision ?? 0) + 1;
+  const values = { ...draft.values }, fields = { ...store.draftClocks[key]?.fields };
+  for (const field of replaced) {
+    delete values[field];
+    delete fields[field];
+  }
+  store.drafts[key] = { date, values, revision: nextRevision, proposalDigest: nextDigest };
+  store.draftClocks[key] = { date, fields, guarded: true, proposalDigest: nextDigest };
 }

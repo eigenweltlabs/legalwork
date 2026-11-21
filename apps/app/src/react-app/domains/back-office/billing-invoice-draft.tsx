@@ -17,6 +17,7 @@ import {
   appliesTimeAdjustment,
   isHourlyInvoiceLine,
   resolveTimePolicy,
+  type TimeEntry,
   type TimeInvoiceDraft,
 } from "@legalwork/types/timesheet";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -38,9 +39,14 @@ type DraftProps = BillingProps & {
   workdayModels?: WorkdayModelOption[];
   dates: { from: string; to: string };
   onCancel: () => void;
-  onReviewSubmitted: () => void;
+  onReviewSubmitted: (entry: TimeEntry) => void;
   onIssued: () => void;
 };
+
+type NarrativeDecision = {
+  revision: number;
+  narrative: string;
+} & ({ type: "edit" } | { type: "suggestion"; currentNarrative: string });
 
 function minorUnits(value: string, scale: number) {
   const match = /^(\d+)(?:[.,](\d+))?$/.exec(value.trim());
@@ -113,10 +119,18 @@ export function BillingInvoiceDraft({
           : [],
       ),
   );
-  const [wording, setWording] = useState(new Set(saved?.wording));
-  const [edits, setEdits] = useState(
-    new Map(saved?.edits?.map(({ id, narrative }) => [id, narrative])),
-  );
+  const [decisions, setDecisions] = useState(() => {
+    const initial = new Map<string, NarrativeDecision>();
+    const edited = new Map(saved?.edits?.map(({ id, narrative }) => [id, narrative]));
+    const accepted = new Set(saved?.wording);
+    for (const line of state.invoiceDraft?.lines ?? []) {
+      const { id, revision, narrative } = line.entry;
+      const edit = edited.get(id);
+      if (edit !== undefined) initial.set(id, { type: "edit", revision, narrative: edit });
+      if (accepted.has(id)) initial.set(id, { type: "suggestion", revision, narrative, currentNarrative: line.currentNarrative });
+    }
+    return initial;
+  });
   const [model, setModel] = useState("");
   const models = [
     ...(workdayModels ?? []),
@@ -223,16 +237,26 @@ export function BillingInvoiceDraft({
     const line = adjustedTimeEntry(entry, adjustments);
     const eligible = authorized && (fixed || (isHourlyInvoiceLine(entry) && entry.currency === hourlyCurrency));
     const picked = eligible && (allOpen || !excluded.has(entry.id));
+    const decision = decisions.get(entry.id);
+    const edited = decision?.type === "edit" && decision.revision === entry.revision
+      ? decision.narrative
+      : undefined;
+    const accepted = decision?.type === "suggestion" &&
+      decision.revision === entry.revision && decision.currentNarrative === line.narrative
+      ? decision.narrative
+      : undefined;
     const preparedLine = draft?.lines.find(
       (item) =>
         item.entry.id === entry.id &&
         item.entry.revision === entry.revision &&
-        item.currentNarrative === line.narrative,
+        item.currentNarrative === line.narrative &&
+        item.entry.narrative === (edited ?? accepted ?? line.narrative),
     );
     const check = checkBillingNarrative(line, policy);
-    const suggested = preparedLine
+    const fallback = preparedLine ? preparedLine.suggestedNarrative : check?.narrative;
+    const suggested = preparedLine?.modelRule
       ? preparedLine.suggestedNarrative
-      : check?.narrative;
+      : accepted ?? (edited === undefined ? fallback : undefined);
     const rules = preparedLine
       ? [...preparedLine.rules]
       : [...(check?.replacements ?? [])].map(
@@ -242,8 +266,13 @@ export function BillingInvoiceDraft({
       ? preparedLine.actionFirst
       : check?.actionFirst;
     if (actionFirst) rules.push(t("back_office.billing.action_first"));
-    return { entry, line, preparedLine, rules, suggested, authorized, eligible, picked };
+    return { entry, line, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked };
   });
+  const suggestedWording = checks.flatMap(({ picked, line, suggested, accepted }) =>
+    picked && suggested && accepted !== suggested
+      ? [[line.id, { type: "suggestion", revision: line.revision, narrative: suggested, currentNarrative: line.narrative }] satisfies [string, NarrativeDecision]]
+      : [],
+  );
   const included = checks
     .filter(({ picked }) => picked)
     .map(({ entry }) => entry);
@@ -266,15 +295,12 @@ export function BillingInvoiceDraft({
       ? new Set(included.map(({ workerId }) => workerId))
       : new Set(included.map(({ id }) => id));
   const selectionIds = [...selectedScope].filter((id) => scopeIds.has(id));
-  const selectedWording = checks.flatMap(({ picked, entry, suggested }) =>
-    picked && suggested && wording.has(entry.id)
-      ? [{ id: entry.id, narrative: suggested }]
-      : [],
+  const selectedWording = checks.flatMap(({ picked, entry, accepted }) =>
+    picked && accepted !== undefined ? [{ id: entry.id, narrative: accepted }] : [],
   );
-  const editedWording = included.flatMap(({ id }) => {
-    const narrative = edits.get(id);
-    return narrative === undefined ? [] : [{ id, narrative }];
-  });
+  const editedWording = checks.flatMap(({ picked, entry, edited }) =>
+    picked && edited !== undefined ? [{ id: entry.id, narrative: edited }] : [],
+  );
   const input = InvoiceDraftInputSchema.safeParse({
     matterId,
     clientId,
@@ -341,23 +367,16 @@ export function BillingInvoiceDraft({
   }
   function resetSelection() {
     setExcluded(new Set());
-    setWording(new Set());
-    setEdits(new Map());
+    setDecisions(new Map());
     setScopeIds(new Set());
   }
-  function toggleSuggestion(id: string, checked: boolean) {
-    setWording((previous) => updateCheck(previous, id, checked));
-    if (checked) editWording(id, undefined);
-  }
-  function editWording(id: string, narrative: string | undefined) {
-    setEdits((previous) => {
+  function changeWording(id: string, decision: NarrativeDecision | undefined) {
+    setDecisions((previous) => {
       const next = new Map(previous);
-      if (narrative === undefined) next.delete(id);
-      else next.set(id, narrative);
+      if (decision === undefined) next.delete(id);
+      else next.set(id, decision);
       return next;
     });
-    if (narrative !== undefined)
-      setWording((previous) => updateCheck(previous, id, false));
   }
   async function issue(draft: TimeInvoiceDraft) {
     if (request.current?.revision !== draft.revision)
@@ -522,26 +541,8 @@ export function BillingInvoiceDraft({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={
-                      !checks.some(
-                        ({ entry, suggested, picked }) =>
-                          picked &&
-                          suggested &&
-                          !wording.has(entry.id) &&
-                          !edits.has(entry.id),
-                      )
-                    }
-                    onClick={() =>
-                      setWording(
-                        new Set(
-                          checks.flatMap(({ entry, suggested, picked }) =>
-                            picked && suggested && !edits.has(entry.id)
-                              ? [entry.id]
-                              : [],
-                          ),
-                        ),
-                      )
-                    }
+                    disabled={!suggestedWording.length}
+                    onClick={() => setDecisions((previous) => new Map([...previous, ...suggestedWording]))}
                   >
                     {t("invoiceReview.apply_suggestions")}
                   </Button>
@@ -571,6 +572,8 @@ export function BillingInvoiceDraft({
                           preparedLine,
                           rules,
                           suggested,
+                          edited,
+                          accepted,
                           authorized,
                           eligible,
                           picked,
@@ -613,7 +616,7 @@ export function BillingInvoiceDraft({
                                 {entry.status === "confirmed" && (
                                   <small>
                                     {entry.workerId === state.userId ? (
-                                      <Link to={timeRoutes.timesheets}>
+                                      <Link to={timeRoutes.timesheets + "?date=" + entry.date}>
                                         {t("invoiceReview.submit_open")}
                                       </Link>
                                     ) : (
@@ -626,7 +629,7 @@ export function BillingInvoiceDraft({
                                     <button
                                       type="button"
                                       className="bo-invoice-link"
-                                      onClick={onReviewSubmitted}
+                                      onClick={() => onReviewSubmitted(entry)}
                                     >
                                       {t("invoiceReview.review_open")}
                                     </button>
@@ -661,16 +664,15 @@ export function BillingInvoiceDraft({
                                     <input
                                       type="checkbox"
                                       disabled={!picked}
-                                      checked={wording.has(entry.id)}
+                                      checked={accepted === suggested}
                                       aria-label={t(
                                         "invoiceReview.apply_suggestion",
                                         { label: line.narrative },
                                       )}
                                       onChange={(event) =>
-                                        toggleSuggestion(
-                                          entry.id,
-                                          event.target.checked,
-                                        )
+                                        changeWording(entry.id, event.target.checked ? {
+                                          type: "suggestion", revision: entry.revision, narrative: suggested, currentNarrative: line.narrative,
+                                        } : undefined)
                                       }
                                     />{" "}
                                     {suggested}
@@ -713,27 +715,22 @@ export function BillingInvoiceDraft({
                                         { label: line.narrative },
                                       )}
                                       value={
-                                        edits.get(entry.id) ??
+                                        edited ??
                                         previewLine?.entry.narrative ??
-                                        (wording.has(entry.id)
-                                          ? suggested
-                                          : undefined) ??
+                                        accepted ??
                                         line.narrative
                                       }
                                       onChange={(event) =>
-                                        editWording(
-                                          entry.id,
-                                          event.target.value,
-                                        )
+                                        changeWording(entry.id, {
+                                          type: "edit", revision: entry.revision, narrative: event.target.value,
+                                        })
                                       }
                                     />
-                                    {edits.has(entry.id) && (
+                                    {(edited !== undefined || (accepted !== undefined && accepted !== suggested)) && (
                                       <button
                                         type="button"
                                         className="bo-invoice-link"
-                                        onClick={() =>
-                                          editWording(entry.id, undefined)
-                                        }
+                                        onClick={() => changeWording(entry.id, undefined)}
                                       >
                                         {t("invoiceReview.reset_wording")}
                                       </button>
@@ -940,9 +937,7 @@ export function BillingInvoiceDraft({
           </div>
           {state.supportsInvoiceWordingReview &&
             models.length > 0 &&
-            !visibleDraft.approval &&
-            !visibleDraft.input.wording.length &&
-            !visibleDraft.input.edits?.length && (
+            !visibleDraft.approval && (
               <div className="bo-billing-subrow">
                 <label>
                   {t("invoiceReview.model")}{" "}

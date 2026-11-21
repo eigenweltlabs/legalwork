@@ -75,6 +75,8 @@ const savedRow = BackOfficeRecordSchema.parse({
 let current = savedRow;
 let rejectUpdate = false;
 let canDelegate = false;
+let rosterOffline = true;
+const createdRows = new Map<string, BackOfficeRecord>();
 const writeSchema = z.object({
   id: z.string(), revision: z.number(), values: z.record(z.string(), BackOfficeValueSchema), create: z.boolean().optional(),
   timekeeperUserId: z.string().optional(), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
@@ -84,12 +86,21 @@ const writes: z.infer<typeof writeSchema>[] = [];
 const privateActions: CaptureAction[] = [];
 const client = createLegalworkServerClient({ baseUrl: "http://localhost" });
 client.backOffice = async (path, options) => {
+  if (path === "/time-members" && rosterOffline) throw new Error("Roster unavailable");
   if (path === "/time-members") return { members: [{ userId: "worker", name: "Worker", email: null }, { userId: "other", name: "Other worker", email: null, canRecordTimeFor: canDelegate }] };
   assert.equal(path, "/records");
   const write = writeSchema.parse(options?.body);
   writes.push(write);
   if (write.create) {
-    return { record: BackOfficeRecordSchema.parse({ ...savedRow, id: write.id, values: { ...write.values, timekeeper: workerContact.id } }) };
+    const record = BackOfficeRecordSchema.parse({ ...savedRow, id: write.id, values: { ...write.values, timekeeper: workerContact.id } });
+    createdRows.set(write.id, record);
+    return { record };
+  }
+  const created = createdRows.get(write.id);
+  if (created) {
+    const record = { ...created, revision: created.revision + 1, values: { ...created.values, ...write.values } };
+    createdRows.set(write.id, record);
+    return { record };
   }
   if (rejectUpdate) {
     rejectUpdate = false;
@@ -384,6 +395,8 @@ try {
   const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
   await render(origin, [workerContact, current]);
   const previousCreations = host.querySelectorAll(".time-created-entry").length;
+  const summaryValues = () => [...host.querySelectorAll(".time-sheet-summary > span:not(.time-sheet-sync)")].map(item => item.textContent);
+  const originTotals = summaryValues();
   const offDayId = blank().dataset.recordId;
   assert.ok(offDayId);
   const workDate = await enter(blank(), 0, second);
@@ -402,7 +415,15 @@ try {
   assert.equal(writes.length, 9, "the completed manual row needs no clock or separate charge input");
   assert.equal(writes.at(-1)?.values.startedAt, second);
   assert.equal(writes.at(-1)?.values.client, primary, "the only billing client was assigned without user input");
-  assert.equal(visible(offDayId), false, "a booking on a different day is not shown as a row on the selected day");
+  assert.equal(writes.at(-1)?.timekeeperUserId, directory.permissions.userId);
+  assert.ok(row(offDayId).closest(".time-created-entry"), "a saved off-day row stays editable in its receipt");
+  assert.equal(host.querySelectorAll(`[data-record-id="${offDayId}"]`).length, 1);
+  const billable = await enter(row(offDayId), 5, "8");
+  await act(async () => billable.blur());
+  assert.equal(writes.at(-1)?.id, offDayId);
+  assert.deepEqual(writes.at(-1)?.values, { billableMinutes: 8 });
+  assert.match(cell(row(offDayId), 5).textContent ?? "", /8/);
+  assert.deepEqual(summaryValues(), originTotals, "off-day receipts stay outside the selected date totals");
   assert.notEqual(blank().dataset.recordId, offDayId);
   assert.equal(host.querySelectorAll(".time-created-entry").length, previousCreations + 1);
   const receipt = host.querySelector<HTMLButtonElement>(".time-created-entry .time-created-date");
@@ -414,13 +435,19 @@ try {
   assert.equal(visible(offDayId), true);
   assert.equal(host.querySelector(".time-booking-receipt"), null);
   assert.equal(host.querySelector(".time-sheet-summary select"), null, "membership alone does not enable delegation");
+  rosterOffline = false;
   canDelegate = true;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
   const currentWorkersProposal = { ...proposal, key: crypto.randomUUID(), digest: "d".repeat(64) };
-  await render({ ...active, proposals: [currentWorkersProposal] }, [workerContact, current]);
+  const workerView = { ...active, proposals: [currentWorkersProposal] };
+  const otherContact = { ...workerContact, id: crypto.randomUUID(), sourceId: "eigenwelt-member:other" };
+  const otherEntry = { ...current, id: crypto.randomUUID(), values: { ...current.values, timekeeper: otherContact.id } };
+  const workerRecords = [workerContact, current, otherContact, otherEntry];
+  await render(workerView, workerRecords);
   const filter = host.querySelector<HTMLSelectElement>(".time-sheet-summary select");
   assert.ok(filter);
   await act(async () => { filter.value = "member:other"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  assert.ok(visible(otherEntry.id));
   assert.equal(visible(currentWorkersProposal.key), false, "a worker filter cannot turn a private suggestion into a ledger row");
   assert.ok(proposalDetails(currentWorkersProposal.key), "the private side remains scoped to the current user");
   const chosenWorker = cell(blank(), 1);
@@ -431,6 +458,14 @@ try {
   await act(async () => chooseSelf.click());
   assert.match(cell(blank(), 1).textContent ?? "", new RegExp(t("timesheets.ledger.me")));
 
+  rosterOffline = true;
+  await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
+  await render(workerView, workerRecords);
+  assert.equal(host.querySelector(".time-sheet-summary select"), null, "a roster error removes cached delegation");
+  assert.equal(visible(otherEntry.id), false);
+  assert.ok(visible(savedRow.id), "the authenticated member's contact entries remain visible");
+  assert.ok(!button(proposalDetails(currentWorkersProposal.key), t("timesheets.sheet.accept")).disabled);
+  rosterOffline = false;
   canDelegate = false;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
   await render(active, [workerContact, current]);

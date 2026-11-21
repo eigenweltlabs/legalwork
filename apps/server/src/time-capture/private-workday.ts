@@ -14,7 +14,7 @@ export const evidenceClaimSchema = z.object({
 });
 export const workdayEvidenceSchema = z.object({
   eventKey: z.string(), proposal: captureProposalSchema, claims: z.array(evidenceClaimSchema).optional(),
-  generated: z.boolean().optional(),
+  generated: z.boolean().optional(), sourceDocumentTitle: z.string().max(500).optional(),
 });
 export type EvidenceClaim = z.infer<typeof evidenceClaimSchema>;
 export type WorkdayEvidence = z.infer<typeof workdayEvidenceSchema>;

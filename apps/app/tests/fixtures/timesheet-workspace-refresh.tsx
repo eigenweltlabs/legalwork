@@ -10,7 +10,7 @@ for (const [key, value] of Object.entries({
   window, document: window.document, navigator: window.navigator,
   localStorage: window.localStorage, sessionStorage: window.sessionStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
-  Element: window.Element, Node: window.Node, Event: window.Event, PointerEvent: window.PointerEvent,
+  DOMRect: window.DOMRect, Element: window.Element, Node: window.Node, Event: window.Event, PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver, getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window), cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -73,7 +73,11 @@ const reviewOrigin = "http://invoice-review.example.test";
 const reviewClient = createLegalworkServerClient({ baseUrl: reviewOrigin, token: "other-api", hostToken: "review-host" });
 const reviewCache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 const reviewEntry: TimeEntry = { ...entry, narrative: "Fixture invoice line" };
-const reviewState = { ...state, supportsInvoiceDrafts: true, entries: [reviewEntry],
+const ownHistorical: TimeEntry = {
+  ...entry, id: "own-earlier", workerId: "anna", authorId: "anna", status: "confirmed",
+  date: "2026-11-18", narrative: "Own historical work",
+};
+const reviewState = { ...state, supportsInvoiceDrafts: true, entries: [reviewEntry, ownHistorical],
   policies: [{ scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "anna" }] };
 const reviewDirectory: BackOfficeState = {
   scope: "local", directoryId: "invoice-fixture", model: defaultBackOfficeModel(),
@@ -98,7 +102,7 @@ const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: Requ
 globalThis.fetch = fetchReview;
 try {
   await act(async () => root.render(<QueryClientProvider client={reviewCache}>
-    <MemoryRouter initialEntries={["/time/review?date=" + entry.date]}><BackOfficePage client={reviewClient} /></MemoryRouter>
+    <MemoryRouter initialEntries={["/time/review?date=2026-11-19"]}><BackOfficePage client={reviewClient} /></MemoryRouter>
   </QueryClientProvider>));
   const invoiceEditor = () => document.querySelector(".bo-invoice-draft");
   const invoiceWording = () => invoiceEditor()?.querySelector<HTMLTextAreaElement>("textarea");
@@ -117,10 +121,28 @@ try {
     await selectNative(pricing, "fixed");
   };
   await openInvoice();
+  const allOpen = [...invoiceEditor()!.querySelectorAll("label")]
+    .find(label => label.textContent?.includes("All open entries through"))?.querySelector("input");
+  assert.ok(allOpen);
+  await act(async () => allOpen.click());
   const wording = invoiceWording(), fixedPrice = amount();
   assert.ok(wording && fixedPrice);
   await input(wording, "Unsaved invoice narrative");
   await input(fixedPrice, "125.50");
+
+  const openTimesheet = invoiceEditor()?.querySelector<HTMLAnchorElement>('a[href="/time?date=2026-11-18"]');
+  assert.ok(openTimesheet);
+  await act(async () => openTimesheet.click());
+  await until(() => document.querySelector(".time-ledger-pane:not([hidden])")?.textContent?.includes(ownHistorical.narrative));
+  assert.ok(invoiceEditor()?.closest("[hidden]"));
+  const reviewLink = document.querySelector<HTMLAnchorElement>('nav a[href="/time/review?date=2026-11-18"]');
+  assert.ok(reviewLink);
+  await act(async () => reviewLink.click());
+  assert.ok(!invoiceEditor()?.closest("[hidden]"));
+  assert.equal(invoiceWording(), wording);
+  assert.equal(wording.value, "Unsaved invoice narrative");
+  assert.equal(amount(), fixedPrice);
+  assert.equal(fixedPrice.value, "125.50");
 
   timesheetFailure = 408;
   await refreshReview("timesheet");

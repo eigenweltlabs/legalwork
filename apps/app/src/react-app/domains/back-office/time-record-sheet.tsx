@@ -13,7 +13,7 @@ import { displayBackOfficeObject } from "./labels";
 import { RecordGrid } from "./record-grid";
 import { ValueDisplay } from "./record-values";
 import type { RenderTimeWorkspace } from "./timesheet-workday";
-import { proposalValues, timeRecordDate } from "./time-record-values";
+import { proposalAssignment, proposalValues, timeRecordDate } from "./time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, privateDraftConflict, timeCellChanges, timeRecordConflictSchema, timeRecordEdits, timeRowClipboardSchema, type TimeRecordEdit, type TimeRecordValues, type TimeRowDraft } from "./time-record-edits";
 import { useBookingReceipt } from "./time-booking-receipt";
 import { periodTimeTotals } from "./timesheet-row";
@@ -42,7 +42,8 @@ export type TimeCaptureSheet = {
   privateAvailable: boolean;
   act: (action: CaptureAction) => Promise<boolean>;
   writeDraft?: (action: PrivateDraftPatch) => Promise<CaptureState["drafts"][string] | null>;
-  openSource: (proposal: CaptureProposal) => void;
+  openSource: (proposal: CaptureProposal, draftRevision?: number) => void;
+  visible?: boolean;
 };
 
 type Props = { client: LegalworkServerClient; directory: BackOfficeState; state: TimesheetState; capture: TimeCaptureSheet; workspace: RenderTimeWorkspace };
@@ -87,10 +88,15 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   const cache = useQueryClient();
   const navigate = useNavigate();
   useSyncExternalStore(edits.subscribe, edits.snapshot, () => 0);
-  const roster = useQuery({ queryKey: ["back-office", client.baseUrl, "time-members", directory.directoryId, directory.permissions.principalKey],
+  const userId = directory.permissions.userId;
+  const roster = useQuery({ queryKey: ["back-office", client.baseUrl, "time-members", directory.scope, directory.directoryId, userId, directory.permissions.principalKey],
     queryFn: async () => membersSchema.parse(await client.backOffice("/time-members")), retry: false, refetchInterval: 60000 });
-  const members = (roster.data?.members ?? []).filter(member => member.userId === directory.permissions.userId || member.canRecordTimeFor === true);
-  const self = memberPrefix + directory.permissions.userId;
+  const self = memberPrefix + userId;
+  const members = [
+    { userId, name: null, email: null },
+    ...(roster.isSuccess ? roster.data.members.filter(member => member.userId !== userId && member.canRecordTimeFor === true) : []),
+  ];
+  const editable = directory.permissions.edit && Boolean(userId);
   const [hiddenProposals, hideProposals] = useState<Set<string>>(new Set());
   const [filter, setPerson] = useState(self);
   const person = members.length > 1 && (!filter || members.some(member => memberPrefix + member.userId === filter)) ? filter : self;
@@ -100,16 +106,18 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   const { showBooking, bookings, receipt } = useBookingReceipt(capture.date, (target, worker) => {
     if (person && person !== worker) setPerson("");
     capture.selectDate(target, true);
-  });
+  }, capture.visible);
   const copied = useRef<TimeRecordValues>(undefined);
   const blankIds = useRef(new Map<string, string>());
   const order = useRef(new Map<string, number>());
   const candidateOrigins = useRef(new WeakMap<BackOfficeRecord, CaptureProposal>());
   const currentCapture = useRef(capture);
   const currentRecords = useRef(new Map<string, BackOfficeRecord>());
+  const currentAccess = useRef<{ editable: boolean; rosterIds: Set<string>; contacts: Map<string, string> }>(undefined);
   currentCapture.current = capture;
-  const blankId = blankIds.current.get(capture.date) ?? crypto.randomUUID();
-  blankIds.current.set(capture.date, blankId);
+  const blankKey = JSON.stringify([capture.date, person]);
+  const blankId = blankIds.current.get(blankKey) ?? crypto.randomUUID();
+  blankIds.current.set(blankKey, blankId);
   useLayoutEffect(() => {
     if (composerId === blankId) grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
   }, [composerId, blankId]);
@@ -157,10 +165,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   function isOwn(record: BackOfficeRecord) {
     return fieldValue(record, "timekeeper") === self || (!record.values.timekeeper && record.ownerId === directory.permissions.userId);
   }
-  function isVisible(record: BackOfficeRecord) {
-    return capture.dates.includes(serviceDate(record.values)) &&
-      (person ? fieldValue(record, "timekeeper") === person || (person === self && isOwn(record))
-        : isOwn(record) || rosterIds.has(String(fieldValue(record, "timekeeper"))));
+  function matchesPerson(record: BackOfficeRecord) {
+    return person ? fieldValue(record, "timekeeper") === person || (person === self && isOwn(record))
+      : isOwn(record) || rosterIds.has(String(fieldValue(record, "timekeeper")));
   }
   const known = new Map(directory.records.filter(record => record.objectId === "timeEntries").map(record => [record.id, record]));
   for (const [id, saved] of edits.confirmed) {
@@ -168,31 +175,52 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   }
   currentRecords.current = known;
   const stored = [...known.values()].filter(record => !record.archivedAt);
-  const visible = stored.filter(isVisible);
+  const visible = stored.filter(record => capture.dates.includes(serviceDate(record.values)) && matchesPerson(record));
+  const receiptBookings = bookings.filter(item => {
+    const record = known.get(item.id);
+    return record && !record.archivedAt && matchesPerson(record);
+  });
+  currentAccess.current = { editable, rosterIds, contacts };
+  function canWrite(record: BackOfficeRecord, patch: TimeRecordValues = {}) {
+    const access = currentAccess.current;
+    if (!access?.editable) return false;
+    const permitted = (value: BackOfficeValue | undefined) =>
+      typeof value === "string" && access.rosterIds.has(access.contacts.get(value) ?? value);
+    const assigned = record.values.timekeeper;
+    return permitted(assigned || memberPrefix + record.ownerId) &&
+      (!patch.timekeeper || permitted(patch.timekeeper));
+  }
   const proposals = capture.proposals.filter(proposal => !known.has(proposal.key) && !hiddenProposals.has(proposal.key));
   const proposalMap = new Map(proposals.map(proposal => [proposal.key, proposal]));
-  const createdIds = new Set(bookings.map(item => item.id));
+  const createdIds = new Set(receiptBookings.map(item => item.id));
   const entries = new Map(visible.map(record => [record.id, record]));
   for (const record of stored) {
     const pending = edits.updates.get(record.id);
     if (!pending) continue;
-    const overlay = { ...record, values: Object.assign({}, record.values, ...pending.map(edit => edit.values)) };
-    if (entries.has(record.id) || createdIds.has(record.id) || isVisible(overlay)) entries.set(record.id, overlay);
+    const overlay = { ...record, values: Object.assign({}, record.values, ...pending.filter(edit => canWrite(record, edit.values)).map(edit => edit.values)) };
+    if (entries.has(record.id) || createdIds.has(record.id) || (capture.dates.includes(serviceDate(overlay.values)) && matchesPerson(overlay))) entries.set(record.id, overlay);
   }
   for (const [id, draft] of Object.entries(capture.drafts)) {
-    if ((!person || (draft.values.timekeeper ?? self) === person || id === blankId) && !draft.proposalDigest && !draft.values.workflow && !known.has(id) && capture.dates.includes(draft.date)) {
-      entries.set(id, row(id, { timekeeper: self, ...draft.values, startedAt: draft.values.startedAt ?? draft.date }));
-    }
+    if (draft.proposalDigest || draft.values.workflow || known.has(id) || !capture.dates.includes(draft.date)) continue;
+    const record = row(id, { timekeeper: self, ...draft.values, startedAt: draft.values.startedAt ?? draft.date });
+    if (matchesPerson(record) || (id === blankId && canWrite(record))) entries.set(id, record);
   }
   for (const [id, draft] of edits.drafts) {
-    if ((!person || (draft.record.values.timekeeper ?? self) === person || id === blankId) && !draft.proposal && !known.has(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
+    if ((matchesPerson(draft.record) || (id === blankId && canWrite(draft.record))) && !draft.proposal && !known.has(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
+  }
+  function proposalDefaults(proposal: CaptureProposal) {
+    const suggested = currentCapture.current.wording?.[proposal.digest];
+    return proposalValues(suggested ? { ...proposal, ...suggested } : proposal, state);
+  }
+  function hydrateDraft(draft: TimeRowDraft, values: TimeRecordValues) {
+    const proposal = currentCapture.current.proposals.find(item => item.key === draft.proposal?.key && item.digest === draft.proposal.digest);
+    return proposal ? { ...proposalDefaults(proposal), ...values, timekeeper: self } : values;
   }
   function proposalRecord(proposal: CaptureProposal) {
     const draft = edits.drafts.get(proposal.key);
     const savedDraft = capture.drafts[proposal.key];
-    const suggested = capture.wording?.[proposal.digest];
     const candidate = draft?.proposal?.digest === proposal.digest ? draft.record : row(proposal.key, {
-      ...proposalValues(suggested ? { ...proposal, ...suggested } : proposal, state),
+      ...proposalDefaults(proposal),
       ...(savedDraft?.proposalDigest === proposal.digest ? savedDraft.values : {}),
       timekeeper: self,
     });
@@ -257,10 +285,10 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       if (!stored) throw new Error(t("back_office.save_failed"));
       const later = edits.drafts.get(key);
       const pending = later && later !== draft ? differentTimeValues(draft.record.values, later.record.values) : {};
-      draft.record = { ...draft.record, values: stored.values };
+      draft.record = { ...draft.record, values: hydrateDraft(draft, stored.values) };
       draft.privateRevision = stored.revision;
       if (later && later !== draft && later.proposal?.digest === proposalDigest) {
-        later.record = { ...later.record, values: { ...stored.values, ...pending } };
+        later.record = { ...later.record, values: { ...draft.record.values, ...pending } };
         later.privateRevision = stored.revision;
         later.changes = pending;
         later.privateSaved = !Object.keys(pending).length;
@@ -301,7 +329,10 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   }
   function rememberMember(input: TimeRecordValues, saved: BackOfficeRecord) {
     const chosen = input.timekeeper, contact = saved.values.timekeeper;
-    if (typeof chosen === "string" && chosen.startsWith(memberPrefix) && typeof contact === "string") edits.memberContacts.set(chosen, contact);
+    if (typeof chosen !== "string" || !chosen.startsWith(memberPrefix) || typeof contact !== "string") return;
+    edits.memberContacts.set(chosen, contact);
+    const access = currentAccess.current;
+    if (access?.rosterIds.has(chosen)) access.contacts.set(contact, chosen);
   }
   async function acknowledge(saved: BackOfficeRecord) {
     edits.confirmed.set(saved.id, saved);
@@ -338,6 +369,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       const known = currentRecords.current.get(id);
       const confirmed = edits.confirmed.get(id);
       const current = confirmed && confirmed.revision > (known?.revision ?? 0) ? confirmed : known ?? edit.base;
+      if (!canWrite(current, edit.values)) {
+        edit.error = t("back_office.save_failed");
+        edits.changed();
+        return;
+      }
       if (!prepareBillingEdit(queue, current)) return;
       const expectedValues = Object.fromEntries(Object.keys(allowedValues(edit.values)).map(key => [key, edit.base.values[key] ?? null]));
       const expectedMember = expectedValues.timekeeper;
@@ -396,6 +432,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   async function persistDraft(id: string, accepted?: CaptureProposal) {
     const pending = edits.drafts.get(id);
     if (!pending) return;
+    if (!canWrite(pending.record)) throw new Error(t("back_office.save_failed"));
     if (pending.proposal) {
       if (!accepted) { await privateDraft(pending); return; }
       const active = currentCapture.current;
@@ -415,6 +452,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       if (accepted) throw new Error(t(billingError(pending.record.values) ?? "timesheets.sheet.complete"));
       return;
     }
+    if (!canWrite(pending.record)) throw new Error(t("back_office.save_failed"));
     edits.saving.add(id);
     edits.changed();
     try {
@@ -448,6 +486,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   }
   async function edit(record: BackOfficeRecord, patch: TimeRecordValues, focusedRevision?: number) {
     const id = record.id;
+    if (!canWrite(record, patch)) throw new Error(t("back_office.save_failed"));
     const values = timeCellChanges(record.values, patch, capture.date, fieldValue(record, "timekeeper"), matterId => {
       const matter = state.matters.find(matter => matter.id === matterId);
       return matter?.clientIds.length === 1 ? matter.clientIds[0] : null;
@@ -481,7 +520,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       latestDraft: matchingDraft?.latestDraft,
     };
     edits.drafts.set(id, draft);
-    if (id === blankId && valid(draft)) blankIds.current.delete(capture.date);
+    if (id === blankId && valid(draft)) blankIds.current.delete(blankKey);
     edits.changed();
     enqueue(id, () => persistDraft(id));
   }
@@ -508,7 +547,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       }
       edits.drafts.delete(id);
       edits.draftErrors.delete(id);
-      if (id === blankId) blankIds.current.delete(capture.date);
+      if (id === blankId) blankIds.current.delete(blankKey);
       edits.changed();
     });
   }
@@ -520,7 +559,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         pending.privateRevision = latest.revision;
         pending.focusedRevision = undefined;
         if (!useMine) {
-          pending.record = { ...pending.record, values: latest.values };
+          pending.record = { ...pending.record, values: hydrateDraft(pending, latest.values) };
           pending.privateSaved = true;
           pending.changes = {};
           pending.latestDraft = undefined;
@@ -552,7 +591,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     </div>;
   }
   function accept(record: BackOfficeRecord, proposal: CaptureProposal) {
-    if (!directory.permissions.edit || !roster.data || edits.saving.has(record.id) || currentCapture.current.overlaps.has(record.id))
+    if (!canWrite(record) || edits.saving.has(record.id) || currentCapture.current.overlaps.has(record.id))
       return Promise.resolve(false);
     if (!edits.drafts.has(record.id) || edits.drafts.get(record.id)?.proposal?.digest !== proposal.digest)
       edits.drafts.set(record.id, { record, date: proposal.date, proposal, privateRevision: currentCapture.current.drafts[record.id]?.revision });
@@ -601,7 +640,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     event.clipboardData.setData("text/plain", JSON.stringify({ legalworkTimeRow: 1, values: copyTimeRecordValues(copied.current, object.fields, capture.date, self, directory.permissions.finance) }));
     event.preventDefault();
   }} onPaste={event => {
-    if (!directory.permissions.edit || !roster.data) return;
+    if (!editable) return;
     try {
       const value = timeRowClipboardSchema.safeParse(JSON.parse(event.clipboardData.getData("text/plain")));
       if (value.success) { event.preventDefault(); duplicate(value.data.values); }
@@ -617,7 +656,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       <span className="time-sheet-sync" role="status" title={t(unsaved ? "timesheets.sheet.edit_unsaved_hint" : directory.scope === "local" ? "timesheets.sheet.local" : "timesheets.sheet.sharing")}><Info size={12} />{edits.saving.size ? t("projects.saving") : unsaved ? t("timesheets.sheet.edit_unsaved") : directory.sync.error ? t("timesheets.sheet.sync_error") : directory.sync.pending ? t("timesheets.sheet.pending") : t("timesheets.sheet.synced")}</span>
     </div>
     {roster.error && <p className="bo-error" role="alert">{t("timesheets.sheet.members_error")} <Button size="xs" variant="outline" onClick={() => void roster.refetch()}>{t("timesheets.retry")}</Button></p>}
-    <RecordGrid object={object} records={records} views={directory.views} editable={directory.permissions.edit && Boolean(roster.data)} finance={directory.permissions.finance}
+    <RecordGrid object={object} records={records} views={directory.views} editable={editable} finance={directory.permissions.finance}
       userId={directory.permissions.userId} archived={false} onArchivedChange={() => {}} lockedSchema
       onSave={(record, patch) => edit(record, patch)} onCreate={() => {}} onOpen={openRecord}
       onSaveView={async (view, expected) => {
@@ -625,17 +664,17 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }); return saved;
       }}
       readOnlyFields={members.length <= 1 ? ["timekeeper"] : undefined}
-      sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: bookings.length,
+      sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
         afterRows: render => <>
-          {directory.permissions.edit && roster.data && !showBlank &&
+          {editable && !showBlank &&
             <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => setComposerId(blankId)}><Plus size={14} />{t("timesheets.ledger.new")}</Button>}
           {receipt((item, index) => {
             const record = entries.get(item.id) ?? known.get(item.id);
-            return record && capture.dates.includes(serviceDate(record.values)) ? render(record, index) : undefined;
+            return record ? render(record, index) : undefined;
           }, item => {
             const record = entries.get(item.id) ?? known.get(item.id);
             return record ? serviceDate(record.values) : item.date;
-          })}
+          }, receiptBookings)}
         </>,
         allowedRelationIds: (record, field) => field === "client" ? billingClients(record.values.matter) : undefined, widths: { startedAt: 130, timekeeper: 140, matter: 200, client: 170, billingNarrative: 340, recordedMinutes: 120, billableMinutes: 120 },
         onFocus: record => { copied.current = record.revision > 0 ? record.values : undefined; },
@@ -645,14 +684,14 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           <button title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => openRecord(record)}><History size={13} /></button>
         </> : null,
         leading: record => {
-          if (!directory.permissions.edit || !roster.data) return null;
+          if (!editable) return null;
           return record.id === blankId ? <button aria-label={t("back_office.add_new")} onClick={event => event.currentTarget.closest("[role=row]")?.querySelector<HTMLElement>("[role=gridcell]")?.click()}><Plus size={14} /></button> : undefined;
         },
         details: (record, columns) => {
           const error = edits.draftErrors.get(record.id), change = edits.updates.get(record.id)?.[0];
           const draft = record.revision === 0 && (edits.drafts.has(record.id) || Boolean(capture.drafts[record.id]));
           const clientError = billingError(record.values);
-          const eligibleClients = !columns.includes("client") && directory.permissions.edit && roster.data &&
+          const eligibleClients = !columns.includes("client") && editable &&
             Number(record.values.billableMinutes) > 0 ? billingClients(record.values.matter) : [];
           const chooseClient = eligibleClients.length > 1 || (eligibleClients.length === 1 && Boolean(clientError));
           if (!draft && !chooseClient && !clientError && !error && !change?.error && !change?.conflict) return null;
@@ -696,7 +735,6 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     const localDraft = edits.drafts.get(proposal.key), savedDraft = capture.drafts[proposal.key];
     const revision = localDraft?.proposal?.digest === proposal.digest ? localDraft.privateRevision ?? 0
       : savedDraft?.proposalDigest === proposal.digest ? savedDraft.revision ?? 0 : 0;
-    const editable = directory.permissions.edit && Boolean(roster.data);
     const busy = edits.saving.has(proposal.key);
     const conflict = capture.overlaps.has(proposal.key);
     const clientError = billingError(values);
@@ -762,15 +800,23 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           <TimeProposalActions busy={busy} canAccept={editable && !conflict} onAccept={() => void accept(record, proposal)}
             onDismiss={() => void dismiss()} />
           <Button size="sm" type="button" variant="outline" disabled={busy}
-            onClick={() => {
-              const reviewed = edits.drafts.get(proposal.key)?.record.values ?? values;
+            onClick={() => void enqueue(proposal.key, async () => {
+              const active = currentCapture.current;
+              if (!active.proposals.some(item => item.key === proposal.key && item.digest === proposal.digest))
+                throw new Error(t("timesheets.sheet.edit_suggestion_changed"));
+              const local = edits.drafts.get(proposal.key);
+              const draft = active.drafts[proposal.key];
+              const reviewed = local?.proposal?.digest === proposal.digest ? local.record.values : values;
               const matterId = typeof reviewed.matter === "string" ? reviewed.matter : undefined;
-              const project = state.projects.find(item => item.id === proposal.projectId);
-              capture.openSource({ ...proposal, matterId,
-                projectId: matterId && project?.matterIds.includes(matterId) ? project.id : null,
+              const { matter, project } = proposalAssignment(proposal, state);
+              active.openSource({ ...proposal,
+                ...(matterId === matter?.id ? {} : {
+                  matterId, projectId: matterId && project?.matterIds.includes(matterId) ? project.id : null,
+                }),
                 narrative: String(reviewed.billingNarrative || proposal.narrative),
-              });
-            }}>{t("timeWorkspace.editTimes")}</Button>
+              }, local?.proposal?.digest === proposal.digest && local.privateRevision !== undefined
+                ? local.privateRevision : draft ? draft.revision ?? 0 : undefined);
+            }).catch(() => {})}>{t("timeWorkspace.editTimes")}</Button>
         </div>
       </div>
     );

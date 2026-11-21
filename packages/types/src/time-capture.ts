@@ -104,6 +104,7 @@ export const workdayChatSchema = z.object({
 });
 export const savedWorkdayInstructionSchema = z.object({
   id: z.uuid(), text: instructionText, scope: z.enum(["personal", "matter", "document"]),
+  kind: z.literal("wording-example").optional(),
   matterId: z.string().min(1).max(200).optional(), documentId: z.string().min(1).max(200).optional(),
 });
 export const workdayChatActionSchema = z.strictObject({
@@ -123,6 +124,14 @@ export const workdayGuidelineSchema = z.strictObject({
   }).extend({ instructions: z.string().trim().min(1).max(20_000).optional() }),
 });
 export const workdayGuidelineActionSchema = z.strictObject({ type: z.literal("guideline"), guideline: workdayGuidelineSchema });
+export const guidelineRuleFields = ["minimumMinutes", "maxMinutes", "incrementMinutes", "enforceIncrement", "rounding", "stopwatchRoundUp", "activityLimits"] as const;
+export const guidelineRuleSuggestionsSchema = z.strictObject({
+  rules: workdayGuidelineSchema.shape.rules.pick({ minimumMinutes: true, maxMinutes: true, incrementMinutes: true,
+    enforceIncrement: true, rounding: true, stopwatchRoundUp: true, activityLimits: true }).strict(),
+  evidence: z.partialRecord(z.enum(guidelineRuleFields), z.string().trim().min(1).max(2000)),
+  notes: z.array(z.string().trim().min(1).max(1000)).max(10),
+});
+export type GuidelineRuleSuggestions = z.infer<typeof guidelineRuleSuggestionsSchema>;
 export const captureStateSchema = z.object({
   settings: captureSettingsSchema,
   modelReady: z.boolean(),
@@ -177,6 +186,7 @@ export const workdayCorrectionSchema = z.strictObject({
   type: z.literal("correct"),
   key: z.uuid(),
   digest: z.string().regex(/^[a-f0-9]{64}$/),
+  draftRevision: privateRevision.optional(),
   narrative: z.string().trim().min(1).max(2000),
   activity: z.string().trim().min(1).max(100).nullable().optional(),
   matterId: z.string().min(1).max(200).nullable(),

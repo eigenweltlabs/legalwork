@@ -38,7 +38,7 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
-import type { CaptureAction, CaptureState, CaptureProposal, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
+import type { CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -1891,6 +1891,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ text: string; textlessPages: number[] }>(baseUrl,
         "/private-timesheet/workday?" + new URLSearchParams({ ...context, preview: "guideline-pdf" }), {
           token, hostToken, method: "POST", binaryBody: file, signal, timeoutMs: 360_000,
+        }),
+    privateGuidelineRules: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, text: string, model: WorkdayModel | undefined, signal: AbortSignal) =>
+      requestJson<GuidelineRuleSuggestions>(baseUrl,
+        "/private-timesheet/workday?" + new URLSearchParams({ ...context, preview: "guideline-rules" }), {
+          token, hostToken, method: "POST", body: { text, model }, signal, timeoutMs: 180_000,
         }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),

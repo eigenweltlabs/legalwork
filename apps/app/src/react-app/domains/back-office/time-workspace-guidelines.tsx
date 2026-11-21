@@ -3,10 +3,14 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import {
   workdayGuidelineSchema,
+  guidelineRuleSuggestionsSchema,
+  guidelineRuleFields,
+  type GuidelineRuleSuggestions,
   type CaptureAction,
   type CaptureState,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
+import { roundingKeys } from "./timesheet-labels";
 
 type Guideline = CaptureState["guidelines"][number];
 type Actions = Extract<CaptureAction, { type: "guideline" }>;
@@ -73,12 +77,14 @@ export function TimeWorkspaceGuidelines({
   pending,
   save,
   readPdf,
+  extractRules,
 }: {
   date: string;
   guidelines: CaptureState["guidelines"];
   state: TimesheetState;
   pending: boolean;
   save: (action: Actions) => Promise<boolean>;
+  extractRules?: (text: string, signal: AbortSignal) => Promise<GuidelineRuleSuggestions>;
   readPdf: (
     file: File,
     signal: AbortSignal,
@@ -93,12 +99,43 @@ export function TimeWorkspaceGuidelines({
   const [instructions, setInstructions] = useState("");
   const [structured, showStructured] = useState(false);
   const [loadingFile, setLoadingFile] = useState(false);
+  const [loadingRules, setLoadingRules] = useState(false);
+  const [suggestions, setSuggestions] = useState<GuidelineRuleSuggestions>();
   const [sourceWarning, setSourceWarning] = useState("");
   const [error, setError] = useState("");
   const newId = useRef<string | undefined>(undefined);
   const extraction = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => extraction.current?.abort(), []);
-  const busy = pending || loadingFile;
+  const busy = pending || loadingFile || loadingRules;
+  function parsedRules() {
+    try { return workdayGuidelineSchema.shape.rules.safeParse(JSON.parse(rules)).data; }
+    catch { return undefined; }
+  }
+  const currentRules = parsedRules();
+  function updateRule(field: typeof guidelineRuleFields[number], value: number | boolean | string | undefined) {
+    if (!currentRules) { showStructured(true); setError(t("timeWorkspace.guidelineInvalid", { field: t("timeWorkspace.guidelineRules") })); return; }
+    const next = workdayGuidelineSchema.shape.rules.safeParse({ ...currentRules, [field]: value });
+    if (!next.success) { setError(t("timeWorkspace.guidelineInvalid", { field: t("timeWorkspace." + field) })); return; }
+    setRules(JSON.stringify(next.data, null, 2));
+    setError("");
+    setSuggestions(undefined);
+  }
+  async function inferRules(text: string, controller: AbortController) {
+    if (!extractRules || !text.trim() || text.length > maximumInstructions) return;
+    const retained = parsedRules();
+    if (!retained) { showStructured(true); setError(t("timeWorkspace.guidelineInvalid", { field: t("timeWorkspace.guidelineRules") })); return; }
+    setLoadingRules(true);
+    try {
+      const next = guidelineRuleSuggestionsSchema.parse(await extractRules(text, controller.signal));
+      if (controller.signal.aborted) return;
+      setSuggestions(next);
+      setRules(JSON.stringify({ ...retained, ...next.rules }, null, 2));
+    } catch (error) {
+      if (!controller.signal.aborted) setError(t("timeWorkspace.guidelineExtractError") + " " + (error instanceof Error ? error.message : ""));
+    } finally {
+      if (extraction.current === controller) setLoadingRules(false);
+    }
+  }
   const latest = new Map<string, Guideline>();
   for (const guideline of guidelines) {
     if ((latest.get(guideline.id)?.revision ?? -1) < guideline.revision)
@@ -115,6 +152,7 @@ export function TimeWorkspaceGuidelines({
     setRules(guideline ? JSON.stringify(structuredRules, null, 2) : "{\n}");
     setSourceWarning("");
     setError("");
+    setSuggestions(undefined);
     newId.current = undefined;
   }
   async function submit(event: FormEvent) {
@@ -174,6 +212,7 @@ export function TimeWorkspaceGuidelines({
     extraction.current = controller;
     setError("");
     setSourceWarning("");
+    setSuggestions(undefined);
     if (file.size > maximumFileBytes) {
       setError(t("timeWorkspace.guidelineSize"));
       return;
@@ -214,6 +253,7 @@ export function TimeWorkspaceGuidelines({
           return;
         }
         setInstructions(text.trim());
+        await inferRules(text.trim(), controller);
         if (result?.textlessPages.length)
           setSourceWarning(
             t("timeWorkspace.guidelineSkippedPages", {
@@ -329,6 +369,7 @@ export function TimeWorkspaceGuidelines({
         {loadingFile && (
           <p role="status">{t("timeWorkspace.guidelineReading")}</p>
         )}
+        {loadingRules && <p role="status">{t("timeWorkspace.guidelineExtracting")}</p>}
         {sourceWarning && <p role="status">{sourceWarning}</p>}
         <label>
           {t("timeWorkspace.guidelineText")}
@@ -336,12 +377,44 @@ export function TimeWorkspaceGuidelines({
             rows={5}
             value={instructions}
             disabled={busy}
-            onChange={(event) => setInstructions(event.currentTarget.value)}
+            onChange={(event) => { setInstructions(event.currentTarget.value); setSuggestions(undefined); }}
           />
         </label>
         {instructions.length > maximumInstructions && (
           <p role="alert">{t("timeWorkspace.guidelineTextSize")}</p>
         )}
+        {extractRules && <Button type="button" size="sm" variant="outline" disabled={busy || !instructions.trim() || instructions.length > maximumInstructions}
+          onClick={() => {
+            extraction.current?.abort();
+            const controller = new AbortController(); extraction.current = controller;
+            setError(""); void inferRules(instructions, controller);
+          }}>{t("timeWorkspace.guidelineExtract")}</Button>}
+        <fieldset disabled={busy} className="grid gap-3">
+          <legend>{t("timeWorkspace.guidelineTimeRules")}</legend>
+          {(["minimumMinutes", "maxMinutes", "incrementMinutes"] as const).map(field => <label key={field}>
+            {t("timeWorkspace." + field)}
+            <input type="number" min="1" max="1440" value={currentRules?.[field] ?? ""}
+              onChange={event => updateRule(field, event.currentTarget.value ? Number(event.currentTarget.value) : undefined)} />
+          </label>)}
+          <label>{t("back_office.billing.rounding")}
+            <select value={currentRules?.rounding ?? ""} onChange={event => updateRule("rounding", event.currentTarget.value || undefined)}>
+              <option value="">{t("timeWorkspace.guidelineInherited")}</option>
+              {(["choose", "up", "down", "nearest"] as const).map(mode => <option key={mode} value={mode}>{t(roundingKeys[mode])}</option>)}
+            </select>
+          </label>
+          <label>{t("timeWorkspace.guidelineEnforceIncrement")}
+            <select value={currentRules?.enforceIncrement === undefined ? "" : String(currentRules.enforceIncrement)}
+              onChange={event => updateRule("enforceIncrement", event.currentTarget.value === "" ? undefined : event.currentTarget.value === "true")}>
+              <option value="">{t("timeWorkspace.guidelineInherited")}</option>
+              <option value="true">{t("timeWorkspace.guidelineYes")}</option><option value="false">{t("timeWorkspace.guidelineNo")}</option>
+            </select>
+          </label>
+        </fieldset>
+        {suggestions && <div className="text-xs text-muted-foreground">
+          <p>{t("timeWorkspace.guidelineReviewRules")}</p>
+          {Object.entries(suggestions.evidence).map(([field, quote]) => <p key={field}><strong>{t("timeWorkspace." + field)}</strong>: {quote}</p>)}
+          {suggestions.notes.map((note, index) => <p key={index}>{note}</p>)}
+        </div>}
         <details
           open={structured}
           onToggle={(event) => showStructured(event.currentTarget.open)}
@@ -354,7 +427,7 @@ export function TimeWorkspaceGuidelines({
             disabled={busy}
             spellCheck={false}
             maxLength={100000}
-            onChange={(event) => setRules(event.currentTarget.value)}
+            onChange={(event) => { setRules(event.currentTarget.value); setSuggestions(undefined); }}
           />
         </details>
         {error && <p role="alert">{error}</p>}

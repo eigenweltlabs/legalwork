@@ -450,6 +450,13 @@ test("a save with no change evidence provides the document title but supports no
     ["Call this document Appeal for this day."],
   );
   expect(corrected.proposal.narrative).toBe("Amending Appeal");
+  const [learned] = reconstructWorkday(
+    { proposals: [{ ...row, documentTitle: "Extraordinary Appeal" }] },
+    [{ ...document, confirmedWording: ["Reviewing the Extraordinary Appeal for admissibility"] }],
+    date,
+    "UTC",
+  );
+  expect(learned.proposal).toMatchObject({ narrative: "Amending Example", workedMinutes: null });
 });
 
 test("a whole-day plan is followed by separate wording requests that isolate each client's rules and document history", async () => {

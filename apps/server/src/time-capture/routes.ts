@@ -2,7 +2,7 @@ import { timeActivities } from "../back-office/timesheet-schema.js";
 import { generateConnectedTimeText } from "./connected-model.js";
 import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
 import { localWorkdayModel, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
-  savedWorkdayInstructionSchema, workdayChatSchema, workdayChatActionSchema, workdayInstructionActionSchema,
+  workdayChatSchema, workdayChatActionSchema, workdayInstructionActionSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
@@ -13,7 +13,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { z } from "zod";
 import {
   stopwatchActionSchema,
@@ -39,9 +39,11 @@ import { claimsFor, claimsOverlap, digest, intervalsOverlap, workdayEvidence, wo
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
 import { generateLocalTimeText, localModel, workdaySkill } from "./local-model.js";
 import { modelInput, proposedWorkdayCharge, remainingEvidence } from "./reconstruct-workday.js";
-import { acceptedFileProduct, captureMatter, draftRules, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
+import { privateInstructionSchema, rememberDocumentWording } from "./document-terminology.js";
+import { acceptedDocumentEntry, captureMatter, draftRules, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
+import { extractGuidelineRules } from "./guideline-rules.js";
 import { validateReconcileTarget } from "./reconcile.js";
 import { draftClockSchema, patchCaptureSettings, patchPrivateDraft, requireDraftRevision, unchangedPrivateDraft, writePrivateDraft } from "./private-edits.js";
 
@@ -58,7 +60,7 @@ const savedSchema = z.object({
   proposalKeys: z.record(z.iso.date(), z.record(z.string(), z.uuid())).default({}),
   lastModel: workdayModelSchema.optional(),
   chat: z.record(z.iso.date(), z.array(workdayChatSchema)).default({}),
-  instructions: z.record(z.uuid(), savedWorkdayInstructionSchema).default({}),
+  instructions: z.record(z.uuid(), privateInstructionSchema).default({}),
   guidelines: z.record(z.uuid(), z.array(workdayGuidelineSchema)).default({}),
   fileProducts: z.record(z.string(), z.record(z.string(), z.string())).default({}),
   pendingBookings: z.record(z.uuid(), z.boolean()).default({}),
@@ -99,7 +101,7 @@ const defaults = (): Saved => ({
 });
 export async function captureProfile(
   config: ServerConfig,
-  { actor, scope }: Awaited<ReturnType<typeof backOfficeAccess>>,
+  { actor, scope }: Pick<Awaited<ReturnType<typeof backOfficeAccess>>, "actor" | "scope">,
 ) {
   const connection = scope === "local" ? await readEigenweltConnection(config) : undefined;
   // The local directory uses one finance identity even when different firm
@@ -294,10 +296,31 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
       delete saved.bookingRequests[key];
       await save(path, saved);
     });
-    const documentId = candidate.proposal.documentId;
-    const binding = documentId ? acceptedFileProduct(result, key, hash, prof.user) : undefined;
-    const newBinding = documentId && binding && saved.fileProducts[documentId]?.[binding.matterId] !== binding.workProductId;
-    if (documentId && binding && newBinding) (saved.fileProducts[documentId] ??= {})[binding.matterId] = binding.workProductId;
+    const { documentId } = candidate.proposal;
+    const entry = documentId ? acceptedDocumentEntry(result, key, hash, prof.user) : undefined;
+    const newBinding = documentId && entry?.workProductId &&
+      saved.fileProducts[documentId]?.[entry.matterId] !== entry.workProductId;
+    if (documentId && entry?.workProductId && newBinding)
+      (saved.fileProducts[documentId] ??= {})[entry.matterId] = entry.workProductId;
+    if (saved.pendingBookings[key] && documentId && entry?.narrative) {
+      const title = verifiedDocumentTitle(saved, candidate);
+      const clock = saved.draftClocks[key];
+      const field = target === "record" ? "billingNarrative" : "narrative";
+      const manuallyEdited = clock?.guarded && clock.fields[field] &&
+        saved.drafts[key]?.values[field] === entry.narrative;
+      let before = candidate.proposal;
+      while (before.parentDigest) {
+        const previous = saved.originals[before.parentDigest];
+        if (!previous || previous.documentId !== documentId || previous.key !== key) break;
+        if (previous.narrative !== before.narrative) {
+          before = previous;
+          break;
+        }
+        before = previous;
+      }
+      if (manuallyEdited || (entry.narrative === candidate.proposal.narrative && before.narrative !== entry.narrative))
+        rememberDocumentWording(saved.instructions, key, documentId, entry.matterId, before.narrative, entry.narrative, title);
+    }
     if (saved.pendingBookings[key] || newBinding) {
       delete saved.pendingBookings[key];
       delete saved.drafts[key];
@@ -305,6 +328,51 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
     }
     return result;
   });
+}
+
+function verifiedDocumentTitle(saved: Saved, item: WorkdayEvidence) {
+  if (item.sourceDocumentTitle) return item.sourceDocumentTitle;
+  const proposal = item.proposal;
+  const savedDocument = Object.values(saved.documentSaves[proposal.date] ?? {})
+    .find(source => source.documentId === proposal.documentId);
+  const name = savedDocument?.narrative ?? (!item.generated && !proposal.parentDigest && proposal.source === "documents"
+    ? proposal.narrative
+    : undefined);
+  return name?.slice(0, name.length - extname(name).length);
+}
+
+export async function rememberAcceptedDocumentEdit(config: ServerConfig,
+  access: Pick<Awaited<ReturnType<typeof backOfficeAccess>>, "actor" | "scope">,
+  edit: { key: string; digest?: string; matterId: string; before: string; after: string; revision?: number; reconciledOnly?: boolean }) {
+  if (!loopback(config) || edit.before === edit.after) return;
+  // The billing edit has already committed. Local memory cannot turn it into a failed save.
+  try {
+    const owner = await captureProfile(config, access);
+    await withFileWriteLock(owner.path, async () => {
+      const saved = await load(owner.path);
+      const target = edit.digest ? "workflow" : "record";
+      const matches = target === "record"
+        ? Object.keys(saved.reconciled).filter(key => saved.reconciled[key] === edit.key)
+        : [];
+      const direct = !edit.reconciledOnly && saved.accepted[edit.key] &&
+        (saved.bookingTargets[edit.key] ?? "workflow") === target;
+      const candidates = [...new Set(direct ? [edit.key, ...matches] : matches)];
+      if (candidates.length > 1) return;
+      const key = candidates[0];
+      if (!key) return;
+      const hash = saved.accepted[key];
+      if (saved.pendingBookings[key] || (edit.digest && edit.digest !== hash) ||
+          (saved.bookingTargets[key] ?? "workflow") !== target) return;
+      const origin = hash ? saved.originals[hash] : undefined;
+      if (!origin?.documentId || (await profile(config)).path !== owner.path) return;
+      const item = saved.days[origin.date]?.find(item => item.proposal.key === key);
+      if (rememberDocumentWording(saved.instructions, key, origin.documentId, edit.matterId, edit.before, edit.after,
+        item && verifiedDocumentTitle(saved, item), edit.revision))
+        await save(owner.path, saved);
+    });
+  } catch {
+    console.warn("Could not update the private workday's document wording.");
+  }
 }
 
 export async function bookPrivateManualDraft<T>(config: ServerConfig, identity: BookingIdentity,
@@ -741,6 +809,33 @@ export function registerWorkdayRoutes(options: {
           response.headers.set("Cache-Control", "no-store");
           return response;
         }
+        if (ctx.url.searchParams.get("preview") === "guideline-rules") {
+          const input = z.strictObject({ text: z.string().trim().min(1).max(20_000), model: workdayModelSchema.optional() })
+            .parse(await options.readJsonBodyLimited(ctx.request, 100_000));
+          const initial = await load(path);
+          const choice = modelChoice(config, initial, input.model);
+          const runtime = localChoice(choice) ? await localModel() : null;
+          const workspaces = await workdayWorkspaces(config);
+          const workspace = workspaces.find(item => item.id === choice.workspaceId);
+          if ((localChoice(choice) && !runtime) || (!localChoice(choice) && !workspace))
+            throw new ApiError(409, "timesheet_model_unavailable", "Choose an available model in timekeeping settings to extract billing rules.");
+          const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
+          const verify = async () => {
+            signal.throwIfAborted();
+            if ((await profile(config)).path !== path || digest([(await load(path)).settings.model]) !== digest([initial.settings.model]))
+              throw new ApiError(409, "private_workday_changed", "The active account or model changed. Retry with the current settings.");
+          };
+          await verify();
+          const result = await extractGuidelineRules(input.text, async prompt => {
+            if (runtime) return generateLocalTimeText(runtime, prompt, signal);
+            if (!workspace) throw new ApiError(409, "timesheet_model_unavailable", "Choose an available model.");
+            return generateConnectedTimeText(config, workspace, choice, prompt, verify, signal);
+          });
+          await verify();
+          const response = options.jsonResponse(result);
+          response.headers.set("Cache-Control", "no-store");
+          return response;
+        }
         const parsed = z
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
@@ -787,7 +882,10 @@ export function registerWorkdayRoutes(options: {
               const rule = s.instructions[action.id];
               if (!rule) throw new ApiError(404, "private_workday_scope", "This saved instruction is unavailable.");
               if (action.text === null) delete s.instructions[action.id];
-              else rule.text = action.text;
+              else {
+                rule.text = action.text;
+                delete rule.replacement;
+              }
             } else if (action.type === "guideline") {
               const g = action.guideline;
               const access = await backOfficeAccess(config);
@@ -865,9 +963,9 @@ export function registerWorkdayRoutes(options: {
               const scopedRules = (matterId: string | null, projectId: string | null) => {
                 if (projectId && !workspaces.some(workspace => workspace.id === projectId))
                   throw new ApiError(403, "private_workday_scope", "Choose an available project.");
-                if (!matterId) return;
-                const matter = captureMatter({ ...current.proposal, projectId, matterId }, state);
-                if (!matter) throw new ApiError(403, "private_workday_scope", "Choose an available matter for this project.");
+                const matter = captureMatter({ ...current.proposal, projectId, matterId: matterId ?? undefined }, state);
+                if (!matter && matterId) throw new ApiError(403, "private_workday_scope", "Choose an available matter for this project.");
+                if (!matter) return;
                 return draftRules(state, Object.values(s.guidelines).flat(), matter, date, projectId ?? undefined);
               };
               const first = scopedRules(action.matterId, action.projectId);
@@ -876,7 +974,8 @@ export function registerWorkdayRoutes(options: {
                   (!Object.hasOwn(first?.activityLabels ?? {}, action.activity) || (action.split && !Object.hasOwn(second?.activityLabels ?? {}, action.activity))))
                 throw new ApiError(400, "private_workday_input", "Choose an available activity code.");
               correctWorkday(s, date, action, Intl.DateTimeFormat().resolvedOptions().timeZone,
-                (proposal, split) => proposedWorkdayCharge(proposal, split ? second : first));
+                (proposal, split) => proposedWorkdayCharge(proposal, split ? second : first),
+                proposal => captureMatter(proposal, state)?.id);
             } else if (action.type === "dismiss") {
               const p = s.days[date]?.find((row) => row.proposal.key === action.key);
               if (!p || (action.digest && p.proposal.digest !== action.digest) || s.accepted[action.key])
@@ -915,7 +1014,7 @@ export function registerWorkdayRoutes(options: {
         connections,
         modelReady: Boolean(await localModel()),
         chat: s.chat[date] ?? [],
-        instructions: Object.values(s.instructions),
+        instructions: Object.values(s.instructions).map(({ entryKey, entryRevision, replacement, ...instruction }) => instruction),
         guidelines: Object.values(s.guidelines).flatMap(versions => versions.slice(-1)),
         status,
         proposals: proposals.map(({ proposal, generated }) => ({

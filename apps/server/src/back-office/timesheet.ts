@@ -249,8 +249,8 @@ function reviewInvoice(
   if (command.type === "reviewInvoiceWording") {
     if (!actor.model) timeError("Model access is required to check invoice wording.", 403);
     if (!advice) timeError("No invoice wording review is available.", 409);
-    if (draft.approval || draft.input.wording.length || draft.input.edits?.length)
-      timeError("Check wording before applying corrections and approving the invoice.", 409);
+    if (draft.approval)
+      timeError("Check wording before approving the invoice.", 409);
     draft = build(draft.input, draft, advice);
   }
   if (command.type === "issueInvoice") {

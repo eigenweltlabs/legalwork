@@ -1,3 +1,4 @@
+import { replaceDocumentTerm } from "./document-terminology.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -40,9 +41,11 @@ export type DraftRules = Pick<
 export type ModelEvidence = {
   item: WorkdayEvidence;
   matter?: { id: string; name: string };
+  sourceDocumentTitle?: string;
   documentTitle?: string;
   terminology?: { from: string; to: string }[];
   history?: string[];
+  confirmedWording?: string[];
   rules?: DraftRules;
   instructions: string[];
 };
@@ -182,6 +185,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       matter,
       documentTitle,
       history,
+      confirmedWording,
       rules,
       instructions,
       terminology,
@@ -194,6 +198,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       documentId: proposal.documentId,
       documentTitle,
       priorDescriptions: history,
+      confirmedWording,
       rules,
       instructions,
       terminology,
@@ -233,18 +238,8 @@ function documentWording(
           : "Amending");
     return verb + " " + title;
   }
-  return (
-    document.terminology?.reduce((text, { from, to }) => {
-      const literal = from.replace(/[.*+?^\x24{}()|[\]\\]/g, "\\$&");
-      return text.replace(
-        new RegExp(
-          "(?<![\\p{L}\\p{N}])" + literal + "(?![\\p{L}\\p{N}])",
-          "giu",
-        ),
-        () => to,
-      );
-    }, narrative) ?? narrative
-  );
+  return document.terminology?.reduce((text, { from, to }) =>
+    replaceDocumentTerm(text, from, to), narrative) ?? narrative;
 }
 
 export function reconstructWorkday(
@@ -393,20 +388,21 @@ export function reconstructWorkday(
       claims.map(({ id, from, to }) => [id, from, to]),
     ]);
     const requestedTitle = row.documentTitle;
-    const chatTitle =
+    const scopedDocument = document && (document.matter?.id ?? null) === row.matterId ? document : undefined;
+    const correctedTitle =
       requestedTitle &&
       chatCorrections.some((text) =>
         text.toLocaleLowerCase().includes(requestedTitle.toLocaleLowerCase()),
       )
         ? requestedTitle
         : undefined;
-    const wording = document
+    const wording = scopedDocument
       ? documentWording(
           row.narrative,
-          document,
+          scopedDocument,
           row.activity,
           policy,
-          chatTitle,
+          correctedTitle,
         )
       : row.narrative;
     const proposal: CaptureProposal = {
@@ -421,7 +417,7 @@ export function reconstructWorkday(
       matterId: row.matterId ?? undefined,
       documentId: row.documentId ?? undefined,
       workProductId: row.documentId
-        ? document?.item.proposal.workProductId
+        ? scopedDocument?.item.proposal.workProductId
         : undefined,
       activity: row.activity,
       narrative: wording.slice(0, 2000),
@@ -436,6 +432,7 @@ export function reconstructWorkday(
       proposal,
       claims,
       generated: true,
+      sourceDocumentTitle: scopedDocument?.sourceDocumentTitle?.slice(0, 500),
     } satisfies WorkdayEvidence;
   });
 }

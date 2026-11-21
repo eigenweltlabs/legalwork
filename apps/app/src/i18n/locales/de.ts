@@ -9103,6 +9103,23 @@ const de = {
   "timesheets.sheet.edit_unsaved_hint": "Wechseln Sie zum Datum des Entwurfs, um ihn fertigzustellen oder zu verwerfen. Ungespeicherte Änderungen wurden noch nicht an Ihr Verzeichnis übertragen.",
   "timesheets.sheet.edit_suggestion_changed": "Der Vorschlag hat sich geändert. Prüfen Sie ihn erneut, bevor Sie ihn übernehmen oder zuordnen.",
   "timesheets.sheet.edit_discard": "Änderungen verwerfen",
+  "timeWorkspace.guidelineExtract": "Zeitregeln übernehmen",
+  "timeWorkspace.guidelineExtracting": "Zeitregeln werden ermittelt…",
+  "timeWorkspace.guidelineExtractError": "Zeitregeln konnten nicht ermittelt werden. Wiederholen Sie den Vorgang oder tragen Sie sie unten ein.",
+  "timeWorkspace.guidelineTimeRules": "Zeitregeln",
+  "timeWorkspace.guidelineReviewRules": "Prüfen Sie die vorgeschlagenen Werte und ihre Textstellen vor dem Speichern. Für offene Werte gilt die anwendbare Abrechnungsregel.",
+  "timeWorkspace.guidelineInherited": "Abrechnungsregel verwenden",
+  "timeWorkspace.guidelineEnforceIncrement": "Zeiteinheiten anwenden",
+  "timeWorkspace.guidelineYes": "Ja",
+  "timeWorkspace.guidelineNo": "Nein",
+  "timeWorkspace.minimumMinutes": "Mindestdauer in Minuten",
+  "timeWorkspace.maxMinutes": "Höchstdauer in Minuten",
+  "timeWorkspace.incrementMinutes": "Abrechnungseinheit in Minuten",
+  "timeWorkspace.enforceIncrement": "Zeiteinheiten anwenden",
+  "timeWorkspace.rounding": "Rundung",
+  "timeWorkspace.stopwatchRoundUp": "Stoppuhrzeit aufrunden",
+  "timeWorkspace.activityLimits": "Grenzen je Tätigkeit",
+  "timeWorkspace.learnedWording": "Gelernte Formulierung · Dokument",
 } as const;
 
 export default de;

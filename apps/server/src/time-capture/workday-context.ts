@@ -1,4 +1,5 @@
 import {
+  appliedTimePolicies,
   resolveTimePolicy,
   type TimePolicy,
   type TimesheetState,
@@ -6,7 +7,6 @@ import {
 import type {
   CaptureProposal,
   WorkdayGuideline,
-  WorkdayInstruction,
 } from "@legalwork/types/time-capture";
 import { z } from "zod";
 import {
@@ -27,6 +27,7 @@ import type { ServerConfig } from "../types.js";
 import type { WorkdayEvidence } from "./private-workday.js";
 import type { DraftRules, ModelEvidence } from "./reconstruct-workday.js";
 import { extname } from "node:path";
+import { replaceDocumentTerm, type PrivateInstruction } from "./document-terminology.js";
 
 export async function workdayWorkspaces(config: ServerConfig) {
   const links = await projectSyncStore(config);
@@ -103,7 +104,8 @@ export function draftRules(
     date,
   });
   const guidelineInstructions: string[] = [];
-  const privatePolicies: TimePolicy[] = versions.map((version) => {
+  let policies = [...state.policies];
+  for (const version of versions) {
     const {
       scope,
       targetId,
@@ -112,8 +114,23 @@ export function draftRules(
       rules: { instructions, ...rules },
     } = version;
     if (instructions) guidelineInstructions.push(instructions);
-    return { scope, targetId, effectiveFrom, revision, ...rules };
-  });
+    const published = appliedTimePolicies(state.policies, scope, targetId, date, clientId, projectId)
+      .find(policy => !policy.agreementId && !(policy.revision === 0 && policy.effectiveFrom === "0001-01-01"));
+    const imported: TimePolicy = { scope, targetId, effectiveFrom, revision, ...rules };
+    if (!published) policies.push(imported);
+    else {
+      // Published fields win, while unrelated local drafting instructions and
+      // limits remain available. Contractual agreement layers stay untouched.
+      const merged: TimePolicy = { ...imported,
+        ...Object.fromEntries(Object.entries(published).filter(([, value]) => value !== undefined)),
+        scope: published.scope, targetId: published.targetId, effectiveFrom: published.effectiveFrom, revision: published.revision,
+        actionWords: { ...rules.actionWords, ...published.actionWords },
+        narrativeCorrections: { ...rules.narrativeCorrections, ...published.narrativeCorrections },
+        activityLimits: { ...rules.activityLimits, ...published.activityLimits },
+      };
+      policies = policies.map(policy => policy === published ? merged : policy);
+    }
+  }
   const {
     language,
     actionWords,
@@ -129,11 +146,13 @@ export function draftRules(
     rounding,
     stopwatchRoundUp,
   } = resolveTimePolicy(
-    [...state.policies, ...privatePolicies],
+    policies,
     clientId,
     matter.id,
     date,
     projectId,
+    // Private draft defaults cannot change the binding client term or its authorized exceptions.
+    state.policies,
   );
   return {
     language,
@@ -161,7 +180,6 @@ export function effectiveWorkdayGuidelines(
     matterId,
     date,
   }: { clientId: string; matterId: string; date: string },
-  includeSupplemental = false,
 ) {
   const matter = state.matters.find((item) => item.id === matterId);
   if (!matter) return [];
@@ -174,24 +192,13 @@ export function effectiveWorkdayGuidelines(
     (guideline) =>
       guideline.effectiveFrom <= date && visibleGuideline(guideline, state),
   );
-  // An imported guideline is local drafting context. Published rules for the same scope take precedence.
+  // Selection is shared by drafting and invoice review. Precedence belongs to
+  // individual rule fields, never to an entire uploaded document.
   return [
     guidelineVersion(eligible, "firm", "firm"),
     guidelineVersion(eligible, "client", client),
     guidelineVersion(eligible, "matter", matter.id),
-  ].flatMap((version) =>
-    !version ||
-    (!includeSupplemental &&
-      state.policies.some(
-        (policy) =>
-          !policy.agreementId &&
-          policy.scope === version.scope &&
-          policy.targetId === version.targetId &&
-          policy.effectiveFrom <= date,
-      ))
-      ? []
-      : [version],
-  );
+  ].flatMap(version => version ? [version] : []);
 }
 
 function visibleSingleClient(
@@ -225,6 +232,7 @@ const id = z.string().min(1).max(200);
 const workflowReceipt = z.object({
   entries: z.array(
     z.object({
+      narrative: z.string().optional(),
       groupId: id.optional(),
       proposalDigest: z.string().optional(),
       workerId: id,
@@ -241,49 +249,36 @@ const directoryReceipt = z.object({
     objectId: z.literal("timeEntries"),
     values: z.object({
       matter: id,
-      workProduct: id.optional(),
-      workProductId: id.optional(),
+      billingNarrative: z.string().nullable().optional(),
+      name: z.string().nullable().optional(),
+      workProduct: id.nullable().optional(),
+      workProductId: id.nullable().optional(),
     }),
   }),
 });
 
-export function acceptedFileProduct(
-  result: unknown,
-  key: string,
-  hash: string,
-  worker: string,
-) {
+export function acceptedDocumentEntry(result: unknown, key: string, hash: string, worker: string) {
   const workflow = workflowReceipt.safeParse(result);
   if (workflow.success) {
-    const entry = workflow.data.entries.find(
-      (item) =>
-        item.groupId === key &&
-        item.proposalDigest === hash &&
-        item.workerId === worker &&
-        item.workProductId &&
-        ["confirmed", "submitted", "approved", "invoiced"].includes(
-          item.status,
-        ),
-    );
-    if (
-      entry?.workProductId &&
-      workflow.data.products.some(
-        (product) =>
-          product.id === entry.workProductId &&
-          product.matterId === entry.matterId,
-      )
-    )
-      return { matterId: entry.matterId, workProductId: entry.workProductId };
+    const entry = workflow.data.entries.find(item => item.groupId === key && item.proposalDigest === hash &&
+      item.workerId === worker && ["confirmed", "submitted", "approved", "invoiced"].includes(item.status));
+    if (entry) return {
+      matterId: entry.matterId,
+      narrative: entry.narrative,
+      workProductId: workflow.data.products.some(product => product.id === entry.workProductId &&
+        product.matterId === entry.matterId) ? entry.workProductId : undefined,
+    };
   }
   const directory = directoryReceipt.safeParse(result);
   if (directory.success && directory.data.record.id === key) {
-    const {
-      matter,
-      workProduct,
-      workProductId = workProduct,
-    } = directory.data.record.values;
-    if (workProductId) return { matterId: matter, workProductId };
+    const { matter, workProduct, workProductId = workProduct, billingNarrative, name } = directory.data.record.values;
+    return { matterId: matter, workProductId: workProductId ?? undefined, narrative: billingNarrative || name };
   }
+}
+
+export function acceptedFileProduct(result: unknown, key: string, hash: string, worker: string) {
+  const entry = acceptedDocumentEntry(result, key, hash, worker);
+  if (entry?.workProductId) return { matterId: entry.matterId, workProductId: entry.workProductId };
 }
 
 function titleCorrection(text: string) {
@@ -298,7 +293,7 @@ export function modelEvidence(
   evidence: WorkdayEvidence[],
   state: TimesheetState,
   guidelines: WorkdayGuideline[],
-  instructions: WorkdayInstruction[],
+  instructions: PrivateInstruction[],
   date: string,
   fileProducts: FileProducts = {},
 ): ModelEvidence[] {
@@ -345,13 +340,13 @@ export function modelEvidence(
             .map((entry) => entry.narrative)
         : [];
     const relevant = instructions.filter(
-      (rule) =>
+      (rule) => rule.kind !== "wording-example" && (
         rule.scope === "personal" ||
         (rule.scope === "matter" && !!matter && rule.matterId === matter.id) ||
         (rule.scope === "document" &&
           !!p.documentId &&
           rule.documentId === p.documentId &&
-          (!rule.matterId || rule.matterId === matter?.id)),
+          (!rule.matterId || rule.matterId === matter?.id))),
     );
     const title =
       product?.name ??
@@ -365,7 +360,15 @@ export function modelEvidence(
         ? [replacement]
         : [];
     });
-    const documentTitle = terminology.at(-1)?.to ?? title;
+    const examples = p.documentId && matter ? instructions.filter(rule => rule.kind === "wording-example" &&
+      rule.scope === "document" && rule.documentId === p.documentId && rule.matterId === matter.id) : [];
+    const learned = examples.filter(rule => rule.replacement).at(-1)?.replacement;
+    const correctedTitle = title && learned ? replaceDocumentTerm(title, learned.from, learned.to) : title;
+    const learnedTitle = learned && correctedTitle &&
+      replaceDocumentTerm(correctedTitle, learned.to, "") === correctedTitle ? learned.to : correctedTitle;
+    const documentTitle = terminology.at(-1)?.to ?? learnedTitle;
+    if (learned && !terminology.some(rule => rule.from.toLowerCase() === learned.from.toLowerCase()))
+      terminology.unshift(learned);
     return [
       {
         item: product
@@ -373,8 +376,10 @@ export function modelEvidence(
           : item,
         matter: matter ? { id: matter.id, name: matter.name } : undefined,
         documentTitle,
+        sourceDocumentTitle: title,
         terminology,
         history: history.length ? history : undefined,
+        confirmedWording: examples.length ? examples.map(example => example.text) : undefined,
         rules: matter
           ? draftRules(
               state,

@@ -1,6 +1,7 @@
 import {
   acceptPrivateProposal,
   bookPrivateManualDraft,
+  rememberAcceptedDocumentEdit,
   captureProfile,
   type BookingAuthority,
 } from "../time-capture/routes.js";
@@ -375,7 +376,26 @@ export function registerTimesheetRoutes(
         profileId: ctx.url.searchParams.get("profileId") };
       if (expectedDraft && (ctx.actor?.type !== "host" || !command || command.type !== "create"))
         timeError("Confirm the private draft on its local device.", 403);
-      if (command?.type !== "create" || (command.source !== "suggestion" && !expectedDraft)) return execute();
+      if (command?.type !== "create" || (command.source !== "suggestion" && !expectedDraft)) {
+        const result = await execute();
+        if (command?.type === "update" && ctx.actor?.type === "host") {
+          const entry = result.entries.find(entry => entry.id === command.id &&
+            entry.workerId === access.actor.userId && entry.revision === command.revision + 1 && entry.status === "confirmed");
+          const event = entry?.history.find(event => event.revision === entry.revision && event.action === "update" &&
+            event.actorId === access.actor.userId);
+          if (entry && event?.before?.matterId === entry.matterId && event.after.narrative === entry.narrative) {
+            const linkedProposal = entry.source === "suggestion" && entry.groupId && entry.proposalDigest
+              ? { key: entry.groupId, digest: entry.proposalDigest } : undefined;
+            await rememberAcceptedDocumentEdit(config, access, {
+              key: linkedProposal?.key ?? entry.id,
+              digest: linkedProposal?.digest,
+              reconciledOnly: !linkedProposal,
+              matterId: entry.matterId, before: event.before.narrative, after: entry.narrative, revision: entry.revision,
+            });
+          }
+        }
+        return result;
+      }
       const authority: BookingAuthority<TimesheetState> = {
         request: command,
         resolve: async () => {

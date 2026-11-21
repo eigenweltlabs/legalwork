@@ -301,13 +301,8 @@ export function TimesheetLedger({
     setDraft(initial);
     setDraftChanged(true);
   }, [date, editing, own, restoredKey, restoredFields, restoredRevision]);
-  const rows = state.entries
-    .filter(
-      (e) =>
-        e.workerId === state.userId &&
-        e.status !== "declined" &&
-        dates.includes(e.date),
-    )
+  const ownEntries = state.entries.filter(e => e.workerId === state.userId && e.status !== "declined");
+  const rows = ownEntries.filter(e => dates.includes(e.date))
     .sort(
       (a, b) =>
         a.date.localeCompare(b.date) ||
@@ -315,11 +310,16 @@ export function TimesheetLedger({
         a.id.localeCompare(b.id),
     );
   const countedRows = rows.filter(row => row.status !== "pending");
+  const bookingIds = new Set(bookings.map(item => item.id));
+  const hasReceipt = (entry: TimeEntry) => entry.groupId !== undefined && bookingIds.has(entry.groupId);
+  const createdRows = ownEntries.filter(entry => entry.status !== "pending" && hasReceipt(entry));
+  const regularRows = countedRows.filter(entry => !hasReceipt(entry));
   const awaitingConfirmation = rows.filter(row => row.status === "pending");
   const { totals, byDate } = periodTimeTotals(countedRows);
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
   const ready = rows.filter((e) => e.status === "confirmed");
-  const copied = rows.find((e) => e.id === selected);
+  const editableRows = [...regularRows, ...createdRows, ...awaitingConfirmation];
+  const copied = editableRows.find((e) => e.id === selected);
   const focus = (row: string, column: RowColumn) => {
     if (row === "new") setComposerOpen(true);
     reveal(column);
@@ -465,8 +465,8 @@ export function TimesheetLedger({
     setEdit(null);
     if (!nextFocus) return;
     if (tabToNext) {
-      const next = rows
-        .slice(rows.findIndex((entry) => entry.id === row) + 1)
+      const next = editableRows
+        .slice(editableRows.findIndex((entry) => entry.id === row) + 1)
         .find((entry) => ["pending", "confirmed", "submitted"].includes(entry.status));
       if (next) openEditor(next);
       focus(next?.id ?? "new", "matter");
@@ -1198,7 +1198,7 @@ export function TimesheetLedger({
             {t("timesheets.ledger.status")}
           </div>
         </div>
-        {countedRows.filter(entry => !bookings.some(item => item.id === entry.groupId)).map(renderEntry)}
+        {regularRows.map(renderEntry)}
         {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
           {t("timesheets.ledger.new")}
         </Button>}
@@ -1332,7 +1332,7 @@ export function TimesheetLedger({
           </div>
         )}
         {receipt(item => {
-          const created = countedRows.filter(entry => entry.groupId === item.id);
+          const created = createdRows.filter(entry => entry.groupId === item.id);
           return created.length ? created.map(renderEntry) : undefined;
         }, item => state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date)}
         {awaitingConfirmation.length > 0 && <details className="bo-time-delegated">

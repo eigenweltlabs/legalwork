@@ -308,6 +308,23 @@ try {
   assert.equal(fresh.entry.workProductTitle, "Memo");
   assert.equal(fresh.entry.date, "2026-11-14");
   assert.equal(cell("new", "date").value, "2026-11-13");
+  const offDayEntry: TimeEntry = {
+    ...base, id: crypto.randomUUID(), groupId: fresh.requestId, status: "confirmed",
+    date: fresh.entry.date, narrative: fresh.entry.narrative,
+  };
+  await act(async () => root.render(
+    <MemoryRouter><BackOfficeTheme>
+      <TimesheetLedger state={{ ...state, entries: [base, offDayEntry] }} onCommand={send} />
+    </BackOfficeTheme></MemoryRouter>,
+  ));
+  assert.ok(area(offDayEntry.id).closest(".time-created-entry"));
+  const offDayCell = area(offDayEntry.id).querySelector<HTMLElement>('[data-column="narrative"]');
+  assert.ok(offDayCell);
+  await act(async () => offDayCell.click());
+  assert.ok(cell(offDayEntry.id, "narrative"), "an off-day workflow row can be edited from its receipt");
+  const cancelOffDayEdit = area(offDayEntry.id).querySelector<HTMLButtonElement>('button[aria-label="Discard edits"]');
+  assert.ok(cancelOffDayEdit);
+  await act(async () => cancelOffDayEdit.click());
   const receiptLink = document.querySelector<HTMLButtonElement>(".time-created-date");
   assert.ok(receiptLink);
   assert.match(receiptLink.parentElement?.textContent ?? "", /Separate brief/);
@@ -560,17 +577,21 @@ try {
   ));
   assert.match(document.querySelector("[data-calendar-now]")?.textContent ?? "", /Current time/);
   let correctedMinutes: number | null | undefined;
+  let correctedRevision: number | undefined;
+  let correctedSplit: unknown;
   await act(async () =>
     root.render(
       <MemoryRouter>
         <BackOfficeTheme>
           <WorkdayCorrectionForm
             proposal={unknown}
+            draftRevision={4}
             state={directory}
             pending={false}
             close={() => {}}
             save={async (action) => {
               correctedMinutes = action.workedMinutes;
+              correctedRevision = action.draftRevision;
               return true;
             }}
           />
@@ -584,6 +605,27 @@ try {
     correction.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })),
   );
   assert.equal(correctedMinutes, null);
+  assert.equal(correctedRevision, 4);
+  const splitControl = correction.querySelector<HTMLInputElement>(".bo-workday-split input");
+  assert.ok(splitControl, "calendar suggestions allow splitting");
+  await act(async () => splitControl.click());
+  await act(async () =>
+    root.render(
+      <MemoryRouter>
+        <BackOfficeTheme>
+          <WorkdayCorrectionForm proposal={{ ...unknown, source: "stopwatch" }} state={directory}
+            pending={false} close={() => {}} save={async action => {
+              correctedSplit = action.split;
+              return true;
+            }} />
+        </BackOfficeTheme>
+      </MemoryRouter>,
+    ),
+  );
+  assert.equal(correction.querySelector(".bo-workday-split"), null, "stopwatch corrections cannot be split");
+  correctedSplit = "Not submitted";
+  await act(async () => correction.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  assert.equal(correctedSplit, undefined, "a previously selected split is omitted after switching to a stopwatch");
   // A first visit from Workday must carry the proposal through the real Back Office route.
   const { defaultBackOfficeModel } = await import("@legalwork/types/back-office");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -1087,6 +1129,10 @@ try {
   const guidelines: CaptureState["guidelines"] = [];
   const privateDrafts: CaptureState["drafts"] = {};
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+    privateGuidelineRules: async (_context: unknown, text: string) => text.includes("at least ten minutes")
+      ? { rules: { minimumMinutes: 10, incrementMinutes: 6, enforceIncrement: true },
+          evidence: { minimumMinutes: "at least ten minutes", incrementMinutes: "six-minute units", enforceIncrement: "six-minute units" }, notes: [] }
+      : { rules: {}, evidence: {}, notes: [] },
     privateGuidelineText: async (_context: unknown, file: Blob) => file instanceof window.File && file.name === "scan.pdf"
       ? { text: "", textlessPages: [1] } : { text: "Use approved concise descriptions.", textlessPages: [2] },
     privateWorkday: async (context: { date: string }, action?: CaptureAction): Promise<CaptureState> => {
@@ -1200,10 +1246,32 @@ try {
   await until(() => guidelineText.value === "Use approved concise descriptions.");
   assert.equal(guidelineText.value, "Use approved concise descriptions.");
   assert.equal(guidelines.length, 0, "extracting and reviewing the guideline does not save it");
+  await file("Record at least ten minutes, in six-minute units.", "numeric-rules.txt");
+  const minimumInput = () => [...guidelineForm.querySelectorAll<HTMLInputElement>('input[type=number]')][0];
+  await until(() => minimumInput()?.value === "10");
+  assert.equal(guidelines.length, 0, "extracted numerical rules remain private form values until reviewed and saved");
+  const advancedRules = guidelineForm.querySelector<HTMLTextAreaElement>('textarea[aria-label="' + t("timeWorkspace.guidelineRules") + '"]');
+  assert.ok(advancedRules);
+  await input(advancedRules, JSON.stringify({ minimumMinutes: 10, incrementMinutes: 6, rounding: "up" }));
+  assert.doesNotMatch(guidelineForm.textContent ?? "", /Minimum minutes: at least ten minutes/,
+    "editing advanced rules clears quotes for the old model values");
+  await input(minimumInput(), "0");
+  assert.equal(minimumInput().value, "10", "invalid numbers do not corrupt all simple rule fields");
+  await input(minimumInput(), "12");
   await input(guidelineText, "Reviewed: use approved concise descriptions.");
+  await press(t("timeWorkspace.guidelineExtract"));
+  await until(() => !guidelineForm.textContent?.includes(t("timeWorkspace.guidelineExtracting")));
+  assert.equal(minimumInput().value, "12", "extraction without a minimum preserves the reviewed rule");
+  assert.equal(JSON.parse(advancedRules.value).rounding, "up", "extraction preserves omitted numerical options");
+  await input(advancedRules, "{");
+  await press(t("timeWorkspace.guidelineExtract"));
+  assert.equal(advancedRules.value, "{", "extraction does not replace invalid unsaved JSON with defaults");
+  await input(advancedRules, JSON.stringify({ minimumMinutes: 12, incrementMinutes: 6, rounding: "up" }));
   await submit(guidelineForm);
   await until(() => guidelines.length === 1);
   assert.equal(guidelines[0]?.rules.instructions, "Reviewed: use approved concise descriptions.");
+  assert.equal(guidelines[0]?.rules.minimumMinutes, 12, "the user can correct extracted rules before saving");
+  assert.equal(guidelines[0]?.rules.incrementMinutes, 6);
   assert.equal(guidelines[0]?.scope, "firm");
   assert.equal(guidelines[0]?.effectiveFrom, base.date);
   await selectPopup(t("timesheets.source.stopwatch"), "Use as an AI source");
@@ -1265,6 +1333,7 @@ try {
   const savedCorrection = workdayActions.find(action => action.type === "correct" && action.key === partial.key);
   assert.ok(savedCorrection?.type === "correct");
   assert.equal(savedCorrection.activity, null, "correcting an interval preserves a code cleared in the proposal editor");
+  assert.equal(savedCorrection.draftRevision, privateDrafts[partial.key]?.revision);
   await until(() => acceptFor(partial)?.disabled === false);
   assert.equal(acceptFor(partial)?.disabled, false, "touching boundaries do not overlap");
   assert.equal(proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="billableWork"]')?.value, "16");

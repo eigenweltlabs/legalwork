@@ -125,7 +125,8 @@ const client = {
 const render = async (node: ReactNode) =>
   act(async () => root.render(<MemoryRouter><BackOfficeTheme>{node}</BackOfficeTheme></MemoryRouter>));
 const draw = (state: TimesheetState, canEdit = true) =>
-  render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client} />);
+  render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client}
+    workdayModels={[{ workspaceId: "fixture", providerID: "fixture", modelID: "proofreader", label: "Proofreader" }]} />);
 const match = (s: string) => {
   const el = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
     (e) => e.textContent === s,
@@ -138,7 +139,7 @@ const select = async (label: string, v: string) => {
   await act(async () => {
     const el = host.querySelector<HTMLSelectElement>('select[aria-label="' + label + '"]') ??
       [...host.querySelectorAll("label")].find((item) => item.firstChild?.textContent === label)?.querySelector("select");
-    assert.ok(el);
+    assert.ok(el, "Select " + label);
     el.value = v;
     el.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
@@ -148,9 +149,10 @@ const field = (sel: string) => {
   assert.ok(el, "Input " + sel);
   return el;
 };
-async function write(el: HTMLInputElement, v: string) {
+async function write(el: HTMLInputElement | HTMLTextAreaElement, v: string) {
   await act(async () => {
-    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    const prototype = el instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const set = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
     assert.ok(set);
     set.call(el, v);
     el.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -228,16 +230,15 @@ try {
   assert.match(host.textContent ?? "", /require support from the connected firm server/);
   const open: TimesheetState = { ...actor, entries: [prior, { ...row, status: "approved" },
     { ...row, id: "usd", status: "approved", currency: "USD", narrative: "USD briefing" },
-    { ...row, id: "queued", narrative: "Waiting for review", status: "submitted" },
-    { ...row, id: "own-open", workerId: actor.userId, narrative: "Booked this morning", status: "confirmed" },
+    { ...prior, id: "queued", narrative: "Waiting for historical review", status: "submitted", suggestion: undefined },
+    { ...prior, id: "own-open", workerId: actor.userId, narrative: "Booked earlier", status: "confirmed" },
   ] };
   await draw(open);
   await click(match("Create Invoice"));
   assert.match(host.textContent ?? "", /Choose a matter/);
   await select("Matter", "m");
   assert.match(host.textContent ?? "", /Acme/);
-  assert.match(host.textContent ?? "", /Booked this morning/);
-  assert.match(host.textContent ?? "", /Open submitted entries/);
+  assert.ok(!host.textContent?.includes("Booked earlier"));
   assert.ok(!host.textContent?.includes(prior.narrative));
   assert.match(host.textContent ?? "", /Choose the currency for this hourly invoice/);
   await select("Currency", "EUR");
@@ -247,6 +248,18 @@ try {
   assert.ok(allOpen);
   await click(allOpen);
   assert.ok(host.textContent?.includes(prior.narrative));
+  const ownTimesheet = [...host.querySelectorAll("a")].find((link) => link.textContent?.includes("Open my timesheet"));
+  assert.equal(ownTimesheet?.getAttribute("href"), "/time?date=2001-09-01");
+  await click(match("Open submitted entries"));
+  const submittedTable = host.querySelector(".bo-billing-body");
+  assert.match(submittedTable?.textContent ?? "", /Waiting for historical review/);
+  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="View"]')?.value, "submitted");
+  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="Matter"]')?.value, "m");
+  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="Client"]')?.value, "c");
+  const reviewDates = [...host.querySelectorAll<HTMLInputElement>('input[type="date"]')].filter((el) => !el.closest("[hidden]"));
+  assert.deepEqual(reviewDates.map((el) => el.value), [prior.date, prior.date]);
+  await click(match("Continue invoice draft"));
+  assert.ok(allOpen.checked, "Returning from a historical review keeps the invoice selections");
   await draw({ ...open, supportsHourlyInvoiceCurrency: undefined });
   assert.ok(match("Preview invoice").disabled);
   assert.match(host.textContent ?? "", /Choose a service period to invoice selected entries/);
@@ -272,7 +285,8 @@ try {
   };
   // A previously prepared hourly invoice omitted the currency from its input.
   const legacy = { ...draft, input: { ...draft.input, pricing: { mode: "hourly" as const } } };
-  await draw({ ...open, invoiceDraft: legacy });
+  await draw({ ...open, invoiceDraft: legacy, policies: [{ ...policy, actionFirst: true, actionWords: { MOD: "Amending" } }] });
+  assert.ok(match("Use all suggested wording").disabled, "Only the prepared server line decides whether to offer a correction");
   assert.equal(requests[0].revision, legacy.revision);
   assert.equal(requests[0].format, "pdf");
   assert.ok(match("Approve this invoice").disabled);
@@ -301,6 +315,58 @@ try {
   await draw({ ...open, invoiceDraft: { ...revisedDraft, approval: { actorId: actor.userId, at: new Date().toISOString(), revision: revisedDraft.revision } } });
   await click(match("Issue numbered invoice"));
   assert.equal(calls.at(-1)?.type, "issueInvoice");
+  const editedDraft = {
+    ...draft, id: crypto.randomUUID(), revision: "c".repeat(64),
+    input: { ...draft.input, edits: [{ id: row.id, narrative: "Manually amend the brief" }] },
+    lines: [{ ...draft.lines[0], entry: { ...draft.lines[0].entry, narrative: "Manually amend the brief" } }],
+  };
+  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: editedDraft });
+  await click(match("Continue invoice draft"));
+  await select("Wording review model", JSON.stringify(["fixture", "fixture", "proofreader"]));
+  await click(match("Check wording with AI"));
+  assert.deepEqual(calls.at(-1), {
+    type: "reviewInvoiceWording", id: editedDraft.id, revision: editedDraft.revision,
+    model: { workspaceId: "fixture", providerID: "fixture", modelID: "proofreader" },
+  });
+  const advice = { id: row.id, narrative: "Amend the brief", rule: "spelling" as const };
+  const checked = { ...editedDraft, id: crypto.randomUUID(), revision: "d".repeat(64), modelWording: [advice],
+    lines: [{ ...editedDraft.lines[0], suggestedNarrative: advice.narrative, modelRule: advice.rule }] };
+  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: checked });
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, "Manually amend the brief");
+  await click(match("Use all suggested wording"));
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, advice.narrative);
+  await click(match("Preview invoice"));
+  const acceptedWording = calls.at(-1);
+  assert.ok(acceptedWording?.type === "prepareInvoice");
+  assert.deepEqual(acceptedWording.draft.expectedSuggestions, [{ id: row.id, narrative: advice.narrative }]);
+  const acceptedDraft = {
+    ...draft, id: crypto.randomUUID(), revision: "e".repeat(64), input: acceptedWording.draft,
+    lines: [{ ...draft.lines[0], entry: { ...draft.lines[0].entry, narrative: advice.narrative }, suggestedNarrative: advice.narrative }],
+  };
+  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: acceptedDraft });
+  await click(match("Check wording with AI"));
+  assert.equal(calls.at(-1)?.type, "reviewInvoiceWording");
+  const refreshed = { ...open, invoiceDraft: acceptedDraft, supportsInvoiceWordingReview: true,
+    entries: open.entries.map((entry) => entry.id === row.id ? { ...entry, revision: row.revision + 1 } : entry) };
+  await draw(refreshed);
+  const result = host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea");
+  assert.ok(result);
+  assert.equal(result.value, row.narrative, "A wording selection applies to its source revision only");
+  await click(match("Preview invoice"));
+  const withoutOldWording = calls.at(-1);
+  assert.ok(withoutOldWording?.type === "prepareInvoice");
+  assert.deepEqual(withoutOldWording.draft.wording, []);
+  await write(result, "Unsaved edit on the refreshed revision");
+  await draw({ ...refreshed, people: [...refreshed.people] });
+  assert.equal(result.value, "Unsaved edit on the refreshed revision", "Refreshing the same entry revision preserves edits");
+  await draw({ ...refreshed, entries: refreshed.entries.map((entry) => entry.id === row.id
+    ? { ...entry, revision: entry.revision + 1 } : entry) });
+  assert.equal(result.value, row.narrative);
+  await click(match("Preview invoice"));
+  const withoutOldEdit = calls.at(-1);
+  assert.ok(withoutOldEdit?.type === "prepareInvoice");
+  assert.equal(withoutOldEdit.draft.edits, undefined);
+  await click(match("Back"));
   await draw({
     ...actor,
     entries: [row, { ...row, id: "b", workerId: "partner", billableMinutes: 20, hourlyRate: 240 }],

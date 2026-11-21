@@ -47,6 +47,8 @@ export function TimesheetWorkspace({
 }) {
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
+  const [invoiceEditing, setInvoiceEditing] = useState(false);
+  const billingReviewPage = page === "billing-review";
   const { userId, principalKey, replicaId } = directory.permissions;
   const team = directory.scope !== "local";
   const key = [
@@ -231,16 +233,19 @@ export function TimesheetWorkspace({
           </LayoutStack>
         </section>
       )}
-      {state && !recordsOnly && page === "billing-review" && (
-        <BillingReview
-          canEdit={directory.permissions.edit}
-          initialDate={initialDate}
-          initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
-          workdayModels={workdayModels}
-          client={client}
-          state={state}
-          onCommand={send}
-        />
+      {state && !recordsOnly && (state.canReview || state.canManage) && (billingReviewPage || invoiceEditing) && (
+        <div hidden={!billingReviewPage}>
+          <BillingReview
+            canEdit={directory.permissions.edit}
+            initialDate={initialDate}
+            initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
+            workdayModels={workdayModels}
+            client={client}
+            state={state}
+            onCommand={send}
+            onInvoiceEditingChange={setInvoiceEditing}
+          />
+        </div>
       )}
       {state && !recordsOnly && page === "billing-settings" && (
         <BillingPreferences

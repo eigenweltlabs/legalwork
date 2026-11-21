@@ -198,9 +198,10 @@ export function resolveTimePolicy(
   matterId: string,
   date: string,
   projectId?: string,
+  bindingPolicies: TimePolicy[] = policies,
 ) {
   const baseline = {
-    bindingClientTerm: bindingTimeTerm(policies, clientId, date, projectId),
+    bindingClientTerm: bindingTimeTerm(bindingPolicies, clientId, date, projectId),
     incrementException: undefined as IncrementException | undefined,
     incrementMinutes: 10,
     enforceIncrement: true,

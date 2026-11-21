@@ -19,10 +19,10 @@ export function useBookingReceipt(day: string, open: (date: string, worker?: str
     if (active.current !== visit || !visible) return;
     setList(previous => ({ visit, items: [...previous.items.filter(existing => existing.id !== item.id), item] }));
   }
-  function receipt(render: (booking: Booking, index: number) => ReactNode, dateFor: (booking: Booking) => string) {
-    return bookings.length > 0 && <section className="time-booking-receipt" aria-label={t("timesheets.sheet.just_created")}>
+  function receipt(render: (booking: Booking, index: number) => ReactNode, dateFor: (booking: Booking) => string, items = bookings) {
+    return items.length > 0 && <section className="time-booking-receipt" aria-label={t("timesheets.sheet.just_created")}>
       <strong>{t("timesheets.sheet.just_created")}</strong>
-      {bookings.map((item, index) => {
+      {items.map((item, index) => {
         const date = dateFor(item);
         return (
           <div key={item.id} className="time-created-entry">

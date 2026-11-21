@@ -1,7 +1,7 @@
 import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { formatInvoiceMinor } from "@legalwork/types/invoice-template";
 import { Link } from "react-router-dom";
-import { Fragment, useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
@@ -105,11 +105,13 @@ export function BillingReview({
   initialDate,
   initialMatterId = "",
   workdayModels,
+  onInvoiceEditingChange,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
   initialMatterId?: string;
   workdayModels?: WorkdayModelOption[];
+  onInvoiceEditingChange?: (editing: boolean) => void;
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
@@ -134,7 +136,7 @@ export function BillingReview({
       return next;
     });
   }, []);
-  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceScreen, setInvoiceScreen] = useState<"closed" | "invoice" | "review">("closed");
   const [downloadError, setDownloadError] = useState("");
   const { send, error, pending } = useBillingAction(onCommand);
   const groups = useMemo(
@@ -245,18 +247,37 @@ export function BillingReview({
     }
   }
   const canCreate = state.canReview && canEdit && state.supportsInvoiceDrafts === true;
-  if (creatingInvoice && canCreate) return (
-    <section className="bo-billing">
-      <BillingInvoiceDraft
-        state={state} onCommand={onCommand} client={client} dates={dates} initialMatterId={matter} workdayModels={workdayModels}
-        onCancel={() => setCreatingInvoice(false)}
-        onReviewSubmitted={() => { reset(); setCreatingInvoice(false); setMode("submitted"); }}
-        onIssued={() => { reset(); setDates({ from: "", to: "" }); setCreatingInvoice(false); setMode("invoices"); }}
-      />
-    </section>
-  );
+  const invoiceEditing = invoiceScreen !== "closed" && canCreate;
+  const invoiceVisible = invoiceScreen === "invoice" && canCreate;
+  useEffect(() => {
+    onInvoiceEditingChange?.(invoiceEditing);
+    return () => onInvoiceEditingChange?.(false);
+  }, [invoiceEditing, onInvoiceEditingChange]);
   return (
-    <section className="bo-billing">
+    <>
+      {invoiceEditing && (
+        <div hidden={!invoiceVisible}>
+          <section className="bo-billing">
+            <BillingInvoiceDraft
+              state={state} onCommand={onCommand} client={client} dates={dates} initialMatterId={matter} workdayModels={workdayModels}
+              onCancel={() => setInvoiceScreen("closed")}
+              onReviewSubmitted={(entry) => {
+                reset();
+                setDates({ from: entry.date, to: entry.date });
+                setMatter(entry.matterId ?? "");
+                setBillTo(entry.clientId ?? "");
+                setOnlyIssues(false);
+                setDetail(entry.id);
+                setMode("submitted");
+                setInvoiceScreen("review");
+              }}
+              onIssued={() => { reset(); setDates({ from: "", to: "" }); setInvoiceScreen("closed"); setMode("invoices"); }}
+            />
+          </section>
+        </div>
+      )}
+      {!invoiceVisible && (
+      <section className="bo-billing">
       <div className="bo-view-toolbar">
         <select
           aria-label={t("back_office.billing.view")}
@@ -339,8 +360,8 @@ export function BillingReview({
           })}>{t("timesheets.review_rules")}</Link>
         )}
         {(mode === "submitted" || mode === "approved" || mode === "invoices") && state.canReview && canEdit && (
-          canCreate ? <Button size="sm" variant="outline" onClick={() => setCreatingInvoice(true)}>
-            {t(state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
+          canCreate ? <Button size="sm" variant="outline" onClick={() => setInvoiceScreen("invoice")}>
+            {t(invoiceScreen === "review" || state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button> : <span className="bo-billing-muted">{t("invoiceReview.firm_unavailable")}</span>
         )}
         {mode === "submitted" && (
@@ -701,6 +722,8 @@ export function BillingReview({
           {error || downloadError}
         </div>
       )}
-    </section>
+      </section>
+      )}
+    </>
   );
 }

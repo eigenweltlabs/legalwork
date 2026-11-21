@@ -58,7 +58,7 @@ export function TimesheetWorkday({
   const [date, setDate] = useState(() => initialDate ?? calendarDay(new Date()));
   const [period, setPeriod] = useState<TimePeriod>("day");
   const [selection, setSelection] = useState<string>();
-  const [correction, setCorrection] = useState<CaptureProposal>();
+  const [correction, setCorrection] = useState<{ proposal: CaptureProposal; draftRevision?: number }>();
   const [directDecision, setDirectDecision] = useState<DirectProposalDecision>();
   const directInFlight = useRef<DirectProposalDecision>(undefined);
   const [error, setError] = useState("");
@@ -259,7 +259,7 @@ export function TimesheetWorkday({
   }
   function openEditor(proposal: CaptureProposal, trigger?: HTMLButtonElement) {
     rememberProposal(proposal.key, trigger);
-    if (selection === proposal.key && correction?.digest !== proposal.digest) {
+    if (selection === proposal.key && correction?.proposal.digest !== proposal.digest) {
       editorTitle.current?.focus();
       return;
     }
@@ -326,16 +326,17 @@ export function TimesheetWorkday({
     }
   }
   const capture: TimeCaptureSheet = {
-    proposals: shown, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
+    proposals: shown, visible, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
     overlaps, linkableRecords: ownRecords, selectDate, act, writeDraft,
-    openSource: proposal => {
+    openSource: (proposal, draftRevision) => {
       focusRequest.current = { target: "editor" };
-      setCorrection(proposal);
+      setCorrection({ proposal, draftRevision });
     },
   };
   const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown) => {
     const selected = proposals.find(proposal => proposal.key === selection);
-    const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
+    const correcting = selected && correction?.proposal.key === selected.key && correction.proposal.digest === selected.digest
+      ? correction : undefined;
     const deciding = directDecision && proposals.find(proposal => proposal.key === directDecision.key && proposal.digest === directDecision.digest);
     // Reuse the booking form and keep its validation state if a calendar action opens it.
     const editors = selected ? [selected] : [];
@@ -364,7 +365,7 @@ export function TimesheetWorkday({
               <WorkdayTimeline date={date} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
-                  busyKey: deciding?.key ?? correcting?.key,
+                  busyKey: deciding?.key ?? correcting?.proposal.key,
                   onDecision: decideProposal,
                   onFocusedRemoval: (proposal, element) => {
                     rememberProposal(proposal.key);
@@ -397,7 +398,7 @@ export function TimesheetWorkday({
                       </p>
                       <div key={proposal.digest} ref={active ? bindEditorForm : undefined}>
                         <div hidden={Boolean(edit)}>{renderProposal(proposal)}</div>
-                        {edit && <WorkdayCorrectionForm proposal={edit} state={state}
+                        {edit && <WorkdayCorrectionForm proposal={edit.proposal} draftRevision={edit.draftRevision} state={state}
                             pending={running} save={act} close={() => {
                               if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
                               setCorrection(undefined);
@@ -515,6 +516,7 @@ export function TimesheetWorkday({
             </LayoutStack>
           {data?.guidelines && <TimeWorkspaceGuidelines key={date} date={date} guidelines={data.guidelines}
             state={state} pending={running} save={act}
+            extractRules={(text, signal) => client.privateGuidelineRules({ ...identity, date }, text, model, signal)}
             readPdf={(file, signal) => client.privateGuidelineText({ ...identity, date }, file, signal)} />}
           <p className="time-workspace-note">{t("timesheets.sources_hint")}</p>
           <div className="bo-workday-links">

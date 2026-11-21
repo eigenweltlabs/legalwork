@@ -163,10 +163,28 @@ export function buildInvoiceDraft(
       ];
     }),
   );
-  const modelWording =
-    advice ??
-    (previous?.modelBasis === modelBasis ? previous.modelWording : undefined);
+  const template = state.template ?? standardInvoice;
+  const snapshot = {
+    date: localDay(),
+    client: client.name,
+    clientAddress: client.billingAddress ?? "",
+    template,
+    wordTemplateRevision: template.word ? template.revision : undefined,
+  };
+  const sameWordingContext = previous?.modelBasis === modelBasis;
+  const modelWording = advice ?? (
+    sameWordingContext &&
+    digest(previous.input) === digest(input) &&
+    digest(previous.snapshot) === digest(snapshot)
+      ? previous.modelWording
+      : undefined
+  );
   const modelHints = new Map(modelWording?.map((hint) => [hint.id, hint]));
+  const priorHints = new Map(
+    sameWordingContext ? previous.modelWording?.map((hint) => [hint.id, hint]) : undefined,
+  );
+  const priorSelections = new Set(previous?.input.wording);
+  const priorLines = new Map(previous?.lines.map((line) => [line.entry.id, line]));
   const lines = governed.map(
     ({ entry, policy, wording: wordingPolicy, versions }) => {
       if (policy.ambiguousAgreement)
@@ -181,30 +199,39 @@ export function buildInvoiceDraft(
         timeError("Tariff billing is not supported in Create Invoice.", 409);
       if (pricing.mode === "hourly" && policy.nonHourlyAgreement)
         timeError("Choose fixed-price billing for this fee agreement.", 409);
-      const check = checkBillingNarrative(entry, wordingPolicy);
-      const hint = modelHints.get(entry.id);
-      const suggestedNarrative = hint?.narrative ?? check?.narrative;
       const apply = wording.delete(entry.id);
-      if (apply && !suggestedNarrative)
-        timeError(
-          "A wording correction changed. Refresh the invoice preview.",
-          409,
-        );
       const expected = expectedSuggestions.get(entry.id);
-      if (expected !== undefined && expected !== suggestedNarrative)
+      const priorLine = priorLines.get(entry.id);
+      const priorNarrative = priorSelections.has(entry.id) &&
+        priorLine?.entry.revision === entry.revision &&
+        priorLine.currentNarrative === entry.narrative
+        ? priorLine.entry.narrative
+        : undefined;
+      const priorHint = priorHints.get(entry.id)?.narrative;
+      const originalCheck = checkBillingNarrative(entry, wordingPolicy);
+      // A new review offers changes to the result, independently of any correction already selected.
+      const selectedNarrative = apply
+        ? [priorNarrative, priorHint, originalCheck?.narrative].find(
+            (candidate) => candidate !== undefined && (expected === undefined || expected === candidate),
+          )
+        : undefined;
+      if (apply && !selectedNarrative)
         timeError(
           "A wording correction changed. Refresh the invoice preview.",
           409,
         );
       if (
         apply &&
-        !TimeDraftSchema.shape.narrative.safeParse(suggestedNarrative).success
+        !TimeDraftSchema.shape.narrative.safeParse(selectedNarrative).success
       )
         timeError(
           "A wording correction is too long for the invoice line. Review the billing text first.",
           409,
         );
       const edited = edits.get(entry.id);
+      const narrative = edited ?? selectedNarrative ?? entry.narrative;
+      const hint = modelHints.get(entry.id);
+      const suggestedNarrative = hint?.narrative ?? selectedNarrative ?? originalCheck?.narrative;
       edits.delete(entry.id);
       const baseAmountMinor =
         fixedShares?.get(entry.id) ??
@@ -216,10 +243,7 @@ export function buildInvoiceDraft(
       return {
         entry: {
           ...entry,
-          narrative:
-            edited ??
-            (apply ? suggestedNarrative : undefined) ??
-            entry.narrative,
+          narrative,
           history: [],
           proposalDigest: undefined,
           sharedOriginal: undefined,
@@ -231,10 +255,10 @@ export function buildInvoiceDraft(
         modelRule: hint?.rule,
         rules: hint
           ? []
-          : [...(check?.replacements ?? [])].map(
+          : [...(originalCheck?.replacements ?? [])].map(
               ([before, after]) => before + " → " + after,
             ),
-        actionFirst: hint ? undefined : check?.actionFirst,
+        actionFirst: hint ? undefined : originalCheck?.actionFirst,
         guidelineVersions: versions.length
           ? versions.map(({ id, revision, name, effectiveFrom }) => ({
               id,
@@ -307,14 +331,6 @@ export function buildInvoiceDraft(
     BigInt(totalMinor) * BigInt(100 / scale) > BigInt(Number.MAX_SAFE_INTEGER)
   )
     timeError("The invoice total is too large for this currency.", 409);
-  const template = state.template ?? standardInvoice;
-  const snapshot = {
-    date: localDay(),
-    client: client.name,
-    clientAddress: client.billingAddress ?? "",
-    template,
-    wordTemplateRevision: template.word ? template.revision : undefined,
-  };
   const content = {
     input,
     currency,

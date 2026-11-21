@@ -17,6 +17,7 @@ import { currentInvoiceDraft } from "./timesheet.js";
 import {
   InvoiceWordingSuggestionSchema,
   type InvoiceWordingSuggestion,
+  type TimeInvoiceDraft,
   type TimesheetCommand,
   type TimesheetState,
 } from "./timesheet-schema.js";
@@ -205,6 +206,41 @@ export async function reviewInvoiceWordingBatches(
   });
 }
 
+export function invoiceWordingReviewLines(
+  draft: TimeInvoiceDraft,
+  state: TimesheetState,
+  context?: InvoiceGuidelineContext,
+): ReviewLine[] {
+  return draft.lines.map(({ entry }) => {
+    const { wording, versions } = invoiceWordingRules(state, entry, context);
+    const {
+      language,
+      actionFirst,
+      actionWords,
+      narrativeCorrections,
+      narrativeExample,
+      activityLabels,
+    } = wording;
+    const uploaded = versions.flatMap(({ rules, name, scope }) =>
+      rules.instructions ? [{ name, scope, text: rules.instructions }] : [],
+    );
+    return {
+      id: entry.id,
+      narrative: entry.narrative,
+      activity: entry.activity,
+      rules: {
+        language,
+        actionFirst,
+        actionWord: actionWords[entry.activity],
+        narrativeCorrections,
+        narrativeExample,
+        activityLabel: activityLabels[entry.activity],
+        uploaded,
+      },
+    };
+  });
+}
+
 export async function generateInvoiceWordingReview(
   config: ServerConfig,
   store: BackOfficeStore,
@@ -218,9 +254,9 @@ export async function generateInvoiceWordingReview(
   const snapshot = await readCurrent();
   const { state, context } = snapshot;
   const draft = currentInvoiceDraft(store, state, actor, command, context);
-  if (draft.approval || draft.input.wording.length || draft.input.edits?.length)
+  if (draft.approval)
     timeError(
-      "Check wording before applying corrections and approving the invoice.",
+      "Check wording before approving the invoice.",
       409,
     );
   async function verify() {
@@ -239,34 +275,7 @@ export async function generateInvoiceWordingReview(
         409,
       );
   }
-  const lines = draft.lines.map(({ entry, currentNarrative }) => {
-    const { wording, versions } = invoiceWordingRules(state, entry, context);
-    const {
-      language,
-      actionFirst,
-      actionWords,
-      narrativeCorrections,
-      narrativeExample,
-      activityLabels,
-    } = wording;
-    const uploaded = versions.flatMap(({ rules, name, scope }) =>
-      rules.instructions ? [{ name, scope, text: rules.instructions }] : [],
-    );
-    return {
-      id: entry.id,
-      narrative: currentNarrative,
-      activity: entry.activity,
-      rules: {
-        language,
-        actionFirst,
-        actionWord: actionWords[entry.activity],
-        narrativeCorrections,
-        narrativeExample,
-        activityLabel: activityLabels[entry.activity],
-        uploaded,
-      },
-    };
-  });
+  const lines = invoiceWordingReviewLines(draft, state, context);
   const model = command.model;
   if (
     model.workspaceId === "local" &&

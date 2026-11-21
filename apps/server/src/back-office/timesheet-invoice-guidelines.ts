@@ -68,7 +68,6 @@ export function invoiceWordingRules(
         state,
         context.versions,
         { clientId, matterId, date },
-        true,
       )
     : [];
   const policy = resolveTimePolicy(

@@ -176,28 +176,33 @@ function TimelineProposalActions({ proposal, title, canAccept, busyKey, onDecisi
 
 export function WorkdayCorrectionForm({
   proposal: p,
+  draftRevision,
   state,
   pending,
   save,
   close,
 }: {
   proposal: CaptureProposal;
+  draftRevision?: number;
   state: Directory;
   pending: boolean;
   save: (action: WorkdayCorrection) => Promise<boolean>;
   close: () => void;
 }) {
   const activityId = useId();
+  const canSplit = p.source !== "stopwatch";
+  const originalMatter = matterFor(p, state)?.id ?? "";
   const [activity, setActivity] = useState(p.activity);
   const [narrative, setNarrative] = useState(p.narrative),
     [start, setStart] = useState(localClock(p.startAt)),
     [end, setEnd] = useState(localClock(p.endAt)),
     [actual, setActual] = useState(p.workedMinutes?.toString() ?? ""),
-    [matter, setMatter] = useState(matterFor(p, state)?.id ?? ""),
-    [split, setSplit] = useState(false),
+    [matter, setMatter] = useState(originalMatter),
+    [splitSource, setSplitSource] = useState<string>(),
     [minutes, setMinutes] = useState("12"),
     [target, setTarget] = useState(""),
     [error, setError] = useState("");
+  const split = canSplit && splitSource === p.digest;
   function instant(value: string, original: string | null, ending = false) {
     if (!value) return null;
     if (original && localClock(original) === value) return original;
@@ -284,9 +289,10 @@ export function WorkdayCorrectionForm({
             type: "correct",
             key: p.key,
             digest: p.digest,
+            ...(draftRevision === undefined ? {} : { draftRevision }),
             narrative,
             activity: activity.trim() || null,
-            ...sourceMatch,
+            ...(!split && matter === originalMatter ? { matterId: p.matterId ?? null, projectId: p.projectId } : sourceMatch),
             startAt,
             endAt,
             workedMinutes: shortStopwatch ? null : total,
@@ -341,10 +347,10 @@ export function WorkdayCorrectionForm({
         {t("timesheets.workday.description")}
         <input value={narrative} maxLength={2000} onChange={(e) => setNarrative(e.target.value)} />
       </label>
-      <label className="bo-workday-split">
-        <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+      {canSplit && <label className="bo-workday-split">
+        <input type="checkbox" checked={split} onChange={(e) => setSplitSource(e.target.checked ? p.digest : undefined)} />
         {t("timesheets.workday.split")}
-      </label>
+      </label>}
       {split && (
         <>
           <label>
