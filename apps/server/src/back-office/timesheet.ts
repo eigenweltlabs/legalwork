@@ -46,6 +46,10 @@ const digest = (v: unknown) =>
   createHash("sha256")
     .update(canonicalBackOfficeAudit(z.json().parse(JSON.parse(JSON.stringify(v)))))
     .digest("hex");
+const timesheetRequestKey = (actorId: string, requestId: string) => "request-" + digest([actorId, requestId]);
+export function readTimesheetRequest(store: BackOfficeStore, scope: string, actorId: string, requestId: string) {
+  return readTimeDocument(store, scope, timesheetRequestKey(actorId, requestId));
+}
 const policyFor = (s: TimesheetState, d: TimeDraft) =>
   resolveTimePolicy(s.policies, d.clientId, d.matterId, d.date, d.projectId);
 // Product identity is resolved before comparison. Its current display title may have changed.
@@ -618,7 +622,7 @@ export function commandTimesheet(
       store.requireAccount(scope, actor);
       const state = readTimesheet(store, scope, actor, people, workspaces, true, context?.profileId);
       if ("requestId" in command) {
-        const id = "request-" + digest([actor.userId, command.requestId]),
+        const id = timesheetRequestKey(actor.userId, command.requestId),
           hash = digest(command),
           previous = readTimeDocument(store, scope, id);
         if (previous) {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import { TimesheetStateSchema } from "@legalwork/types/timesheet";
+import { TimeEntrySchema, TimesheetCommandSchema, TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { captureProposalSchema, captureStateSchema } from "@legalwork/types/time-capture";
 import { startServer } from "./server.js";
 import { backOfficeTestConfig } from "./back-office/config.test-support.js";
@@ -56,6 +56,132 @@ test("firm invoice draft documents preserve the requested revision through the p
       { format: "pdf", revision }, { format: "docx", revision },
       { format: "pdf", revision: obsolete }, { format: "pdf", revision: null },
     ]);
+  } finally {
+    await server.stop();
+    await resetOrgPolicyRuntimeForTests(config);
+    await closeBackOfficeStoreForTests(config);
+    await closeEigenweltConnectionForTests(config);
+    platform.stop(true);
+    if (oldURL === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = oldURL;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30000);
+
+test("firm workflow unfreezes a rejected replay only after resolving the original booking ID", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-booking-recovery-"));
+  const config = backOfficeTestConfig(root);
+  const day = "2026-11-20", matter = { id: crypto.randomUUID(), name: "Synthetic matter", reference: "S-10", clientIds: [] };
+  const state = TimesheetStateSchema.parse({ scope: "firm", userId: "worker", service: "workflow", canManage: false,
+    canReview: false, entries: [], matters: [matter], clients: [], people: [{ id: "worker", name: "Worker" }], products: [],
+    projects: [], policies: [], invoices: [] });
+  type ResponseMode = "timeout" | "commit-timeout" | "reject" | "save";
+  let mode: ResponseMode = "timeout", readAvailable = true, reads = 0, writes = 0;
+  const entries = new Map<string, z.infer<typeof TimeEntrySchema>>();
+  const platform = Bun.serve({ port: 0, async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/desktop/policy") return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Test firm",
+      revision: 1, role: "member", updatedAt: null, entries: { "backOffice.sync": { mode: "enforced",
+        value: { enabled: true, modelEditors: ["worker"], directoryEditors: ["worker"], billingMembers: ["worker"] } } } });
+    if (path === "/api/desktop/policy/secrets") return Response.json({ schemaVersion: 1, revision: 1, secrets: {} });
+    if (path !== "/api/back-office/timesheet") return new Response(null, { status: 404 });
+    if (request.method === "GET") {
+      reads++;
+      return readAvailable ? Response.json({ ...state, entries: [...entries.values()] }) : new Response(null, { status: 503 });
+    }
+    writes++;
+    const command = TimesheetCommandSchema.parse(await request.json());
+    if (command.type !== "create") throw Error("Expected a booking command");
+    if (mode === "reject") return Response.json({ message: "The selected matter is closed. Choose another." }, { status: 400 });
+    if ((mode === "commit-timeout" || mode === "save") && !entries.has(command.requestId)) {
+      const booked = TimeEntrySchema.parse({ ...command.entry, id: crypto.randomUUID(), groupId: command.requestId,
+        revision: 1, authorId: "worker", workerId: "worker", status: "confirmed", source: command.source ?? "manual", history: [] });
+      entries.set(command.requestId, booked);
+    }
+    if (mode !== "save") return new Response(null, { status: 503 });
+    return Response.json({ ...state, entries: [...entries.values()] });
+  } });
+  const oldURL = process.env.EIGENWELT_PLATFORM_URL;
+  process.env.EIGENWELT_PLATFORM_URL = platform.url.origin;
+  await writeEigenweltConnection(config, { platformURL: platform.url.origin, platformToken: "test-platform",
+    accessTokenExpiresAt: Date.now() + 3600000, account: { userId: "worker", orgId: "firm", orgName: "Test firm",
+      orgRole: "org:admin", userName: "Worker", userEmail: null } });
+  await scheduleOrgPolicySync(config, { force: true });
+  const server = await startServer(config);
+  const api = (path: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+    method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+    headers: { authorization: "Bearer fixture", "content-type": "application/json", "x-legalwork-host-token": "host" },
+  });
+  try {
+    const profile = await captureProfile(config, await backOfficeAccess(config, true));
+    const proposal = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: day,
+      source: "stopwatch", projectId: null, matterId: matter.id, activity: "RES", narrative: "Original",
+      startAt: null, endAt: null, workedMinutes: 1, dismissed: false });
+    proposal.digest = proposalCommitment(proposal);
+    await mkdir(dirname(profile.path), { recursive: true });
+    await writeFile(profile.path, JSON.stringify({ settings: { calendar: false, tasks: false, intervalMinutes: 0 }, lastRun: 0,
+      days: { [day]: [{ eventKey: "synthetic-timer", proposal }] }, originals: { [proposal.digest]: proposal } }));
+    const workday = "/private-timesheet/workday?" + new URLSearchParams({ date: day, profileId: profile.profileId,
+      scope: profile.scope, user: profile.user, principal: profile.principal });
+    async function draft(key: string, proposalDigest?: string) {
+      const patch = { type: "draft-patch", key, date: day, proposalDigest };
+      const response = await api(workday, { ...patch, revision: 0, changes: { workflow: true, narrative: "Synthetic work" } });
+      expect(response.status).toBe(200);
+      const { revision } = captureStateSchema.parse(await response.json()).drafts[key];
+      const url = "/back-office/timesheet?" + new URLSearchParams({ scope: "team", profileId: profile.profileId,
+        draftDate: day, draftRevision: String(revision) });
+      const command = { type: "create", requestId: key, ...(proposalDigest ? { source: "suggestion", proposalDigest } : {}),
+        entry: { date: day, matterId: matter.id, clientId: "", activity: "RES", narrative: "Synthetic work", workedMinutes: 1,
+          billableMinutes: 0, billable: false } };
+      return { patch, command, url, revision };
+    }
+
+    const missing = await draft(crypto.randomUUID());
+    expect((await api(missing.url, missing.command)).status).toBeGreaterThanOrEqual(500);
+    mode = "reject";
+    readAvailable = false;
+    expect((await api(missing.url, missing.command)).status).toBe(400);
+    expect(reads).toBe(1);
+    const edit = { ...missing.patch, revision: missing.revision, changes: { narrative: "Corrected work" } };
+    expect((await api(workday, edit)).status).toBe(409);
+    expect((await api(workday, { ...edit, changes: null })).status).toBe(409);
+    const beforeChangedRetry = writes;
+    expect((await api(missing.url, { ...missing.command, entry: { ...missing.command.entry, narrative: "Changed before recovery" } })).status).toBe(409);
+    expect(writes).toBe(beforeChangedRetry);
+
+    readAvailable = true;
+    expect((await api(missing.url, missing.command)).status).toBe(400);
+    expect(reads).toBe(2);
+    const correction = await api(workday, edit);
+    expect(correction.status).toBe(200);
+    const updated = captureStateSchema.parse(await correction.json()).drafts[missing.command.requestId];
+    expect(updated.values.narrative).toBe("Corrected work");
+    mode = "save";
+    const corrected = new URL(missing.url, "http://local");
+    corrected.searchParams.set("draftRevision", String(updated.revision));
+    expect((await api(corrected.pathname + corrected.search, { ...missing.command,
+      entry: { ...missing.command.entry, narrative: "Corrected work" },
+    })).status).toBe(200);
+
+    const committed = await draft(crypto.randomUUID());
+    mode = "commit-timeout";
+    expect((await api(committed.url, committed.command)).status).toBeGreaterThanOrEqual(500);
+    mode = "reject";
+    const recovered = await api(committed.url, committed.command);
+    expect(recovered.status).toBe(200);
+    const recoveredEntries = TimesheetStateSchema.parse(await recovered.json()).entries.filter(entry => entry.groupId === committed.command.requestId);
+    expect(recoveredEntries).toHaveLength(1);
+    expect(recoveredEntries[0]).toEqual(TimeEntrySchema.parse(entries.get(committed.command.requestId)));
+    expect(captureStateSchema.parse(await (await api(workday)).json()).drafts[committed.command.requestId]).toBeUndefined();
+    expect((await api(committed.url, committed.command)).status).toBe(200);
+    expect(entries.size).toBe(2);
+
+    const suggested = await draft(proposal.key, proposal.digest);
+    mode = "timeout";
+    expect((await api(suggested.url, suggested.command)).status).toBeGreaterThanOrEqual(500);
+    mode = "reject";
+    expect((await api(suggested.url, suggested.command)).status).toBe(400);
+    expect((await api(workday, { ...suggested.patch, revision: suggested.revision, changes: null })).status).toBe(200);
+    expect(captureStateSchema.parse(await (await api(workday)).json()).proposals.some(item => item.key === proposal.key)).toBe(true);
   } finally {
     await server.stop();
     await resetOrgPolicyRuntimeForTests(config);

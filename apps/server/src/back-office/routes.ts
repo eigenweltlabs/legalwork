@@ -1,6 +1,6 @@
 import { timeMemberContactId } from "./time-member-identity.js";
 import { ownTimeMember, timeMembers, timeMemberContact } from "./time-members.js";
-import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile } from "../time-capture/routes.js";
+import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile, type BookingAuthority } from "../time-capture/routes.js";
 import { privateBookingRevisionSchema } from "./timesheet-schema.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
@@ -402,17 +402,28 @@ export function registerBackOfficeRoutes(options: {
         objectId: z.literal("timeEntries"), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body);
       const publish = async () => ({ record: save(record) });
       const identity = { user: actor.userId, scope, principal: actor.principalKey ?? "" };
+      const authority: BookingAuthority<{ record: BackOfficeRecord }> = {
+        request: { record, timekeeperUserId: memberId },
+        resolve: async () => {
+          store.requireAccount(scope, actor);
+          const current = store.raw(scope, record.id);
+          if (!current) return "uncommitted";
+          const object = store.model(scope).objects.find(item => item.id === record.objectId && !item.archived);
+          if (object && current.objectId === record.objectId && current.ownerId === actor.userId && store.canRead(scope, current, actor))
+            return { booked: { record: readableBackOfficeRecord(current, object, actor) } };
+        },
+      };
       if (privateDraft !== undefined) {
         if (privateProposal !== undefined) throw new ApiError(400, "private_workday", "Choose one private draft to confirm.");
         const draft = privateBookingRevisionSchema.extend({ profileId: z.string() }).parse(privateDraft);
-        return bookPrivateManualDraft(options.config, { ...identity, profileId: draft.profileId }, record.id, draft, publish, "record");
+        return bookPrivateManualDraft(options.config, { ...identity, profileId: draft.profileId }, record.id, draft, publish, "record", authority);
       }
       const proposal = z.strictObject({ key: z.literal(record.id), digest: z.string().regex(/^[a-f0-9]{64}$/), profileId: z.string(),
         draftRevision: privateBookingRevisionSchema.shape.revision.optional() }).parse(privateProposal);
       // Reuse directory persistence, permissions, audit and sync. Only the confirmed
       // record fields and stable row ID are shared; the original and digest stay private.
       return acceptPrivateProposal(options.config, { ...identity, profileId: proposal.profileId }, proposal.key, proposal.digest,
-        publish, "record", proposal.draftRevision === undefined ? undefined : { revision: proposal.draftRevision });
+        publish, "record", proposal.draftRevision === undefined ? undefined : { revision: proposal.draftRevision }, authority);
     }
     if (body.localSource !== undefined) {
       const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);

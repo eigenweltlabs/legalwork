@@ -79,7 +79,7 @@ test("private booking keeps confirmed draft revisions across manual publication 
   const config = backOfficeTestConfig(root);
   const identity = await captureProfile(config, await backOfficeAccess(config));
   const { path, profileId, scope, user, principal } = identity;
-  const date = "2026-11-20", key = randomUUID();
+  const date = "2026-11-20", key = randomUUID(), legacyKey = randomUUID();
   const proposal = captureProposalSchema.parse({ key: randomUUID(), digest: "0".repeat(64), date,
     source: "stopwatch", projectId: null, activity: "RES", narrative: "Timer original",
     startAt: null, endAt: null, workedMinutes: 4, dismissed: false });
@@ -88,6 +88,8 @@ test("private booking keeps confirmed draft revisions across manual publication 
   await writeFile(path, JSON.stringify({
     settings: { calendar: false, tasks: false, intervalMinutes: 0 }, lastRun: 0,
     days: { [date]: [{ eventKey: "synthetic-stopwatch", proposal }] }, originals: { [proposal.digest]: proposal },
+    drafts: { [legacyKey]: { date, revision: 1, values: { workflow: true, narrative: "Legacy interrupted row" } } },
+    draftClocks: { [legacyKey]: { date, fields: {}, guarded: true, booking: { revision: 1, pending: true, target: "record" } } },
   }));
   const server = await startServer(config);
   const call = (path: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, {
@@ -105,6 +107,12 @@ test("private booking keeps confirmed draft revisions across manual publication 
     const matter = await record("matters", { name: "Synthetic matter", clients: [client.id] });
     const draftValues = { name: "Manual draft", billingNarrative: "Manual draft", status: "Draft",
       matter: matter.id, client: client.id, serviceDate: date, startedAt: date, recordedMinutes: 15, billableMinutes: 15 };
+    const legacyPatch = { type: "draft-patch", key: legacyKey, date, revision: 1, changes: { billingNarrative: "Recovered draft" } };
+    expect((await call(workday, legacyPatch)).status).toBe(409);
+    const legacyRejected = await call(records, { id: legacyKey, create: true, revision: 0, objectId: "timeEntries",
+      values: { ...draftValues, matter: randomUUID() }, privateDraft: { profileId, date, revision: 1 } });
+    expect(legacyRejected.status).toBe(400);
+    expect((await call(workday, legacyPatch)).status).toBe(200);
     const draftPatch = { type: "draft-patch", key, date };
     const initial = captureStateSchema.parse(await (await call(workday, { ...draftPatch, revision: 0, changes: draftValues })).json()).drafts[key];
     const latest = captureStateSchema.parse(await (await call(workday, { ...draftPatch, revision: initial.revision,

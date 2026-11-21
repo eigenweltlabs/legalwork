@@ -4,7 +4,7 @@ import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity 
 import { localWorkdayModel, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
   savedWorkdayInstructionSchema, workdayChatSchema, workdayChatActionSchema, workdayInstructionActionSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
-import { BackOfficeValueSchema } from "../back-office/schema.js";
+import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
 import { timeWorkspaces } from "../back-office/timesheet-data.js";
 import { changeStopwatch, createStopwatchReader, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
@@ -62,6 +62,7 @@ const savedSchema = z.object({
   guidelines: z.record(z.uuid(), z.array(workdayGuidelineSchema)).default({}),
   fileProducts: z.record(z.string(), z.record(z.string(), z.string())).default({}),
   pendingBookings: z.record(z.uuid(), z.boolean()).default({}),
+  bookingRequests: z.record(z.uuid(), z.string()).default({}),
   documentEpoch: z.number().int().nonnegative().default(0),
   documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)).default({}),
   originals: z.record(z.string(), captureProposalSchema).default({}),
@@ -86,6 +87,7 @@ const defaults = (): Saved => ({
   guidelines: {},
   fileProducts: {},
   pendingBookings: {},
+  bookingRequests: {},
   originals: {},
   accepted: {},
   bookingTargets: {},
@@ -202,6 +204,33 @@ export async function beginDocumentCapture(
 
 
 type BookingIdentity = { user: string; scope: string; principal: string; profileId: string | null };
+export type BookingAuthority<T> = { request: unknown; resolve: () => Promise<{ booked: T } | "uncommitted" | "rejected" | undefined> };
+
+function bookingFingerprint<T>(saved: Saved, key: string, authority?: BookingAuthority<T>) {
+  const previous = saved.bookingRequests[key];
+  const current = authority && digest(canonicalBackOfficeAudit(z.json().parse(JSON.parse(JSON.stringify(authority.request)))));
+  if (previous && current !== previous)
+    throw new ApiError(409, "private_booking_pending", "Retry this booking with its original values.");
+  return current;
+}
+
+async function writeBooking<T>(write: () => Promise<T>, phase: "new" | "pending" | "confirmed", exact: boolean,
+  authority: BookingAuthority<T> | undefined, release: () => Promise<void>): Promise<T> {
+  try {
+    return await write();
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status < 400 || error.status >= 500 || [408, 425, 429].includes(error.status))
+      throw error;
+    if (phase === "new") await release();
+    else if (authority) {
+      const outcome = await authority.resolve().catch(() => undefined);
+      if (typeof outcome === "object") return outcome.booked;
+      if (phase === "pending" && (outcome === "uncommitted" || (outcome === "rejected" && exact))) await release();
+    }
+    throw error;
+  }
+}
+
 async function bookingProfile(config: ServerConfig, identity: BookingIdentity) {
   if (!loopback(config))
     throw new ApiError(403, "private_workday", "Open the proposal on its local device.");
@@ -219,7 +248,7 @@ async function bookingProfile(config: ServerConfig, identity: BookingIdentity) {
 /** Serialize acceptance with edits to the proposal and the private draft. */
 export async function acceptPrivateProposal<T>(config: ServerConfig, identity: BookingIdentity,
   key: string, hash: string, write: () => Promise<T>, target: "workflow" | "record" = "workflow",
-  expectedDraft?: { date?: string; revision: number }) {
+  expectedDraft?: { date?: string; revision: number }, authority?: BookingAuthority<T>) {
   const prof = await bookingProfile(config, identity), { path } = prof;
   return withFileWriteLock(path, async () => {
     const saved = await load(path),
@@ -228,6 +257,8 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
       throw new ApiError(409, "private_workday_changed", "This proposal has already been booked.");
     if (prior && (saved.bookingTargets[key] ?? "workflow") !== target)
       throw new ApiError(409, "private_workday_changed", "This proposal was already booked through another entry workflow.");
+    const fingerprint = bookingFingerprint(saved, key, authority);
+    const exact = Boolean(saved.bookingRequests[key]);
     const original = saved.originals[hash];
     const candidate = original && saved.days[original.date]?.find((item) => item.proposal.key === key);
     if (saved.reconciled[key]) throw new ApiError(409, "private_already_booked", "This suggestion is already linked to an entry.");
@@ -252,20 +283,17 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
       saved.accepted[key] = hash;
       saved.pendingBookings[key] = true;
       saved.bookingTargets[key] = target;
+      if (fingerprint) saved.bookingRequests[key] = fingerprint;
       await save(path, saved);
     }
-    let result: T;
-    try {
-      result = await write();
-    } catch (error) {
-      if (!prior && error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        delete saved.accepted[key];
-        delete saved.pendingBookings[key];
-        delete saved.bookingTargets[key];
-        await save(path, saved);
-      }
-      throw error;
-    }
+    const phase = prior ? (saved.pendingBookings[key] ? "pending" : "confirmed") : "new";
+    const result = await writeBooking(write, phase, exact, authority, async () => {
+      delete saved.accepted[key];
+      delete saved.pendingBookings[key];
+      delete saved.bookingTargets[key];
+      delete saved.bookingRequests[key];
+      await save(path, saved);
+    });
     const documentId = candidate.proposal.documentId;
     const binding = documentId ? acceptedFileProduct(result, key, hash, prof.user) : undefined;
     const newBinding = documentId && binding && saved.fileProducts[documentId]?.[binding.matterId] !== binding.workProductId;
@@ -280,7 +308,8 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
 }
 
 export async function bookPrivateManualDraft<T>(config: ServerConfig, identity: BookingIdentity,
-  key: string, expected: { date: string; revision: number }, write: () => Promise<T>, target: "workflow" | "record") {
+  key: string, expected: { date: string; revision: number }, write: () => Promise<T>, target: "workflow" | "record",
+  authority: BookingAuthority<T>) {
   const { path } = await bookingProfile(config, identity);
   return withFileWriteLock(path, async () => {
     await bookingProfile(config, identity);
@@ -289,23 +318,21 @@ export async function bookPrivateManualDraft<T>(config: ServerConfig, identity: 
     const clock = saved.draftClocks[key];
     if (clock?.booking && clock.booking.target !== target)
       throw new ApiError(409, "private_workday_changed", "This draft was already saved through another entry workflow.");
+    const fingerprint = bookingFingerprint(saved, key, authority);
+    const exact = Boolean(saved.bookingRequests[key]);
     if (clock?.date === date && clock.booking?.revision === revision && !clock.booking.pending && clock.removed)
-      return write();
+      return writeBooking(write, "confirmed", exact, authority, async () => {});
     requireDraftRevision(saved, key, revision, date);
     if (!clock?.booking) {
       saved.draftClocks[key] = { date, guarded: true, fields: clock?.fields ?? {}, booking: { revision, pending: true, target } };
+      if (fingerprint) saved.bookingRequests[key] = fingerprint;
       await save(path, saved);
     }
-    let result: T;
-    try {
-      result = await write();
-    } catch (error) {
-      if (!clock?.booking && error instanceof ApiError && error.status >= 400 && error.status < 500) {
-        delete saved.draftClocks[key].booking;
-        await save(path, saved);
-      }
-      throw error;
-    }
+    const result = await writeBooking(write, clock?.booking ? "pending" : "new", exact, authority, async () => {
+      delete saved.draftClocks[key].booking;
+      delete saved.bookingRequests[key];
+      await save(path, saved);
+    });
     delete saved.drafts[key];
     saved.draftClocks[key] = { ...saved.draftClocks[key], removed: true, booking: { revision, pending: false, target } };
     await save(path, saved);

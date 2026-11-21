@@ -2,12 +2,14 @@ import {
   acceptPrivateProposal,
   bookPrivateManualDraft,
   captureProfile,
+  type BookingAuthority,
 } from "../time-capture/routes.js";
 import { z } from "zod";
 import {
   requiresTimeAllocations,
   privateBookingRevisionSchema,
   TimesheetCommandSchema,
+  type TimesheetState,
 } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
 import type { RequestContext } from "../routes/registry.js";
@@ -45,7 +47,7 @@ import {
   invoiceTemplateSchema,
   requiresInvoiceDrafts,
 } from "./timesheet-schema.js";
-import { commandTimesheet, currentInvoiceDraft } from "./timesheet.js";
+import { commandTimesheet, currentInvoiceDraft, readTimesheetRequest } from "./timesheet.js";
 import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
@@ -176,6 +178,7 @@ export function registerTimesheetRoutes(
           "Only the confirmed billing entry can be submitted. Private proposals stay on this device.",
           403,
         );
+      let remoteRejectedCreate = false;
       const execute = async () => {
         let recordsOnly = false;
         if (access.scope !== "local" && !command) {
@@ -252,7 +255,12 @@ export function registerTimesheetRoutes(
               );
             await assertIdentity(ctx, store, access);
           }
-          return platformState(access, method, command);
+          try {
+            return await platformState(access, method, command);
+          } catch (error) {
+            remoteRejectedCreate = command?.type === "create" && error instanceof ApiError && error.code === "intake_invalid_request";
+            throw error;
+          }
         }
         const { people, workspaces } = await localDirectory(store, access);
         await assertIdentity(ctx, store, access);
@@ -367,11 +375,38 @@ export function registerTimesheetRoutes(
         profileId: ctx.url.searchParams.get("profileId") };
       if (expectedDraft && (ctx.actor?.type !== "host" || !command || command.type !== "create"))
         timeError("Confirm the private draft on its local device.", 403);
-      if (command?.type !== "create" || command.source !== "suggestion") {
-        if (command?.type === "create" && expectedDraft)
-          return bookPrivateManualDraft(config, bookingIdentity, command.requestId, expectedDraft, execute, "workflow");
-        return execute();
-      }
+      if (command?.type !== "create" || (command.source !== "suggestion" && !expectedDraft)) return execute();
+      const authority: BookingAuthority<TimesheetState> = {
+        request: command,
+        resolve: async () => {
+          await assertIdentity(ctx, store, access);
+          const user = access.actor.userId, requestId = command.requestId;
+          if (access.scope === "local") {
+            const stored = readTimesheetRequest(store, access.scope, user, requestId);
+            if (!stored) return "uncommitted";
+            if (stored.kind !== "request") return;
+            const { people, workspaces } = await localDirectory(store, access);
+            await assertIdentity(ctx, store, access);
+            return { booked: readTimesheet(store, access.scope, access.actor, people, workspaces) };
+          }
+          const state = await platformState(access, "GET");
+          await assertIdentity(ctx, store, access);
+          if (state.service === "records") return;
+          if (state.entries.some(entry => entry.authorId === user && (entry.groupId === requestId || entry.id === requestId)) ||
+              state.delegatedEntries?.some(entry => entry.groupId === requestId || entry.id === requestId)) return { booked: state };
+          const entry = command.entry;
+          const matter = state.matters.find(matter => matter.id === entry.matterId);
+          const canSeeReferences = matter && (!entry.clientId || matter.clientIds.includes(entry.clientId)) &&
+            (!entry.projectId || state.projects.some(project => project.id === entry.projectId));
+          const canSeeGroup = !command.workerIds || command.workerIds.includes(user) || state.delegatedEntries !== undefined;
+          const unidentifiedEntry = state.entries.some(row => !row.legacy && !row.groupId && row.authorId === user &&
+            row.date === entry.date && row.matterId === entry.matterId);
+          // A validation rejection on this exact POST plus the authorized read can disprove a prior commit.
+          if (remoteRejectedCreate && canSeeReferences && canSeeGroup && !unidentifiedEntry) return "rejected";
+        },
+      };
+      if (expectedDraft && command.source !== "suggestion")
+        return bookPrivateManualDraft(config, bookingIdentity, command.requestId, expectedDraft, execute, "workflow", authority);
       if (!command.proposalDigest)
         timeError("A suggestion must reference its private original.");
       return acceptPrivateProposal(
@@ -382,6 +417,7 @@ export function registerTimesheetRoutes(
         execute,
         "workflow",
         expectedDraft,
+        authority,
       );
     });
   }
