@@ -20,6 +20,8 @@ Use **Private chat** to change the current draft. Unsent text and its instructio
 
 When you correct and confirm a document-linked suggestion, the private assistant remembers your wording for that document and matter. Editing the wording of its saved entry can also update this memory. Up to four confirmed examples guide later suggestions, including on the same day and after the document is renamed. The assistant uses the examples for terminology and style, not as evidence that the past work happened again. In the Private chat composer options, open saved instructions to edit or remove **Learned wording**. These examples stay on this device under your account.
 
+Accepting unchanged AI wording does not create a new learned correction. Full document history additionally requires confirmed workflow entries linked to the document's work product. A firm that exposes ordinary records only does not supply that history; private human corrections and uploaded guidelines can still guide the wording.
+
 ## Billing settings and access
 
 In the basic **Time entries** view, you can continue recording for yourself when the people list cannot load. Your own complete entries enter the local outbox when the firm connection is interrupted and synchronize when it returns. Recording for another person still requires the firm's current permission; a previously loaded people list does not grant access during an outage.
