@@ -71,6 +71,25 @@ test("the local current-time marker spans the matter calendar once", () => {
   expect(document.querySelector("[data-calendar-now]")?.textContent).toContain("Current time");
 });
 
+test("short and untimed private blocks each have a separate two-button decision pill", () => {
+  const document = documentFor(renderToStaticMarkup(
+    <WorkdayTimeline date={date} proposals={[{ ...proposal, endAt: clock("09:02:00") }, untimed]}
+      state={state} selected={undefined} view="combined" onOpen={() => {}}
+      decisions={{ canAccept: true, onDecision: () => {}, onFocusedRemoval: () => {} }} />,
+  ));
+  const rails = [...document.querySelectorAll("[data-calendar-proposal-actions]")];
+  expect(rails).toHaveLength(2);
+  for (const rail of rails) {
+    const event = rail.parentElement?.previousElementSibling;
+    expect(event?.matches("button[data-proposal-id]")).toBe(true);
+    expect(event?.contains(rail)).toBe(false);
+    expect([...rail.querySelectorAll("button")].map(button => button.title)).toEqual(["Dismiss suggestion", "Accept suggestion"]);
+  }
+  expect(document.querySelector('[data-calendar-untimed] [data-calendar-proposal-actions]')).not.toBeNull();
+  const timedCard = document.querySelector('[data-calendar-column] button[data-proposal-id="review"]')?.parentElement;
+  expect(parseFloat(timedCard?.style.height ?? "0")).toBeGreaterThanOrEqual(28);
+});
+
 test("ordinary calendars retain navigable day headers and their standard all-day strip", () => {
   const document = documentFor(renderToStaticMarkup(
     <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} showProjects

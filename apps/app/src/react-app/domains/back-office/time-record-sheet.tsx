@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Info, CopyPlus, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TimeProposalActions } from "./time-proposal-actions";
+import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-actions";
 import { z, BackOfficeRecordSchema, BackOfficeViewSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { CaptureAction, CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
 import { proposedCharge, resolveTimePolicy, type TimesheetState } from "@legalwork/types/timesheet";
@@ -188,6 +188,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       if (edits.queues.get(id) === next) edits.queues.delete(id);
       edits.prune();
     });
+    return next;
   }
   const availableClients = new Set(directory.records.filter(record => record.objectId === "clients" && !record.archivedAt).map(record => record.id));
   function billingClients(matterId: BackOfficeValue | undefined) {
@@ -418,12 +419,15 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     });
   }
   function accept(record: BackOfficeRecord, proposal: CaptureProposal) {
+    if (!directory.permissions.edit || !roster.data || edits.saving.has(record.id) || currentCapture.current.overlaps.has(record.id))
+      return Promise.resolve(false);
     if (!edits.drafts.has(record.id) || edits.drafts.get(record.id)?.proposal?.digest !== proposal.digest)
       edits.drafts.set(record.id, { record, date: proposal.date, proposal });
-    enqueue(record.id, () => persistDraft(record.id, proposal));
+    return enqueue(record.id, () => persistDraft(record.id, proposal)).then(() => true, () => false);
   }
   function finishProposal(proposal: CaptureProposal, action: CaptureAction) {
-    enqueue(proposal.key, async () => {
+    if (edits.saving.has(proposal.key)) return Promise.resolve(false);
+    return enqueue(proposal.key, async () => {
       const active = currentCapture.current;
       if (!active.proposals.some(item => item.key === proposal.key && item.digest === proposal.digest))
         throw new Error(t("timesheets.sheet.edit_suggestion_changed"));
@@ -434,7 +438,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           const draft = edits.drafts.get(proposal.key);
           if (draft?.proposal?.digest === proposal.digest) await privateDraft(draft);
         }
-        if (!await active.act(action)) return;
+        if (!await active.act(action)) throw new Error(t("back_office.save_failed"));
         edits.drafts.delete(proposal.key);
         edits.draftErrors.delete(proposal.key);
         hideProposals(previous => new Set(previous).add(proposal.key));
@@ -442,7 +446,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         edits.saving.delete(proposal.key);
         edits.changed();
       }
-    });
+    }).then(() => true, () => false);
   }
 
   const { totals: sums, byDate } = periodTimeTotals(visible.map(record => ({
@@ -557,6 +561,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     const matches = fieldValue(record, "timekeeper") === self && values.matter ? stored.filter(entry => isOwn(entry) &&
       serviceDate(entry.values) === proposal.date && entry.values.matter === values.matter) : [];
     const error = edits.draftErrors.get(proposal.key);
+    const dismiss = () => finishProposal(proposal, { type: "dismiss", key: proposal.key, digest: proposal.digest });
     const patch = (values: TimeRecordValues) => {
       void edit(record, values).catch(error => {
         edits.draftErrors.set(proposal.key, errorMessage(error));
@@ -565,6 +570,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     };
     return (
       <div key={proposal.digest} className="time-workspace-form">
+        <ProposalDecisionReceiver proposal={proposal} accept={() => accept(record, proposal)} dismiss={dismiss} />
         <label>{t("timesheets.workday.matter")}
           <select value={typeof values.matter === "string" ? values.matter : ""} disabled={!editable || busy}
             onChange={event => {
@@ -613,8 +619,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           </select>
         </label>}
         <div className="time-workspace-actions">
-          <TimeProposalActions busy={busy} canAccept={editable && !conflict} onAccept={() => accept(record, proposal)}
-            onDismiss={() => finishProposal(proposal, { type: "dismiss", key: proposal.key, digest: proposal.digest })} />
+          <TimeProposalActions busy={busy} canAccept={editable && !conflict} onAccept={() => void accept(record, proposal)}
+            onDismiss={() => void dismiss()} />
           <Button size="sm" type="button" variant="outline" disabled={busy}
             onClick={() => {
               const reviewed = edits.drafts.get(proposal.key)?.record.values ?? values;

@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
 import { Button } from "@/components/ui/button";
-import { TimeProposalActions } from "./time-proposal-actions";
+import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-actions";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
 import {
@@ -95,29 +95,30 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       if (!await saveFields()) setError(t("back_office.save_failed"));
     });
   }
-  async function run(action: () => Promise<unknown>) {
-    if (inFlight.current) return;
+  async function run(action: () => Promise<boolean>) {
+    if (inFlight.current) return false;
     inFlight.current = true;
     setError("");
     setBusy(true);
     try {
       await queue.current;
-      await action();
+      return await action();
     } catch (error) {
       setError(error instanceof Error ? error.message : t("back_office.save_failed"));
+      return false;
     } finally {
       inFlight.current = false;
       setBusy(false);
     }
   }
   async function accept() {
-    if (!canEdit || conflict || inFlight.current) return;
+    if (!canEdit || conflict || inFlight.current) return false;
     const parsed = parseRow(values, state);
     if ("error" in parsed) {
       setError(parsed.error);
-      return;
+      return false;
     }
-    await run(async () => {
+    return run(async () => {
       const entry = parsed.entry;
       if (entry.date === proposal.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
         entry.startAt = proposal.startAt;
@@ -127,6 +128,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         type: "create", requestId: proposal.key, source: "suggestion", proposalDigest: proposal.digest,
         entry, workerIds: parsed.workerIds,
       });
+      return true;
     });
   }
   const choices: Partial<Record<RowColumn, string[]>> = {
@@ -144,11 +146,12 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       : record.values.matter === linkMatter && timeRecordDate(record.values.startedAt, record.values.serviceDate) === values.date;
   }) ?? [] : [];
   function updateSource(action: CaptureAction) {
-    void run(async () => {
-      if (action.type === "reconcile" && !await saveFields()) return;
-      await capture.act(action);
+    return run(async () => {
+      if (action.type === "reconcile" && !await saveFields()) return false;
+      return capture.act(action);
     });
   }
+  const dismiss = () => updateSource({ type: "dismiss", key: proposal.key, digest: proposal.digest });
 
   function change(column: RowColumn, value: string) {
     setChanged(true);
@@ -176,6 +179,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       event.preventDefault();
       void accept();
     }}>
+      <ProposalDecisionReceiver proposal={proposal} accept={accept} dismiss={dismiss} />
       {fields.map(column => (
         <label key={column}>
           {t(ledgerColumnKeys[column])}
@@ -204,8 +208,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         </select>
       </label>}
       <div className="time-workspace-actions">
-        <TimeProposalActions busy={busy} canAccept={canEdit && !conflict}
-          onDismiss={() => updateSource({ type: "dismiss", key: proposal.key, digest: proposal.digest })} />
+        <TimeProposalActions busy={busy} canAccept={canEdit && !conflict} onDismiss={() => void dismiss()} />
         <Button type="button" size="sm" variant="outline" disabled={busy}
           onClick={() => capture.openSource({ ...proposal,
             matterId: selectedMatter?.matterId, projectId: selectedMatter?.projectId ?? null,

@@ -8,9 +8,10 @@ import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { backOfficeAccess } from "../back-office/access.js";
 import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { startServer } from "../server.js";
+import { recordCompletedTask } from "./activity-workday.js";
 import { beginDocumentCapture, captureProfile } from "./routes.js";
 
-test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a workday keeps private drafts and deduplicates successful calls", async () => {
+test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups sources, retries, and saves private corrections", async () => {
   const narrative = "Drafting Example";
   const prompts: string[] = [];
   const entered = Promise.withResolvers<void>();
@@ -24,15 +25,20 @@ test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a wo
     prompts.push(prompt);
     if (hold) { entered.resolve(); await release.promise; }
     const input = z.discriminatedUnion("stage", [
-      z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string(), projectId: z.string() })) }),
+      z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string().nullable(), projectId: z.string() })) }),
       z.object({ stage: z.literal("wording"), entries: z.array(z.object({ index: z.number() })) }),
     ]).parse(JSON.parse(prompt.trim().split("\n").at(-1) ?? ""));
-    const content = invalidResponse ? "Invalid structured output" : input.stage === "grouping"
-      ? JSON.stringify({ proposals: input.evidence.map(item => ({
-          evidenceIds: [item.id], activity: "DFT", documentId: item.documentId,
-          projectId: item.projectId, matterId: null, startAt: null, endAt: null, workedMinutes: null,
-        })) })
-      : JSON.stringify({ wording: input.entries.map(({ index }) => ({ index, narrative })) });
+    let content = "Invalid structured output";
+    if (!invalidResponse) {
+      if (input.stage === "grouping") {
+        const document = input.evidence.find(item => item.documentId);
+        if (!document || input.evidence.length !== 2) throw Error("Expected one whole-day batch with both sources");
+        content = JSON.stringify({ proposals: [{
+          evidenceIds: input.evidence.map(item => item.id), activity: "DFT", documentId: document.documentId,
+          projectId: document.projectId, matterId: null, startAt: null, endAt: null, workedMinutes: null,
+        }] });
+      } else content = JSON.stringify({ wording: input.entries.map(({ index }) => ({ index, narrative })) });
+    }
     function chunk(delta: object, finish_reason: string | null) {
       return "data: " + JSON.stringify({ id: "synthetic", object: "chat.completion.chunk", model: body.model, created: 1, choices: [{ index: 0, delta, finish_reason }] }) + "\n\n";
     }
@@ -62,18 +68,22 @@ test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a wo
       expect(response.status, JSON.stringify(data)).toBe(200);
       return captureStateSchema.parse(data);
     };
-    await request({ type: "settings", settings: { documents: true, calendar: false, tasks: false, intervalMinutes: 0 } });
+    const settings: CaptureAction = { type: "settings", settings: {
+      documents: true, calendar: false, tasks: true, intervalMinutes: 0, aiSuggestions: false,
+    } };
+    await request(settings);
     const capture = await beginDocumentCapture(config, { actor: { type: "host" } }, "example", "Folder/Example.docx");
     await mkdir(join(engine.directory, "Folder"));
     const file = join(engine.directory, "Folder", "Example.docx");
     await writeFile(file, "Synthetic document");
     await capture?.(null, await stat(file));
+    await recordCompletedTask(config, profile, {
+      id: "synthetic-task", title: "File the draft", projectId: "example", updatedAt: new Date().toISOString(),
+    });
     const refresh: CaptureAction = { type: "refresh", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
-    const initial = await request(refresh);
-    expect(initial.proposals).toHaveLength(1);
-    expect(initial.wording).toBeUndefined();
+    expect((await request({ type: "calendar" })).proposals).toHaveLength(2);
+    expect((await request()).proposals).toEqual([]);
     expect(prompts).toHaveLength(0);
-    await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: true } });
     expect((await request(refresh)).status?.type).toBe("failed");
     expect(prompts).toHaveLength(1);
     invalidResponse = false;
@@ -85,12 +95,14 @@ test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a wo
     const proposal = result.proposals[0];
     expect(prompts).toHaveLength(3);
     expect(prompts[0]).toContain("Example.docx");
+    expect(prompts[0]).toContain("File the draft");
     expect(prompts[0]).not.toContain("Folder/");
     expect(proposal.narrative).toBe(narrative);
     expect(proposal.suggested).toBe(true);
     const [reopened, secondWindow] = await Promise.all([request(refresh), request({ ...refresh, type: "suggest" })]);
     expect(reopened.proposals[0]).toEqual(proposal);
     expect(secondWindow.proposals[0]).toEqual(proposal);
+    expect((await request()).proposals[0]).toEqual(proposal);
     expect(prompts).toHaveLength(3);
     expect(await readFile(profile.path, "utf8")).toContain(narrative);
 
@@ -116,18 +128,20 @@ test.skipIf(!nativeMcpBinary)("opening, explicitly retrying, and correcting a wo
     const interrupted = request({ type: "chat", id: randomUUID(), text: "Shorten the description", model: refresh.model });
     await entered.promise;
     try {
-      await request({ type: "settings", settings: { ...initial.settings, aiSuggestions: false } });
+      await request({ type: "settings", settings: { ...settings.settings,
+        model: { workspaceId: "example", providerID: "example", modelID: "unavailable" } } });
     } finally {
       release.resolve();
     }
     const cancelled = await interrupted;
-    expect(cancelled.proposals.some(item => item.suggested)).toBe(false);
-    expect(cancelled.settings.aiSuggestions).toBe(false);
+    expect(cancelled.proposals[0].digest).toBe(changed.proposals[0].digest);
+    expect(cancelled.settings.model?.modelID).toBe("unavailable");
     const priorCalls = prompts.length;
     const permanent = { type: "chat", id: randomUUID(), text: "Use active voice", instruction: { scope: "personal" } } satisfies CaptureAction;
     const stored = await request(permanent);
     expect(stored.instructions.some(rule => rule.id === permanent.id && rule.text === permanent.text)).toBe(true);
-    expect(stored.chat.at(-1)).toMatchObject({ role: "assistant", replyTo: permanent.id });
+    expect(stored.chat.at(-1)).toMatchObject({ role: "assistant", replyTo: permanent.id, text: "Saved this private instruction." });
+    expect(stored.status?.type).toBe("unavailable");
     expect((await request(permanent)).chat).toEqual(stored.chat);
     expect(prompts).toHaveLength(priorCalls);
   } finally {

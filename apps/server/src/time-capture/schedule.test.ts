@@ -17,7 +17,7 @@ test("an unchanged scheduled source check advances the full interval without rer
       days: {}, lastRun: 0,
       settings: {
         calendar: false, tasks: false, documents: false, workspaceActivity: false,
-        aiSuggestions: true, intervalMinutes: 60,
+        intervalMinutes: 60,
         model: { workspaceId: "example", providerID: "fixture", modelID: "fixture" },
       },
     }));

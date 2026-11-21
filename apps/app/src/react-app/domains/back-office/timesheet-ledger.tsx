@@ -1100,8 +1100,8 @@ export function TimesheetLedger({
           </div>
         </div>
         {countedRows.filter(entry => !bookings.some(item => item.id === entry.groupId)).map(renderEntry)}
-        {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => focus("new", "matter")}>
-          <Plus size={14} />{t("timesheets.ledger.new")}
+        {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
+          {t("timesheets.ledger.new")}
         </Button>}
         {showComposer && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">

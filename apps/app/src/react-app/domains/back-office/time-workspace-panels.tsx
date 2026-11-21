@@ -1,9 +1,8 @@
-import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { CalendarDays, List, MessageSquare } from "lucide-react";
 import { z } from "@legalwork/types/back-office";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { PanelHeaderTarget } from "../../design-system/panel-chrome";
 import { SidePanel, type WorkspacePage } from "../session/panel/side-panel";
 import { usePanelTabStore } from "../session/panel/panel-tab-store";
 
@@ -53,16 +52,14 @@ function installLayout(sessionId: string, saved?: z.infer<typeof legacySchema>) 
   if (layout) usePanelTabStore.setState(state => ({ sessions: { ...state.sessions, [sessionId]: layout } }));
 }
 
-export function TimeWorkspacePanels({ scope, entries, timeline, chat, visible = true, fallbackHeader }: {
+export function TimeWorkspacePanels({ scope, entries, timeline, chat, visible = true }: {
   scope: string;
   entries: ReactNode;
   timeline: (view: TimelineView, choose: (view: TimelineView) => void) => ReactNode;
   chat: ReactNode;
   visible?: boolean;
-  fallbackHeader?: HTMLElement | null;
 }) {
   const sessionId = "timekeeping:" + scope;
-  const header = useContext(PanelHeaderTarget);
   const locale = useLocale();
   const [legacy] = useState(() => previousLayout(scope));
   const timelineKey = sessionId + ":timeline";
@@ -93,7 +90,6 @@ export function TimeWorkspacePanels({ scope, entries, timeline, chat, visible = 
   });
   return <div className="time-workspace-panels">
     <SidePanel sessionId={sessionId} workspaceId={null} workspaceRoot="" client={null} visible={visible}
-      headerTarget={visible ? header ?? fallbackHeader : null}
       pageCatalog={{ pages, resetLabel: t("timeWorkspace.reset"), onReset: () => { installLayout(sessionId); chooseView("combined"); } }} />
   </div>;
 }

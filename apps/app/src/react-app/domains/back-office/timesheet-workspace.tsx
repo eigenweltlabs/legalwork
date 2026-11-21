@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, List, ListChecks, Settings2, Timer } from "lucide-react";
+import { ArrowUpRight, List, ListChecks, Settings2 } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
 import { Button as AppButton } from "@/components/ui/button";
 
@@ -117,10 +117,6 @@ export function TimesheetWorkspace({
   return (
     <>
       <header className="time-section-header">
-        <h1>
-          <Timer size={19} />
-          {t("timesheets.workspace_title")}
-        </h1>
         <nav aria-label={t("timesheets.workspace_title")}>
           {tabs
             .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage || (recordsOnly && directory.permissions.finance))

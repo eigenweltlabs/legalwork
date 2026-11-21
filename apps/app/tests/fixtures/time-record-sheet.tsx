@@ -23,6 +23,7 @@ for (const [key, value] of Object.entries({
 await import("lexical");
 // The Bun DOM fixture has no asset bundler. Panel avatar URLs are supplied by Vite in the app.
 const { mock } = await import("bun:test");
+mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-animation", () => ({ assistantAvatarAnimations: {} }));
 mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-assets", () => ({
   assistantAvatarImages: {}, assistantAvatarIcon: () => "flower",
 }));
@@ -464,8 +465,10 @@ try {
   }
   const toBook = timelineButton(beforeDirectoryRefresh.key);
   assert.ok(toBook);
-  await act(async () => { toBook.focus(); toBook.click(); });
-  const acceptFromTimeline = button(host, t("timesheets.sheet.accept"));
+  assert.equal(host.querySelector(".time-workspace-editor"), null);
+  const actions = toBook.parentElement?.querySelector<HTMLElement>("[data-calendar-proposal-actions]");
+  assert.ok(actions, "a records proposal can be booked directly from its calendar block");
+  const acceptFromTimeline = button(actions, t("timesheets.sheet.accept"));
   await act(async () => { acceptFromTimeline.focus(); acceptFromTimeline.click(); });
   assert.equal(timelineButton(beforeDirectoryRefresh.key), null, "the locally acknowledged proposal leaves the timeline before directory refresh");
   assert.equal(host.querySelector(".time-workspace-editor"), null);

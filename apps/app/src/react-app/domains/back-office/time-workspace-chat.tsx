@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Ellipsis } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "@/components/chat/message-list";
 import { PendingStatus } from "@/components/chat/pending-status";
-import { useLocale } from "@/i18n/use-locale";
 import { ComposerSendButton, ComposerSurface } from "../session/surface/composer/composer-surface";
 import { LexicalPromptEditor } from "../session/surface/composer/editor";
 import { Button } from "@/components/ui/button";
@@ -26,23 +27,18 @@ const noMentions = {};
 const messageLimit = 2000;
 
 export function TimeWorkspaceChat({
-  date,
   data,
   state,
   proposals,
   pending,
-  aiEnabled,
   onAction,
 }: {
-  date: string;
   data: CaptureState | undefined;
   state: TimesheetState;
   proposals: CaptureProposal[];
   pending: boolean;
-  aiEnabled: boolean;
   onAction: (action: ChatAction) => Promise<boolean>;
 }) {
-  const locale = useLocale();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
@@ -83,8 +79,7 @@ export function TimeWorkspaceChat({
     );
   const draft = text.trim();
   const exceedsLimit = draft.length > messageLimit;
-  const blocked = scope === "day" && !aiEnabled;
-  const canSend = Boolean(data && draft && !exceedsLimit && validScope && !pending && !sending && !blocked);
+  const canSend = Boolean(data && draft && !exceedsLimit && validScope && !pending && !sending);
   const promptLabel = t(scope === "day" ? "timeWorkspace.message" : "timeWorkspace.rule");
 
   async function submit() {
@@ -102,6 +97,9 @@ export function TimeWorkspaceChat({
     try {
       if (await onAction({ type: "chat", id: request.current.id, text: draft, instruction })) {
         setText("");
+        setScope("day");
+        setMatter("");
+        setDocument("");
         request.current = undefined;
       }
     } finally {
@@ -112,10 +110,6 @@ export function TimeWorkspaceChat({
 
   return (
     <>
-      <header className="time-workspace-chat-header">
-        <time dateTime={date}>{new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(new Date(date + "T12:00:00"))}</time>
-        <p className="time-workspace-note">{t("timeWorkspace.chatHint")}</p>
-      </header>
       {!data ? (
         <p className="time-workspace-note">{t("timeWorkspace.chatUnavailable")}</p>
       ) : (
@@ -146,67 +140,6 @@ export function TimeWorkspaceChat({
               }}
             >
               <ComposerSurface className="time-workspace-chat-composer border-dls-border">
-                <div className="time-workspace-chat-scope">
-                  <label>
-                    {t("timeWorkspace.chatPurpose")}
-                    <select
-                      value={scope}
-                      disabled={pending}
-                      onChange={(event) => {
-                        const next = event.currentTarget.value;
-                        if (
-                          next === "day" ||
-                          next === "personal" ||
-                          next === "matter" ||
-                          next === "document"
-                        )
-                          setScope(next);
-                      }}
-                    >
-                      <option value="day">{t("timeWorkspace.dayCorrection")}</option>
-                      <option value="personal">{t(scopes.personal)}</option>
-                      <option value="matter">{t(scopes.matter)}</option>
-                      <option value="document">{t(scopes.document)}</option>
-                    </select>
-                  </label>
-                  {(scope === "matter" || scope === "document") && (
-                    <label>
-                      {t("timesheets.workday.matter")}
-                      <select
-                        value={matterId}
-                        disabled={pending}
-                        onChange={(event) => {
-                          setMatter(event.currentTarget.value);
-                          setDocument("");
-                        }}
-                      >
-                        <option value="">{t("timesheets.workday.choose")}</option>
-                        {state.matters.map((matter) => (
-                          <option key={matter.id} value={matter.id}>
-                            {matter.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {scope === "document" && (
-                    <label>
-                      {t("timeWorkspace.document")}
-                      <select
-                        value={documentId}
-                        disabled={pending || !documentOptions.size}
-                        onChange={(event) => setDocument(event.currentTarget.value)}
-                      >
-                        <option value="">{t("timeWorkspace.chooseDocument")}</option>
-                        {[...documentOptions].map(([id, title]) => (
-                          <option key={id} value={id}>
-                            {title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                </div>
                 <LexicalPromptEditor
                   value={text}
                   mentions={noMentions}
@@ -217,138 +150,212 @@ export function TimeWorkspaceChat({
                   onChange={setText}
                   onSubmit={submit}
                 />
-                {blocked && <p className="time-workspace-note">{t("timeWorkspace.enableForChat")}</p>}
-                <div className="time-workspace-chat-send">
-                  {exceedsLimit && <output>{draft.length} / {messageLimit}</output>}
-                  <ComposerSendButton
-                    type="submit"
-                    disabled={!canSend}
-                    label={t(scope === "day" ? "timeWorkspace.send" : "timeWorkspace.saveRule")}
-                  />
+                <div className="time-workspace-chat-actions">
+                  <Popover>
+                    <PopoverTrigger render={<Button type="button" variant="ghost" size="icon-sm"
+                      aria-label={t("timeWorkspace.chatPurpose")} title={t(scope === "day" ? "timeWorkspace.chatPurpose" : scopes[scope])} />}>
+                      <Ellipsis size={18} aria-hidden="true" />
+                    </PopoverTrigger>
+                    <PopoverContent side="top" align="start" className="w-[min(24rem,calc(100vw-2rem))] max-h-[65vh] overflow-auto"
+                      data-workday-chat-options="">
+                      <div className="time-workspace-chat-scope">
+                        <label>
+                          {t("timeWorkspace.chatPurpose")}
+                          <select
+                            value={scope}
+                            disabled={pending}
+                            onChange={(event) => {
+                              const next = event.currentTarget.value;
+                              if (
+                                next === "day" ||
+                                next === "personal" ||
+                                next === "matter" ||
+                                next === "document"
+                              )
+                                setScope(next);
+                            }}
+                          >
+                            <option value="day">{t("timeWorkspace.dayCorrection")}</option>
+                            <option value="personal">{t(scopes.personal)}</option>
+                            <option value="matter">{t(scopes.matter)}</option>
+                            <option value="document">{t(scopes.document)}</option>
+                          </select>
+                        </label>
+                        {(scope === "matter" || scope === "document") && (
+                          <label>
+                            {t("timesheets.workday.matter")}
+                            <select
+                              value={matterId}
+                              disabled={pending}
+                              onChange={(event) => {
+                                setMatter(event.currentTarget.value);
+                                setDocument("");
+                              }}
+                            >
+                              <option value="">{t("timesheets.workday.choose")}</option>
+                              {state.matters.map((matter) => (
+                                <option key={matter.id} value={matter.id}>
+                                  {matter.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        {scope === "document" && (
+                          <label>
+                            {t("timeWorkspace.document")}
+                            <select
+                              value={documentId}
+                              disabled={pending || !documentOptions.size}
+                              onChange={(event) => setDocument(event.currentTarget.value)}
+                            >
+                              <option value="">{t("timeWorkspace.chooseDocument")}</option>
+                              {[...documentOptions].map(([id, title]) => (
+                                <option key={id} value={id}>
+                                  {title}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                      </div>
+                      <details className="time-workspace-rules">
+                        <summary>
+                          {t("timeWorkspace.rules")} {data.instructions?.length || ""}
+                        </summary>
+                        {!data.instructions?.length && (
+                          <p className="time-workspace-note">
+                            {t("timeWorkspace.noRules")}
+                          </p>
+                        )}
+                        <ul>
+                          {data.instructions?.map((instruction) => {
+                            const matter = state.matters.find(
+                              (item) => item.id === instruction.matterId,
+                            );
+                            const doc = proposals.find(
+                              (proposal) =>
+                                proposal.documentId &&
+                                proposal.documentId === instruction.documentId &&
+                                proposalAssignment(proposal, state).matter?.id ===
+                                  instruction.matterId,
+                            );
+                            return (
+                              <li key={instruction.id}>
+                                <small>
+                                  {[
+                                    t(scopes[instruction.scope]),
+                                    matter?.name,
+                                    doc && proposalTitle(doc),
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </small>
+                                {ruleEdit?.id === instruction.id ? (
+                                  <form
+                                    className="time-workspace-form"
+                                    onSubmit={async (event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      if (
+                                        ruleEdit.text.trim() &&
+                                        (await onAction({
+                                          type: "instruction",
+                                          id: instruction.id,
+                                          text: ruleEdit.text.trim(),
+                                        }))
+                                      )
+                                        setRuleEdit(undefined);
+                                    }}
+                                  >
+                                    <label>
+                                      {t("timeWorkspace.rule")}
+                                      <textarea
+                                        rows={3}
+                                        value={ruleEdit.text}
+                                        maxLength={2000}
+                                        disabled={pending}
+                                        onChange={(event) =>
+                                          setRuleEdit({
+                                            id: instruction.id,
+                                            text: event.currentTarget.value,
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <div className="time-workspace-actions">
+                                      <Button
+                                        type="submit"
+                                        size="sm"
+                                        disabled={pending || !ruleEdit.text.trim()}
+                                      >
+                                        {t("timeWorkspace.saveRule")}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={pending}
+                                        onClick={() => setRuleEdit(undefined)}
+                                      >
+                                        {t("timesheets.workday.cancel")}
+                                      </Button>
+                                    </div>
+                                  </form>
+                                ) : (
+                                  <p>{instruction.text}</p>
+                                )}
+                                {ruleEdit?.id !== instruction.id && (
+                                  <div className="time-workspace-actions">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={pending}
+                                      onClick={() =>
+                                        setRuleEdit({
+                                          id: instruction.id,
+                                          text: instruction.text,
+                                        })
+                                      }
+                                    >
+                                      {t("timesheets.workday.correct")}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={pending}
+                                      onClick={() =>
+                                        void onAction({
+                                          type: "instruction",
+                                          id: instruction.id,
+                                          text: null,
+                                        })
+                                      }
+                                    >
+                                      {t("timeWorkspace.removeRule")}
+                                    </Button>
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </details>
+                    </PopoverContent>
+                  </Popover>
+                  <div className="time-workspace-chat-send">
+                    {exceedsLimit && <output>{draft.length} / {messageLimit}</output>}
+                    <ComposerSendButton
+                      type="submit"
+                      disabled={!canSend}
+                      label={t(scope === "day" ? "timeWorkspace.send" : "timeWorkspace.saveRule")}
+                    />
+                  </div>
                 </div>
               </ComposerSurface>
             </form>
-            <details className="time-workspace-rules">
-              <summary>
-                {t("timeWorkspace.rules")} {data.instructions?.length || ""}
-              </summary>
-              {!data.instructions?.length && (
-                <p className="time-workspace-note">
-                  {t("timeWorkspace.noRules")}
-                </p>
-              )}
-              <ul>
-                {data.instructions?.map((instruction) => {
-                  const matter = state.matters.find(
-                    (item) => item.id === instruction.matterId,
-                  );
-                  const doc = proposals.find(
-                    (proposal) =>
-                      proposal.documentId &&
-                      proposal.documentId === instruction.documentId &&
-                      proposalAssignment(proposal, state).matter?.id ===
-                        instruction.matterId,
-                  );
-                  return (
-                    <li key={instruction.id}>
-                      <small>
-                        {[
-                          t(scopes[instruction.scope]),
-                          matter?.name,
-                          doc && proposalTitle(doc),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </small>
-                      {ruleEdit?.id === instruction.id ? (
-                        <form
-                          className="time-workspace-form"
-                          onSubmit={async (event) => {
-                            event.preventDefault();
-                            if (
-                              ruleEdit.text.trim() &&
-                              (await onAction({
-                                type: "instruction",
-                                id: instruction.id,
-                                text: ruleEdit.text.trim(),
-                              }))
-                            )
-                              setRuleEdit(undefined);
-                          }}
-                        >
-                          <label>
-                            {t("timeWorkspace.rule")}
-                            <textarea
-                              rows={3}
-                              value={ruleEdit.text}
-                              maxLength={2000}
-                              disabled={pending}
-                              onChange={(event) =>
-                                setRuleEdit({
-                                  id: instruction.id,
-                                  text: event.currentTarget.value,
-                                })
-                              }
-                            />
-                          </label>
-                          <div className="time-workspace-actions">
-                            <Button
-                              type="submit"
-                              size="sm"
-                              disabled={pending || !ruleEdit.text.trim()}
-                            >
-                              {t("timeWorkspace.saveRule")}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              disabled={pending}
-                              onClick={() => setRuleEdit(undefined)}
-                            >
-                              {t("timesheets.workday.cancel")}
-                            </Button>
-                          </div>
-                        </form>
-                      ) : (
-                        <p>{instruction.text}</p>
-                      )}
-                      {ruleEdit?.id !== instruction.id && (
-                        <div className="time-workspace-actions">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={pending}
-                            onClick={() =>
-                              setRuleEdit({
-                                id: instruction.id,
-                                text: instruction.text,
-                              })
-                            }
-                          >
-                            {t("timesheets.workday.correct")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={pending}
-                            onClick={() =>
-                              void onAction({
-                                type: "instruction",
-                                id: instruction.id,
-                                text: null,
-                              })
-                            }
-                          >
-                            {t("timeWorkspace.removeRule")}
-                          </Button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
           </div>
         </>
       )}

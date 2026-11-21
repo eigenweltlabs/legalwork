@@ -23,6 +23,7 @@ export const captureSettingsSchema = z.strictObject({
   documents: z.boolean().optional(),
   workspaceActivity: z.boolean().optional(),
   stopwatchMode: z.enum(["always", "evidence"]).optional(),
+  /** Compatibility with existing device profiles. Opening a workday now prepares suggestions automatically. */
   aiSuggestions: z.boolean().optional(),
   model: workdayModelSchema.partial({ workspaceId: true }).optional(),
   connections: z.array(captureAccountSchema).max(16).optional(),

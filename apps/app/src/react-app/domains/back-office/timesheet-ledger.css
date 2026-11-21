@@ -243,18 +243,6 @@
   padding: 7px 16px;
   border-bottom: 1px solid var(--bo-border);
 }
-.time-section-header h1 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.time-section-header h1 svg {
-  color: var(--bo-muted);
-}
 .time-section-header nav {
   display: flex;
   align-items: center;

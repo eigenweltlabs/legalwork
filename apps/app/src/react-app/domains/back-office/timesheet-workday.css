@@ -39,19 +39,17 @@
 
 .bo-workday-links { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
 .bo-workday-links a { text-decoration: underline; text-underline-offset: 3px; }
-.time-workspace-header { flex: none; height: var(--lw-panel-toolbar-height, 42px); border-bottom: 1px solid var(--border); }
 .time-workspace-panels { flex: 1; min-height: 0; min-width: 0; }
 .time-workspace-entry-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .time-workspace-timeline { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; padding: 12px; }
 .time-workspace-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 8px; padding: 12px; }
-.time-workspace-chat-header { flex: none; font-size: 13px; }
-.time-workspace-chat-header time { font-weight: 600; }
 .time-workspace-chat-transcript { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 2px; }
 .time-workspace-chat-controls { flex: none; max-height: 68%; overflow: auto; overscroll-behavior: contain; padding: 2px; }
 .time-workspace-chat-composer { display: grid; gap: 8px; padding: 12px; }
 .time-workspace-chat-scope { display: flex; flex-wrap: wrap; gap: 8px; }
 .time-workspace-chat-scope label { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 8rem; min-width: 0; gap: 4px; font-size: 12px; }
 .time-workspace-chat-scope select { width: 100%; }
+.time-workspace-chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .time-workspace-chat-send { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .time-workspace-chat-send output { color: var(--destructive); font-size: 12px; }
 .time-workspace-private-toolbar { justify-content: flex-end; }
@@ -82,6 +80,10 @@
 }
 .time-proposal-decisions > button { border-radius: inherit; }
 .time-proposal-decisions > button:focus-visible { z-index: 1; }
+.time-proposal-decisions[data-calendar-proposal-actions] { background: #fff; border-color: #d4d4d4; color: #242424; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button { width: 24px; height: 24px; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button:hover { color: #171717; background: #eee; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button > svg { width: 14px; height: 14px; }
 .time-workspace-form label,
 .bo-workday-correction label { display: grid; gap: 4px; }
 .time-workspace-form :is(textarea, select, input) { width: 100%; }
@@ -91,7 +93,7 @@
 .time-workspace-guidelines textarea { font-family: monospace; }
 .time-workspace-guidelines summary,
 .time-workspace-rules summary { cursor: pointer; font-size: 13px; font-weight: 600; }
-.time-workspace-rules { margin-top: 8px; }
+.time-workspace-rules { border-top: 1px solid var(--border); padding-top: 8px; }
 .time-workspace-rules li { padding-block: 8px; border-bottom: 1px solid var(--border); }
 .time-workspace-rules li small { color: var(--muted-foreground); }
 .time-workspace-rules p { white-space: pre-wrap; overflow-wrap: anywhere; }

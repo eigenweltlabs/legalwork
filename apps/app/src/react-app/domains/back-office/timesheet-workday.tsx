@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { CalendarDays, Settings, Sparkles, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Settings, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +25,7 @@ import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
 import { sourceKeys } from "./timesheet-labels";
 import { overlappingWorkdayRanges, proposalTitle, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
+import { DirectProposalDecisionContext, type DirectProposalDecision, type ProposalDecision } from "./time-proposal-actions";
 import "./timesheet-workday.css";
 
 export type RenderTimeWorkspace = (
@@ -58,11 +59,12 @@ export function TimesheetWorkday({
   const [period, setPeriod] = useState<TimePeriod>("day");
   const [selection, setSelection] = useState<string>();
   const [correction, setCorrection] = useState<CaptureProposal>();
+  const [directDecision, setDirectDecision] = useState<DirectProposalDecision>();
+  const directInFlight = useRef<DirectProposalDecision>(undefined);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const editorId = useId();
-  const [tabHeader, setTabHeader] = useState<HTMLDivElement | null>(null);
   const editor = useRef<HTMLDivElement>(null);
   const editorForm = useRef<HTMLDivElement>(null);
   const editorTitle = useRef<HTMLHeadingElement>(null);
@@ -139,21 +141,20 @@ export function TimesheetWorkday({
   const data = workday.data;
   const settings = data?.settings;
   const drafts = { ...overview.data, ...data?.drafts };
-  const aiEnabled = settings?.aiSuggestions === true;
   const modelKey = (item: { providerID: string; modelID: string }) => JSON.stringify([item.providerID, item.modelID]);
   const preferred = settings?.model;
   const modelOptions = [
     ...models.filter(item => modelKey(item) !== modelKey(localWorkdayModel)),
     ...(data?.modelReady ? [{ ...localWorkdayModel, label: t("timeWorkspace.localModel") }] : []),
   ];
-  const automatic = ["haiku", "luna"].map(name => modelOptions.find(item => item.providerID === "eigenwelt" &&
-    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean);
+  const automatic = ["sonnet", "haiku", "luna"].map(name => modelOptions.find(item => item.providerID === "eigenwelt" &&
+    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean) ?? modelOptions[0];
   const selectedModel = preferred ? modelOptions.find(item => modelKey(item) === modelKey(preferred)) : automatic;
   const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
   const modelSelection = JSON.stringify([preferred, model]);
   useEffect(() => {
     return () => { modelRequest.current?.abort(); };
-  }, [date, modelSelection, visible, aiEnabled]);
+  }, [date, modelSelection, visible]);
 
   async function act(action: CaptureAction, signal?: AbortSignal) {
     const foreground = action.type !== "draft" && action.type !== "refresh";
@@ -201,7 +202,7 @@ export function TimesheetWorkday({
     }
   }
 
-  const refreshKey = visible && local && aiEnabled && settings
+  const refreshKey = visible && local && settings
     ? JSON.stringify([date, settings, model, data?.modelReady, stoppedId])
     : null;
   const prepareView = useEffectEvent(async (signal: AbortSignal) => {
@@ -218,7 +219,7 @@ export function TimesheetWorkday({
   }, [refreshKey]);
 
   async function requestModel(action: Extract<CaptureAction, { type: "chat" | "instruction" }> | { type: "suggest" }) {
-    if (action.type === "instruction" || (action.type === "chat" && action.instruction)) return act(action);
+    if (action.type === "instruction") return act(action);
     if (inFlight.current) return false;
     const controller = new AbortController();
     modelRequest.current = controller;
@@ -226,16 +227,20 @@ export function TimesheetWorkday({
     finally { if (modelRequest.current === controller) modelRequest.current = undefined; }
   }
   const shown = data?.proposals.filter(p =>
-    p.date === date && !p.dismissed && (aiEnabled || (p.source === "stopwatch" && !p.suggested)) &&
+    p.date === date && !p.dismissed &&
     !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
     !state.entries.some(e => e.workerId === identity.user && (
       e.groupId === p.key || e.proposalDigest === p.digest ||
       (e.proposalDigest && p.versions?.includes(e.proposalDigest))
     )),
   ) ?? [];
-  function openEditor(proposal: CaptureProposal, trigger: HTMLButtonElement) {
+  function rememberProposal(key: string, trigger?: HTMLButtonElement) {
     const buttons = [...(timelineBody.current?.querySelectorAll<HTMLButtonElement>("[data-proposal-id]") ?? [])];
-    origin.current = { key: proposal.key, index: buttons.indexOf(trigger) };
+    const index = trigger ? buttons.indexOf(trigger) : buttons.findIndex(button => button.dataset.proposalId === key);
+    if (index >= 0) origin.current = { key, index };
+  }
+  function openEditor(proposal: CaptureProposal, trigger?: HTMLButtonElement) {
+    rememberProposal(proposal.key, trigger);
     if (selection === proposal.key && correction?.digest !== proposal.digest) {
       editorTitle.current?.focus();
       return;
@@ -243,6 +248,23 @@ export function TimesheetWorkday({
     focusRequest.current = { target: "editor" };
     setCorrection(undefined);
     setSelection(proposal.key);
+  }
+  function decideProposal(proposal: CaptureProposal, action: ProposalDecision, trigger: HTMLButtonElement) {
+    const current = directInFlight.current;
+    if (current && shown.some(item => item.digest === current.digest && item.key === current.key)) return;
+    trigger.focus({ preventScroll: true });
+    rememberProposal(proposal.key);
+    const request: DirectProposalDecision = {
+      key: proposal.key, digest: proposal.digest, action,
+      complete: ok => {
+        if (directInFlight.current !== request) return;
+        directInFlight.current = undefined;
+        if (!ok && document.activeElement === trigger) openEditor(proposal);
+        setDirectDecision(undefined);
+      },
+    };
+    directInFlight.current = request;
+    setDirectDecision(request);
   }
   function closeEditor() {
     focusRequest.current = { target: "timeline" };
@@ -279,6 +301,8 @@ export function TimesheetWorkday({
     if (next !== date) {
       setSelection(undefined);
       setCorrection(undefined);
+      directInFlight.current = undefined;
+      setDirectDecision(undefined);
       setDate(next);
       onDateChange(next);
     }
@@ -294,26 +318,46 @@ export function TimesheetWorkday({
   const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown) => {
     const selected = proposals.find(proposal => proposal.key === selection);
     const correcting = selected && correction?.digest === selected.digest ? correction : undefined;
-    return <TimeWorkspacePanels visible={visible} fallbackHeader={tabHeader} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
+    const deciding = directDecision && proposals.find(proposal => proposal.key === directDecision.key && proposal.digest === directDecision.digest);
+    // Reuse the booking form and keep its validation state if a calendar action opens it.
+    const editors = selected ? [selected] : [];
+    if (deciding && deciding.key !== selected?.key) editors.push(deciding);
+    return <TimeWorkspacePanels visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
-      chat={<TimeWorkspaceChat key={date} date={date} data={data} state={state} proposals={proposals}
-        pending={running} aiEnabled={aiEnabled} onAction={requestModel} />}
+      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={proposals}
+        pending={running} onAction={requestModel} />}
       timeline={(view, choose) => (
         <>
           <div className="time-workspace-private-toolbar shrink-0">
+            {refreshing && <Loader2 className="size-3.5 animate-spin text-muted-foreground" role="status" aria-label={t("timesheets.preparing")} />}
             {local && <TimeSelect label={t("timeWorkspace.timelineView")} value={view} options={[
               { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
             ]} onChange={value => {
               if (value === "combined" || value === "matters") choose(value);
             }} />}
           </div>
+          {!refreshing && status && status.type !== "ready" && <p className="time-workspace-note" role="alert">
+            {t(status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
+            <Button variant="ghost" size="xs" disabled={running} onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>
+          </p>}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
             <div ref={timelineBody} className="min-h-0 flex-1">
               <WorkdayTimeline date={date} proposals={proposals} state={state} view={view} selected={selected?.key}
-                editorId={editorId} onOpen={openEditor} preamble={<>
-                  {selected && (
-                    <div ref={bindEditor} id={editorId} className="time-workspace-editor"
+                editorId={editorId} onOpen={openEditor} decisions={{
+                  canAccept: directory.permissions.edit,
+                  busyKey: deciding?.key ?? correcting?.key,
+                  onDecision: decideProposal,
+                  onFocusedRemoval: (proposal, container) => {
+                    rememberProposal(proposal.key);
+                    focusRequest.current ??= { target: "timeline", removed: container };
+                  },
+                }} preamble={<DirectProposalDecisionContext.Provider value={directDecision}>
+                  {editors.map(proposal => {
+                    const active = proposal.key === selected?.key;
+                    const edit = active ? correcting : undefined;
+                    return <div key={proposal.key} hidden={!active} ref={active ? bindEditor : undefined}
+                      id={active ? editorId : undefined} className="time-workspace-editor"
                       role="region" aria-labelledby={editorId + "-title"}
                       onKeyDown={event => {
                         if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing ||
@@ -323,26 +367,25 @@ export function TimesheetWorkday({
                         closeEditor();
                       }}>
                       <header>
-                        <h3 ref={editorTitle} id={editorId + "-title"} tabIndex={-1}>{proposalTitle(selected)}</h3>
+                        <h3 ref={active ? editorTitle : undefined} id={active ? editorId + "-title" : undefined} tabIndex={-1}>{proposalTitle(proposal)}</h3>
                         <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
                           onClick={closeEditor}><X size={14} /></Button>
                       </header>
-                      <p className="time-workspace-note">{t(sourceKeys[selected.source])}
-                        {selected.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
-                        {selected.observation === "passive" && " · " + t("timeWorkspace.passive")}
+                      <p className="time-workspace-note">{t(sourceKeys[proposal.source])}
+                        {proposal.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
+                        {proposal.observation === "passive" && " · " + t("timeWorkspace.passive")}
                       </p>
-                      <div key={selected.digest} ref={bindEditorForm}>
-                        <div hidden={Boolean(correcting)}>{renderProposal(selected)}</div>
-                        {correcting && <WorkdayCorrectionForm proposal={correcting} state={state}
+                      <div key={proposal.digest} ref={active ? bindEditorForm : undefined}>
+                        <div hidden={Boolean(edit)}>{renderProposal(proposal)}</div>
+                        {edit && <WorkdayCorrectionForm proposal={edit} state={state}
                             pending={running} save={act} close={() => {
                               if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
                               setCorrection(undefined);
                             }} />}
                       </div>
-                    </div>
-                  )}
-                  {data && proposals.length === 0 && <p className="time-workspace-note">{t("timeWorkspace.noSuggestions")}</p>}
-                </>} />
+                    </div>;
+                  })}
+                </DirectProposalDecisionContext.Provider>} />
             </div>
           )}
           <CommitProposalFocus apply={applyFocusRequest} />
@@ -353,13 +396,11 @@ export function TimesheetWorkday({
   const status = data?.status;
   return (
     <section className="bo-workday time-unified">
-      <div ref={setTabHeader} className="time-workspace-header empty:hidden" />
       <div className="bo-workday-controls">
         <div className="time-sheet-period">
           <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
             onClick={() => selectDate(adjacentPeriod(date, period, -1))}><ChevronLeft size={16} /></Button>
           <label>
-            <CalendarDays size={14} />
             <input
               type="date"
               aria-label={t("timesheets.date")}
@@ -374,11 +415,6 @@ export function TimesheetWorkday({
         <TimesheetPeriodSwitch period={period} onChange={setPeriod} />
         <span className="bo-workday-toolbar-space" />
         {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} />}
-        <Button size="sm" variant={aiEnabled ? "secondary" : "outline"} role="switch"
-          aria-label={t("timesheets.ai_tab")} aria-checked={aiEnabled} disabled={running || !settings}
-          onClick={() => settings && void act({ type: "settings", settings: { ...settings, aiSuggestions: !aiEnabled } })}>
-          <Sparkles size={14} />{t("timesheets.ai_tab")} · {t(aiEnabled ? "common.on" : "common.off")}
-        </Button>
         <Popover>
           <PopoverTrigger render={<Button type="button" size="icon-sm" variant="ghost" disabled={!settings} aria-label={t("timesheets.ai_settings")} />}>
             <Settings size={16} />
@@ -449,7 +485,7 @@ export function TimesheetWorkday({
                   <TimeSelect
                     id="time-source-schedule"
                     label={t("timesheets.schedule")}
-                    disabled={running || (!data?.modelReady && !selectedModel) || !aiEnabled}
+                    disabled={running || (!data?.modelReady && !selectedModel)}
                     value={String(settings.intervalMinutes)}
                     options={[
                       { id: "0", name: t("timesheets.on_demand") },
@@ -480,15 +516,6 @@ export function TimesheetWorkday({
         {workday.error && <Button variant="ghost" size="xs" onClick={() => void workday.refetch()}>{t("timesheets.retry")}</Button>}
         {overview.error && <Button variant="ghost" size="xs" onClick={() => void overview.refetch()}>{t("timesheets.retry")}</Button>}
       </p>}
-      {refreshing ? <p className="time-workspace-status" role="status">{t("timesheets.preparing")}</p> : aiEnabled && status && (
-        <p className="time-workspace-status" role="status">
-          {t(status.type === "ready" ? "timeWorkspace.ready" : status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
-          {status.type !== "ready" && <Button variant="ghost" size="xs" disabled={running}
-            onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>}
-        </p>
-      )}
-      {aiEnabled && !refreshing && !status && error && <Button variant="ghost" size="xs" className="time-workspace-status"
-        disabled={running} onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>}
       {children(capture, renderWorkspace)}
     </section>
   );

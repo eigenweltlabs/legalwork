@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { captureChargeMinutes, type CaptureProposal, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
@@ -14,6 +14,7 @@ import type { CalendarDisplayOccurrence } from "../calendar/connected-calendars"
 import type { TimelineView } from "./time-workspace-panels";
 import { sourceKeys } from "./timesheet-labels";
 import { isUntitledStopwatch } from "./time-record-values";
+import { TimeProposalActions, type ProposalDecision } from "./time-proposal-actions";
 
 type Directory = Pick<TimesheetState, "matters" | "projects" | "policies">;
 function matterFor(p: CaptureProposal, state: Directory) {
@@ -51,7 +52,7 @@ export function proposalTitle(proposal: CaptureProposal) {
 }
 
 export function WorkdayTimeline({
-  date, proposals, state, view, selected, editorId, preamble, onOpen,
+  date, proposals, state, view, selected, editorId, preamble, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
@@ -61,6 +62,12 @@ export function WorkdayTimeline({
   editorId?: string;
   preamble?: ReactNode;
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
+  decisions?: {
+    canAccept: boolean;
+    busyKey?: string;
+    onDecision: (proposal: CaptureProposal, action: ProposalDecision, trigger: HTMLButtonElement) => void;
+    onFocusedRemoval: (proposal: CaptureProposal, container: HTMLDivElement) => void;
+  };
 }) {
   const anchor = useMemo(() => new Date(date + "T12:00:00"), [date]);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -94,6 +101,7 @@ export function WorkdayTimeline({
   }
   return <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
     dayLanes={view === "matters" ? [...groups.values()] : undefined} preamble={preamble}
+    minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
     label={t("timesheets.workday.timeline")} untimedLabel={t("timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}
     entryAppearance={item => {
@@ -111,12 +119,32 @@ export function WorkdayTimeline({
           "aria-expanded": selected === item.id,
           "aria-controls": selected === item.id ? editorId : undefined,
         },
+        actions: decisions ? <TimelineProposalActions proposal={source.proposal} {...decisions} /> : undefined,
       };
     }}
     onOpen={(item, trigger) => {
       const source = privateById.get(item.id);
       if (source) onOpen(source.proposal, trigger);
     }} />;
+}
+
+function TimelineProposalActions({ proposal, canAccept, busyKey, onDecision, onFocusedRemoval }: {
+  proposal: CaptureProposal;
+  canAccept: boolean;
+  busyKey?: string;
+  onDecision: (proposal: CaptureProposal, action: ProposalDecision, trigger: HTMLButtonElement) => void;
+  onFocusedRemoval: (proposal: CaptureProposal, container: HTMLDivElement) => void;
+}) {
+  const rail = useRef<HTMLDivElement>(null);
+  const remove = useRef({ proposal, onFocusedRemoval });
+  remove.current = { proposal, onFocusedRemoval };
+  const bindRail = useCallback((element: HTMLDivElement | null) => {
+    if (!element && rail.current?.contains(document.activeElement)) remove.current.onFocusedRemoval(remove.current.proposal, rail.current);
+    rail.current = element;
+  }, []);
+  return <TimeProposalActions railRef={bindRail} label={proposalTitle(proposal)} canAccept={canAccept} busy={busyKey === proposal.key}
+    onAccept={event => onDecision(proposal, "accept", event.currentTarget)}
+    onDismiss={event => onDecision(proposal, "dismiss", event.currentTarget)} />;
 }
 
 export function WorkdayCorrectionForm({

@@ -81,9 +81,11 @@ Object.entries({
 const { $getRoot, CONTROLLED_TEXT_INSERTION_COMMAND, getNearestEditorFromDOMNode } = await import("lexical");
 // The Bun DOM fixture has no asset bundler. Panel avatar URLs are supplied by Vite in the app.
 const { mock } = await import("bun:test");
+mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-animation", () => ({ assistantAvatarAnimations: {} }));
 mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-assets", () => ({
   assistantAvatarImages: {}, assistantAvatarIcon: () => "flower",
 }));
+const { t } = await import("../../src/i18n");
 const { act } = await import("react");
 const { MemoryRouter } = await import("react-router-dom");
 const { WorkdayTimeline, WorkdayCorrectionForm, overlappingWorkdayRanges } = await import(
@@ -679,6 +681,12 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 10));
   });
   const block = (proposal: CaptureProposal) => document.querySelector<HTMLButtonElement>(`[data-proposal-id="${proposal.key}"]`);
+  async function calendarAction(proposal: CaptureProposal, label: string) {
+    const rail = block(proposal)?.parentElement?.querySelector("[data-calendar-proposal-actions]");
+    const control = [...rail?.querySelectorAll<HTMLButtonElement>("button") ?? []].find(candidate => candidate.title === label);
+    assert.ok(control, label);
+    await act(async () => { control.focus(); control.click(); });
+  }
   const proposalHeading = () => document.querySelector<HTMLHeadingElement>(".time-workspace-editor h3");
   async function openProposal(proposal: CaptureProposal) {
     for (let i = 0; i < 20 && !block(proposal); i++) await settle();
@@ -706,7 +714,7 @@ try {
     await act(async () => target.click());
     assert.equal(target.getAttribute("aria-pressed"), "true");
   };
-  const strips = () => [...document.querySelectorAll<HTMLElement>(".time-workspace-header .lw-panel-tab-list")];
+  const strips = () => [...document.querySelectorAll<HTMLElement>("[data-document-pane] .lw-panel-tab-list")];
   const paneOf = (id: string) => tabNode(id)?.closest(".lw-panel-tab-list");
   const paneOrder = (pane: Element) => [...pane.querySelectorAll<HTMLElement>("[data-panel-tab-id]")]
     .map(el => el.dataset.panelTabId?.replace("timekeeping:", ""));
@@ -822,12 +830,12 @@ try {
   await press("Stopwatch");
   await press("Start stopwatch");
   assert.equal(stopwatchActions.at(-1)?.projectId, undefined, "the user can start with No project");
-  await press("AI suggestion settings");
+  await press(t("timesheets.ai_settings"));
   const sourceSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
   assert.ok(sourceSwitch);
   assert.equal(sourceSwitch.dataset.size, "default");
   assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
-  await press("AI suggestion settings");
+  await press(t("timesheets.ai_settings"));
   const proposalPanel = document.querySelector<HTMLFormElement>('[data-time-proposal]');
   assert.ok(proposalPanel);
   const proposedText = proposalPanel.querySelector<HTMLTextAreaElement>('[data-column="narrative"]');
@@ -1016,7 +1024,6 @@ try {
     permissions: { userId: state.userId, edit: true, model: false, finance: false },
     sync: { enabled: false, cursor: 0, pending: 0, error: null },
   };
-  const { t } = await import("../../src/i18n");
   const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
   let workdayProposals = [exact, partial, inlineTimer, unedited];
@@ -1058,8 +1065,7 @@ try {
         drafts: Object.fromEntries(Object.entries(privateDrafts).filter(([, draft]) => draft.date === context.date)),
         proposals: workdayProposals.filter(proposal => proposal.date === context.date
           && (workdaySettings.calendar || proposal.source !== "calendar")
-          && (proposal.source !== "stopwatch" || !workdaySettings.aiSuggestions ||
-            workdaySettings.stopwatchMode !== "evidence" || modelStatus !== "ready")),
+          && (proposal.source !== "stopwatch" || workdaySettings.stopwatchMode !== "evidence" || modelStatus !== "ready")),
       };
     },
   };
@@ -1078,11 +1084,6 @@ try {
   ));
   const selectedPeriod = () => document.querySelector(".bo-time-period [aria-pressed=true]")?.textContent;
   const dayInput = () => document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]')?.value;
-  const aiSwitch = () => {
-    const control = document.querySelector<HTMLButtonElement>('.bo-workday-controls [role="switch"]');
-    assert.ok(control);
-    return control;
-  };
   const selectNative = async (element: HTMLSelectElement, value: string) => {
     await act(async () => { element.value = value; element.dispatchEvent(new window.Event("change", { bubbles: true })); });
   };
@@ -1104,11 +1105,13 @@ try {
   };
 
   await renderWorkday();
-  await until(() => !aiSwitch().disabled);
-  assert.equal(aiSwitch().getAttribute("aria-checked"), "false");
-  assert.equal(workdayActions.some(action => action.type === "refresh"), false);
-  assert.ok(block(inlineTimer), "a manually stopped timer is visible with AI off");
-  await press("AI suggestion settings");
+  await until(() => workdayActions.some(action => action.type === "refresh"));
+  assert.deepEqual(workdayActions.find(action => action.type === "refresh"), { type: "refresh", model: selectedModel },
+    "opening the day requests private suggestions even for an older profile with AI previously off");
+  assert.equal(document.querySelector('.bo-workday-controls [role="switch"]'), null);
+  assert.doesNotMatch(document.body.textContent ?? "", /Day draft is ready/);
+  assert.ok(block(inlineTimer), "the default mode keeps the stopped timer visible");
+  await press(t("timesheets.ai_settings"));
   const guidelineForm = document.querySelector<HTMLFormElement>(".time-workspace-guidelines form");
   const guidelineText = guidelineForm?.querySelector<HTMLTextAreaElement>("textarea");
   const guidelineFile = guidelineForm?.querySelector<HTMLInputElement>('input[type="file"]');
@@ -1139,16 +1142,11 @@ try {
   assert.equal(guidelines[0]?.rules.instructions, "Reviewed: use approved concise descriptions.");
   assert.equal(guidelines[0]?.scope, "firm");
   assert.equal(guidelines[0]?.effectiveFrom, base.date);
-  await press("AI suggestion settings");
-  await act(async () => aiSwitch().click());
-  await until(() => workdayActions.some(action => action.type === "refresh"));
-  assert.deepEqual(workdayActions.find(action => action.type === "refresh"), { type: "refresh", model: selectedModel });
-  await press("AI suggestion settings");
   await selectPopup(t("timesheets.source.stopwatch"), "Use as an AI source");
   assert.equal(workdaySettings.stopwatchMode, "evidence");
   await until(() => !block(inlineTimer));
   assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
-  await press("AI suggestion settings");
+  await press(t("timesheets.ai_settings"));
   modelStatus = "failed";
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(inlineTimer)));
@@ -1207,8 +1205,7 @@ try {
   assert.equal(acceptFor(partial)?.disabled, false, "touching boundaries do not overlap");
   assert.equal(proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="billableWork"]')?.value, "16");
 
-  await openProposal(unedited);
-  await press(t("timesheets.sheet.decline"), true);
+  await calendarAction(unedited, t("timesheets.sheet.decline"));
   await until(() => !block(unedited));
   assert.equal(block(unedited), null);
   assert.equal(document.activeElement, block(partial), "dismissing a focused proposal restores a useful neighbor");
@@ -1229,7 +1226,9 @@ try {
   workdayProposals.push(remaining);
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   await openProposal(remaining);
-  await press(t("timesheets.sheet.decline"), true);
+  const declineInEditor = proposalForm(remaining)?.querySelector<HTMLButtonElement>(`button[title="${t("timesheets.sheet.decline")}"]`);
+  assert.ok(declineInEditor);
+  await act(async () => { declineInEditor.focus(); declineInEditor.click(); });
   await until(() => !block(remaining));
   assert.equal(document.activeElement?.getAttribute("data-workspace-tab"), "timeline", "dismissing the last suggestion focuses the timeline");
 
@@ -1244,12 +1243,28 @@ try {
   assert.match(chatPanel?.textContent ?? "", /Rename the draft item today/);
   const dayCorrection = workdayActions.find(action => action.type === "chat");
   assert.ok(dayCorrection?.type === "chat" && !dayCorrection.instruction);
-  const purpose = chatForm?.querySelector("select");
+  assert.equal(chatForm?.querySelector("select"), null);
+  const chatOptions = async () => {
+    const optionsSelector = `form[data-workday-chat-composer] button[aria-label="${t("timeWorkspace.chatPurpose")}"]`;
+    await until(() => document.querySelector(optionsSelector));
+    const trigger = document.querySelector<HTMLButtonElement>(optionsSelector);
+    assert.ok(trigger);
+    await act(async () => trigger.click());
+  };
+  await chatOptions();
+  const purpose = document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select");
   assert.ok(purpose);
   await selectNative(purpose, "personal");
+  await chatOptions();
   await typeMessage(message, "Use a short action verb for future drafts");
   await submit(chatForm);
-  await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
+  await chatOptions();
+  const rules = document.querySelector<HTMLDetailsElement>("[data-workday-chat-options] details");
+  assert.ok(rules);
+  await act(async () => rules.querySelector("summary")?.click());
+  assert.ok(rules.open);
+  assert.match(rules.textContent ?? "", /Use a short action verb/);
+  await chatOptions();
   assert.deepEqual(workdayActions.filter(action => action.type === "chat").at(-1)?.instruction, { scope: "personal" });
 
   await selectTab("entries");
@@ -1264,8 +1279,9 @@ try {
   assert.equal(dayInput(), base.date);
   await selectTab("chat");
   assert.doesNotMatch(chatPanel?.textContent ?? "", /Rename the draft item today/);
-  await until(() => chatPanel?.querySelector(".time-workspace-rules")?.textContent?.includes("Use a short action verb"));
-  assert.match(chatPanel?.querySelector(".time-workspace-rules")?.textContent ?? "", /Use a short action verb/);
+  await chatOptions();
+  assert.match(document.querySelector("[data-workday-chat-options] details")?.textContent ?? "", /Use a short action verb/);
+  await chatOptions();
 
   const remount = async () => {
     await act(async () => root.render(null));
@@ -1334,7 +1350,7 @@ try {
   }
   await remount();
   assert.equal(tabNode("timeline")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
-  workdaySettings = { ...workdaySettings, aiSuggestions: false };
+  workdaySettings = { ...workdaySettings, stopwatchMode: "always" };
   privateDrafts[inlineTimer.key] = {
     date: inlineTimer.date, proposalDigest: inlineTimer.digest,
     values: { workflow: true, charge: "37" },

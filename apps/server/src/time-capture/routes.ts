@@ -389,12 +389,10 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         if (message) {
           if (message.role !== "user" || message.text !== action.text || Boolean(message.permanent) !== Boolean(usage))
             throw new ApiError(409, "private_workday_changed", "This message changed. Send it as a new correction.");
-          return !current.settings.aiSuggestions || transcript.some(turn => turn.replyTo === action.id);
+          return transcript.some(turn => turn.replyTo === action.id);
         }
         const prior = Object.values(current.chat).some(day => day.some(turn => turn.id === action.id));
         if (prior) throw new ApiError(409, "private_workday_changed", "This message belongs to another workday.");
-        if (!current.settings.aiSuggestions && !usage)
-          throw new ApiError(409, "timesheet_model_unavailable", "Enable AI suggestions to chat with your workday.");
         if (usage) {
           if (usage.scope !== "personal" && usage.matterId &&
               !directory?.matters.some(matter => matter.id === usage.matterId))
@@ -407,17 +405,15 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
           current.instructions[action.id] = { ...usage, id: action.id, text: action.text };
         }
         current.chat[date] = [...transcript, { id: action.id, role: "user", text: action.text, permanent: Boolean(usage) }];
-        const deferred = !current.settings.aiSuggestions;
-        if (deferred) current.chat[date].push({ id: randomUUID(), role: "assistant", text: "Saved this private instruction.", replyTo: action.id });
         await verifyProfile();
         await save(path, current);
-        return deferred;
+        return false;
       });
       if (alreadyAnswered) return;
     }
     const initial = await load(path);
     const settings = initial.settings;
-    const withModel = action.type !== "calendar" && settings.aiSuggestions === true;
+    const withModel = action.type !== "calendar";
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const choice = modelChoice(config, initial, "model" in action ? action.model : undefined);
     const runtime = withModel && localChoice(choice) ? await localModel() : null;
@@ -474,7 +470,8 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
           if (status.type === "ready") current.lastModel = choice;
         }
         if (action.type === "chat" && !current.chat[date]?.some(turn => turn.replyTo === action.id))
-          (current.chat[date] ??= []).push({ id: randomUUID(), role: "assistant", text: status.message, replyTo: action.id });
+          (current.chat[date] ??= []).push({ id: randomUUID(), role: "assistant",
+            text: action.instruction ? "Saved this private instruction." : status.message, replyTo: action.id });
         await save(path, current);
       });
     };
@@ -555,7 +552,7 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
   const owner = await profile(config);
   const { settings, lastRun } = await load(owner.path);
   const now = (options.now ?? Date.now)();
-  if (settings.intervalMinutes && settings.aiSuggestions && now - lastRun >= settings.intervalMinutes * 60_000) {
+  if (settings.intervalMinutes && now - lastRun >= settings.intervalMinutes * 60_000) {
     const date = dayInZone(new Date(now).toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
     await prepare(config, owner, date, { type: "refresh" }, options);
   }
@@ -663,6 +660,7 @@ export function registerWorkdayRoutes(options: {
       )
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
+      let sourcePreview = false;
       if (method === "POST") {
         options.ensureWritable(config);
         if (ctx.url.searchParams.get("preview") === "guideline-pdf") {
@@ -689,6 +687,7 @@ export function registerWorkdayRoutes(options: {
           .safeParse(await options.readJsonBodyLimited(ctx.request, 100_000));
         if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
         const action = parsed.data;
+        sourcePreview = action.type === "calendar";
         if (action.type === "suggest" || action.type === "refresh" || action.type === "run" ||
             action.type === "calendar" || action.type === "chat")
           await prepare(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
@@ -704,8 +703,7 @@ export function registerWorkdayRoutes(options: {
               for (const job of workdaysRunning.get(path)?.values() ?? []) job.controller.abort();
               if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
                 s.documentEpoch++;
-              if (s.settings.aiSuggestions !== action.settings.aiSuggestions ||
-                  digest([s.settings.model]) !== digest([action.settings.model])) s.reconstruction = {};
+              if (digest([s.settings.model]) !== digest([action.settings.model])) s.reconstruction = {};
               if (s.settings.model && !action.settings.model) delete s.lastModel;
               s.settings = action.settings;
             } else if (action.type === "instruction") {
@@ -821,12 +819,12 @@ export function registerWorkdayRoutes(options: {
         const p = item.proposal;
         if (p.projectId && !workspaceIds?.has(p.projectId)) return false;
         if ((s.accepted[p.key] && !s.pendingBookings[p.key]) || p.dismissed || !eligibleSource(item, connections, s.settings)) return false;
-        if (p.source !== "stopwatch") return s.settings.aiSuggestions === true || !item.generated || protectedProposal(s, item);
-        if (item.generated) return (s.settings.aiSuggestions === true && s.settings.stopwatchMode === "evidence") || protectedProposal(s, item);
+        if (p.source !== "stopwatch") return item.generated || sourcePreview || protectedProposal(s, item);
+        if (item.generated) return s.settings.stopwatchMode === "evidence" || protectedProposal(s, item);
         const covered = day.some(other => other.generated && other !== item && overlapsEvidence(item, other) &&
-          (protectedProposal(s, other) || (s.settings.aiSuggestions && s.settings.stopwatchMode === "evidence" && generatedReady)));
+          (protectedProposal(s, other) || (s.settings.stopwatchMode === "evidence" && generatedReady)));
         return !covered && (protectedProposal(s, item) ||
-          !(s.settings.aiSuggestions && s.settings.stopwatchMode === "evidence" && generatedReady));
+          !(s.settings.stopwatchMode === "evidence" && generatedReady));
       });
       const result = options.jsonResponse({
         settings: s.settings,

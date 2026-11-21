@@ -2,7 +2,6 @@ import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
 import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
-import { PanelHeaderTarget } from "../../../design-system/panel-chrome";
 import { timePage } from "../../back-office/time-routes";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
@@ -602,9 +601,8 @@ export function SessionPage(props: SessionPageProps) {
   });
   const [viewerHeaderWidth, setViewerHeaderWidth] = useState(browserPanelWidth);
   const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
-  const [pageHeaderTarget, setPageHeaderTarget] = useState<HTMLDivElement | null>(null);
   const page = timePage(location.pathname);
-  const workdayHeader = !mobile && (page === "timesheets" || page === "timesheet-workday");
+  const workdayPage = page === "timesheets" || page === "timesheet-workday";
   const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
@@ -1231,9 +1229,8 @@ export function SessionPage(props: SessionPageProps) {
               {wikiWorkspace ? <SidebarTrigger className="titlebar-no-drag text-muted-foreground" aria-label={t("wiki.toggle_navigation")} title={t("wiki.toggle_navigation")} aria-expanded={wikiNavigationOpen} onToggleSidebar={toggleWikiNavigation} /> : shellConfig.sidebar && !props.titlebarControlsHidden && (mobile || (!topLevelPage && !assistantActive)) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
               <WindowMenubar />
             </div>
-            <div className={cn("flex min-w-0 flex-1 items-center gap-3", workdayHeader && "h-full")}>
-              {workdayHeader && <div ref={setPageHeaderTarget} data-panel-header="workday" className="h-full min-w-0 flex-1 empty:hidden" />}
-              <h1 className={cn("truncate text-[13px] font-medium tracking-[-0.01em]", workdayHeader && "[div:not(:empty)+&]:sr-only")}>{windowTitle}</h1>
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
               {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
               {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
             </div>
@@ -1243,7 +1240,7 @@ export function SessionPage(props: SessionPageProps) {
                 <WorkspaceWindowButton workspaceId={props.selectedWorkspaceId} showButton={!hasMainView} />
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
-              {hasMainView && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
+              {hasMainView && !workdayPage && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
               <NotificationBell />
               {props.developerMode ? (
                 <Button
@@ -1344,7 +1341,7 @@ export function SessionPage(props: SessionPageProps) {
               {reconnectNotice}
               {workspaceErrorNotice}
               {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
-              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : <PanelHeaderTarget.Provider value={pageHeaderTarget}>{mainView}</PanelHeaderTarget.Provider>}</div>
+              <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
             </main>
               </ResizablePanel>
               {sidePanelOpen ? (
