@@ -602,7 +602,6 @@ export function SessionPage(props: SessionPageProps) {
   const [viewerHeaderWidth, setViewerHeaderWidth] = useState(browserPanelWidth);
   const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
   const page = timePage(location.pathname);
-  const workdayPage = page === "timesheets" || page === "timesheet-workday";
   const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
@@ -1240,7 +1239,7 @@ export function SessionPage(props: SessionPageProps) {
                 <WorkspaceWindowButton workspaceId={props.selectedWorkspaceId} showButton={!hasMainView} />
               ) : null}
               {!hasMainView && props.selectedWorkspaceId && <WorkspaceViewMenu scope={workspaceScope} />}
-              {hasMainView && !workdayPage && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
+              {hasMainView && !page && !sidebarVisible && props.selectedWorkspaceId && <Button variant="secondary" size="sm" onClick={() => navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace")} title={t("workspace.return_to", { name: workspaceName })}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</Button>}
               <NotificationBell />
               {props.developerMode ? (
                 <Button

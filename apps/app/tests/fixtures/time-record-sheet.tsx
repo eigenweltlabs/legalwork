@@ -177,7 +177,7 @@ function selectField(root: HTMLElement, label: string) {
   assert.ok(element, label);
   return element;
 }
-async function editProposal(id: string, field: "textarea" | 'input[type="number"]', value: string) {
+async function editProposal(id: string, field: "textarea" | 'input[data-field="recordedMinutes"]' | 'input[data-field="billableMinutes"]', value: string) {
   const input = proposalDetails(id).querySelector(field);
   assert.ok(input instanceof window.HTMLInputElement || input instanceof window.HTMLTextAreaElement);
   await act(async () => {
@@ -272,12 +272,12 @@ try {
   await act(async () => minutesInput.blur());
   assert.equal(writes.length, 2);
   assert.equal(writes[1].revision, 1);
-  assert.deepEqual(writes[1].expectedValues, { recordedMinutes: 15 });
-  assert.deepEqual(writes[1].values, { recordedMinutes: 25 });
+  assert.deepEqual(writes[1].expectedValues, { recordedMinutes: 15, startedAt: savedRow.values.startedAt, endedAt: savedRow.values.endedAt });
+  assert.deepEqual(writes[1].values, { recordedMinutes: 25, startedAt: first, endedAt: null });
   assert.match(row(savedRow.id).textContent ?? "", /Colleague's narrative/);
   await act(async () => button(row(savedRow.id), t("back_office.conflict.apply")).click());
   assert.equal(writes[2].revision, 2);
-  assert.deepEqual(writes[2].expectedValues, { recordedMinutes: 30 });
+  assert.deepEqual(writes[2].expectedValues, { recordedMinutes: 30, startedAt: savedRow.values.startedAt, endedAt: savedRow.values.endedAt });
   assert.equal(current.values.billingNarrative, "Colleague's narrative");
   assert.equal(current.values.recordedMinutes, 25);
 
@@ -331,7 +331,7 @@ try {
   await act(async () => button(proposalDetails(unlinked.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 4);
   assert.match(proposalDetails(unlinked.key).textContent ?? "", /Add a client to this matter/);
-  await editProposal(uncharged.key, 'input[type="number"]', "0");
+  await editProposal(uncharged.key, 'input[data-field="billableMinutes"]', "0");
   await act(async () => button(proposalDetails(uncharged.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 5);
   assert.equal(writes[4].values.client, null);
@@ -474,7 +474,8 @@ try {
   // A poll applies another window's stored draft while this editor still owns focus.
   for (const { field, valueKey, typed, original, remote } of [
     { field: "textarea", valueKey: "billingNarrative", typed: "Window A wording", original: "Before typing", remote: "Window B saved" },
-    { field: 'input[type="number"]', valueKey: "billableMinutes", typed: "24", original: 15, remote: 19 },
+    { field: 'input[data-field="billableMinutes"]', valueKey: "billableMinutes", typed: "24", original: 15, remote: 19 },
+    { field: 'input[data-field="recordedMinutes"]', valueKey: "recordedMinutes", typed: "24", original: 15, remote: 19 },
   ]) {
     const candidate = { ...proposal, key: crypto.randomUUID() };
     const initial = { date: first, proposalDigest: candidate.digest, revision: 1, values: { [valueKey]: original } };
@@ -503,7 +504,7 @@ try {
     assert.equal(control.value, typed);
     assert.deepEqual(attempts, [], "typing remains local until blur");
     await act(async () => control.blur());
-    assert.deepEqual(attempts, [{ revision: 1, value: valueKey === "billableMinutes" ? Number(typed) : typed }]);
+    assert.deepEqual(attempts, [{ revision: 1, value: valueKey === "billingNarrative" ? typed : Number(typed) }]);
     assert.match(proposalDetails(candidate.key).querySelector('[role="alert"]')?.textContent ?? "", /Private edit conflict/);
     assert.equal(writes.length, beforeWrites);
   }
@@ -565,6 +566,23 @@ try {
   assert.equal(timelineButton(beforeDirectoryRefresh.key), null, "the locally acknowledged proposal leaves the timeline before directory refresh");
   assert.equal(host.querySelector(".time-workspace-editor"), null);
   assert.equal(document.activeElement, timelineButton(nextSuggestion.key), "the Records editor restores focus on local acknowledgement");
+  const untimed = { ...proposal, key: crypto.randomUUID(), digest: "f".repeat(64),
+    source: "documents" as const, matterId: singleClientMatter.id, narrative: "Drafting a response", workedMinutes: null };
+  await render(capture({ proposals: [untimed], privateAvailable: true }));
+  const recorded = proposalDetails(untimed.key).querySelector<HTMLInputElement>('input[data-field="recordedMinutes"]');
+  assert.ok(recorded && !recorded.readOnly && !recorded.disabled, "an untimed document suggestion accepts recorded minutes directly");
+  const beforeMinutes = writes.length;
+  await editProposal(untimed.key, 'input[data-field="recordedMinutes"]', "25");
+  assert.equal(writes.length, beforeMinutes, "entering recorded minutes only updates the private draft");
+  assert.equal(proposalDetails(untimed.key).querySelector<HTMLInputElement>('input[data-field="recordedMinutes"]')?.value, "25");
+  assert.equal(proposalDetails(untimed.key).querySelector<HTMLInputElement>('input[data-field="billableMinutes"]')?.value, "25");
+  await act(async () => button(proposalDetails(untimed.key), t("timesheets.sheet.accept")).click());
+  assert.equal(writes.length, beforeMinutes + 1);
+  assert.equal(writes.at(-1)?.values.recordedMinutes, 25);
+  assert.equal(writes.at(-1)?.values.billableMinutes, 25);
+  assert.equal(writes.at(-1)?.values.startedAt, first);
+  assert.equal(writes.at(-1)?.values.endedAt, null);
+  assert.equal(untimed.workedMinutes, null, "reviewed minutes do not rewrite the original source evidence");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { z } from "zod";
 import { backOfficeAccess } from "../back-office/access.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { BackOfficeRecordSchema } from "../back-office/schema.js";
@@ -150,6 +151,82 @@ test("private booking keeps confirmed draft revisions across manual publication 
     await expect(acceptPrivateProposal(config, identity, proposal.key, proposal.digest,
       async () => "completed", "workflow", expected)).resolves.toBe("completed");
     expect(captureStateSchema.parse(await (await call(workday)).json()).drafts[proposal.key]).toBeUndefined();
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reviewed directory bookings accept manual minutes and preserve the private source for timed and untimed proposals", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-proposal-booked-minutes-"));
+  const config = backOfficeTestConfig(root);
+  const { path, profileId, scope, user, principal } = await captureProfile(config, await backOfficeAccess(config));
+  const date = "2026-11-20";
+  const proposals = [false, true].map(timed => {
+    const proposal = captureProposalSchema.parse({
+      key: randomUUID(), digest: "0".repeat(64), date,
+      source: timed ? "calendar" : "documents", projectId: null, activity: "RES",
+      narrative: timed ? "Original calendar source" : "Original document source",
+      startAt: timed ? date + "T13:00:00Z" : null,
+      endAt: timed ? date + "T13:30:00Z" : null,
+      workedMinutes: timed ? 30 : null, dismissed: false,
+    });
+    return { ...proposal, digest: proposalCommitment(proposal) };
+  });
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify({
+    settings: { calendar: true, tasks: false, documents: true, intervalMinutes: 0 }, lastRun: 0,
+    days: { [date]: proposals.map(proposal => ({ eventKey: proposal.key, proposal, generated: true })) },
+    originals: Object.fromEntries(proposals.map(proposal => [proposal.digest, proposal])),
+  }));
+  const server = await startServer(config);
+  const query = new URLSearchParams({ date, profileId, scope, user, principal });
+  const records = "/back-office/records?scope=local";
+  const workday = "/private-timesheet/workday?" + query;
+  const call = (route: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${route}`, {
+    method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+    headers: { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" },
+  });
+  const json = async (response: Response): Promise<unknown> => {
+    const body: unknown = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    return body;
+  };
+  const recordResult = z.object({ record: BackOfficeRecordSchema });
+  const record = async (body: unknown) => recordResult.parse(await call(records, body).then(json)).record;
+  try {
+    const client = await record({ revision: 0, objectId: "clients", values: { name: "Synthetic client" } });
+    const matter = await record({ revision: 0, objectId: "matters", values: { name: "Synthetic matter", clients: [client.id] } });
+    for (const proposal of proposals) {
+      const timed = proposal.startAt !== null;
+      const recordedMinutes = timed ? 24 : 15;
+      const values = {
+        name: "Reviewed service", billingNarrative: "Reviewed service", status: "Draft",
+        matter: matter.id, client: client.id, serviceDate: date, startedAt: proposal.startAt ?? date,
+        endedAt: proposal.endAt, recordedMinutes: proposal.workedMinutes, billableMinutes: timed ? 20 : 10,
+      };
+      const patch = { type: "draft-patch", key: proposal.key, date, proposalDigest: proposal.digest };
+      const initial = captureStateSchema.parse(await call(workday, { ...patch, revision: 0, changes: values }).then(json)).drafts[proposal.key];
+      const changes = timed ? { recordedMinutes, startedAt: date, endedAt: null } : { recordedMinutes };
+      const reviewed = captureStateSchema.parse(await call(workday, { ...patch, revision: initial.revision, changes }).then(json)).drafts[proposal.key];
+      const publication = {
+        id: proposal.key, create: true, revision: 0, objectId: "timeEntries", values: reviewed.values,
+        privateProposal: { key: proposal.key, digest: proposal.digest, profileId, draftRevision: reviewed.revision },
+      };
+      const stale = await call(records, { ...publication, privateProposal: { ...publication.privateProposal, draftRevision: initial.revision } });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ code: "private_draft_conflict" });
+      const saved = await record(publication);
+      expect(saved.values).toMatchObject({ recordedMinutes, startedAt: date, endedAt: null, serviceDate: date });
+      expect((await record(publication)).id).toBe(saved.id);
+      expect(JSON.stringify(saved)).not.toContain(proposal.digest);
+
+      const original = await call("/private-timesheet/original/" + proposal.digest + "?" + query).then(json);
+      expect(original).toMatchObject({ digest: proposal.digest, narrative: proposal.narrative, workedMinutes: proposal.workedMinutes });
+      const workdayAfterBooking = captureStateSchema.parse(await call(workday).then(json));
+      expect(workdayAfterBooking.drafts[proposal.key]).toBeUndefined();
+      expect(workdayAfterBooking.proposals.some(item => item.key === proposal.key)).toBe(false);
+    }
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });

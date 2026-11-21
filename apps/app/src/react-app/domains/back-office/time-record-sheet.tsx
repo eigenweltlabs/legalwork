@@ -51,7 +51,7 @@ type Props = { client: LegalworkServerClient; directory: BackOfficeState; state:
 function RecordProposalField({ record, revision, field, disabled, onCommit }: {
   record: BackOfficeRecord;
   revision: number;
-  field: "billingNarrative" | "billableMinutes";
+  field: "billingNarrative" | "recordedMinutes" | "billableMinutes";
   disabled: boolean;
   onCommit: (patch: TimeRecordValues, base: BackOfficeRecord, baseRevision: number) => void;
 }) {
@@ -74,7 +74,7 @@ function RecordProposalField({ record, revision, field, disabled, onCommit }: {
   return field === "billingNarrative"
     ? <textarea value={typed ?? saved} maxLength={2000} rows={3} disabled={disabled}
         onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />
-    : <input type="number" min="0" max="1440" value={typed ?? saved} disabled={disabled}
+    : <input type="number" data-field={field} min="0" max="1440" value={typed ?? saved} disabled={disabled}
         onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />;
 }
 
@@ -504,7 +504,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     if ((origin || (id === blankId && !matchingDraft)) && !Object.keys(values).length) return;
     const latest = matchingDraft?.record ?? record;
     const next = { ...latest, values: { ...latest.values, ...values } };
-    if (!origin && next.values.billableMinutes == null && typeof next.values.recordedMinutes === "number" && next.values.matter) {
+    if (next.values.billableMinutes == null && typeof next.values.recordedMinutes === "number" && next.values.matter) {
       const matter = state.matters.find(item => item.id === next.values.matter);
       if (matter && !matter.clientIds.length) next.values.billableMinutes = 0;
       else if (matter && typeof next.values.client === "string") {
@@ -775,7 +775,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         </label>
         <div className="time-workspace-form-pair">
           <label>{t("timesheets.ledger.worked")}
-            <input value={String(values.recordedMinutes ?? "")} readOnly />
+            <RecordProposalField record={record} revision={revision} field="recordedMinutes" disabled={!editable || busy} onCommit={patch} />
           </label>
           <label>{t("timesheets.ledger.charge")}
             <RecordProposalField record={record} revision={revision} field="billableMinutes" disabled={!editable || busy} onCommit={patch} />

@@ -95,6 +95,13 @@ export function timeCellChanges(base: TimeRecordValues, changes: TimeRecordValue
     if (target === timeRecordDate(base.startedAt, base.serviceDate)) delete patch.startedAt;
     else Object.assign(patch, { startedAt: target, serviceDate: target, endedAt: null });
   }
+  if (typeof patch.recordedMinutes === "number" && typeof base.startedAt === "string" && typeof base.endedAt === "string") {
+    const elapsed = (Date.parse(base.endedAt) - Date.parse(base.startedAt)) / 60000;
+    if (Number.isFinite(elapsed) && Math.round(elapsed) !== patch.recordedMinutes) {
+      const serviceDate = timeRecordDate(patch.startedAt ?? base.startedAt, patch.serviceDate ?? base.serviceDate) || date;
+      Object.assign(patch, { startedAt: serviceDate, serviceDate, endedAt: null });
+    }
+  }
   if (typeof patch.billingNarrative === "string" && patch.billingNarrative !== base.billingNarrative) patch.name = patch.billingNarrative.slice(0, 240);
   if (Object.hasOwn(patch, "matter") && patch.matter !== base.matter) patch.client = typeof patch.matter === "string" ? clientForMatter(patch.matter) : null;
   if (Object.hasOwn(patch, "timekeeper") && patch.timekeeper === memberLabel) delete patch.timekeeper;
@@ -103,7 +110,7 @@ export function timeCellChanges(base: TimeRecordValues, changes: TimeRecordValue
 
 export function conflictingTimeFields(values: TimeRecordValues, fields: string[]) {
   const conflicts = new Set(fields);
-  for (const group of [["name", "billingNarrative"], ["startedAt", "serviceDate", "endedAt"], ["matter", "client"]]) {
+  for (const group of [["name", "billingNarrative"], ["startedAt", "serviceDate", "endedAt", "recordedMinutes"], ["matter", "client"]]) {
     if (group.some(id => conflicts.has(id))) for (const id of group) if (Object.hasOwn(values, id)) conflicts.add(id);
   }
   return conflicts;

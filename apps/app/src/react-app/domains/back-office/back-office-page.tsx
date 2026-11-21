@@ -501,7 +501,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
                     onClick={() => void beginCreate()}
                     disabled={!data.permissions.edit}
                   >
-                    {embeddedObject === "invoices" ? t("back_office.create.title", { name: object.label }) : t("welcome.project_create")}
+                    {embeddedObject === "invoices" ? t("timesheets.invoice_record_add") : t("welcome.project_create")}
                   </Button>
                   <DirectoryMenu
                     open={more}

@@ -62,6 +62,11 @@ test("record sheet edits preserve genuine clocks when the selected service date 
   const values = proposalValues(proposal, state), clientForMatter = () => null;
   expect(values).toMatchObject({ startedAt, endedAt, serviceDate });
   expect(timeCellChanges(values, { startedAt: serviceDate }, serviceDate, undefined, clientForMatter)).toEqual({});
+  expect(timeCellChanges(values, { recordedMinutes: 10 }, serviceDate, undefined, clientForMatter)).toEqual({});
+  const adjusted = timeCellChanges(values, { recordedMinutes: 25 }, serviceDate, undefined, clientForMatter);
+  expect(adjusted).toEqual({ recordedMinutes: 25, startedAt: serviceDate, endedAt: null });
+  expect(conflictingTimeFields(adjusted, ["recordedMinutes"])).toEqual(new Set(["recordedMinutes", "startedAt", "endedAt"]));
+  expect(values.startedAt).toBe(startedAt);
   const nextDay = "2026-11-20";
   const move = timeCellChanges(values, { startedAt: nextDay }, serviceDate, undefined, clientForMatter);
   expect(move).toEqual({ startedAt: nextDay, serviceDate: nextDay, endedAt: null });
