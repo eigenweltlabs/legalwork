@@ -344,7 +344,7 @@ export default {
   "timesheets.date": "Work date",
   "timesheets.sources": "Activity sources",
   "timesheets.calendar": "Project calendar",
-  "timesheets.tasks": "Completed tasks by due date",
+  "timesheets.tasks": "Completed tasks",
   "timesheets.schedule": "Prepare suggestions",
   "timesheets.on_demand": "When opening the workday",
   "timesheets.no_model": "Choose a connected model to generate suggestions.",

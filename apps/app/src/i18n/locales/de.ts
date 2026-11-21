@@ -354,7 +354,7 @@ const de = {
   "timesheets.date": "Leistungsdatum",
   "timesheets.sources": "Aktivitätsquellen",
   "timesheets.calendar": "Projektkalender",
-  "timesheets.tasks": "Erledigte Aufgaben nach Fälligkeit",
+  "timesheets.tasks": "Erledigte Aufgaben",
   "timesheets.schedule": "Vorschläge erstellen",
   "timesheets.on_demand": "Beim Öffnen des Arbeitstags",
   "timesheets.no_model": "Wählen Sie in LegalWork ein verbundenes Chatmodell für die Vorschläge.",
