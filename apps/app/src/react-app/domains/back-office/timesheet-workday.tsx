@@ -5,8 +5,8 @@ import { Settings, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import {
-  captureAccountEnabled, localWorkdayModel, sameCaptureAccount,
-  type CaptureAction, type CaptureState, type WorkdayModelOption, type CaptureProposal,
+  captureAccountEnabled, localWorkdayModel,
+  type CaptureAction, type CaptureState, type PrivateDraftPatch, type WorkdayModelOption, type CaptureProposal,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
@@ -158,6 +158,7 @@ export function TimesheetWorkday({
 
   async function act(action: CaptureAction, signal?: AbortSignal) {
     const foreground = action.type !== "draft" && action.type !== "refresh";
+    const settingsMutation = action.type === "settings" || action.type === "settings-patch";
     if (foreground && inFlight.current) return false;
     if (foreground) {
       inFlight.current = true;
@@ -169,7 +170,7 @@ export function TimesheetWorkday({
     try {
       const next = await client.privateWorkday({ ...identity, date: target }, action, signal);
       if (signal?.aborted) return false;
-      if (action.type === "settings") {
+      if (settingsMutation) {
         await cache.cancelQueries({ queryKey: scopeKey });
         cache.setQueriesData<CaptureState>({ queryKey: [...scopeKey, "day"] }, previous =>
           previous && { ...previous, settings: next.settings, connections: next.connections, proposals: [] });
@@ -187,7 +188,7 @@ export function TimesheetWorkday({
       });
       if (action.type === "draft" && target !== date) {
         void cache.invalidateQueries({ queryKey: [...scopeKey, "overview"] });
-      } else if (action.type === "settings") {
+      } else if (settingsMutation) {
         await cache.invalidateQueries({ queryKey: [...scopeKey, "day"] });
       }
       return true;
@@ -200,6 +201,23 @@ export function TimesheetWorkday({
         setRunning(false);
       }
     }
+  }
+
+  async function writeDraft(action: PrivateDraftPatch) {
+    const next = await client.privateWorkday({ ...identity, date: action.date }, action);
+    const key = dayKey(action.date);
+    const updated = next.drafts[action.key];
+    await cache.cancelQueries({ queryKey: key, exact: true });
+    cache.setQueryData<CaptureState>(key, previous => {
+      if (!previous) return next;
+      const drafts = { ...previous.drafts };
+      if (updated) {
+        if ((updated.revision ?? 0) >= (drafts[action.key]?.revision ?? 0)) drafts[action.key] = updated;
+      } else if ((drafts[action.key]?.revision ?? 0) <= action.revision) delete drafts[action.key];
+      return { ...previous, drafts };
+    });
+    if (action.date !== date) void cache.invalidateQueries({ queryKey: [...scopeKey, "overview"] });
+    return updated ?? null;
   }
 
   const refreshKey = visible && local && settings
@@ -309,7 +327,7 @@ export function TimesheetWorkday({
   }
   const capture: TimeCaptureSheet = {
     proposals: shown, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
-    overlaps, linkableRecords: ownRecords, selectDate, act,
+    overlaps, linkableRecords: ownRecords, selectDate, act, writeDraft,
     openSource: proposal => {
       focusRequest.current = { target: "editor" };
       setCorrection(proposal);
@@ -324,7 +342,7 @@ export function TimesheetWorkday({
     if (deciding && deciding.key !== selected?.key) editors.push(deciding);
     return <TimeWorkspacePanels visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
-      chat={<TimeWorkspaceChat key={date} data={data} state={state} proposals={proposals}
+      chat={<TimeWorkspaceChat key={date} draftKey={["timekeeping-chat-draft", ...scopeKey, date]} data={data} state={state} proposals={proposals}
         pending={running} onAction={requestModel} />}
       timeline={(view, choose) => (
         <>
@@ -431,8 +449,8 @@ export function TimesheetWorkday({
                       ...modelOptions.map(item => ({ id: modelKey(item), name: item.label })),
                     ]} onChange={value => {
                       const choice = modelOptions.find(item => modelKey(item) === value);
-                      void act({ type: "settings", settings: { ...settings,
-                        model: choice && { workspaceId: choice.workspaceId, providerID: choice.providerID, modelID: choice.modelID } } });
+                      void act({ type: "settings-patch", change: { field: "model",
+                        value: choice ? { workspaceId: choice.workspaceId, providerID: choice.providerID, modelID: choice.modelID } : null } });
                     }} />
                 </TimeSetting>
               </TimeSettingsGroup>
@@ -446,7 +464,7 @@ export function TimesheetWorkday({
                       checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
                       disabled={running}
                       onChange={(checked) =>
-                        void act({ type: "settings", settings: { ...settings, [source]: checked } })
+                        void act({ type: "settings-patch", change: { field: source, value: checked } })
                       }
                     />
                   );
@@ -459,7 +477,7 @@ export function TimesheetWorkday({
                     ]}
                     onChange={value => {
                       if (value === "always" || value === "evidence")
-                        void act({ type: "settings", settings: { ...settings, stopwatchMode: value } });
+                        void act({ type: "settings-patch", change: { field: "stopwatchMode", value } });
                     }} />
                 </TimeSetting>
                 {data?.connections.map((account) => {
@@ -470,14 +488,7 @@ export function TimesheetWorkday({
                       label={t(sourceKeys[account.provider])}
                       disabled={running}
                       checked={enabled}
-                      onChange={(checked) => {
-                        const list = settings.connections ?? settings.disabledConnections ?? [];
-                        const others = list.filter(item => !sameCaptureAccount(item, account));
-                        const selection = settings.connections
-                          ? { connections: checked ? [...others, account] : others }
-                          : { disabledConnections: checked ? others : [...others, account] };
-                        void act({ type: "settings", settings: { ...settings, ...selection } });
-                      }}
+                      onChange={(checked) => void act({ type: "settings-patch", change: { field: "account", account, value: checked } })}
                     />
                   );
                 })}
@@ -494,7 +505,7 @@ export function TimesheetWorkday({
                     onChange={(value) => {
                       const interval = Number(value);
                       if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
-                        void act({ type: "settings", settings: { ...settings, intervalMinutes: interval } });
+                        void act({ type: "settings-patch", change: { field: "intervalMinutes", value: interval } });
                     }}
                   />
                 </TimeSetting>

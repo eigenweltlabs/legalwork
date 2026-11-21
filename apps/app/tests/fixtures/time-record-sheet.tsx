@@ -446,11 +446,18 @@ try {
   });
   const pendingDirectory = { ...directory, records: [workerContact, singleClientMatter, ...clientRecords] };
   client.privateStopwatch = async () => ({ profileId: directory.captureProfileId ?? "", active: null, lastStopped: null, projects: [] });
-  client.privateWorkday = async () => ({
+  const workdayDrafts: TimeCaptureSheet["drafts"] = {};
+  client.privateWorkday = async (_context, action) => {
+    if (action?.type === "draft-patch") {
+      if (action.changes) workdayDrafts[action.key] = { date: action.date, proposalDigest: action.proposalDigest,
+        values: { ...(workdayDrafts[action.key]?.values ?? action.initial), ...action.changes }, revision: action.revision + 1 };
+      else delete workdayDrafts[action.key];
+    }
+    return ({
     settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
-    drafts: {}, proposals: [beforeDirectoryRefresh, nextSuggestion], modelReady: false,
+    drafts: workdayDrafts, proposals: [beforeDirectoryRefresh, nextSuggestion], modelReady: false,
     connections: [], chat: [], instructions: [], guidelines: [],
-  });
+  }); };
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
     <TimesheetWorkday client={client} directory={pendingDirectory} state={state} initialDate={first} onDateChange={() => {}}>
       {(capture, workspace) => <TimeRecordSheet client={client} directory={pendingDirectory} state={state}

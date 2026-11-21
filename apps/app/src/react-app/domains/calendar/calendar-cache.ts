@@ -6,9 +6,10 @@ import { connectedCalendarEvents, type ConnectedCalendar } from "./connected-cal
 // Keep private data in memory only. Opaque credential IDs avoid putting tokens
 // in query keys, while separating accounts served from the same endpoint.
 const credentials = new Map<string | undefined, string>();
-export function calendarClientScope(client: Pick<LegalworkServerClient, "baseUrl" | "token"> | null) {
+export function calendarClientScope(client: (Pick<LegalworkServerClient, "baseUrl" | "token"> & Partial<Pick<LegalworkServerClient, "credentialScope">>) | null) {
   if (!credentials.has(client?.token)) credentials.set(client?.token, crypto.randomUUID());
-  return [client?.baseUrl, credentials.get(client?.token)];
+  const tokenScope = credentials.get(client?.token);
+  return [client?.baseUrl, client?.credentialScope ? `${client.credentialScope}:${tokenScope}` : tokenScope];
 }
 
 // Keep the last successful result for the session, including across failed

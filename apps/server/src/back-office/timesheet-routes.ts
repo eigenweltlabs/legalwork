@@ -77,7 +77,7 @@ export function registerTimesheetRoutes(
         query.get("directoryId") !==
           (await backOfficeDirectoryIdentity(config, scope, store)))
     )
-      timeError("The connected directory changed. Reopen this timesheet.", 409);
+      throw new ApiError(409, "back_office_account_changed", "The connected directory changed. Reopen this timesheet.");
     store.requireAccount(scope, actor);
   }
   const platform = (
@@ -409,6 +409,8 @@ export function registerTimesheetRoutes(
             .enum(["docx", "pdf"])
             .parse(ctx.url.searchParams.get("format"));
         if (access.scope !== "local") {
+          const query = new URLSearchParams({ format });
+          if (revision) query.set("revision", revision);
           const remote = z
             .object({
               format: z.literal(format),
@@ -418,7 +420,7 @@ export function registerTimesheetRoutes(
               await platform(
                 access,
                 "GET",
-                "/drafts/" + id + "/document?format=" + format,
+                "/drafts/" + id + "/document?" + query,
               ),
             );
           await assertFinance(ctx, store, access);

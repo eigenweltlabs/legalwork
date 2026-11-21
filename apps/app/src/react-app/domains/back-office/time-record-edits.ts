@@ -1,10 +1,20 @@
 import { BackOfficeRecordSchema, BackOfficeValueSchema, canonicalBackOfficeAudit, z, type BackOfficeField, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { CaptureProposal } from "@legalwork/types/time-capture";
+import { privateEntryDraftSchema } from "@legalwork/types/time-capture";
+import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { timeRecordDate } from "./time-record-values";
 
 export type TimeRecordValues = Record<string, BackOfficeValue>;
 export type ProposalOrigin = Pick<CaptureProposal, "key" | "digest" | "date">;
-export type TimeRowDraft = { record: BackOfficeRecord; date: string; proposal?: ProposalOrigin; privateSaved?: boolean };
+export type TimeRowDraft = {
+  record: BackOfficeRecord; date: string; proposal?: ProposalOrigin; privateSaved?: boolean;
+  privateRevision?: number; changes?: TimeRecordValues; latestDraft?: z.infer<typeof privateEntryDraftSchema> | null;
+};
+const privateDraftConflictSchema = z.object({ draft: privateEntryDraftSchema.nullable() });
+export function privateDraftConflict(error: unknown) {
+  if (error instanceof LegalworkServerError && error.code === "private_draft_conflict")
+    return privateDraftConflictSchema.safeParse(error.details).data?.draft;
+}
 export const timeRecordConflictSchema = z.object({ record: BackOfficeRecordSchema, fields: z.array(z.string()) });
 export type TimeRecordEdit = {
   base: BackOfficeRecord;
@@ -47,7 +57,7 @@ export function timeRecordEdits(scope: string) {
 
 function hasUnsavedEdits() {
   return [...sheetEdits.values()].some(edits => edits.updates.size > 0 ||
-    [...edits.drafts.values()].some(draft => !draft.proposal && !draft.privateSaved));
+    [...edits.drafts.values()].some(draft => !draft.privateSaved && (!draft.proposal || Object.keys(draft.changes ?? {}).length > 0)));
 }
 
 if (typeof window !== "undefined") {

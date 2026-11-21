@@ -15,6 +15,7 @@ import {
 import { ledgerColumnKeys } from "./timesheet-labels";
 import { timeRecordDate } from "./time-record-values";
 import type { TimeCaptureSheet } from "./time-record-sheet";
+import { differentTimeValues, privateDraftConflict } from "./time-record-edits";
 
 export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canEdit }: {
   proposal: CaptureProposal;
@@ -33,6 +34,19 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     return resolveTimePolicy(state.policies, assigned?.clientId ?? "", assigned?.matterId ?? "",
       values.date, assigned ? assigned.projectId : project?.id);
   }
+  function applyDraftFields(initial: RowValues, values: Record<string, BackOfficeValue>) {
+    const result = { ...initial };
+    for (const column of rowColumns) {
+      if (column !== "date" && column !== "workers" && typeof values[column] === "string") result[column] = values[column];
+    }
+    if (values.productId === null || typeof values.productId === "string") result.productId = values.productId ?? undefined;
+    if (typeof values.billable === "boolean") result.billable = values.billable;
+    if (stopwatch) {
+      result.manualCharge = typeof values.manualCharge === "boolean" ? values.manualCharge
+        : Boolean(result.charge && Number(result.charge) !== stopwatchRowCharge(proposal, result, policyFor(result)));
+    }
+    return result;
+  }
   const [edited, setValues] = useState<RowValues>(() => {
     const initial = fromDraft({
       date: proposal.date, activity: proposal.activity, projectId: project?.id, matterId: matter?.id, clientId,
@@ -43,19 +57,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         product.id === (proposal.workProductId ?? proposal.documentId) && product.matterId === matter?.id)?.id,
     }, worker?.label ?? "", proposal.date, state, matters);
     const saved = capture.drafts[proposal.key];
-    if (saved?.proposalDigest !== proposal.digest || !saved.values.workflow) return initial;
-    const result = { ...initial };
-    for (const column of rowColumns) {
-      if (column !== "date" && column !== "workers" && typeof saved.values[column] === "string") result[column] = saved.values[column];
-    }
-    if (typeof saved.values.productId === "string") result.productId = saved.values.productId;
-    if (typeof saved.values.billable === "boolean") result.billable = saved.values.billable;
-    if (stopwatch) {
-      result.manualCharge = typeof saved.values.manualCharge === "boolean"
-        ? saved.values.manualCharge
-        : Boolean(result.charge && Number(result.charge) !== stopwatchRowCharge(proposal, result, policyFor(result)));
-    }
-    return result;
+    return saved?.proposalDigest === proposal.digest && saved.values.workflow ? applyDraftFields(initial, saved.values) : initial;
   });
   const [changed, setChanged] = useState(false);
   const suggestion = !changed && capture.drafts[proposal.key]?.proposalDigest !== proposal.digest ? capture.wording?.[proposal.digest] : undefined;
@@ -80,19 +82,47 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     ? ["matter", "activity", "product", "narrative", "worked", "billableWork", "nonBillable", "charge"]
     : ["matter", "activity", "product", "narrative", "worked", "charge"];
 
-  function saveFields() {
+  function serialize(values: RowValues) {
     const fields: Record<string, BackOfficeValue> = {
       workflow: true, billable: values.billable,
-      matterId: selectedMatter?.matterId ?? null, workerId: state.userId, productId: values.productId ?? null,
+      matterId: matchMatter(matters, values.matter)?.matterId ?? null, workerId: state.userId, productId: values.productId ?? null,
     };
     if (stopwatch) fields.manualCharge = Boolean(values.manualCharge);
     for (const column of rowColumns) fields[column] = values[column];
-    return capture.act({ type: "draft", key: proposal.key, date: proposal.date, proposalDigest: proposal.digest, values: fields });
+    return fields;
+  }
+  const current = useRef(values);
+  current.current = values;
+  const baseline = useRef({ revision: capture.drafts[proposal.key]?.revision ?? 0, values: serialize(values) });
+  const [savedConflict, setSavedConflict] = useState<ReturnType<typeof privateDraftConflict>>();
+
+  async function saveFields(revision = baseline.current.revision) {
+    const fields = serialize(current.current);
+    if (!capture.writeDraft)
+      return capture.act({ type: "draft", key: proposal.key, date: proposal.date, proposalDigest: proposal.digest, values: fields });
+    try {
+      const saved = await capture.writeDraft({ type: "draft-patch", key: proposal.key, date: proposal.date, proposalDigest: proposal.digest,
+        revision, initial: fields, changes: differentTimeValues(baseline.current.values, fields) });
+      if (!saved) throw new Error(t("back_office.save_failed"));
+      const acknowledged = applyDraftFields(current.current, saved.values);
+      const newer = differentTimeValues(fields, serialize(current.current));
+      baseline.current = { revision: saved.revision ?? 0, values: serialize(acknowledged) };
+      const merged = applyDraftFields(acknowledged, newer);
+      current.current = merged;
+      setValues(merged);
+      setSavedConflict(undefined);
+      setError("");
+      return true;
+    } catch (error) {
+      setSavedConflict(privateDraftConflict(error));
+      setError(error instanceof Error ? error.message : t("back_office.save_failed"));
+      return false;
+    }
   }
   function privateSave() {
     if (!changed || !canEdit || !capture.privateAvailable || inFlight.current) return;
     queue.current = queue.current.then(async () => {
-      if (!await saveFields()) setError(t("back_office.save_failed"));
+      if (!await saveFields() && !capture.writeDraft) setError(t("back_office.save_failed"));
     });
   }
   async function run(action: () => Promise<boolean>) {
@@ -113,12 +143,13 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   }
   async function accept() {
     if (!canEdit || conflict || inFlight.current) return false;
-    const parsed = parseRow(values, state);
-    if ("error" in parsed) {
-      setError(parsed.error);
-      return false;
-    }
     return run(async () => {
+      if (capture.writeDraft && !await saveFields()) return false;
+      const parsed = parseRow(current.current, state);
+      if ("error" in parsed) {
+        setError(parsed.error);
+        return false;
+      }
       const entry = parsed.entry;
       if (entry.date === proposal.date && entry.workedMinutes === proposal.workedMinutes && proposal.startAt && proposal.endAt) {
         entry.startAt = proposal.startAt;
@@ -194,7 +225,25 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         </label>
       ))}
       {conflict && <p role="status">{t("timesheets.workday.overlap")}</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <div role="alert">{error}
+        {savedConflict ? <>
+          <dl>{rowColumns.filter(field => Object.hasOwn(differentTimeValues(baseline.current.values, serialize(values)), field)).map(field => <div key={field}>
+            <dt>{t(ledgerColumnKeys[field])} · {t("back_office.conflict.saved")}</dt>
+            <dd>{String(savedConflict.values[field] ?? "∅")}</dd>
+          </div>)}</dl>
+          <Button type="button" variant="outline" size="xs" onClick={() => {
+            const restored = applyDraftFields(current.current, savedConflict.values);
+            baseline.current = { revision: savedConflict.revision ?? 0, values: serialize(restored) };
+            current.current = restored;
+            setValues(restored);
+            setSavedConflict(undefined);
+            setError("");
+          }}>{t("back_office.conflict.keep")}</Button>
+          <Button type="button" variant="outline" size="xs" onClick={() => void run(() => saveFields(savedConflict.revision ?? 0))}>
+            {t("back_office.conflict.apply")}
+          </Button>
+        </> : <Button type="button" variant="outline" size="xs" onClick={() => void run(() => saveFields())}>{t("timesheets.retry")}</Button>}
+      </div>}
       {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
         <select value="" disabled={!canEdit} aria-disabled={busy || undefined} onChange={event => {
           if (busy) return;

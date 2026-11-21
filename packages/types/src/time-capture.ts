@@ -30,6 +30,14 @@ export const captureSettingsSchema = z.strictObject({
   disabledConnections: z.array(captureAccountSchema).optional(),
   intervalMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
 });
+export const captureSettingsChangeSchema = z.discriminatedUnion("field", [
+  z.strictObject({ field: z.enum(["calendar", "tasks", "documents", "workspaceActivity"]), value: z.boolean() }),
+  z.strictObject({ field: z.literal("model"), value: captureSettingsSchema.shape.model.unwrap().nullable() }),
+  z.strictObject({ field: z.literal("stopwatchMode"), value: captureSettingsSchema.shape.stopwatchMode.unwrap() }),
+  z.strictObject({ field: z.literal("intervalMinutes"), value: captureSettingsSchema.shape.intervalMinutes }),
+  z.strictObject({ field: z.literal("account"), account: captureAccountSchema, value: z.boolean() }),
+]);
+export const captureSettingsPatchSchema = z.strictObject({ type: z.literal("settings-patch"), change: captureSettingsChangeSchema });
 type AccountSelection = Pick<CaptureSettings, "connections" | "disabledConnections">;
 export function captureAccountEnabled(settings: AccountSelection, account: CaptureAccount) {
   if (settings.connections) return settings.connections.some(choice => sameCaptureAccount(choice, account));
@@ -72,7 +80,15 @@ export const captureProposalSchema = z.object({
   dismissed: z.boolean(),
   versions: z.array(z.string()).optional(),
 });
-export const privateEntryDraftSchema = z.object({ date: z.iso.date(), values: z.record(z.string(), BackOfficeValueSchema), proposalDigest: z.string().length(64).optional() });
+const privateValuesSchema = z.record(z.string().max(200), BackOfficeValueSchema);
+const privateRevision = z.number().int().nonnegative();
+export const privateEntryDraftSchema = z.object({ date: z.iso.date(), values: privateValuesSchema,
+  proposalDigest: z.string().length(64).optional(), revision: privateRevision.optional() });
+export const privateDraftPatchSchema = z.strictObject({
+  type: z.literal("draft-patch"), key: z.uuid(), date: z.iso.date(), proposalDigest: z.string().length(64).optional(),
+  revision: privateRevision, changes: privateValuesSchema.nullable(), initial: privateValuesSchema.optional(),
+});
+export type PrivateDraftPatch = z.infer<typeof privateDraftPatchSchema>;
 const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
 const allScopes = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("personal") }),
@@ -137,10 +153,12 @@ export type CaptureAction =
   | z.infer<typeof workdayInstructionActionSchema>
   | z.infer<typeof workdayGuidelineActionSchema>
   | { type: "settings"; settings: CaptureSettings }
+  | z.infer<typeof captureSettingsPatchSchema>
   | { type: "suggest" | "refresh"; model?: WorkdayModel }
   | { type: "run" | "calendar" }
   | { type: "dismiss"; key: string; digest?: string }
   | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }
+  | PrivateDraftPatch
   | ReconcileCapture;
 
 export const reconcileCaptureSchema = z.strictObject({

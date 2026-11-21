@@ -21,6 +21,8 @@ import {
   workdayCorrectionSchema,
   captureProposalSchema,
   captureSettingsSchema,
+  captureSettingsPatchSchema,
+  privateDraftPatchSchema,
   reconcileCaptureSchema,
 } from "../back-office/timesheet-schema.js";
 import { backOfficeAccess, backOfficeDirectoryIdentity } from "../back-office/access.js";
@@ -41,10 +43,12 @@ import { acceptedFileProduct, captureMatter, draftRules, modelEvidence, visibleG
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
 import { validateReconcileTarget } from "./reconcile.js";
+import { draftClockSchema, patchCaptureSettings, patchPrivateDraft, writePrivateDraft } from "./private-edits.js";
 
 const savedSchema = z.object({
   stopwatch: privateStopwatchSchema.default(emptyStopwatch),
   settings: captureSettingsSchema,
+  settingsPatched: z.boolean().default(false),
   lastRun: z.number(),
   days: z.record(z.iso.date(), z.array(workdayEvidenceSchema)),
   reconstruction: z.record(z.iso.date(), z.object({ key: z.string(), status: workdayStatusSchema })).default({}),
@@ -63,6 +67,7 @@ const savedSchema = z.object({
   originals: z.record(z.string(), captureProposalSchema).default({}),
   accepted: z.record(z.string(), z.string()).default({}),
   drafts: z.record(z.uuid(), privateEntryDraftSchema).default({}),
+  draftClocks: z.record(z.uuid(), draftClockSchema).default({}),
   reconciled: z.record(z.uuid(), z.uuid()).default({}),
   bookingTargets: z.record(z.string(), z.enum(["workflow", "record"])).default({}),
 });
@@ -70,6 +75,7 @@ type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
   stopwatch: emptyStopwatch(),
   settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true, stopwatchMode: "always", intervalMinutes: 0 },
+  settingsPatched: false,
   lastRun: 0,
   days: {},
   reconstruction: {},
@@ -84,6 +90,7 @@ const defaults = (): Saved => ({
   accepted: {},
   bookingTargets: {},
   drafts: {},
+  draftClocks: {},
   reconciled: {},
   documentSaves: {},
   documentEpoch: 0,
@@ -674,10 +681,12 @@ export function registerWorkdayRoutes(options: {
         const parsed = z
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
+            captureSettingsPatchSchema,
             z.strictObject({ type: z.enum(["run", "calendar"]) }),
             z.strictObject({ type: z.enum(["suggest", "refresh"]), model: workdayModelSchema.optional() }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid(), digest: z.string().length(64).optional() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
+            privateDraftPatchSchema,
             reconcileCaptureSchema,
             workdayCorrectionSchema,
             workdayChatActionSchema,
@@ -699,13 +708,18 @@ export function registerWorkdayRoutes(options: {
               if ((await profile(config)).path !== path)
                 throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
             }
-            if (action.type === "settings") {
-              for (const job of workdaysRunning.get(path)?.values() ?? []) job.controller.abort();
-              if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
+            if (action.type === "settings" || action.type === "settings-patch") {
+              const next = action.type === "settings-patch" ? patchCaptureSettings(s.settings, action.change) : action.settings;
+              if (action.type === "settings" && s.settingsPatched && digest(s.settings) !== digest(next))
+                throw new ApiError(409, "private_workday_changed", "Reopen the settings before changing activity sources.");
+              if (digest(s.settings) !== digest(next))
+                for (const job of workdaysRunning.get(path)?.values() ?? []) job.controller.abort();
+              if (Boolean(s.settings.documents) !== Boolean(next.documents))
                 s.documentEpoch++;
-              if (digest([s.settings.model]) !== digest([action.settings.model])) s.reconstruction = {};
-              if (s.settings.model && !action.settings.model) delete s.lastModel;
-              s.settings = action.settings;
+              if (digest([s.settings.model]) !== digest([next.model])) s.reconstruction = {};
+              if (s.settings.model && !next.model) delete s.lastModel;
+              s.settings = next;
+              if (action.type === "settings-patch") s.settingsPatched = true;
             } else if (action.type === "instruction") {
               const rule = s.instructions[action.id];
               if (!rule) throw new ApiError(404, "private_workday_scope", "This saved instruction is unavailable.");
@@ -727,15 +741,16 @@ export function registerWorkdayRoutes(options: {
                   version.targetId === g.targetId && version.effectiveFrom === g.effectiveFrom))
                 throw new ApiError(409, "private_workday_guideline", "A guideline already applies to this scope and effective date.");
               s.guidelines[g.id] = [...versions, { ...g, revision: g.revision + 1 }];
-            } else if (action.type === "draft") {
+            } else if (action.type === "draft" || action.type === "draft-patch") {
               if (action.date && action.date !== date) throw new ApiError(409, "private_workday_changed", "The draft date changed.");
-              if (s.accepted[action.key] && !s.pendingBookings[action.key] && action.values !== null) throw new ApiError(409, "private_already_booked", "This entry is already saved.");
+              const changes = action.type === "draft-patch" ? action.changes : action.values;
+              if (s.accepted[action.key] && !s.pendingBookings[action.key] && changes !== null) throw new ApiError(409, "private_already_booked", "This entry is already saved.");
               if (action.proposalDigest) {
                 const proposal = s.days[date]?.find(item => item.proposal.key === action.key)?.proposal;
                 if (!proposal || proposal.dismissed || proposal.digest !== action.proposalDigest) throw new ApiError(409, "private_workday_changed", "The suggestion changed.");
               }
-              if (action.values === null) delete s.drafts[action.key];
-              else s.drafts[action.key] = { date, values: action.values, proposalDigest: action.proposalDigest };
+              if (action.type === "draft-patch") patchPrivateDraft(s, action);
+              else writePrivateDraft(s, date, action);
             } else if (action.type === "reconcile") {
               const item = s.days[date]?.find(row => row.proposal.key === action.key);
               const proposal = item?.proposal;

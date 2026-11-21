@@ -8,16 +8,18 @@ import { Button as AppButton } from "@/components/ui/button";
 import {
   TimesheetStateSchema,
   type TimesheetCommand,
+  type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
 import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
+  LegalworkServerError,
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import { calendarClientScope } from "../calendar/calendar-cache";
-import type { BackOfficeState } from "./api";
+import { backOfficeReadFailure, isBackOfficeAccessError, type BackOfficeReadFailure, type BackOfficeState } from "./api";
 import { timeRoutes } from "./time-routes";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
@@ -34,11 +36,13 @@ export function TimesheetWorkspace({
   page,
   renderRecords,
   workdayModels,
+  directoryRefresh,
 }: {
   client: LegalworkServerClient;
   directory: BackOfficeState;
   page: keyof typeof timeRoutes;
   workdayModels?: WorkdayModelOption[];
+  directoryRefresh?: { error: Error; retry: () => void; fetching: boolean };
   renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
@@ -51,6 +55,7 @@ export function TimesheetWorkspace({
     "timesheet",
     directory.scope,
     directory.directoryId,
+    directory.captureProfileId,
     userId,
     principalKey,
     replicaId,
@@ -83,26 +88,45 @@ export function TimesheetWorkspace({
         ...(command ? { method: "POST", body: command } : {}),
       }),
     );
-    if (state.userId !== userId) throw new Error(t("timesheets.account_changed"));
+    if (state.userId !== userId || state.scope !== directory.scope)
+      throw new LegalworkServerError(409, "back_office_account_changed", t("timesheets.account_changed"));
     return state;
   }
   const query = useQuery({
     queryKey: key,
-    queryFn: () => request(),
+    queryFn: async () => {
+      try { return await request(); }
+      catch (error) { return backOfficeReadFailure(error); }
+    },
     retry: false,
     refetchInterval: 30000,
   });
   const [{ dirty: ledgerDirty, dateLocked }, setLedgerEditing] = useState({ dirty: false, dateLocked: false });
-  const state = query.isError ? undefined : query.data;
+  const outcome = query.data;
+  const blocked = outcome && "loadError" in outcome ? outcome.loadError : undefined;
+  const state = outcome && "entries" in outcome ? outcome : undefined;
+  const timesheetError = query.error ?? blocked;
+  const loadError = timesheetError ?? directoryRefresh?.error;
   const recordsOnly = state?.service === "records";
+  const queryFilter = { queryKey: key, exact: true };
   async function send(command: TimesheetCommand) {
+    const activeQuery = cache.getQueryCache().find(queryFilter);
+    const isCurrent = () => activeQuery && cache.getQueryCache().find(queryFilter) === activeQuery;
     try {
       const next = await request(command);
-      await cache.cancelQueries({ queryKey: key, exact: true });
+      if (!isCurrent()) throw new Error(t("timesheets.account_changed"));
+      await cache.cancelQueries(queryFilter);
+      if (!isCurrent()) throw new Error(t("timesheets.account_changed"));
+      const latest = cache.getQueryData<TimesheetState | BackOfficeReadFailure>(key);
+      if (latest && "loadError" in latest) throw latest.loadError;
       cache.setQueryData(key, next);
       return next;
     } catch (error) {
-      void query.refetch();
+      if (isCurrent() && isBackOfficeAccessError(error)) {
+        await cache.cancelQueries(queryFilter);
+        if (isCurrent()) cache.setQueryData(key, backOfficeReadFailure(error));
+      }
+      if (isCurrent()) void query.refetch();
       throw error;
     }
   }
@@ -136,15 +160,18 @@ export function TimesheetWorkspace({
             ))}
         </nav>
       </header>
-      {query.isError && (
-        <div className="bo-empty" role="alert">
-          {query.error.message}{" "}
-          <AppButton size="sm" variant="outline" onClick={() => void query.refetch()}>
+      {loadError && (
+        <div className={state ? "mx-4 my-2 flex shrink-0 flex-wrap items-center gap-2 text-sm" : "bo-empty"} role="alert">
+          {loadError.message}{" "}
+          <AppButton size="sm" variant="outline" disabled={query.isFetching || directoryRefresh?.fetching} onClick={() => {
+            if (timesheetError) void query.refetch();
+            directoryRefresh?.retry();
+          }}>
             {t("timesheets.retry")}
           </AppButton>
         </div>
       )}
-      {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
+      {!loadError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
       {!recordsOnly && !!state?.unresolvedLegacyEntries?.length && (page === "timesheets" || page === "timesheet-workday") && (
         <details className="mx-4 mb-2 max-h-[30vh] shrink-0 overflow-auto rounded-md border px-3 py-2 text-sm">
           <summary>{t("timesheets.legacy_timekeeper")}</summary>

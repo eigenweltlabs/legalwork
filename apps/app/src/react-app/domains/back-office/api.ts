@@ -1,6 +1,6 @@
 import type { NativeKind } from "./native-model";
 import type { QueryClient } from "@tanstack/react-query";
-import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, LegalworkTransportError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { z } from "@legalwork/types/back-office";
 import {
   BackOfficeModelSchema,
@@ -46,6 +46,20 @@ export type BackOfficeState = z.infer<typeof BackOfficeStateSchema> & {
   transfer?: { version: string; index: z.infer<typeof recordIndex> };
 };
 
+const accessCodes = ["back_office_account_changed", "back_office_directory_changed", "back_office_permissions_changed"];
+export function isBackOfficeAccessError(error: unknown) {
+  return error instanceof LegalworkServerError && ([401, 403].includes(error.status) || accessCodes.includes(error.code));
+}
+
+export type BackOfficeReadFailure = { loadError: Error };
+export function backOfficeReadFailure(error: unknown): BackOfficeReadFailure {
+  if (error instanceof LegalworkTransportError || (error instanceof LegalworkServerError && !isBackOfficeAccessError(error) &&
+    [408, 429, 500, 502, 503, 504].includes(error.status) && !["timesheet", "intake_bad_response", "intake_redirected"].includes(error.code))) throw error;
+  // An outcome without data replaces previously verified results. A later
+  // timeout must never bring back records after an auth or validation failure.
+  return { loadError: error instanceof Error ? error : new Error(String(error)) };
+}
+
 // A replica identifies a replaceable read cache. Writes target the directory and
 // account, and the server checks current record and field access on every request.
 export async function writeBackOfficeRecord(client: Pick<LegalworkServerClient, "backOffice">, state: BackOfficeState, values: Record<string, unknown>) {
@@ -58,7 +72,7 @@ export async function writeBackOfficeRecord(client: Pick<LegalworkServerClient, 
       if (!(error instanceof LegalworkServerError)) throw error;
       // Retry only a retired server read context, always with the original identity.
       if (!attempt && error.code === "back_office_replica_changed") continue;
-      if (["back_office_account_changed", "back_office_directory_changed", "back_office_permissions_changed"].includes(error.code))
+      if (accessCodes.includes(error.code))
         throw new Error(t("back_office.write.account_unavailable"));
       throw error;
     }

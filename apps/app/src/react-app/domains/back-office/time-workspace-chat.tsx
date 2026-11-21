@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { Ellipsis } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "@/components/chat/message-list";
@@ -25,23 +26,42 @@ type Scope = keyof typeof scopes;
 type ChatAction = Extract<CaptureAction, { type: "chat" | "instruction" }>;
 const noMentions = {};
 const messageLimit = 2000;
+type ChatDraft = {
+  text: string;
+  scope: Scope | "day";
+  matterId: string;
+  documentId: string;
+  sending: boolean;
+  request?: { key: string; id: string };
+};
+const emptyChatDraft: ChatDraft = { text: "", scope: "day", matterId: "", documentId: "", sending: false };
 
 export function TimeWorkspaceChat({
+  draftKey,
   data,
   state,
   proposals,
   pending,
   onAction,
 }: {
+  draftKey: QueryKey;
   data: CaptureState | undefined;
   state: TimesheetState;
   proposals: CaptureProposal[];
   pending: boolean;
   onAction: (action: ChatAction) => Promise<boolean>;
 }) {
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const sendingRef = useRef(false);
+  const cache = useQueryClient();
+  // Match the private workday cache's account/day scope, including when this tab unmounts.
+  useLayoutEffect(() => {
+    cache.setQueryDefaults(["timekeeping-chat-draft"], { gcTime: Infinity });
+  }, [cache]);
+  const subscribe = useCallback((listener: () => void) => cache.getQueryCache().subscribe(listener), [cache]);
+  const composer = useSyncExternalStore(subscribe, () => cache.getQueryData<ChatDraft>(draftKey) ?? emptyChatDraft);
+  const { text, scope, matterId, documentId, sending } = composer;
+  function updateDraft(changes: Partial<ChatDraft>) {
+    cache.setQueryData<ChatDraft>(draftKey, current => ({ ...(current ?? emptyChatDraft), ...changes }));
+  }
   const scroll = useRef<HTMLDivElement>(null);
   const transcript = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
@@ -59,11 +79,7 @@ export function TimeWorkspaceChat({
     observer.observe(transcript.current);
     return () => observer.disconnect();
   }, [chatAvailable, scrollToLatest]);
-  const [scope, setScope] = useState<Scope | "day">("day");
-  const [matterId, setMatter] = useState("");
-  const [documentId, setDocument] = useState("");
   const [ruleEdit, setRuleEdit] = useState<{ id: string; text: string }>();
-  const request = useRef<{ key: string; id: string } | undefined>(undefined);
   const documentOptions = new Map<string, string>();
   for (const proposal of proposals) {
     const matter = proposalAssignment(proposal, state).matter;
@@ -83,28 +99,23 @@ export function TimeWorkspaceChat({
   const promptLabel = t(scope === "day" ? "timeWorkspace.message" : "timeWorkspace.rule");
 
   async function submit() {
-    if (!canSend || sendingRef.current) return;
+    if (!canSend || cache.getQueryData<ChatDraft>(draftKey)?.sending) return;
     let instruction: Extract<ChatAction, { type: "chat" }>["instruction"];
     if (scope === "personal") instruction = { scope };
     if (scope === "matter") instruction = { scope, matterId };
     if (scope === "document") instruction = { scope, matterId, documentId };
     const key = JSON.stringify([draft, instruction]);
-    if (request.current?.key !== key)
-      request.current = { key, id: crypto.randomUUID() };
-    sendingRef.current = true;
-    setSending(true);
+    const request = composer.request?.key === key ? composer.request : { key, id: crypto.randomUUID() };
+    updateDraft({ request, sending: true });
     followLatest.current = true;
     try {
-      if (await onAction({ type: "chat", id: request.current.id, text: draft, instruction })) {
-        setText("");
-        setScope("day");
-        setMatter("");
-        setDocument("");
-        request.current = undefined;
+      if (await onAction({ type: "chat", id: request.id, text: draft, instruction })) {
+        cache.setQueryData<ChatDraft>(draftKey, current =>
+          current?.request?.id === request.id ? emptyChatDraft : current);
       }
     } finally {
-      sendingRef.current = false;
-      setSending(false);
+      cache.setQueryData<ChatDraft>(draftKey, current =>
+        current?.request?.id === request.id ? { ...current, sending: false } : current);
     }
   }
 
@@ -147,7 +158,7 @@ export function TimeWorkspaceChat({
                   submitDisabled={!canSend}
                   placeholder={promptLabel}
                   ariaLabel={promptLabel}
-                  onChange={setText}
+                  onChange={text => updateDraft({ text })}
                   onSubmit={submit}
                 />
                 <div className="time-workspace-chat-actions">
@@ -172,7 +183,7 @@ export function TimeWorkspaceChat({
                                 next === "matter" ||
                                 next === "document"
                               )
-                                setScope(next);
+                                updateDraft({ scope: next });
                             }}
                           >
                             <option value="day">{t("timeWorkspace.dayCorrection")}</option>
@@ -188,8 +199,7 @@ export function TimeWorkspaceChat({
                               value={matterId}
                               disabled={pending}
                               onChange={(event) => {
-                                setMatter(event.currentTarget.value);
-                                setDocument("");
+                                updateDraft({ matterId: event.currentTarget.value, documentId: "" });
                               }}
                             >
                               <option value="">{t("timesheets.workday.choose")}</option>
@@ -207,7 +217,7 @@ export function TimeWorkspaceChat({
                             <select
                               value={documentId}
                               disabled={pending || !documentOptions.size}
-                              onChange={(event) => setDocument(event.currentTarget.value)}
+                              onChange={(event) => updateDraft({ documentId: event.currentTarget.value })}
                             >
                               <option value="">{t("timeWorkspace.chooseDocument")}</option>
                               {[...documentOptions].map(([id, title]) => (

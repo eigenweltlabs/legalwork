@@ -59,6 +59,7 @@ import {
 import { AdjustmentRequest } from "./timesheet-adjustment";
 import { useTimesheetColumns } from "./timesheet-columns";
 import { useBookingReceipt } from "./time-booking-receipt";
+import { differentTimeValues, privateDraftConflict, type TimeRecordValues } from "./time-record-edits";
 import { TimesheetPeriodSwitch, TimesheetWeekTotals } from "./timesheet-week-totals";
 import "./timesheet-ledger.css";
 
@@ -86,6 +87,19 @@ type Props = {
   canEdit?: boolean;
 };
 type Edit = { entry: TimeEntry; initial: RowValues; values: RowValues };
+type DraftBaseline = { revision: number; values: TimeRecordValues };
+function workflowDraftValues(values: RowValues): TimeRecordValues {
+  return { workflow: true, billable: values.billable, createProduct: Boolean(values.createProduct),
+    productId: values.productId ?? null, ...Object.fromEntries(rowColumns.map(column => [column, values[column]])) };
+}
+function workflowDraftRow(row: RowValues, values: TimeRecordValues): RowValues {
+  const merged = { ...row };
+  for (const column of rowColumns) if (typeof values[column] === "string") merged[column] = values[column];
+  if (typeof values.billable === "boolean") merged.billable = values.billable;
+  if (typeof values.createProduct === "boolean") merged.createProduct = values.createProduct;
+  if (Object.hasOwn(values, "productId")) merged.productId = typeof values.productId === "string" ? values.productId : undefined;
+  return merged;
+}
 function changes(entry: TimeEntry, person: (id: string) => string, locale: string) {
   return (
     <ol className="bo-time-history">
@@ -228,7 +242,15 @@ export function TimesheetLedger({
   const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
   const [draftChanged, setDraftChanged] = useState(false);
   const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
-  const privateQueue = useRef(Promise.resolve());
+  const privateQueue = useRef<Promise<RowValues | false>>(Promise.resolve(false));
+  const privateBases = useRef(new Map<string, DraftBaseline>());
+  const [privateConflicts, setPrivateConflicts] = useState<Partial<Record<string, DraftBaseline | null>>>({});
+  const privateConflict = privateConflicts[requestId];
+  const latestDraft = useRef({ requestId, values: draft });
+  latestDraft.current = { requestId, values: draft };
+  if (!privateBases.current.has(requestId)) privateBases.current.set(requestId, {
+    revision: 0, values: workflowDraftValues(emptyRow(date, own)),
+  });
   const restoredKeys = useRef(new Set<string>());
   const [provenance, setProvenance] = useState(initialDraft?.source);
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -268,19 +290,16 @@ export function TimesheetLedger({
   useEffect(() => {
     if (!editing) setDraft(current => current.date === date ? current : { ...current, date });
   }, [date, editing]);
-  const restoredKey = restored?.[0], restoredFields = restored?.[1].values;
+  const restoredKey = restored?.[0], restoredFields = restored?.[1].values, restoredRevision = restored?.[1].revision;
   useEffect(() => {
     if (editing || !restoredKey || !restoredFields || restoredKeys.current.has(restoredKey)) return;
-    const initial = emptyRow(date, own);
-    for (const column of rowColumns) if (typeof restoredFields[column] === "string") initial[column] = restoredFields[column];
-    if (typeof restoredFields.billable === "boolean") initial.billable = restoredFields.billable;
-    if (typeof restoredFields.productId === "string") initial.productId = restoredFields.productId;
-    if (typeof restoredFields.createProduct === "boolean") initial.createProduct = restoredFields.createProduct;
+    const initial = workflowDraftRow(emptyRow(date, own), restoredFields);
+    privateBases.current.set(restoredKey, { revision: restoredRevision ?? 0, values: workflowDraftValues(initial) });
     restoredKeys.current.add(restoredKey);
     setRequestId(restoredKey);
     setDraft(initial);
     setDraftChanged(true);
-  }, [date, editing, own, restoredKey, restoredFields]);
+  }, [date, editing, own, restoredKey, restoredFields, restoredRevision]);
   const rows = state.entries
     .filter(
       (e) =>
@@ -463,9 +482,15 @@ export function TimesheetLedger({
       setError(t("timesheets.ledger.finish_edit"));
       return false;
     }
-    const before = review?.values ?? (row === "new" ? draft : edit?.values);
+    let before = review?.values ?? (row === "new" ? draft : edit?.values);
     if (!before) return false;
-    const current = review ? before : valuesForSave(row, before);
+    const saveBeforeBooking = row === "new" && !provenance && Boolean(capture?.writeDraft);
+    if (saveBeforeBooking) {
+      const saved = await savePrivateDraft(date, capture, before, true);
+      if (!saved || previousDate.current !== date || latestDraft.current.requestId !== requestId) return false;
+      before = saved;
+    }
+    const current = valuesForSave(row, before);
     if (
       row !== "new" &&
       edit &&
@@ -478,7 +503,7 @@ export function TimesheetLedger({
       setNotice("");
       return true;
     }
-    const result = review?.parsed ?? parseRow(current, state);
+    const result = !saveBeforeBooking && review ? review.parsed : parseRow(current, state);
     if ("error" in result) {
       setError(result.error);
       focus(row, result.field);
@@ -545,7 +570,7 @@ export function TimesheetLedger({
         ...(provenance ? { source: provenance, proposalDigest: initialDraft?.proposalDigest } : {}),
       };
       if (!(await run(command))) return false;
-      await clearPrivateDraft();
+      await clearPrivateDraft(true);
       if (previousDate.current !== date) {
         if (parkedDrafts.current.get(date)?.requestId === requestId) parkedDrafts.current.delete(date);
         return true;
@@ -631,23 +656,69 @@ export function TimesheetLedger({
     focus("new", "narrative");
     setNotice(t("timesheets.ledger.pasted"));
   }
-  function savePrivateDraft(origin = date, target = capture, values = draft) {
-    if (!target?.privateAvailable || provenance || !draftChanged) return;
-    const fields: Record<string, string | boolean> = { workflow: true, billable: values.billable, createProduct: Boolean(values.createProduct) };
-    for (const column of rowColumns) fields[column] = values[column];
-    if (values.productId) fields.productId = values.productId;
+  function clearPrivateConflict() {
+    setPrivateConflicts(previous => Object.fromEntries(Object.entries(previous).filter(([key]) => key !== requestId)));
+  }
+  function privateSaveError(error: unknown) {
+    const latest = privateDraftConflict(error);
+    if (latest !== undefined) setPrivateConflicts(previous => ({ ...previous, [requestId]: latest && {
+      revision: latest.revision ?? 0, values: latest.values,
+    } }));
+    if (latestDraft.current.requestId === requestId) setError(error instanceof Error ? error.message : t("back_office.save_failed"));
+  }
+  function savePrivateDraft(origin = date, target = capture, values = draft, verify = false,
+    retry?: DraftBaseline): Promise<RowValues | false> {
+    if (!target?.privateAvailable || provenance || !draftChanged) return Promise.resolve(values);
+    const fields = workflowDraftValues(values);
+    const original = privateBases.current.get(requestId)!;
+    const local = differentTimeValues(original.values, fields);
     privateQueue.current = privateQueue.current.then(async () => {
-      if (!await target.act({ type: "draft", key: requestId, date: origin, values: fields })) setError(t("back_office.save_failed"));
+      try {
+        if (!target.writeDraft) {
+          if (!await target.act({ type: "draft", key: requestId, date: origin, values: fields })) throw Error(t("back_office.save_failed"));
+          return values;
+        }
+        const base = retry ?? privateBases.current.get(requestId) ?? original;
+        const changes = differentTimeValues(base.values, local);
+        if (!Object.keys(changes).length && !(verify && base.revision)) return workflowDraftRow(values, { ...base.values, ...local });
+        const saved = await target.writeDraft({ type: "draft-patch", key: requestId, date: origin, revision: base.revision,
+          changes, initial: fields });
+        const stored = saved;
+        if (!stored) throw Error(t("back_office.save_failed"));
+        privateBases.current.set(requestId, { revision: stored.revision ?? 0, values: stored.values });
+        clearPrivateConflict();
+        const merged = workflowDraftRow(values, stored.values);
+        const keepLater = (row: RowValues) => workflowDraftRow(row, { ...stored.values,
+          ...differentTimeValues(fields, workflowDraftValues(row)) });
+        if (latestDraft.current.requestId === requestId) setDraft(keepLater);
+        else {
+          const parked = parkedDrafts.current.get(origin);
+          if (parked?.requestId === requestId) parked.values = keepLater(parked.values);
+        }
+        return merged;
+      } catch (error) { privateSaveError(error); return false; }
     });
+    return privateQueue.current;
   }
-  async function clearPrivateDraft() {
-    if (!capture?.privateAvailable) return;
+  async function clearPrivateDraft(confirmed = false) {
+    if (!capture?.privateAvailable || provenance) return true;
+    const displayed = privateBases.current.get(requestId);
     await privateQueue.current;
-    await capture.act({ type: "draft", key: requestId, date, values: null });
+    try {
+      if (capture.writeDraft) {
+        const base = confirmed ? privateBases.current.get(requestId) : displayed;
+        if (privateConflict !== null && (base?.revision || privateBases.current.get(requestId)?.revision || capture.drafts[requestId]))
+          await capture.writeDraft({ type: "draft-patch", key: requestId, date,
+          revision: base?.revision ?? 0, changes: null });
+      } else if (!await capture.act({ type: "draft", key: requestId, date, values: null })) throw Error(t("back_office.save_failed"));
+      privateBases.current.delete(requestId);
+      clearPrivateConflict();
+      return true;
+    } catch (error) { privateSaveError(error); return false; }
   }
-  function resetComposer() {
+  async function resetComposer() {
+    if (!await clearPrivateDraft() || latestDraft.current.requestId !== requestId) return;
     setComposerOpen(false);
-    void clearPrivateDraft();
     if (provenance) onDiscardProposal?.();
     setDraftChanged(false);
     setParticipants([]);
@@ -656,6 +727,16 @@ export function TimesheetLedger({
     setProvenance(undefined);
     setError("");
     setNotice("");
+  }
+  function resolvePrivateConflict(useMine: boolean) {
+    if (!privateConflict) return;
+    if (useMine) void savePrivateDraft(date, capture, draft, true, privateConflict).then(row => { if (row) setError(""); });
+    else {
+      privateBases.current.set(requestId, privateConflict);
+      setDraft(current => workflowDraftRow(current, privateConflict.values));
+      clearPrivateConflict();
+      setError("");
+    }
   }
   function clipboardCopy(event: ClipboardEvent) {
     if (
@@ -1075,9 +1156,18 @@ export function TimesheetLedger({
           {t("timesheets.ledger.cap_review", { minutes: activeCap })}
         </div>
       )}
-      {error && (
+      {(error || privateConflict) && (
         <div className="bo-error" role="alert">
           {error}
+          {privateConflict && <>
+            <div>{t("back_office.conflict.saved")}</div>
+            {rowColumns.filter(column => Object.hasOwn(differentTimeValues(privateBases.current.get(requestId)?.values ?? {}, workflowDraftValues(draft)), column))
+              .map(column => <div key={column}>{t(ledgerColumnKeys[column])} · {String(privateConflict.values[column] ?? "—")}</div>)}
+            <Button type="button" size="sm" variant="outline" onClick={() => resolvePrivateConflict(false)}>{t("back_office.conflict.keep")}</Button>{" "}
+            <Button type="button" size="sm" variant="outline" onClick={() => resolvePrivateConflict(true)}>{t("back_office.conflict.apply")}</Button>
+          </>}
+          {privateConflict === null && <Button type="button" size="sm" variant="outline" onClick={() => void resetComposer()}>
+            {t("timesheets.sheet.edit_discard")}</Button>}
         </div>
       )}
       <div role="grid" aria-label={t("timesheets.ledger.title")} className="bo-grid-scroll bo-time-scroll">

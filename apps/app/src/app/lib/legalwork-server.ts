@@ -1360,6 +1360,12 @@ export class LegalworkServerError extends Error {
   }
 }
 
+export class LegalworkTransportError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 function buildHeaders(
   token?: string,
   hostToken?: string,
@@ -1515,7 +1521,7 @@ async function readJsonText(response: Response, progress: () => void): Promise<s
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; binaryBody?: Blob; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; binaryBody?: Blob; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean; identifyTransportError?: boolean } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
@@ -1533,7 +1539,9 @@ async function requestJson<T>(
       }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
       if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
     } catch (error) {
-      if (options.signal?.aborted || !readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) throw error;
+      if (options.signal?.aborted) throw error;
+      if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId))
+        throw options.identifyTransportError ? new LegalworkTransportError(error) : error;
     }
     // An earlier read can return a 404 after the server unregisters the
     // project. Do not publish it as a project error during removal. Retry
@@ -1556,13 +1564,16 @@ async function requestJson<T>(
     }
   }
   const response = await pending;
-  const json = response.text ? JSON.parse(response.text) : null;
   if (!response.ok) {
-    const code = typeof json?.code === "string" ? json.code : "request_failed";
-    const message = typeof json?.message === "string" ? json.message : response.statusText;
-    throw new LegalworkServerError(response.status, code, message, json?.details);
+    let json: unknown;
+    try { json = JSON.parse(response.text); } catch { /* Keep the HTTP status for non-JSON failures. */ }
+    const payload = json && typeof json === "object" ? json : undefined;
+    const code = payload && "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed";
+    const message = payload && "message" in payload && typeof payload.message === "string"
+      ? payload.message : response.statusText || `HTTP ${response.status}`;
+    throw new LegalworkServerError(response.status, code, message, payload && "details" in payload ? payload.details : undefined);
   }
-  return json as T;
+  return (response.text ? JSON.parse(response.text) : null) as T;
 }
 
 async function requestStorageUpload(baseUrl: string, path: string, body: Blob | ArrayBuffer, contentType: string, token?: string, hostToken?: string, method = "POST"): Promise<{ ok: true; version: string }> {
@@ -1681,11 +1692,16 @@ async function requestBinary(
 }
 
 let legalMemoryClientSequence = 0;
+const credentialScopes = new Map<string, string>();
 
 export function createLegalworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
   const hostToken = options.hostToken;
+  // Scope sensitive read caches without placing either credential in a query key.
+  const credentialKey = JSON.stringify([token, hostToken]);
+  const credentialScope = credentialScopes.get(credentialKey) ?? crypto.randomUUID();
+  credentialScopes.set(credentialKey, credentialScope);
 
   const timeouts = {
     health: 3_000,
@@ -1753,7 +1769,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   };
 
   return {
-    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean; timeoutMs?:number } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: options.timeoutMs ?? timeouts.binary }),
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean; timeoutMs?:number } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: options.timeoutMs ?? timeouts.binary, identifyTransportError: true }),
     downloadTimesheetAdjustment: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/adjustments/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
     previewBillingTemplate: (template:import("@legalwork/types/invoice-template").InvoiceTemplate,scope:string) => requestBinary(baseUrl,`/back-office/timesheet/template-preview?scope=${encodeURIComponent(scope)}`,{token,hostToken,method:"POST",body:template,timeoutMs:90_000}),
     downloadTimesheetDraft: (id: string, scope: string, format: "docx" | "pdf", options?: { revision?: string; signal?: AbortSignal }) => {
@@ -1769,6 +1785,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     baseUrl,
     token,
+    credentialScope,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
     wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),

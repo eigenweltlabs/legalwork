@@ -588,11 +588,15 @@ try {
   const { defaultBackOfficeModel } = await import("@legalwork/types/back-office");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
-  const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
+  const { createLegalworkServerClient, LegalworkServerError } = await import("../../src/app/lib/legalwork-server");
   const { TimesheetCommandSchema } = await import("@legalwork/types/timesheet");
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const writes: TimesheetCommand[] = [];
   const privateWrites: CaptureAction[] = [];
+  const workdayDrafts: CaptureState["drafts"] = {};
+  const otherProfileDrafts: CaptureState["drafts"] = {};
+  let pauseDraft: Promise<void> | undefined;
+  let changeNarrativeFromOtherWindow = false;
   const confirmedEntries: TimeEntry[] = [];
   let captureProfileId = "profile-a";
   const overlayRunId = crypto.randomUUID();
@@ -630,12 +634,28 @@ try {
     privateWorkday: async (context: { profileId?: string; date: string }, action?: CaptureAction): Promise<CaptureState> => {
       workdayReads++;
       if (action) privateWrites.push(action);
+      const drafts = context.profileId === "profile-a" ? workdayDrafts : otherProfileDrafts;
+      if (action?.type === "draft-patch") {
+        const pending = pauseDraft;
+        pauseDraft = undefined;
+        if (pending) await pending;
+        const previous = drafts[action.key];
+        const revision = (previous?.revision ?? 0) + 1;
+        if (previous && changeNarrativeFromOtherWindow && typeof action.changes?.narrative === "string") {
+          changeNarrativeFromOtherWindow = false;
+          drafts[action.key] = { ...previous, revision, values: { ...previous.values, narrative: "Other window wording" } };
+          throw new LegalworkServerError(409, "private_draft_conflict", "This private draft changed in another window.", { draft: drafts[action.key] });
+        }
+        if (action.changes) drafts[action.key] = { date: action.date, proposalDigest: action.proposalDigest,
+          values: { ...(previous?.values ?? action.initial), ...action.changes }, revision };
+        else delete drafts[action.key];
+      }
       return {
         settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
         proposals: context.profileId === "profile-a" && context.date === base.date
           ? [capture, unknown, ...(lastStopped && lastStopped.id !== overlayRunId ? [recordedTimer] : [])]
           : [],
-        drafts: {}, connections: [], modelReady: false, chat: [], instructions: [], guidelines: [],
+        drafts, connections: [], modelReady: false, chat: [], instructions: [], guidelines: [],
         status: { type: "ready", message: "Synthetic internal status" },
       };
     },
@@ -744,7 +764,7 @@ try {
       // happy-dom has no native text entry. Use the same insertion command as the Lexical contenteditable.
       const lexical = getNearestEditorFromDOMNode(editor);
       assert.ok(lexical);
-      lexical.update(() => { $getRoot().selectEnd(); lexical.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, message); });
+      lexical.update(() => { $getRoot().clear(); $getRoot().selectEnd(); lexical.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, message); });
     });
     assert.equal(editor.textContent?.trim(), message);
   }
@@ -876,12 +896,30 @@ try {
   await selectTab("entries");
   await input(cell("new", "narrative"), "First profile's unfinished line");
   await act(async () => cell("new", "narrative").blur());
-  assert.ok(privateWrites.some(action => action.type === "draft" && action.values?.narrative === "First profile's unfinished line"));
+  assert.ok(privateWrites.some(action => action.type === "draft-patch" && action.changes?.narrative === "First profile's unfinished line"));
   await press("Next day");
   assert.equal(document.querySelector<HTMLInputElement>(".bo-workday-controls input[type=date]")?.value, "2026-11-13");
   assert.equal(cell("new", "narrative").value, "");
   await press("Previous day");
   assert.equal(cell("new", "narrative").value, "First profile's unfinished line");
+  let acknowledgeDraft!: () => void;
+  pauseDraft = new Promise(resolve => { acknowledgeDraft = resolve; });
+  await input(cell("new", "narrative"), "First save in progress");
+  await act(async () => cell("new", "narrative").blur());
+  await input(cell("new", "narrative"), "Keep newer typing");
+  await act(async () => acknowledgeDraft());
+  assert.equal(cell("new", "narrative").value, "Keep newer typing", "acknowledgements retain typing made while a draft request is pending");
+  changeNarrativeFromOtherWindow = true;
+  await act(async () => cell("new", "narrative").blur());
+  assert.equal(cell("new", "narrative").value, "Keep newer typing", "same-field conflicts retain the local input");
+  assert.match(document.querySelector('[role="alert"].bo-error')?.textContent ?? "", /Other window wording/);
+  await press("Use my edit");
+  assert.ok(Object.values(workdayDrafts).some(item => item.values.narrative === "Keep newer typing"));
+  changeNarrativeFromOtherWindow = true;
+  await input(cell("new", "narrative"), "Another unsaved edit");
+  await act(async () => cell("new", "narrative").blur());
+  await press("Keep saved value");
+  assert.equal(cell("new", "narrative").value, "Other window wording");
   await moveTab("chat", 1);
   assert.equal(paneOf("entries"), paneOf("chat"));
   captureProfileId = "profile-b";
@@ -1026,6 +1064,7 @@ try {
   };
   const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
+  let failNextChat = false;
   let workdayProposals = [exact, partial, inlineTimer, unedited];
   let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 };
   let modelStatus: NonNullable<CaptureState["status"]>["type"] = "ready";
@@ -1040,6 +1079,11 @@ try {
       if (action) workdayActions.push(action);
       if (action?.type === "suggest") modelStatus = "ready";
       if (action?.type === "settings") workdaySettings = action.settings;
+      if (action?.type === "settings-patch") {
+        const { change } = action;
+        if (change.field === "model") workdaySettings = { ...workdaySettings, model: change.value ?? undefined };
+        else if (change.field !== "account") workdaySettings = { ...workdaySettings, [change.field]: change.value };
+      }
       if (action?.type === "reconcile" || action?.type === "dismiss")
         workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
       if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
@@ -1049,7 +1093,13 @@ try {
         if (action.values) privateDrafts[action.key] = { date: context.date, values: action.values, proposalDigest: action.proposalDigest };
         else delete privateDrafts[action.key];
       }
+      if (action?.type === "draft-patch") {
+        if (action.changes) privateDrafts[action.key] = { date: context.date, values: { ...(privateDrafts[action.key]?.values ?? action.initial), ...action.changes },
+          proposalDigest: action.proposalDigest, revision: (privateDrafts[action.key]?.revision ?? 0) + 1 };
+        else delete privateDrafts[action.key];
+      }
       if (action?.type === "chat") {
+        if (failNextChat) { failNextChat = false; throw new Error("Synthetic connection interrupted"); }
         if (action.instruction) instructions.push({ id: action.id, text: action.text, ...action.instruction });
         chatByDay.set(context.date, [
           ...(chatByDay.get(context.date) ?? []), { id: action.id, role: "user", text: action.text },
@@ -1288,6 +1338,40 @@ try {
     await renderWorkday();
     await settle();
   };
+  const chatComposer = () => document.querySelector<HTMLElement>(`.time-workspace-chat ${composerSelector}`);
+  const currentChatComposer = chatComposer();
+  assert.ok(currentChatComposer);
+  await typeMessage(currentChatComposer, "Keep this correction for its own day");
+  await chatOptions();
+  const rememberedPurpose = document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select");
+  assert.ok(rememberedPurpose);
+  await selectNative(rememberedPurpose, "personal");
+  await chatOptions();
+  failNextChat = true;
+  await submit(document.querySelector<HTMLFormElement>("form[data-workday-chat-composer]")!);
+  const failedChat = workdayActions.filter(action => action.type === "chat").at(-1);
+  assert.ok(failedChat);
+  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day");
+  await press("Next day");
+  await until(() => chatComposer() && !chatComposer()?.textContent?.trim());
+  assert.equal(chatComposer()?.textContent?.trim(), "", "another day starts with its own composer");
+  const nextDayComposer = chatComposer();
+  assert.ok(nextDayComposer);
+  await typeMessage(nextDayComposer, "A different day's correction");
+  await press("Previous day");
+  await until(() => chatComposer()?.textContent?.trim() === "Keep this correction for its own day");
+  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day");
+  await chatOptions();
+  assert.equal(document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select")?.value, "personal");
+  await chatOptions();
+  failNextChat = true;
+  await submit(document.querySelector<HTMLFormElement>("form[data-workday-chat-composer]")!);
+  assert.equal(workdayActions.filter(action => action.type === "chat").at(-1)?.id, failedChat.id,
+    "retry after a day switch keeps the original private request ID");
+  await remount();
+  await selectTab("chat");
+  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day", "leaving the workspace preserves the day draft");
+
   const originalDirectoryId = workdayDirectory.directoryId;
   workdayDirectory.directoryId = "migration-synthetic-directory";
   const legacyKey = "legalwork.time-workspace:" + JSON.stringify([workdayClient.baseUrl, workdayDirectory.directoryId,
@@ -1296,6 +1380,7 @@ try {
   await remount();
   assert.equal(panes().length, 1, "a legacy single-view layout is restored for this directory");
   assert.equal(tabNode("chat")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
+  assert.equal(chatComposer()?.textContent?.trim(), "", "another directory cannot see this chat draft");
   await selectTab("timeline");
   assert.match(document.querySelector('[role="combobox"][aria-label="Timeline layout"]')?.textContent ?? "", /By matter/);
   workdayDirectory.directoryId = originalDirectoryId;
@@ -1359,6 +1444,7 @@ try {
   await openProposal(inlineTimer);
   assert.equal(proposalForm(inlineTimer)?.querySelector<HTMLInputElement>('[data-column="charge"]')?.value,
     "37", "an older stopwatch draft keeps its manually adjusted billable minutes");
+
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

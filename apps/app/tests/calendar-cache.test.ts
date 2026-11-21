@@ -77,7 +77,8 @@ test("cache keys distinguish servers, credentials, connected accounts, calendars
   const key = fixture.options.queryKey;
   expect(key).not.toContain("test-account");
   expect(calendarClientScope(fixture.client)).toEqual(calendarClientScope({ ...fixture.client }));
-  for (const client of [{ ...fixture.client, token: "other" }, { ...fixture.client, baseUrl: "https://other.invalid" }]) {
+  const host = createLegalworkServerClient({ baseUrl: fixture.client.baseUrl, token: fixture.client.token, hostToken: "test-host" });
+  for (const client of [{ ...fixture.client, token: "other" }, { ...fixture.client, baseUrl: "https://other.invalid" }, host]) {
     expect(connectedEventOptions(client, calendar, "2026-10-26", "2026-11-02", "Europe/Berlin").queryKey).not.toEqual(key);
   }
   expect(connectedEventOptions(fixture.client, { ...calendar, key: "other-account:calendar" }, "2026-10-26", "2026-11-02", "Europe/Berlin").queryKey).not.toEqual(key);

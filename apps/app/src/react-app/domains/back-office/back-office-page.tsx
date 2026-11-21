@@ -39,7 +39,8 @@ import {
 } from "@legalwork/types/back-office";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
-import { applySavedRecord, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState, ModelPreviewSchema } from "./api";
+import { calendarClientScope } from "../calendar/calendar-cache";
+import { applySavedRecord, backOfficeReadFailure, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeReadFailure, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
 import { ValueDisplay } from "./record-values";
@@ -108,13 +109,28 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(() => new URLSearchParams(location.search).get("archived") === "true");
   const directoryView = timesheet ? "timesheets" : selected;
-  const key = ["back-office", client.baseUrl, "auto", directoryView];
+  const protectedDirectory = Boolean(timesheet || embeddedObject);
+  const credential = protectedDirectory ? calendarClientScope(client)[1] : undefined;
+  const key = ["back-office", client.baseUrl, "auto", protectedDirectory ? [directoryView, credential] : directoryView];
   const query = useQuery({
     queryKey: key,
-    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal, undefined, timesheet ? undefined : selected),
+    queryFn: async ({ signal }) => {
+      const cached = cache.getQueryData<BackOfficeState | BackOfficeReadFailure>(key);
+      try {
+        return await loadBackOfficeState(client, cached && "records" in cached ? cached : undefined, signal, undefined, timesheet ? undefined : selected);
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!protectedDirectory) throw error;
+        const failure = backOfficeReadFailure(error);
+        if (timesheet) cache.removeQueries({ queryKey: ["back-office", client.baseUrl, credential, "timesheet"] });
+        return failure;
+      }
+    },
     refetchInterval: 30_000,
   });
-  const data = query.isError ? undefined : query.data;
+  const outcome = query.data;
+  const data = outcome && "records" in outcome && (protectedDirectory || !query.isError) ? outcome : undefined;
+  const directoryError = query.error ?? (outcome && "loadError" in outcome ? outcome.loadError : undefined);
   useEffect(() => () => { conflictDecision.current?.(false); }, [selected, data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model]);
   const team = Boolean(data && data.scope !== "local");
   const pendingChanges = useQuery({
@@ -426,9 +442,12 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
           </nav>}
           {!data && (
             <div className="bo-loading">
-              {query.error ? (
+              {directoryError ? (
                 <>
-                  <strong>{query.error.message}</strong>
+                  <strong>{directoryError.message}</strong>
+                  {protectedDirectory && <Button size="sm" variant="ghost" disabled={query.isFetching} onClick={() => void query.refetch()}>
+                    {t("timesheets.retry")}
+                  </Button>}
                 </>
               ) : (
                 <>
@@ -438,8 +457,9 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
               )}
             </div>
           )}
-          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
+          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,credential,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
             client={client} directory={data} page={timesheet} workdayModels={workdayModels}
+            directoryRefresh={directoryError ? { error: directoryError, fetching: query.isFetching, retry: () => void query.refetch() } : undefined}
             renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
