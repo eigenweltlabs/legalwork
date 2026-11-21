@@ -59,6 +59,23 @@ function proposal(
   };
 }
 
+test("document drafting preserves the guideline-based model narrative instead of rebuilding it from the filename", () => {
+  const narrative = "Entwerfen der Revision; Ausführungen zur Zulässigkeit und zum Verfahrensmangel.";
+  for (const activity of ["DFT", "MOD"]) {
+    const document = evidence("saved-file", { source: "documents", documentId: "revision-file", activity,
+      narrative: "Rekurs-PR438.md", startAt: null, endAt: null, workedMinutes: null });
+    document.documentTitle = "Rekurs-PR438";
+    document.sourceDocumentTitle = "Rekurs-PR438";
+    const timing = evidence("work", { endAt: at("09:17"), workedMinutes: 17 });
+    const output = reconstructWorkday({ proposals: [proposal(["saved-file", "work"], {
+      documentId: "revision-file", activity, narrative, endAt: at("09:17"), workedMinutes: 17,
+    })] }, [document, timing], date, "UTC");
+    expect(output[0].proposal.narrative).toBe(narrative);
+    expect(output[0].proposal.workedMinutes).toBe(17);
+    expect(output[0].proposal.documentId).toBe("revision-file");
+  }
+});
+
 test("whole-day reconstruction groups adjoining evidence, omits unrelated sources, and splits one interval without reuse", () => {
   const first = evidence("first");
   const second = evidence("second", {
@@ -410,7 +427,7 @@ test("the model receives descriptions for the authorized matter, client and exac
   ).toBeUndefined();
 });
 
-test("a save with no change evidence provides the document title but supports no invented change description or duration", () => {
+test("a file-only save keeps model wording without creating duration or applying an unrequested title", () => {
   const document = {
     ...evidence("save", {
       source: "documents",
@@ -430,7 +447,7 @@ test("a save with no change evidence provides the document title but supports no
     endAt: null,
     workedMinutes: null,
     documentTitle: "Unsupported title",
-    narrative: "Amending Example to introduce two novel arguments",
+    narrative: "Amending Example",
   });
   const [actual] = reconstructWorkday(
     { proposals: [row] },

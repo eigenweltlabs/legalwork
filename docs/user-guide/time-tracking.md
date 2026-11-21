@@ -28,6 +28,8 @@ In the basic **Time entries** view, you can continue recording for yourself when
 
 Device-only instructions belong to that account. A published policy takes precedence for fields it explicitly sets; unrelated published settings, such as the reviewer, do not erase uploaded wording guidance. Binding client terms and authorized exceptions remain governed by the firm. Centrally managed billing policy and delegation depend on your firm's service.
 
+For example, a reviewed six-minute rounding rule can suggest **17 Recorded / 18 Billable** without changing the actual duration. Acceptance also checks the billing service's rules. If that service requires ten-minute increments, the suggestion cannot be booked as 18 minutes: have the authorized billing administrator correct the applicable policy or review the proposed billable time. A private guideline does not change the service's policy. After resolving a failed acceptance, **Try again** retries that acceptance; retrying a failed private edit keeps the suggestion private.
+
 Each saved entry has its own status. With the full workflow, submit a period from **My time**. An authorized reviewer can check hours, pricing, manual wording and suggested corrections. Issuing a bill links the included entries to the invoice. Approved changes to a previously issued entry use a correction linked to the original invoice.
 
 ## Create an invoice

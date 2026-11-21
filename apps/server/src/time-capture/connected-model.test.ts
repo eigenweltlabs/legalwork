@@ -89,15 +89,15 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     expect((await request()).proposals).toEqual([]);
     expect(prompts).toHaveLength(0);
     expect((await request(refresh)).status?.type).toBe("failed");
-    expect(prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(2);
     invalidResponse = false;
     expect((await request(refresh)).status?.type).toBe("failed");
-    expect(prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(2);
     const result = await request({ ...refresh, type: "suggest" });
     expect(result.status?.type).toBe("ready");
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
-    expect(prompts).toHaveLength(3);
+    expect(prompts).toHaveLength(4);
     expect(prompts[0]).toContain("Example.docx");
     expect(prompts[0]).toContain("File the draft");
     expect(prompts[0]).not.toContain("Folder/");
@@ -107,7 +107,7 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     expect(reopened.proposals[0]).toEqual(proposal);
     expect(secondWindow.proposals[0]).toEqual(proposal);
     expect((await request()).proposals[0]).toEqual(proposal);
-    expect(prompts).toHaveLength(3);
+    expect(prompts).toHaveLength(4);
     expect(await readFile(profile.path, "utf8")).toContain(narrative);
 
     const correction: CaptureAction = { type: "chat", id: randomUUID(), text: "Example → Rekurs",
@@ -119,7 +119,7 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     expect(changed.chat.map(turn => turn.role)).toEqual(["user", "assistant"]);
     expect(changed.instructions[0]).toMatchObject({ text: correction.text, documentId: proposal.documentId });
     expect((await request(correction)).chat).toEqual(changed.chat);
-    expect(prompts).toHaveLength(5);
+    expect(prompts).toHaveLength(6);
     expect((await engine.client().session.list({ directory: engine.directory })).data).toHaveLength(0);
     for (const file of ["engine.db", "engine.db-wal"]) {
       const bytes = file === "engine.db" ? await readFile(join(engine.root, file))

@@ -74,6 +74,7 @@ const savedRow = BackOfficeRecordSchema.parse({
 });
 let current = savedRow;
 let rejectUpdate = false;
+let rejectCreate = false;
 let canDelegate = false;
 let rosterOffline = true;
 const createdRows = new Map<string, BackOfficeRecord>();
@@ -92,6 +93,10 @@ client.backOffice = async (path, options) => {
   const write = writeSchema.parse(options?.body);
   writes.push(write);
   if (write.create) {
+    if (rejectCreate) {
+      rejectCreate = false;
+      throw new Error("Billing service temporarily unavailable");
+    }
     const record = BackOfficeRecordSchema.parse({ ...savedRow, id: write.id, values: { ...write.values, timekeeper: workerContact.id } });
     createdRows.set(write.id, record);
     return { record };
@@ -583,6 +588,29 @@ try {
   assert.equal(writes.at(-1)?.values.startedAt, first);
   assert.equal(writes.at(-1)?.values.endedAt, null);
   assert.equal(untimed.workedMinutes, null, "reviewed minutes do not rewrite the original source evidence");
+
+  const retryable = { ...untimed, key: crypto.randomUUID(), workedMinutes: 17, chargeMinutes: 18 };
+  await render(capture({ proposals: [retryable], privateAvailable: true }));
+  rejectCreate = true;
+  await act(async () => button(proposalDetails(retryable.key), t("timesheets.sheet.accept")).click());
+  assert.equal(createdRows.has(retryable.key), false);
+  assert.match(proposalDetails(retryable.key).textContent ?? "", /Billing service temporarily unavailable/);
+  await act(async () => button(proposalDetails(retryable.key), t("timesheets.retry")).click());
+  assert.equal(createdRows.get(retryable.key)?.values.recordedMinutes, 17, "retry repeats the failed acceptance, not just a private save");
+  assert.equal(createdRows.get(retryable.key)?.values.billableMinutes, 18);
+
+  const privateRetry = { ...retryable, key: crypto.randomUUID() };
+  let failPrivate = true;
+  await render(capture({ proposals: [privateRetry], privateAvailable: true, act: async action => {
+    if (action.type === "draft" && failPrivate) { failPrivate = false; throw new Error("Private save unavailable"); }
+    return true;
+  } }));
+  await editProposal(privateRetry.key, "textarea", "Still private after retry");
+  assert.match(proposalDetails(privateRetry.key).textContent ?? "", /Private save unavailable/);
+  const beforePrivateRetry = writes.length;
+  await act(async () => button(proposalDetails(privateRetry.key), t("timesheets.retry")).click());
+  assert.equal(writes.length, beforePrivateRetry, "retrying an edit must not accept the proposal");
+  assert.equal(proposalDetails(privateRetry.key).querySelector('[role="alert"]'), null);
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

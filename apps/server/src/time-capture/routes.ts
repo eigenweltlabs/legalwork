@@ -628,7 +628,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         Object.values(initial.instructions), date, initial.fileProducts);
       const transcript = (initial.chat[date] ?? []).filter(turn => turn.role === "user" && !turn.permanent)
         .slice(-30).map(turn => turn.text);
-      key = digest(["workday-reconstruction-v2", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
+      key = digest(["workday-reconstruction-v3", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
       if (cached && (cached.status.type === "ready" || action.type === "refresh")) {

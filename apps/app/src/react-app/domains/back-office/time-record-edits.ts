@@ -8,6 +8,7 @@ export type TimeRecordValues = Record<string, BackOfficeValue>;
 export type ProposalOrigin = Pick<CaptureProposal, "key" | "digest" | "date">;
 export type TimeRowDraft = {
   record: BackOfficeRecord; date: string; proposal?: ProposalOrigin; privateSaved?: boolean;
+  acceptance?: CaptureProposal;
   privateRevision?: number; focusedRevision?: number; changes?: TimeRecordValues; latestDraft?: z.infer<typeof privateEntryDraftSchema> | null;
 };
 const privateDraftConflictSchema = z.object({ draft: privateEntryDraftSchema.nullable() });

@@ -216,30 +216,13 @@ export function modelInput(evidence: ModelEvidence[]) {
 function documentWording(
   narrative: string,
   document: ModelEvidence,
-  activity: string,
-  policy?: DraftRules,
-  title = document.documentTitle,
+  correctedTitle?: string,
 ) {
-  const evidence = document.item.proposal;
-  if (
-    title &&
-    !evidence.changeSummary &&
-    (activity === "DFT" || activity === "MOD")
-  ) {
-    const language = policy?.language.toLowerCase();
-    const verb =
-      policy?.actionWords[activity] ||
-      (language && /^(de(?:-|$)|deutsch|german)/.test(language)
-        ? activity === "DFT"
-          ? "Erstellen"
-          : "Bearbeiten"
-        : activity === "DFT"
-          ? "Drafting"
-          : "Amending");
-    return verb + " " + title;
-  }
-  return document.terminology?.reduce((text, { from, to }) =>
+  const wording = document.terminology?.reduce((text, { from, to }) =>
     replaceDocumentTerm(text, from, to), narrative) ?? narrative;
+  return correctedTitle && document.documentTitle
+    ? replaceDocumentTerm(wording, document.documentTitle, correctedTitle)
+    : wording;
 }
 
 export function reconstructWorkday(
@@ -400,8 +383,6 @@ export function reconstructWorkday(
       ? documentWording(
           row.narrative,
           scopedDocument,
-          row.activity,
-          policy,
           correctedTitle,
         )
       : row.narrative;

@@ -562,13 +562,16 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           pending.record = { ...pending.record, values: hydrateDraft(pending, latest.values) };
           pending.privateSaved = true;
           pending.changes = {};
+          pending.acceptance = undefined;
           pending.latestDraft = undefined;
           edits.draftErrors.delete(id);
           edits.changed();
           return;
         }
       }
-      await persistDraft(id);
+      await persistDraft(id, pending?.acceptance);
+      edits.draftErrors.delete(id);
+      edits.changed();
     });
   }
 
@@ -595,6 +598,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       return Promise.resolve(false);
     if (!edits.drafts.has(record.id) || edits.drafts.get(record.id)?.proposal?.digest !== proposal.digest)
       edits.drafts.set(record.id, { record, date: proposal.date, proposal, privateRevision: currentCapture.current.drafts[record.id]?.revision });
+    edits.drafts.get(record.id)!.acceptance = proposal;
     return enqueue(record.id, () => persistDraft(record.id, proposal)).then(() => true, () => false);
   }
   function finishProposal(proposal: CaptureProposal, action: CaptureAction) {
