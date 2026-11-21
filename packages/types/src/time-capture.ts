@@ -89,6 +89,8 @@ export const privateDraftPatchSchema = z.strictObject({
   revision: privateRevision, changes: privateValuesSchema.nullable(), initial: privateValuesSchema.optional(),
 });
 export type PrivateDraftPatch = z.infer<typeof privateDraftPatchSchema>;
+export const privateBookingRevisionSchema = z.strictObject({ date: z.iso.date(), revision: privateRevision });
+export type PrivateBookingRevision = z.infer<typeof privateBookingRevisionSchema>;
 const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
 const allScopes = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("personal") }),
@@ -167,6 +169,7 @@ export const reconcileCaptureSchema = z.strictObject({
   digest: z.string().length(64),
   recordId: z.uuid(),
   recordRevision: z.number().int().nonnegative(),
+  draftRevision: privateRevision.optional(),
 });
 export type ReconcileCapture = z.infer<typeof reconcileCaptureSchema>;
 

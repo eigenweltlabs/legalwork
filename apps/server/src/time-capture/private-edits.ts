@@ -32,6 +32,7 @@ export const draftClockSchema = z.object({
   fields: z.record(z.string(), z.number().int().nonnegative()),
   removed: z.boolean().optional(),
   guarded: z.boolean().optional(),
+  booking: z.object({ revision: z.number().int().nonnegative(), pending: z.boolean(), target: z.enum(["workflow", "record"]) }).optional(),
 });
 type DraftClock = z.infer<typeof draftClockSchema>;
 type Draft = CaptureState["drafts"][string];
@@ -41,6 +42,20 @@ const equal = (a: AuditValue | undefined, b: AuditValue | undefined) => canonica
 
 function draftConflict(draft: Draft | undefined) {
   return new ApiError(409, "private_draft_conflict", "This private draft changed in another window. Review your edits before retrying.", { draft: draft ?? null });
+}
+
+export function requireDraftRevision(store: DraftStore, key: string, revision: number | undefined, date: string, proposalDigest?: string) {
+  const draft = store.drafts[key];
+  if (revision === undefined && !store.draftClocks[key]?.guarded) return;
+  if (!draft || draft.date !== date || draft.proposalDigest !== proposalDigest || (draft.revision ?? 0) !== revision)
+    throw draftConflict(draft);
+}
+
+export function unchangedPrivateDraft(store: DraftStore, key: string, date: string, proposalDigest: string | undefined,
+  changes: Draft["values"] | null, patch: boolean) {
+  const draft = store.drafts[key];
+  return Boolean(changes && draft?.date === date && draft.proposalDigest === proposalDigest &&
+    (patch ? Object.entries(changes).every(([field, value]) => equal(draft.values[field], value)) : equal(draft.values, changes)));
 }
 
 function draftClock(store: DraftStore, key: string, date: string, proposalDigest?: string): DraftClock {

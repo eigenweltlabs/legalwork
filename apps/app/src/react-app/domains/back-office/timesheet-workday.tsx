@@ -24,7 +24,7 @@ import { TimeWorkspaceStopwatch, useTimeWorkspaceStopwatch } from "./time-worksp
 import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
 import { sourceKeys } from "./timesheet-labels";
-import { overlappingWorkdayRanges, proposalTitle, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
+import { overlappingWorkdayRanges, workdayProposalDisplay, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import { DirectProposalDecisionContext, type DirectProposalDecision, type ProposalDecision } from "./time-proposal-actions";
 import "./timesheet-workday.css";
 
@@ -361,14 +361,14 @@ export function TimesheetWorkday({
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
             <div ref={timelineBody} className="min-h-0 flex-1">
-              <WorkdayTimeline date={date} proposals={proposals} state={state} view={view} selected={selected?.key}
+              <WorkdayTimeline date={date} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
                   busyKey: deciding?.key ?? correcting?.key,
                   onDecision: decideProposal,
-                  onFocusedRemoval: (proposal, container) => {
+                  onFocusedRemoval: (proposal, element) => {
                     rememberProposal(proposal.key);
-                    focusRequest.current ??= { target: "timeline", removed: container };
+                    focusRequest.current ??= { target: "timeline", removed: element };
                   },
                 }} preamble={<DirectProposalDecisionContext.Provider value={directDecision}>
                   {editors.map(proposal => {
@@ -385,7 +385,9 @@ export function TimesheetWorkday({
                         closeEditor();
                       }}>
                       <header>
-                        <h3 ref={active ? editorTitle : undefined} id={active ? editorId + "-title" : undefined} tabIndex={-1}>{proposalTitle(proposal)}</h3>
+                        <h3 ref={active ? editorTitle : undefined} id={active ? editorId + "-title" : undefined} tabIndex={-1}>
+                          {workdayProposalDisplay(proposal, state, drafts[proposal.key]).title}
+                        </h3>
                         <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
                           onClick={closeEditor}><X size={14} /></Button>
                       </header>

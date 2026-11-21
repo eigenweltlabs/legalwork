@@ -1,6 +1,7 @@
 import { timeMemberContactId } from "./time-member-identity.js";
-import { timeMembers, timeMemberContact } from "./time-members.js";
-import { acceptPrivateProposal, captureProfile } from "../time-capture/routes.js";
+import { ownTimeMember, timeMembers, timeMemberContact } from "./time-members.js";
+import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile } from "../time-capture/routes.js";
+import { privateBookingRevisionSchema } from "./timesheet-schema.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
 import { nativeRows } from "./native-rows.js";
@@ -367,7 +368,7 @@ export function registerBackOfficeRoutes(options: {
   );
   route("GET", "/time-members", async (_ctx, _store, { scope, actor }) => ({ members: await timeMembers(options.config, scope, actor) }));
   route("POST", "/records", async (ctx, store, { scope, actor }) => {
-    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, timekeeperUserId, ...body } = await input(ctx);
+    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, privateDraft, timekeeperUserId, ...body } = await input(ctx);
     if ((expectedUserId !== undefined && actor.userId !== expectedUserId) ||
         (expectedPrincipalKey !== undefined && actor.principalKey !== expectedPrincipalKey) ||
         (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store)))
@@ -378,12 +379,14 @@ export function registerBackOfficeRoutes(options: {
     const existing = body.objectId === "timeEntries" && typeof body.id === "string" ? store.raw(scope, body.id) : null;
     const timekeeper = z.object({ timekeeper: z.string().optional().nullable() }).safeParse(body.values);
     const ownContact = timeMemberContactId(scope, actor.userId);
-    const needsRoster = memberId !== undefined || (existing?.values.timekeeper && existing.values.timekeeper !== ownContact)
+    const needsRoster = (memberId !== undefined && memberId !== actor.userId) || (existing?.values.timekeeper && existing.values.timekeeper !== ownContact)
       || (existing && !existing.values.timekeeper && existing.ownerId !== actor.userId)
       || (timekeeper.success && timekeeper.data.timekeeper && timekeeper.data.timekeeper !== ownContact);
-    const roster = body.objectId === "timeEntries" && needsRoster && actor.edit && !ctx.agentAccess && !actor.agentId
+    const canAssignMember = body.objectId === "timeEntries" && actor.edit && !ctx.agentAccess && !actor.agentId;
+    const roster = canAssignMember && needsRoster
       ? await timeMembers(options.config, scope, actor) : [];
-    const member = roster.find(person => person.userId === memberId);
+    const member = canAssignMember && memberId === actor.userId
+      ? await ownTimeMember(options.config, scope, actor) : roster.find(person => person.userId === memberId);
     if (memberId && !member) throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
     const recordableWorkers = new Set(roster.map(person => person.userId));
     const save = (record: unknown) => {
@@ -392,17 +395,24 @@ export function registerBackOfficeRoutes(options: {
       return store.transaction(() => store.saveRecord(scope, actor, { ...value,
         values: { ...value.values, timekeeper: timeMemberContact(store, scope, actor, member) } }, undefined, recordableWorkers));
     };
-    if (privateProposal !== undefined) {
+    if (privateProposal !== undefined || privateDraft !== undefined) {
       if (ctx.actor?.type !== "host" || ctx.agentAccess || actor.agentId)
-        throw new ApiError(403, "private_workday", "Confirm the proposal on its local device.");
-      const proposal = z.strictObject({ key: z.uuid(), digest: z.string().regex(/^[a-f0-9]{64}$/), profileId: z.string() }).parse(privateProposal);
-      const record = z.strictObject({ id: z.literal(proposal.key), create: z.literal(true), revision: z.literal(0),
+        throw new ApiError(403, "private_workday", "Confirm the private draft on its local device.");
+      const record = z.strictObject({ id: z.uuid(), create: z.literal(true), revision: z.literal(0),
         objectId: z.literal("timeEntries"), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body);
+      const publish = async () => ({ record: save(record) });
+      const identity = { user: actor.userId, scope, principal: actor.principalKey ?? "" };
+      if (privateDraft !== undefined) {
+        if (privateProposal !== undefined) throw new ApiError(400, "private_workday", "Choose one private draft to confirm.");
+        const draft = privateBookingRevisionSchema.extend({ profileId: z.string() }).parse(privateDraft);
+        return bookPrivateManualDraft(options.config, { ...identity, profileId: draft.profileId }, record.id, draft, publish, "record");
+      }
+      const proposal = z.strictObject({ key: z.literal(record.id), digest: z.string().regex(/^[a-f0-9]{64}$/), profileId: z.string(),
+        draftRevision: privateBookingRevisionSchema.shape.revision.optional() }).parse(privateProposal);
       // Reuse directory persistence, permissions, audit and sync. Only the confirmed
       // record fields and stable row ID are shared; the original and digest stay private.
-      return acceptPrivateProposal(options.config, { user: actor.userId, scope, principal: actor.principalKey ?? "",
-        profileId: proposal.profileId }, proposal.key, proposal.digest,
-      async () => ({ record: save(record) }), "record");
+      return acceptPrivateProposal(options.config, { ...identity, profileId: proposal.profileId }, proposal.key, proposal.digest,
+        publish, "record", proposal.draftRevision === undefined ? undefined : { revision: proposal.draftRevision });
     }
     if (body.localSource !== undefined) {
       const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);

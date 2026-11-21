@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "twenty-ui/primitives/input";
-import { captureChargeMinutes, type CaptureProposal, type WorkdayCorrection } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal, type CaptureState, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
   proposedStopwatchCharge,
@@ -15,12 +15,14 @@ import type { TimelineView } from "./time-workspace-panels";
 import { sourceKeys } from "./timesheet-labels";
 import { isUntitledStopwatch } from "./time-record-values";
 import { TimeProposalActions, type ProposalDecision } from "./time-proposal-actions";
+import { matchMatter, matterOptions } from "./timesheet-row";
 
 type Directory = Pick<TimesheetState, "matters" | "projects" | "policies">;
+type TimelineDirectory = Directory & Pick<TimesheetState, "clients" | "service">;
 function matterFor(p: CaptureProposal, state: Directory) {
-  if (p.matterId) return state.matters.find((m) => m.id === p.matterId);
   const linked = state.projects.find((project) => project.id === p.projectId)?.matterIds;
-  return linked?.length === 1 ? state.matters.find((m) => m.id === linked[0]) : undefined;
+  return state.matters.find(matter => matter.id === p.matterId) ??
+    (linked?.length === 1 ? state.matters.find(matter => matter.id === linked[0]) : undefined);
 }
 const clock = (minutes: number) =>
   String(Math.floor(minutes / 60)).padStart(2, "0") + ":" + String(minutes % 60).padStart(2, "0");
@@ -51,12 +53,34 @@ export function proposalTitle(proposal: CaptureProposal) {
     ? t("timesheets.source.stopwatch") : proposal.narrative;
 }
 
+export function workdayProposalDisplay(proposal: CaptureProposal, state: TimelineDirectory,
+  draft?: CaptureState["drafts"][string], choices?: ReturnType<typeof matterOptions>) {
+  let matter = matterFor(proposal, state);
+  let narrative: string | undefined;
+  if (draft?.proposalDigest === proposal.digest && draft.date === proposal.date) {
+    const values = draft.values;
+    if (state.service === "records") {
+      if (typeof values.matter === "string" || values.matter === null) matter = state.matters.find(item => item.id === values.matter);
+      if (typeof values.billingNarrative === "string" || values.billingNarrative === null) narrative = values.billingNarrative ?? "";
+    } else if (values.workflow) {
+      if (typeof values.matter === "string") {
+        const assigned = matchMatter(choices ?? matterOptions(state), values.matter);
+        matter = state.matters.find(item => item.id === assigned?.matterId);
+      }
+      if (typeof values.narrative === "string") narrative = values.narrative;
+    }
+  }
+  const title = narrative?.trim() || (narrative === undefined || isUntitledStopwatch(proposal) ? proposalTitle(proposal) : t("back_office.untitled"));
+  return { matter, title };
+}
+
 export function WorkdayTimeline({
-  date, proposals, state, view, selected, editorId, preamble, onOpen, decisions,
+  date, proposals, drafts, state, view, selected, editorId, preamble, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
-  state: Directory;
+  drafts?: CaptureState["drafts"];
+  state: TimelineDirectory;
   view: TimelineView;
   selected: string | undefined;
   editorId?: string;
@@ -66,10 +90,11 @@ export function WorkdayTimeline({
     canAccept: boolean;
     busyKey?: string;
     onDecision: (proposal: CaptureProposal, action: ProposalDecision, trigger: HTMLButtonElement) => void;
-    onFocusedRemoval: (proposal: CaptureProposal, container: HTMLDivElement) => void;
+    onFocusedRemoval: (proposal: CaptureProposal, element: HTMLElement) => void;
   };
 }) {
   const anchor = useMemo(() => new Date(date + "T12:00:00"), [date]);
+  const choices = useMemo(() => state.service === "records" ? undefined : matterOptions(state), [state]);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const unassigned = t("timesheets.workday.unassigned");
   const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>([
@@ -79,13 +104,13 @@ export function WorkdayTimeline({
   const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
   for (const proposal of proposals) {
     if (proposal.date !== date) continue;
-    const matter = matterFor(proposal, state);
+    const { matter, title } = workdayProposalDisplay(proposal, state, drafts?.[proposal.key], choices);
     const matterId = matter?.id ?? null;
     const span = interval(proposal);
     const item: CalendarDisplayOccurrence = {
       id: proposal.key, itemId: proposal.key, uid: proposal.key,
       projectId: proposal.projectId, projectName: matter?.name ?? unassigned,
-      kind: "event", title: proposalTitle(proposal),
+      kind: "event", title,
       start: span ? new Date(span.start).toISOString() : date,
       end: span ? new Date(span.end).toISOString() : null,
       allDay: !span, timeZone, status: "active", assigneeUserId: null,
@@ -119,7 +144,8 @@ export function WorkdayTimeline({
           "aria-expanded": selected === item.id,
           "aria-controls": selected === item.id ? editorId : undefined,
         },
-        actions: decisions ? <TimelineProposalActions proposal={source.proposal} {...decisions} /> : undefined,
+        onFocusedRemoval: decisions ? button => decisions.onFocusedRemoval(source.proposal, button) : undefined,
+        actions: decisions ? <TimelineProposalActions proposal={source.proposal} title={item.title} {...decisions} /> : undefined,
       };
     }}
     onOpen={(item, trigger) => {
@@ -128,12 +154,13 @@ export function WorkdayTimeline({
     }} />;
 }
 
-function TimelineProposalActions({ proposal, canAccept, busyKey, onDecision, onFocusedRemoval }: {
+function TimelineProposalActions({ proposal, title, canAccept, busyKey, onDecision, onFocusedRemoval }: {
   proposal: CaptureProposal;
+  title: string;
   canAccept: boolean;
   busyKey?: string;
   onDecision: (proposal: CaptureProposal, action: ProposalDecision, trigger: HTMLButtonElement) => void;
-  onFocusedRemoval: (proposal: CaptureProposal, container: HTMLDivElement) => void;
+  onFocusedRemoval: (proposal: CaptureProposal, element: HTMLElement) => void;
 }) {
   const rail = useRef<HTMLDivElement>(null);
   const remove = useRef({ proposal, onFocusedRemoval });
@@ -142,7 +169,7 @@ function TimelineProposalActions({ proposal, canAccept, busyKey, onDecision, onF
     if (!element && rail.current?.contains(document.activeElement)) remove.current.onFocusedRemoval(remove.current.proposal, rail.current);
     rail.current = element;
   }, []);
-  return <TimeProposalActions railRef={bindRail} label={proposalTitle(proposal)} canAccept={canAccept} busy={busyKey === proposal.key}
+  return <TimeProposalActions railRef={bindRail} label={title} canAccept={canAccept} busy={busyKey === proposal.key}
     onAccept={event => onDecision(proposal, "accept", event.currentTarget)}
     onDismiss={event => onDecision(proposal, "dismiss", event.currentTarget)} />;
 }

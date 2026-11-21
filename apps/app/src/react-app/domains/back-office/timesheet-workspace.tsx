@@ -11,7 +11,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
-import type { WorkdayModelOption } from "@legalwork/types/time-capture";
+import type { PrivateBookingRevision, WorkdayModelOption } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
@@ -75,12 +75,16 @@ export function TimesheetWorkspace({
       { replace: true },
     );
   }
-  async function request(command?: TimesheetCommand) {
+  async function request(command?: TimesheetCommand, draft?: PrivateBookingRevision) {
     const identity = new URLSearchParams({ expectedUserId: userId });
     if (directory.directoryId) identity.set("directoryId", directory.directoryId);
     if (principalKey) identity.set("expectedPrincipalKey", principalKey);
-    if (directory.captureProfileId && command?.type === "create" && command.source === "suggestion")
+    if (directory.captureProfileId && command?.type === "create" && (command.source === "suggestion" || draft))
       identity.set("profileId", directory.captureProfileId);
+    if (draft) {
+      identity.set("draftDate", draft.date);
+      identity.set("draftRevision", String(draft.revision));
+    }
     const state = TimesheetStateSchema.parse(
       await client.backOffice("/timesheet?" + identity, {
         team,
@@ -109,11 +113,11 @@ export function TimesheetWorkspace({
   const loadError = timesheetError ?? directoryRefresh?.error;
   const recordsOnly = state?.service === "records";
   const queryFilter = { queryKey: key, exact: true };
-  async function send(command: TimesheetCommand) {
+  async function send(command: TimesheetCommand, draft?: PrivateBookingRevision) {
     const activeQuery = cache.getQueryCache().find(queryFilter);
     const isCurrent = () => activeQuery && cache.getQueryCache().find(queryFilter) === activeQuery;
     try {
-      const next = await request(command);
+      const next = await request(command, draft);
       if (!isCurrent()) throw new Error(t("timesheets.account_changed"));
       await cache.cancelQueries(queryFilter);
       if (!isCurrent()) throw new Error(t("timesheets.account_changed"));

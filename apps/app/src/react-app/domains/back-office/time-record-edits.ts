@@ -8,7 +8,7 @@ export type TimeRecordValues = Record<string, BackOfficeValue>;
 export type ProposalOrigin = Pick<CaptureProposal, "key" | "digest" | "date">;
 export type TimeRowDraft = {
   record: BackOfficeRecord; date: string; proposal?: ProposalOrigin; privateSaved?: boolean;
-  privateRevision?: number; changes?: TimeRecordValues; latestDraft?: z.infer<typeof privateEntryDraftSchema> | null;
+  privateRevision?: number; focusedRevision?: number; changes?: TimeRecordValues; latestDraft?: z.infer<typeof privateEntryDraftSchema> | null;
 };
 const privateDraftConflictSchema = z.object({ draft: privateEntryDraftSchema.nullable() });
 export function privateDraftConflict(error: unknown) {

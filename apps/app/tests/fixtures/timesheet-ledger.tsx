@@ -597,6 +597,7 @@ try {
   const otherProfileDrafts: CaptureState["drafts"] = {};
   let pauseDraft: Promise<void> | undefined;
   let changeNarrativeFromOtherWindow = false;
+  let refreshProposalAtAcceptance = false;
   const confirmedEntries: TimeEntry[] = [];
   let captureProfileId = "profile-a";
   const overlayRunId = crypto.randomUUID();
@@ -649,6 +650,10 @@ try {
         if (action.changes) drafts[action.key] = { date: action.date, proposalDigest: action.proposalDigest,
           values: { ...(previous?.values ?? action.initial), ...action.changes }, revision };
         else delete drafts[action.key];
+        if (refreshProposalAtAcceptance && action.key === capture.key) {
+          refreshProposalAtAcceptance = false;
+          drafts[action.key].values.narrative = "Confirmed wording from the other window";
+        }
       }
       return {
         settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
@@ -664,8 +669,13 @@ try {
       if (path.startsWith("/timesheet?")) {
         if (options?.body) {
           const command = TimesheetCommandSchema.parse(options.body);
-          assert.equal(new URL(path, "http://localhost").searchParams.get("profileId"),
-            command.type === "create" && command.source === "suggestion" ? "profile-a" : null);
+          const query = new URL(path, "http://localhost").searchParams;
+          assert.equal(query.get("profileId"), command.type === "create" ? captureProfileId : null);
+          if (command.type === "create") {
+            const drafts = captureProfileId === "profile-a" ? workdayDrafts : otherProfileDrafts;
+            assert.equal(query.get("draftRevision"), String(drafts[command.requestId].revision));
+            assert.equal(query.get("draftDate"), drafts[command.requestId].date);
+          }
           writes.push(command);
           if (command.type === "create") confirmedEntries.push({
             ...command.entry, id: crypto.randomUUID(), groupId: command.requestId, revision: 1,
@@ -884,6 +894,10 @@ try {
   assert.equal(writes.length, 0, "editing a proposal does not publish it");
   const acceptButton = proposalPanel.querySelector<HTMLButtonElement>('button[type="submit"]');
   assert.ok(acceptButton);
+  refreshProposalAtAcceptance = true;
+  await act(async () => proposalPanel.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  assert.equal(writes.length, 0, "acceptance waits for review when the saved draft differs from the displayed suggestion");
+  assert.equal(proposedText?.value, "Confirmed wording from the other window");
   await act(async () => {
     acceptButton.focus();
     proposalPanel.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
@@ -1232,7 +1246,7 @@ try {
   await selectNative(link, booked.id);
   await until(() => !block(exact));
   assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
-    type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7,
+    type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7, draftRevision: 1,
   });
   assert.equal(block(exact), null);
   assert.equal(document.activeElement, block(partial), "linking also returns focus to a surviving timeline block");

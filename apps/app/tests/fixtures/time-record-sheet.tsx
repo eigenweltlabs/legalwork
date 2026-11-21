@@ -78,7 +78,7 @@ let canDelegate = false;
 const writeSchema = z.object({
   id: z.string(), revision: z.number(), values: z.record(z.string(), BackOfficeValueSchema), create: z.boolean().optional(),
   timekeeperUserId: z.string().optional(), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
-  privateProposal: z.object({ key: z.string(), digest: z.string(), profileId: z.string() }).optional(),
+  privateProposal: z.object({ key: z.string(), digest: z.string(), profileId: z.string(), draftRevision: z.number().optional() }).optional(),
 });
 const writes: z.infer<typeof writeSchema>[] = [];
 const privateActions: CaptureAction[] = [];
@@ -436,6 +436,43 @@ try {
   await render(active, [workerContact, current]);
   assert.equal(host.querySelector(".time-sheet-summary select"), null);
 
+  // A poll applies another window's stored draft while this editor still owns focus.
+  for (const { field, valueKey, typed, original, remote } of [
+    { field: "textarea", valueKey: "billingNarrative", typed: "Window A wording", original: "Before typing", remote: "Window B saved" },
+    { field: 'input[type="number"]', valueKey: "billableMinutes", typed: "24", original: 15, remote: 19 },
+  ]) {
+    const candidate = { ...proposal, key: crypto.randomUUID() };
+    const initial = { date: first, proposalDigest: candidate.digest, revision: 1, values: { [valueKey]: original } };
+    const latest = { ...initial, revision: 2, values: { [valueKey]: remote } };
+    const attempts: Array<{ revision: number; value: unknown }> = [];
+    const typing = capture({ proposals: [candidate], privateAvailable: true, drafts: { [candidate.key]: initial },
+      writeDraft: async action => {
+        attempts.push({ revision: action.revision, value: action.changes?.[valueKey] });
+        throw new LegalworkServerError(409, "private_draft_conflict", "Private edit conflict", { draft: latest });
+      },
+    });
+    const beforeWrites = writes.length;
+    await render(typing);
+    const control = proposalDetails(candidate.key).querySelector(field);
+    assert.ok(control instanceof window.HTMLInputElement || control instanceof window.HTMLTextAreaElement);
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set;
+    assert.ok(setter);
+    await act(async () => {
+      control.focus();
+      setter.call(control, typed);
+      control.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await render({ ...typing, drafts: { [candidate.key]: latest } });
+    assert.equal(proposalDetails(candidate.key).querySelector(field), control, "refresh must keep the same editing field");
+    assert.equal(document.activeElement, control);
+    assert.equal(control.value, typed);
+    assert.deepEqual(attempts, [], "typing remains local until blur");
+    await act(async () => control.blur());
+    assert.deepEqual(attempts, [{ revision: 1, value: valueKey === "billableMinutes" ? Number(typed) : typed }]);
+    assert.match(proposalDetails(candidate.key).querySelector('[role="alert"]')?.textContent ?? "", /Private edit conflict/);
+    assert.equal(writes.length, beforeWrites);
+  }
+
   const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
   const beforeDirectoryRefresh = captureProposalSchema.parse({
     ...proposal, key: crypto.randomUUID(), digest: "e".repeat(64),
@@ -447,11 +484,17 @@ try {
   const pendingDirectory = { ...directory, records: [workerContact, singleClientMatter, ...clientRecords] };
   client.privateStopwatch = async () => ({ profileId: directory.captureProfileId ?? "", active: null, lastStopped: null, projects: [] });
   const workdayDrafts: TimeCaptureSheet["drafts"] = {};
+  let sameProposalWasEdited = true;
   client.privateWorkday = async (_context, action) => {
     if (action?.type === "draft-patch") {
       if (action.changes) workdayDrafts[action.key] = { date: action.date, proposalDigest: action.proposalDigest,
         values: { ...(workdayDrafts[action.key]?.values ?? action.initial), ...action.changes }, revision: action.revision + 1 };
       else delete workdayDrafts[action.key];
+      if (sameProposalWasEdited && action.key === beforeDirectoryRefresh.key) {
+        sameProposalWasEdited = false;
+        const values = workdayDrafts[action.key].values;
+        values.name = values.billingNarrative = "Saved in another window";
+      }
     }
     return ({
     settings: { calendar: true, tasks: false, aiSuggestions: true, intervalMinutes: 0 },
@@ -476,7 +519,14 @@ try {
   const actions = toBook.parentElement?.querySelector<HTMLElement>("[data-calendar-proposal-actions]");
   assert.ok(actions, "a records proposal can be booked directly from its calendar block");
   const acceptFromTimeline = button(actions, t("timesheets.sheet.accept"));
+  const countBeforeBooking = writes.length;
   await act(async () => { acceptFromTimeline.focus(); acceptFromTimeline.click(); });
+  assert.equal(writes.length, countBeforeBooking, "direct acceptance must show an intervening private edit before booking");
+  assert.ok(timelineButton(beforeDirectoryRefresh.key));
+  assert.match(host.querySelector(".time-workspace-editor")?.textContent ?? "", /The suggestion changed/);
+  await act(async () => { acceptFromTimeline.focus(); acceptFromTimeline.click(); });
+  assert.equal(writes.at(-1)?.values.billingNarrative, "Saved in another window");
+  assert.equal(writes.at(-1)?.privateProposal?.draftRevision, workdayDrafts[beforeDirectoryRefresh.key].revision);
   assert.equal(timelineButton(beforeDirectoryRefresh.key), null, "the locally acknowledged proposal leaves the timeline before directory refresh");
   assert.equal(host.querySelector(".time-workspace-editor"), null);
   assert.equal(document.activeElement, timelineButton(nextSuggestion.key), "the Records editor restores focus on local acknowledgement");

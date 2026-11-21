@@ -8,6 +8,16 @@ import type { BackOfficeActor, BackOfficeValue } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import { memberSource, timeMemberContactId } from "./time-member-identity.js";
 
+/** Self-booking uses the bound account and can enter the ordinary offline outbox. */
+export async function ownTimeMember(config: ServerConfig, scope: string, actor: BackOfficeActor) {
+  if (scope === "local") return { userId: actor.userId, name: "Local user", email: null };
+  if (!actor.principalKey) throw new ApiError(403, "time_member_account", "Sign in to your firm.");
+  const { account } = await requireBackOfficePrincipal(config, actor.principalKey);
+  if (account?.orgId !== scope || account.userId !== actor.userId)
+    throw new ApiError(409, "time_member_account", "The firm account changed.");
+  return { userId: actor.userId, name: account.userName, email: account.userEmail };
+}
+
 /** Reuse the platform's organization roster. Reading it never creates contacts. */
 export async function timeMembers(config: ServerConfig, scope: string, actor: BackOfficeActor) {
   if (scope === "local") return [{ userId: actor.userId, name: "Local user", email: null }];

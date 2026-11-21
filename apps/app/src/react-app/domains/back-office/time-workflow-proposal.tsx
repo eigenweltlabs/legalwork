@@ -3,7 +3,7 @@ import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
 import { Button } from "@/components/ui/button";
 import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-actions";
 import type { BackOfficeValue } from "@legalwork/types/back-office";
-import { captureChargeMinutes, type CaptureAction, type CaptureProposal } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureAction, type CaptureProposal, type PrivateBookingRevision } from "@legalwork/types/time-capture";
 import {
   timeActivities, proposedCharge, resolveTimePolicy, type TimesheetCommand, type TimesheetState,
 } from "@legalwork/types/timesheet";
@@ -21,7 +21,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   proposal: CaptureProposal;
   state: TimesheetState;
   capture: TimeCaptureSheet;
-  onCommand: (command: TimesheetCommand) => Promise<unknown>;
+  onCommand: (command: TimesheetCommand, draft?: PrivateBookingRevision) => Promise<unknown>;
   canEdit: boolean;
 }) {
   const id = useId();
@@ -134,6 +134,8 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       await queue.current;
       return await action();
     } catch (error) {
+      const collision = privateDraftConflict(error);
+      if (collision !== undefined) setSavedConflict(collision);
       setError(error instanceof Error ? error.message : t("back_office.save_failed"));
       return false;
     } finally {
@@ -143,8 +145,13 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   }
   async function accept() {
     if (!canEdit || conflict || inFlight.current) return false;
+    const reviewed = serialize(current.current);
     return run(async () => {
       if (capture.writeDraft && !await saveFields()) return false;
+      if (Object.keys(differentTimeValues(reviewed, serialize(current.current))).length) {
+        setError(t("timesheets.sheet.edit_suggestion_changed"));
+        return false;
+      }
       const parsed = parseRow(current.current, state);
       if ("error" in parsed) {
         setError(parsed.error);
@@ -158,7 +165,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       await onCommand({
         type: "create", requestId: proposal.key, source: "suggestion", proposalDigest: proposal.digest,
         entry, workerIds: parsed.workerIds,
-      });
+      }, capture.writeDraft ? { date: proposal.date, revision: baseline.current.revision } : undefined);
       return true;
     });
   }
@@ -177,8 +184,16 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       : record.values.matter === linkMatter && timeRecordDate(record.values.startedAt, record.values.serviceDate) === values.date;
   }) ?? [] : [];
   function updateSource(action: CaptureAction) {
+    const reviewed = serialize(current.current);
     return run(async () => {
-      if (action.type === "reconcile" && !await saveFields()) return false;
+      if (action.type === "reconcile") {
+        if (!await saveFields()) return false;
+        if (Object.keys(differentTimeValues(reviewed, serialize(current.current))).length) {
+          setError(t("timesheets.sheet.edit_suggestion_changed"));
+          return false;
+        }
+        if (capture.writeDraft) return capture.act({ ...action, draftRevision: baseline.current.revision });
+      }
       return capture.act(action);
     });
   }
@@ -227,7 +242,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       {conflict && <p role="status">{t("timesheets.workday.overlap")}</p>}
       {error && <div role="alert">{error}
         {savedConflict ? <>
-          <dl>{rowColumns.filter(field => Object.hasOwn(differentTimeValues(baseline.current.values, serialize(values)), field)).map(field => <div key={field}>
+          <dl>{rowColumns.filter(field => Object.hasOwn(differentTimeValues(serialize(values), savedConflict.values), field)).map(field => <div key={field}>
             <dt>{t(ledgerColumnKeys[field])} · {t("back_office.conflict.saved")}</dt>
             <dd>{String(savedConflict.values[field] ?? "∅")}</dd>
           </div>)}</dl>

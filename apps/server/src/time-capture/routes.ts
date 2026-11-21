@@ -43,7 +43,7 @@ import { acceptedFileProduct, captureMatter, draftRules, modelEvidence, visibleG
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
 import { validateReconcileTarget } from "./reconcile.js";
-import { draftClockSchema, patchCaptureSettings, patchPrivateDraft, writePrivateDraft } from "./private-edits.js";
+import { draftClockSchema, patchCaptureSettings, patchPrivateDraft, requireDraftRevision, unchangedPrivateDraft, writePrivateDraft } from "./private-edits.js";
 
 const savedSchema = z.object({
   stopwatch: privateStopwatchSchema.default(emptyStopwatch),
@@ -201,19 +201,11 @@ export async function beginDocumentCapture(
 /** Resolve only the worker-approved billing fields from this device's accepted private originals. */
 
 
-/** Serialize acceptance with range edits so a stale composer cannot also bill a split-off interval. */
-export async function acceptPrivateProposal<T>(
-  config: ServerConfig,
-  identity: { user: string; scope: string; principal: string; profileId: string | null },
-  key: string,
-  hash: string,
-  write: () => Promise<T>,
-  target: "workflow" | "record" = "workflow",
-) {
+type BookingIdentity = { user: string; scope: string; principal: string; profileId: string | null };
+async function bookingProfile(config: ServerConfig, identity: BookingIdentity) {
   if (!loopback(config))
     throw new ApiError(403, "private_workday", "Open the proposal on its local device.");
-  const prof = await profile(config),
-    path = prof.path;
+  const prof = await profile(config);
   if (
     prof.profileId !== identity.profileId ||
     prof.user !== identity.user ||
@@ -221,6 +213,14 @@ export async function acceptPrivateProposal<T>(
     prof.principal !== identity.principal
   )
     throw new ApiError(409, "private_workday_changed", "The active account changed.");
+  return prof;
+}
+
+/** Serialize acceptance with edits to the proposal and the private draft. */
+export async function acceptPrivateProposal<T>(config: ServerConfig, identity: BookingIdentity,
+  key: string, hash: string, write: () => Promise<T>, target: "workflow" | "record" = "workflow",
+  expectedDraft?: { date?: string; revision: number }) {
+  const prof = await bookingProfile(config, identity), { path } = prof;
   return withFileWriteLock(path, async () => {
     const saved = await load(path),
       prior = saved.accepted[key];
@@ -243,6 +243,8 @@ export async function acceptPrivateProposal<T>(
     const verified = await profile(config);
     if (verified.path !== path)
       throw new ApiError(409, "private_workday_changed", "The active account changed.");
+    if (!prior || saved.pendingBookings[key])
+      requireDraftRevision(saved, key, expectedDraft?.revision, expectedDraft?.date ?? candidate.proposal.date, hash);
     // A timeout may happen after a firm server commits. Hold the claim, and
     // keep that exact proposal visible for an idempotent retry.
     if (!prior) {
@@ -273,6 +275,40 @@ export async function acceptPrivateProposal<T>(
       delete saved.drafts[key];
       await save(path, saved);
     }
+    return result;
+  });
+}
+
+export async function bookPrivateManualDraft<T>(config: ServerConfig, identity: BookingIdentity,
+  key: string, expected: { date: string; revision: number }, write: () => Promise<T>, target: "workflow" | "record") {
+  const { path } = await bookingProfile(config, identity);
+  return withFileWriteLock(path, async () => {
+    await bookingProfile(config, identity);
+    const saved = await load(path);
+    const { date, revision } = expected;
+    const clock = saved.draftClocks[key];
+    if (clock?.booking && clock.booking.target !== target)
+      throw new ApiError(409, "private_workday_changed", "This draft was already saved through another entry workflow.");
+    if (clock?.date === date && clock.booking?.revision === revision && !clock.booking.pending && clock.removed)
+      return write();
+    requireDraftRevision(saved, key, revision, date);
+    if (!clock?.booking) {
+      saved.draftClocks[key] = { date, guarded: true, fields: clock?.fields ?? {}, booking: { revision, pending: true, target } };
+      await save(path, saved);
+    }
+    let result: T;
+    try {
+      result = await write();
+    } catch (error) {
+      if (!clock?.booking && error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        delete saved.draftClocks[key].booking;
+        await save(path, saved);
+      }
+      throw error;
+    }
+    delete saved.drafts[key];
+    saved.draftClocks[key] = { ...saved.draftClocks[key], removed: true, booking: { revision, pending: false, target } };
+    await save(path, saved);
     return result;
   });
 }
@@ -349,8 +385,8 @@ function rawProposals(evidence: WorkdayEvidence[]) {
 
 function modelChoice(config: ServerConfig, profile: Pick<Saved, "settings" | "lastModel">, requested?: WorkdayModel): WorkdayModel {
   const { settings, lastModel } = profile;
-  if (requested) return requested;
-  if (!settings.model) return lastModel ?? localWorkdayModel;
+  // A stale window cannot override an explicitly saved provider choice.
+  if (!settings.model) return requested ?? lastModel ?? localWorkdayModel;
   const { workspaceId, providerID, modelID } = settings.model;
   return { workspaceId: workspaceId ?? config.workspaces[0]?.id ?? "local", providerID, modelID };
 }
@@ -744,6 +780,10 @@ export function registerWorkdayRoutes(options: {
             } else if (action.type === "draft" || action.type === "draft-patch") {
               if (action.date && action.date !== date) throw new ApiError(409, "private_workday_changed", "The draft date changed.");
               const changes = action.type === "draft-patch" ? action.changes : action.values;
+              if (s.pendingBookings[action.key] || s.draftClocks[action.key]?.booking?.pending) {
+                if (unchangedPrivateDraft(s, action.key, date, action.proposalDigest, changes, action.type === "draft-patch")) return;
+                throw new ApiError(409, "private_booking_pending", "This time entry is being saved. Retry the booking before making more changes.");
+              }
               if (s.accepted[action.key] && !s.pendingBookings[action.key] && changes !== null) throw new ApiError(409, "private_already_booked", "This entry is already saved.");
               if (action.proposalDigest) {
                 const proposal = s.days[date]?.find(item => item.proposal.key === action.key)?.proposal;
@@ -760,6 +800,7 @@ export function registerWorkdayRoutes(options: {
                   (linked ? linked !== action.recordId || accepted !== action.digest : accepted))
                 throw new ApiError(409, "private_workday_changed", "The suggestion changed or was already booked.");
               if (linked) return;
+              requireDraftRevision(s, action.key, action.draftRevision, date, action.digest);
               if (!eligibleSource(item, await connectedWorkdayAccounts(config), s.settings)) throw new ApiError(409, "private_workday_changed", "The source is unavailable.");
               const access = await backOfficeAccess(config, scope !== "local"), store = await backOfficeStore(config);
               if (access.scope !== scope || access.actor.userId !== user || (access.actor.principalKey ?? "") !== principal) throw new ApiError(409, "private_workday_changed", "The account changed.");

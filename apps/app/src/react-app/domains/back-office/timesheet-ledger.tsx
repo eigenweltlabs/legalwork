@@ -34,7 +34,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
-import type { CaptureProposal } from "@legalwork/types/time-capture";
+import type { CaptureProposal, PrivateBookingRevision } from "@legalwork/types/time-capture";
 import { useLocale } from "@/i18n/use-locale";
 import { decodeTimeRow, encodeTimeRow, timeRowMime } from "./timesheet-clipboard";
 import {
@@ -76,7 +76,7 @@ type Props = {
   capture?: TimeCaptureSheet;
   visible?: boolean;
   state: TimesheetState;
-  onCommand: (command: TimesheetCommand) => Promise<unknown>;
+  onCommand: (command: TimesheetCommand, draft?: PrivateBookingRevision) => Promise<unknown>;
   initialDraft?: InitialTimesheetDraft;
   onDiscardProposal?: () => void;
   initialDate?: string;
@@ -88,6 +88,7 @@ type Props = {
 };
 type Edit = { entry: TimeEntry; initial: RowValues; values: RowValues };
 type DraftBaseline = { revision: number; values: TimeRecordValues };
+type SavedWorkflowDraft = { values: RowValues; revision?: number };
 function workflowDraftValues(values: RowValues): TimeRecordValues {
   return { workflow: true, billable: values.billable, createProduct: Boolean(values.createProduct),
     productId: values.productId ?? null, ...Object.fromEntries(rowColumns.map(column => [column, values[column]])) };
@@ -242,7 +243,7 @@ export function TimesheetLedger({
   const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
   const [draftChanged, setDraftChanged] = useState(false);
   const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
-  const privateQueue = useRef<Promise<RowValues | false>>(Promise.resolve(false));
+  const privateQueue = useRef<Promise<SavedWorkflowDraft | false>>(Promise.resolve(false));
   const privateBases = useRef(new Map<string, DraftBaseline>());
   const [privateConflicts, setPrivateConflicts] = useState<Partial<Record<string, DraftBaseline | null>>>({});
   const privateConflict = privateConflicts[requestId];
@@ -425,8 +426,8 @@ export function TimesheetLedger({
     setError("");
     focus(row, "product");
   }
-  async function send(command: TimesheetCommand) {
-    await onCommand(command);
+  async function send(command: TimesheetCommand, draft?: PrivateBookingRevision) {
+    await onCommand(command, draft);
     if (command.type !== "create") return;
     const { entry, workerIds } = command;
     showBooking({ id: command.requestId, date: entry.date, description: entry.narrative,
@@ -434,7 +435,7 @@ export function TimesheetLedger({
         (workerIds ?? [state.userId]).map(person).join(", "), t("timesheets.sheet.worked", { minutes: entry.workedMinutes }),
         t("timesheets.sheet.charge", { minutes: entry.billableMinutes })].filter(Boolean).join(" · ") });
   }
-  async function run(command: TimesheetCommand) {
+  async function run(command: TimesheetCommand, draft?: PrivateBookingRevision) {
     if (!canEdit || pending.current) return false;
     if (!state.supportsTimeAllocations && requiresTimeAllocations(command)) {
       setError(t("timesheets.allocation_upgrade"));
@@ -444,10 +445,11 @@ export function TimesheetLedger({
     setBusy(true);
     setError("");
     try {
-      await send(command);
+      await send(command, draft);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("timesheets.ledger.failed"));
+      if (draft && privateDraftConflict(err) !== undefined) privateSaveError(err);
+      else setError(err instanceof Error ? err.message : t("timesheets.ledger.failed"));
       return false;
     } finally {
       pending.current = false;
@@ -485,10 +487,16 @@ export function TimesheetLedger({
     let before = review?.values ?? (row === "new" ? draft : edit?.values);
     if (!before) return false;
     const saveBeforeBooking = row === "new" && !provenance && Boolean(capture?.writeDraft);
+    let privateRevision: number | undefined;
     if (saveBeforeBooking) {
       const saved = await savePrivateDraft(date, capture, before, true);
       if (!saved || previousDate.current !== date || latestDraft.current.requestId !== requestId) return false;
-      before = saved;
+      if (Object.keys(differentTimeValues(workflowDraftValues(before), workflowDraftValues(saved.values))).length) {
+        setError(t("back_office.conflict.title"));
+        return false;
+      }
+      before = saved.values;
+      privateRevision = saved.revision;
     }
     const current = valuesForSave(row, before);
     if (
@@ -569,7 +577,7 @@ export function TimesheetLedger({
         ...(workerTimes.length ? { workerTimes } : {}),
         ...(provenance ? { source: provenance, proposalDigest: initialDraft?.proposalDigest } : {}),
       };
-      if (!(await run(command))) return false;
+      if (!(await run(command, privateRevision === undefined ? undefined : { date, revision: privateRevision }))) return false;
       await clearPrivateDraft(true);
       if (previousDate.current !== date) {
         if (parkedDrafts.current.get(date)?.requestId === requestId) parkedDrafts.current.delete(date);
@@ -667,8 +675,8 @@ export function TimesheetLedger({
     if (latestDraft.current.requestId === requestId) setError(error instanceof Error ? error.message : t("back_office.save_failed"));
   }
   function savePrivateDraft(origin = date, target = capture, values = draft, verify = false,
-    retry?: DraftBaseline): Promise<RowValues | false> {
-    if (!target?.privateAvailable || provenance || !draftChanged) return Promise.resolve(values);
+    retry?: DraftBaseline): Promise<SavedWorkflowDraft | false> {
+    if (!target?.privateAvailable || provenance || !draftChanged) return Promise.resolve({ values });
     const fields = workflowDraftValues(values);
     const original = privateBases.current.get(requestId)!;
     const local = differentTimeValues(original.values, fields);
@@ -676,11 +684,12 @@ export function TimesheetLedger({
       try {
         if (!target.writeDraft) {
           if (!await target.act({ type: "draft", key: requestId, date: origin, values: fields })) throw Error(t("back_office.save_failed"));
-          return values;
+          return { values };
         }
         const base = retry ?? privateBases.current.get(requestId) ?? original;
         const changes = differentTimeValues(base.values, local);
-        if (!Object.keys(changes).length && !(verify && base.revision)) return workflowDraftRow(values, { ...base.values, ...local });
+        if (!Object.keys(changes).length && !(verify && base.revision))
+          return { values: workflowDraftRow(values, { ...base.values, ...local }) };
         const saved = await target.writeDraft({ type: "draft-patch", key: requestId, date: origin, revision: base.revision,
           changes, initial: fields });
         const stored = saved;
@@ -695,7 +704,7 @@ export function TimesheetLedger({
           const parked = parkedDrafts.current.get(origin);
           if (parked?.requestId === requestId) parked.values = keepLater(parked.values);
         }
-        return merged;
+        return { values: merged, revision: stored.revision ?? 0 };
       } catch (error) { privateSaveError(error); return false; }
     });
     return privateQueue.current;

@@ -45,6 +45,10 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     return new Response(chunk({ role: "assistant", content }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
   const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const previousLocalCli = process.env.LEGALWORK_TIMESHEET_LLAMA_CLI;
+  const previousLocalModel = process.env.LEGALWORK_TIMESHEET_GGUF;
+  delete process.env.LEGALWORK_TIMESHEET_LLAMA_CLI;
+  delete process.env.LEGALWORK_TIMESHEET_GGUF;
   const engine = await nativeMcpEngine({ providers: { example: { package: "@opencode/ai/providers/openai-compatible",
     settings: { baseURL: provider.url.origin + "/v1", apiKey: "synthetic" }, models: { fixture: {} } } } });
   process.env.XDG_CONFIG_HOME = join(engine.root, "config");
@@ -144,6 +148,17 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     expect(stored.status?.type).toBe("unavailable");
     expect((await request(permanent)).chat).toEqual(stored.chat);
     expect(prompts).toHaveLength(priorCalls);
+
+    // A request from a stale second window must respect the newer saved provider.
+    const selected = { workspaceId: "local", providerID: "local", modelID: "llama.cpp" };
+    await request({ type: "settings-patch", change: { field: "model", value: selected } });
+    const staleRefresh = await request(refresh);
+    expect(staleRefresh.settings.model).toEqual(selected);
+    expect(staleRefresh.status?.type).toBe("unavailable");
+    const staleChat = await request({ type: "chat", id: randomUUID(), text: "Shorten the description", model: refresh.model });
+    expect(staleChat.settings.model).toEqual(selected);
+    expect(staleChat.status?.type).toBe("unavailable");
+    expect(prompts).toHaveLength(priorCalls);
   } finally {
     release.resolve();
     await server.stop();
@@ -151,5 +166,9 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     provider.stop(true);
     if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    if (previousLocalCli === undefined) delete process.env.LEGALWORK_TIMESHEET_LLAMA_CLI;
+    else process.env.LEGALWORK_TIMESHEET_LLAMA_CLI = previousLocalCli;
+    if (previousLocalModel === undefined) delete process.env.LEGALWORK_TIMESHEET_GGUF;
+    else process.env.LEGALWORK_TIMESHEET_GGUF = previousLocalModel;
   }
 }, 60_000);

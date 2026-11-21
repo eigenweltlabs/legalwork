@@ -75,8 +75,11 @@ test("a firm without a workflow service uses existing records; private evidence 
   const uploads: unknown[] = [];
   const files = new Map<string, Uint8Array>();
   let delegate = false;
+  let offline = false;
   const platform = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (offline && (path === "/api/intake/members" || path === "/api/back-office"))
+      return new Response("Synthetic connection unavailable", { status: 503 });
     if (path === "/api/intake/members") return Response.json([{ userId: "worker", name: "Worker", email: null, role: "org:member" }, { userId: "colleague", name: "Colleague", email: null, role: "org:member", canRecordTimeFor: delegate }]);
     if (path === "/api/desktop/policy") return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Test firm", revision: 1, role: "member", updatedAt: null,
       entries: { "backOffice.sync": { mode: "enforced", value: { enabled: true, modelEditors: ["worker"], directoryEditors: ["worker"], billingMembers: ["worker"] } } } });
@@ -169,16 +172,44 @@ test("a firm without a workflow service uses existing records; private evidence 
     const other = { ...booking, id: crypto.randomUUID(), privateProposal: undefined, timekeeperUserId: "colleague" };
     expect((await api("/back-office/records", other)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, timekeeperUserId: "outside-contact" })).status).toBe(403);
-    const saved = await api("/back-office/records", booking);
+    const workday = "/private-timesheet/workday?" + context;
+    const { values } = booking;
+    const draftPatch = { type: "draft-patch", key: proposal.key, proposalDigest: proposal.digest, date: proposal.date };
+    const first = captureStateSchema.parse(await (await api(workday)).json()).drafts[proposal.key];
+    const draftA = captureStateSchema.parse(await (await api(workday, {
+      ...draftPatch, revision: first.revision, changes: values,
+    })).json()).drafts[proposal.key];
+    const staleBooking = { ...booking, privateProposal: { ...booking.privateProposal, draftRevision: draftA.revision } };
+    const edited = { name: "Reviewed in the second window", billingNarrative: "Reviewed in the second window" };
+    const draftB = captureStateSchema.parse(await (await api(workday, {
+      ...draftPatch, revision: draftA.revision, changes: edited,
+    })).json()).drafts[proposal.key];
+    const stale = await api("/back-office/records", staleBooking);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "private_draft_conflict", details: { draft: draftB } });
+    expect((await api("/back-office/records", booking)).status).toBe(409);
+    expect(store.records("firm", access.actor, "timeEntries")).toHaveLength(0);
+    expect(captureStateSchema.parse(await (await api(workday)).json()).drafts[proposal.key]).toEqual(draftB);
+    const reviewedBooking = { ...booking, values: { ...values, ...edited }, privateProposal: {
+      ...booking.privateProposal, draftRevision: draftB.revision,
+    } };
+    // Self is the bound account, even when no contact exists yet and the roster is offline.
+    offline = true;
+    const saved = await api("/back-office/records", reviewedBooking);
     expect(saved.status).toBe(200);
-    expect((await api("/back-office/records", booking)).status).toBe(200);
+    expect((await api("/back-office/records", reviewedBooking)).status).toBe(200);
+    expect(store.raw("firm", proposal.key)).not.toBeNull();
+    expect(store.pending("firm", 0, access.actor).some(item => BackOfficeRecordSchema.parse(item.change.data).id === proposal.key)).toBe(true);
+    offline = false;
     await expect(acceptPrivateProposal(config, { user: profile.user, scope: profile.scope, principal: profile.principal, profileId: profile.profileId }, proposal.key, proposal.digest,
       async () => "must not book twice", "workflow")).rejects.toMatchObject({ status: 409 });
     await syncBackOffice(config);
     const created = records.get(proposal.key);
+    expect(created?.values.billingNarrative).toBe(edited.billingNarrative);
     const people = store.records("firm", access.actor, "people");
     expect(people).toHaveLength(1);
     expect(people[0].sourceId).toBe("eigenwelt-member:worker");
+    expect(people[0].values.name).toBe("Worker");
     expect(created?.values.timekeeper).toBe(people[0].id);
     expect((await api("/private-timesheet/workday?" + context, draftAction)).status).toBe(409);
     expect((await api("/private-timesheet/workday?" + context, { type: "draft", key: proposal.key, values: null })).status).toBe(200);
@@ -206,6 +237,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(sent).not.toContain("PRIVATE");
     expect(sent).not.toContain(proposal.digest);
     expect(sent).not.toContain("privateProposal");
+    expect(sent).not.toContain("draftRevision");
     expect(await readFile(profile.path, "utf8")).toContain("PRIVATE source wording");
     const invoiceResponse = await api("/back-office/records", { objectId: "invoices", revision: 0, values: { name: "Test invoice", matter: matter.id, client: client.id } });
     const invoice = z.object({ record: BackOfficeRecordSchema }).parse(await invoiceResponse.json()).record;
@@ -227,9 +259,17 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect((await api("/back-office/records", { objectId: "timeEntries", id: crypto.randomUUID(), revision: 0, create: true,
       values: { ...other.values, timekeeper: assigned.values.timekeeper } })).status).toBe(403);
     const dateOnlyId = crypto.randomUUID();
+    offline = true;
     const dateOnly = await api("/back-office/records", { id: dateOnlyId, create: true, revision: 0, objectId: "timeEntries", timekeeperUserId: "worker",
       values: { ...booking.values, name: "Date-only service", billingNarrative: "Date-only service", serviceDate: "2026-11-18", startedAt: "2026-11-18", endedAt: null } });
     expect(dateOnly.status).toBe(200);
+    expect(store.raw("firm", dateOnlyId)?.values.timekeeper).toBe(people[0].id);
+    expect(store.pending("firm", 0, access.actor).some(item => BackOfficeRecordSchema.parse(item.change.data).id === dateOnlyId)).toBe(true);
+    // Another worker still needs a current delegated grant; an outage cannot broaden access.
+    const deniedId = crypto.randomUUID();
+    expect((await api("/back-office/records", { ...other, id: deniedId })).status).toBe(502);
+    expect(store.raw("firm", deniedId)).toBeNull();
+    offline = false;
     await syncBackOffice(config);
     expect(records.get(dateOnlyId)?.values.startedAt).toBe("2026-11-18");
     expect(records.get(dateOnlyId)?.values.endedAt).toBeNull();

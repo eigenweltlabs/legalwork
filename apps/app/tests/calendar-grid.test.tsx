@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { CaptureProposal } from "@legalwork/types/time-capture";
+import type { CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
 import { CalendarGrid } from "../src/react-app/domains/calendar/calendar-grid";
 import { calendarDisplayColor } from "../src/react-app/domains/calendar/calendar-colors";
 import { calendarDay } from "../src/react-app/domains/calendar/calendar-format";
 import { WorkdayTimeline } from "../src/react-app/domains/back-office/timesheet-workday-view";
+import { matterOptions } from "../src/react-app/domains/back-office/timesheet-row";
 
 const anchor = new Date(2026, 10, 19, 12);
 const date = calendarDay(anchor);
@@ -19,8 +20,12 @@ const proposal: CaptureProposal = {
 const unassigned: CaptureProposal = { ...proposal, key: "unassigned", narrative: "Research", matterId: undefined };
 const untimed: CaptureProposal = { ...proposal, key: "draft", narrative: "Draft reply", startAt: null, endAt: null };
 const state = {
-  matters: [{ id: "case", name: "Matter Example", reference: "", clientIds: [] }],
+  matters: [
+    { id: "case", name: "Matter Example", reference: "", clientIds: [] },
+    { id: "replacement", name: "Reassigned matter", reference: "R2", clientIds: ["client"] },
+  ],
   projects: [{ id: "workspace", name: "Work area", matterIds: [] }],
+  clients: [{ id: "client", name: "Client Example" }],
   policies: [],
 };
 
@@ -56,6 +61,41 @@ test("private day layouts share one calendar and preserve suggestion button attr
     } else {
       expect(review?.closest("[data-calendar-column]")?.getAttribute("data-calendar-column")).toBe("matter-case");
       expect(neutral?.closest("[data-calendar-column]")?.getAttribute("data-calendar-column")).toBe("unassigned");
+    }
+  }
+});
+
+test("saved private draft fields drive both calendar layouts and their accessible decision names", () => {
+  const workflowMatter = matterOptions(state).find(option => option.matterId === "replacement")?.label;
+  const valuesByMode = [
+    { service: "workflow" as const, values: { workflow: true, matter: workflowMatter ?? "", matterId: "replacement", narrative: "Revised private wording" } },
+    { service: "records" as const, values: { matter: "replacement", billingNarrative: "Revised private wording" } },
+  ];
+  for (const { service, values } of valuesByMode) {
+    const saved = { date, proposalDigest: proposal.digest, revision: 3, values };
+    const drafts: CaptureState["drafts"] = {
+      [proposal.key]: saved,
+      [untimed.key]: { ...saved, values: service === "workflow"
+        ? { workflow: true, matter: "", matterId: null, narrative: "Revised untimed wording" }
+        : { matter: null, billingNarrative: "Revised untimed wording" } },
+      [unassigned.key]: { ...saved, proposalDigest: "b".repeat(64) },
+    };
+    for (const view of ["combined", "matters"] as const) {
+      const document = documentFor(renderToStaticMarkup(
+        <WorkdayTimeline date={date} state={{ ...state, service }} proposals={[proposal, unassigned, untimed]} drafts={drafts}
+          selected={undefined} view={view} onOpen={() => {}} decisions={{ canAccept: true, onDecision: () => {}, onFocusedRemoval: () => {} }} />,
+      ));
+      const timed = document.querySelector(`[data-proposal-id="${proposal.key}"]`);
+      const withoutTime = document.querySelector(`[data-proposal-id="${untimed.key}"]`);
+      expect(timed?.getAttribute("aria-label")).toContain("Revised private wording");
+      expect(timed?.getAttribute("aria-label")).toContain("Reassigned matter");
+      expect(timed?.className).toContain(calendarDisplayColor("replacement").card);
+      expect(timed?.textContent).not.toContain(proposal.narrative);
+      expect(timed?.parentElement?.querySelector("[data-calendar-proposal-actions]")?.getAttribute("aria-label")).toBe("Revised private wording");
+      expect(withoutTime?.getAttribute("aria-label")).toContain("Revised untimed wording · Unassigned matter");
+      expect(withoutTime?.className).toContain(calendarDisplayColor(null).card);
+      expect(document.querySelector(`[data-proposal-id="${unassigned.key}"]`)?.getAttribute("aria-label")).toContain(unassigned.narrative);
+      if (view === "matters") expect(timed?.closest('[data-calendar-column="matter-replacement"]')).not.toBeNull();
     }
   }
 });

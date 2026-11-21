@@ -5,9 +5,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { backOfficeAccess } from "../back-office/access.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
-import { captureSettingsSchema, captureStateSchema, type CaptureAction } from "../back-office/timesheet-schema.js";
+import { BackOfficeRecordSchema } from "../back-office/schema.js";
+import { captureProposalSchema, captureSettingsSchema, captureStateSchema, type CaptureAction } from "../back-office/timesheet-schema.js";
+import { ApiError } from "../errors.js";
 import { startServer } from "../server.js";
-import { captureProfile } from "./routes.js";
+import { proposalCommitment } from "./original.js";
+import { acceptPrivateProposal, captureProfile } from "./routes.js";
 
 test("two workday windows preserve disjoint settings and draft edits, and detect changed or deleted drafts", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-concurrent-workdays-"));
@@ -65,6 +68,80 @@ test("two workday windows preserve disjoint settings and draft edits, and detect
     expect((await request(edit)).status).toBe(409);
     expect((await request({ ...replaced, revision: resolved.revision ?? 0 })).status).toBe(409);
     expect((await read()).drafts[key]).toBeUndefined();
+  } finally {
+    await server.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("private booking keeps confirmed draft revisions across manual publication and ambiguous proposal retries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-private-booking-revision-"));
+  const config = backOfficeTestConfig(root);
+  const identity = await captureProfile(config, await backOfficeAccess(config));
+  const { path, profileId, scope, user, principal } = identity;
+  const date = "2026-11-20", key = randomUUID();
+  const proposal = captureProposalSchema.parse({ key: randomUUID(), digest: "0".repeat(64), date,
+    source: "stopwatch", projectId: null, activity: "RES", narrative: "Timer original",
+    startAt: null, endAt: null, workedMinutes: 4, dismissed: false });
+  proposal.digest = proposalCommitment(proposal);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify({
+    settings: { calendar: false, tasks: false, intervalMinutes: 0 }, lastRun: 0,
+    days: { [date]: [{ eventKey: "synthetic-stopwatch", proposal }] }, originals: { [proposal.digest]: proposal },
+  }));
+  const server = await startServer(config);
+  const call = (path: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+    method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+    headers: { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" },
+  });
+  const workday = "/private-timesheet/workday?" + new URLSearchParams({ date, profileId, scope, user, principal });
+  const records = "/back-office/records?scope=local";
+  try {
+    const record = async (objectId: string, values: unknown) => {
+      const response = await call(records, { revision: 0, objectId, values });
+      return BackOfficeRecordSchema.parse((await response.json()).record);
+    };
+    const client = await record("clients", { name: "Synthetic client" });
+    const matter = await record("matters", { name: "Synthetic matter", clients: [client.id] });
+    const draftValues = { name: "Manual draft", billingNarrative: "Manual draft", status: "Draft",
+      matter: matter.id, client: client.id, serviceDate: date, startedAt: date, recordedMinutes: 15, billableMinutes: 15 };
+    const draftPatch = { type: "draft-patch", key, date };
+    const initial = captureStateSchema.parse(await (await call(workday, { ...draftPatch, revision: 0, changes: draftValues })).json()).drafts[key];
+    const latest = captureStateSchema.parse(await (await call(workday, { ...draftPatch, revision: initial.revision,
+      changes: { recordedMinutes: 20, billableMinutes: 20 },
+    })).json()).drafts[key];
+    const booking = { id: key, create: true, revision: 0, objectId: "timeEntries", values: draftValues,
+      privateDraft: { profileId, date, revision: initial.revision } };
+    const stale = await call(records, booking);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "private_draft_conflict", details: { draft: latest } });
+    const reviewed = { ...booking, values: latest.values, privateDraft: { ...booking.privateDraft, revision: latest.revision } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const saved = await call(records, reviewed);
+      expect(saved.status).toBe(200);
+      expect(BackOfficeRecordSchema.parse((await saved.json()).record).values.recordedMinutes).toBe(20);
+    }
+    expect((await call(workday, { ...draftPatch, revision: latest.revision, changes: { billingNarrative: "Do not restore" } })).status).toBe(409);
+    expect(captureStateSchema.parse(await (await call(workday)).json()).drafts[key]).toBeUndefined();
+
+    const proposalPatch = { ...draftPatch, key: proposal.key, proposalDigest: proposal.digest };
+    const current = captureStateSchema.parse(await (await call(workday, { ...proposalPatch, revision: 0,
+      changes: { narrative: "Reviewed timer wording" },
+    })).json()).drafts[proposal.key];
+    const expected = { date, revision: current.revision ?? 0 };
+    await expect(acceptPrivateProposal(config, identity, proposal.key, proposal.digest, async () => {
+      throw new ApiError(503, "synthetic_remote_timeout", "The remote acknowledgement was lost.");
+    }, "workflow", expected)).rejects.toMatchObject({ status: 503 });
+    const blocked = await call(workday, { ...proposalPatch, revision: expected.revision, changes: { narrative: "Unacknowledged wording" } });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ code: "private_booking_pending" });
+    expect((await call(workday, { ...proposalPatch, revision: expected.revision, changes: null })).status).toBe(409);
+    const replay = await call(workday, { ...proposalPatch, revision: expected.revision, changes: {} });
+    expect(replay.status).toBe(200);
+    expect(captureStateSchema.parse(await replay.json()).drafts[proposal.key]).toEqual(current);
+    await expect(acceptPrivateProposal(config, identity, proposal.key, proposal.digest,
+      async () => "completed", "workflow", expected)).resolves.toBe("completed");
+    expect(captureStateSchema.parse(await (await call(workday)).json()).drafts[proposal.key]).toBeUndefined();
   } finally {
     await server.stop();
     await rm(root, { recursive: true, force: true });

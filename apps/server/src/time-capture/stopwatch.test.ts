@@ -206,13 +206,27 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
         billableMinutes: 0,
       },
     };
+    const patch = { type: "draft-patch", key: proposal.key, date, proposalDigest: proposal.digest };
+    const draftA = captureStateSchema.parse(await (await api(workday, { ...patch, revision: 0,
+      changes: { narrative: "Reading" }, initial: { workflow: true },
+    })).json()).drafts[proposal.key];
+    const draftB = captureStateSchema.parse(await (await api(workday, { ...patch, revision: draftA.revision,
+      changes: { narrative: "Reading revised attachments" },
+    })).json()).drafts[proposal.key];
+    const stale = await directory(timesheet + `&draftDate=${date}&draftRevision=${draftA.revision}`, confirm);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "private_draft_conflict", details: { draft: draftB } });
+    expect((await directory(timesheet, confirm)).status).toBe(409);
+    expect(TimesheetStateSchema.parse(await (await directory(timesheet)).json()).entries).toHaveLength(0);
+    const reviewed = { ...confirm, entry: { ...confirm.entry, narrative: "Reading revised attachments" } };
     for (let attempt = 0; attempt < 2; attempt++) {
-      const booked = TimesheetStateSchema.parse(await (await directory(timesheet, confirm)).json());
+      const booked = TimesheetStateSchema.parse(await (await directory(timesheet + `&draftDate=${date}&draftRevision=${draftB.revision}`, reviewed)).json());
       expect(booked.entries).toHaveLength(1);
       expect(booked.entries[0]).toMatchObject({
         status: "confirmed",
         proposalDigest: proposal.digest,
         workedMinutes: 1,
+        narrative: reviewed.entry.narrative,
       });
     }
     const next = { type: "start", id: randomUUID() };

@@ -1,10 +1,12 @@
 import {
   acceptPrivateProposal,
+  bookPrivateManualDraft,
   captureProfile,
 } from "../time-capture/routes.js";
 import { z } from "zod";
 import {
   requiresTimeAllocations,
+  privateBookingRevisionSchema,
   TimesheetCommandSchema,
 } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
@@ -149,6 +151,10 @@ export function registerTimesheetRoutes(
         method === "POST"
           ? TimesheetCommandSchema.parse(await input(ctx))
           : undefined;
+      const draftRevision = ctx.url.searchParams.get("draftRevision");
+      const expectedDraft = draftRevision === null ? undefined : privateBookingRevisionSchema.parse({
+        date: ctx.url.searchParams.get("draftDate"), revision: z.coerce.number().parse(draftRevision),
+      });
       await assertIdentity(ctx, store, access);
       if (command && (ctx.agentAccess || access.actor.agentId))
         timeError(
@@ -357,21 +363,25 @@ export function registerTimesheetRoutes(
         }
         return result;
       };
-      if (command?.type !== "create" || command.source !== "suggestion")
+      const bookingIdentity = { user: access.actor.userId, scope: access.scope, principal: access.actor.principalKey ?? "",
+        profileId: ctx.url.searchParams.get("profileId") };
+      if (expectedDraft && (ctx.actor?.type !== "host" || !command || command.type !== "create"))
+        timeError("Confirm the private draft on its local device.", 403);
+      if (command?.type !== "create" || command.source !== "suggestion") {
+        if (command?.type === "create" && expectedDraft)
+          return bookPrivateManualDraft(config, bookingIdentity, command.requestId, expectedDraft, execute, "workflow");
         return execute();
+      }
       if (!command.proposalDigest)
         timeError("A suggestion must reference its private original.");
       return acceptPrivateProposal(
         config,
-        {
-          user: access.actor.userId,
-          scope: access.scope,
-          principal: access.actor.principalKey ?? "",
-          profileId: ctx.url.searchParams.get("profileId"),
-        },
+        bookingIdentity,
         command.requestId,
         command.proposalDigest,
         execute,
+        "workflow",
+        expectedDraft,
       );
     });
   }
