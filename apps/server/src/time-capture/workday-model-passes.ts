@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { timeActivities } from "../back-office/timesheet-schema.js";
 import { humanInterval } from "./private-workday.js";
-import { generateModelJson } from "./model-json.js";
+import { generateCheckedModelJson, generateModelJson } from "./model-json.js";
 import {
   invalidModelOutput,
   modelInput,
-  reconstructWorkday,
+  applyWorkdayWording,
+  validateWorkdayGroups,
+  WorkdayGroupingError,
   workdayModelOutputSchema,
   type ModelEvidence,
 } from "./reconstruct-workday.js";
@@ -123,20 +125,18 @@ export async function generateStructuredWorkday(options: {
       currentDraft,
     }),
   ].join("\n\n");
-  const grouped = (await generateModelJson(groupPrompt, grouping, generate, invalidModelOutput)).proposals;
-  const planRows = grouped.map((row) => {
-    const { wordingHint: _, ...plan } = row;
-    return { ...plan, narrative: "Billing draft" };
+  // Verify every group before sending a wording request containing scoped history or billing guidance.
+  const { grouped, validated } = await generateCheckedModelJson(groupPrompt, grouping, generate, invalidModelOutput, ({ proposals }) => {
+    try {
+      return { ok: true, value: { grouped: proposals, validated: validateWorkdayGroups(proposals, evidence, date, zone) } };
+    } catch (error) {
+      if (error instanceof WorkdayGroupingError) return { ok: false, repair: error.repair };
+      throw error;
+    }
   });
-  // Validate source IDs, tenancy, human time and claim spans before sending any scoped wording context.
-  const validated = reconstructWorkday(
-    { proposals: planRows },
-    evidence,
-    date,
-    zone,
-  );
+  const completed: ReturnType<typeof applyWorkdayWording>[] = [];
   const scoped = new Map<string, number[]>();
-  for (const [index, item] of validated.entries()) {
+  for (const [index, { item }] of validated.entries()) {
     const { matterId, projectId, documentId } = item.proposal;
     const key = JSON.stringify([matterId, projectId, documentId]);
     const indexes = scoped.get(key) ?? [];
@@ -174,19 +174,9 @@ export async function generateStructuredWorkday(options: {
       const authorizedWording = [entry?.wordingHint];
       const documentTitle = requested && authorizedWording.some(text =>
         text?.toLocaleLowerCase().includes(requested.toLocaleLowerCase())) ? requested : undefined;
-      planRows[item.index] = {
-        ...planRows[item.index],
-        narrative: item.narrative,
-        ...(documentTitle ? { documentTitle } : {}),
-      };
+      completed[item.index] = applyWorkdayWording(validated[item.index], item.narrative, documentTitle);
     }
     if (expected.size) throw invalidModelOutput();
   }
-  return reconstructWorkday(
-    { proposals: planRows },
-    evidence,
-    date,
-    zone,
-    transcript,
-  );
+  return completed;
 }

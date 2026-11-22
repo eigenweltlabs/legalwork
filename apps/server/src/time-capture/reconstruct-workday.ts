@@ -71,12 +71,9 @@ export const workdayModelOutputSchema = z.strictObject({
 });
 export type WorkdayModelOutput = z.infer<typeof workdayModelOutputSchema>;
 
+const invalidSuggestionsMessage = "The model returned invalid workday suggestions. Retry or choose another model.";
 export function invalidModelOutput() {
-  return new ApiError(
-    502,
-    "timesheet_model_format",
-    "The model returned invalid workday suggestions. Retry or choose another model.",
-  );
+  return new ApiError(502, "timesheet_model_format", invalidSuggestionsMessage);
 }
 
 function union(intervals: Interval[]) {
@@ -211,36 +208,44 @@ export function modelInput(evidence: ModelEvidence[]) {
   );
 }
 
-function documentWording(
-  narrative: string,
-  document: ModelEvidence,
-  correctedTitle?: string,
-) {
-  return correctedTitle && document.documentTitle
-    ? replaceDocumentTerm(narrative, document.documentTitle, correctedTitle)
-    : narrative;
+const groupingRepairs = {
+  references: "Use each cited evidence ID once in the proposal and choose IDs present in the input.",
+  receipt: "Include received email only with a sent reply from the same thread, or omit the delivery.",
+  scope: "Use matter, project and document IDs supported by the cited observations. Separate different matters or projects and use null for unknown assignments.",
+  activity: "Choose an activity from the supplied codes or use null.",
+  document: "DFT requires a cited DFT save and MOD requires a cited MOD save for the same documentId. If only a MOD save is cited, use MOD. To propose DFT, cite its matching DFT save. Without a matching save, choose another supported activity or null.",
+  clocks: "Use a positive clock interval entirely within the selected local day and covered by the cited timed evidence. Keep both clocks null if their range is unsupported.",
+  stopwatch: "Use each stopped timer once, with its exact full start and end. Keep the timer separate when another observation does not match that range.",
+  estimate: "Only estimate unmeasured time with corroborating dated human actions or a substantive change summary. Supply estimatedMinutes and estimateReason together with null clocks and workedMinutes, or omit the estimate.",
+  minutes: "Use only the duration covered by the cited clock intervals. Leave workedMinutes null for the server to calculate a clocked row.",
+  reuse: "A portion of a source may be claimed only once. Merge duplicate claims or use nonoverlapping portions. Independent evidence can support parallel work.",
+};
+
+export class WorkdayGroupingError extends ApiError {
+  readonly repair: string;
+  constructor(index: number, issue: keyof typeof groupingRepairs) {
+    super(502, "timesheet_model_format", invalidSuggestionsMessage);
+    this.repair = `Correct proposal ${index + 1}. ${groupingRepairs[issue]} Return the complete grouping, keeping other supported proposals.`;
+  }
 }
 
-export function reconstructWorkday(
-  output: WorkdayModelOutput,
-  evidence: ModelEvidence[],
-  date: string,
-  zone: string,
-  chatCorrections: string[] = [],
+export function validateWorkdayGroups(
+  rows: Omit<WorkdayModelOutput["proposals"][number], "narrative" | "documentTitle">[],
+  evidence: ModelEvidence[], date: string, zone: string,
 ) {
   const lookup = new Map(evidence.map((entry) => [entry.item.eventKey, entry]));
   const claimed: EvidenceClaim[] = [];
-  return output.proposals.map((row) => {
+  return rows.map((row, index) => {
     const ids = [...new Set(row.evidenceIds)].sort();
-    if (ids.length !== row.evidenceIds.length) throw invalidModelOutput();
+    if (ids.length !== row.evidenceIds.length) throw new WorkdayGroupingError(index, "references");
     const refs = ids.map((id) => {
       const found = lookup.get(id);
-      if (!found) throw invalidModelOutput();
+      if (!found) throw new WorkdayGroupingError(index, "references");
       return found;
     });
     const sources = refs.map((ref) => ref.item.proposal);
     if (sources.some(p => p.mailDirection === "received" && !sources.some(other =>
-      other.mailDirection === "sent" && other.threadKey && other.threadKey === p.threadKey))) throw invalidModelOutput();
+      other.mailDirection === "sent" && other.threadKey && other.threadKey === p.threadKey))) throw new WorkdayGroupingError(index, "receipt");
     const timer = refs.find(ref => ref.item.proposal.source === "stopwatch");
     const matterId = timer?.matter?.id ?? row.matterId;
     const projects = new Set(
@@ -266,7 +271,7 @@ export function reconstructWorkday(
       (row.documentId &&
         (documents.size !== 1 || !documents.has(row.documentId)))
     )
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "scope");
     const policy = refs.find(
       (ref) =>
         ref.matter?.id === matterId &&
@@ -277,7 +282,7 @@ export function reconstructWorkday(
       !Object.hasOwn(timeActivities, row.activity) &&
       !Object.hasOwn(policy?.activityLabels ?? {}, row.activity)
     )
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "activity");
 
     const documentActivity = row.activity === "DFT" || row.activity === "MOD";
     const document = refs.find(
@@ -286,11 +291,11 @@ export function reconstructWorkday(
         (ref.item.proposal.source === "documents" || captureFileSource(ref.item.proposal.source)) &&
         (!documentActivity || ref.item.proposal.activity === row.activity),
     );
-    if (documentActivity && !document) throw invalidModelOutput();
+    if (documentActivity && !document) throw new WorkdayGroupingError(index, "document");
 
     let clocks: Interval | undefined;
     if ((row.startAt === null) !== (row.endAt === null))
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "clocks");
     if (row.startAt && row.endAt) {
       clocks = { from: Date.parse(row.startAt), to: Date.parse(row.endAt) };
       if (
@@ -299,20 +304,20 @@ export function reconstructWorkday(
         dayInZone(row.startAt, zone) !== date ||
         dayInZone(new Date(clocks.to - 1).toISOString(), zone) !== date
       )
-        throw invalidModelOutput();
+        throw new WorkdayGroupingError(index, "clocks");
     }
     const claims: EvidenceClaim[] = [];
     const measured: Interval[] = [];
     for (const { item } of refs) {
       const span = humanInterval(item.proposal);
       if (clocks && span && !intervalsOverlap(span, clocks))
-        throw invalidModelOutput();
+        throw new WorkdayGroupingError(index, "clocks");
       // A stopped timer is one source occurrence. It may be used whole or left available.
       if (
         item.proposal.source === "stopwatch" &&
         (!span || !clocks || span.from !== clocks.from || span.to !== clocks.to)
       )
-        throw invalidModelOutput();
+        throw new WorkdayGroupingError(index, "stopwatch");
       const portion =
         clocks && span
           ? {
@@ -336,7 +341,7 @@ export function reconstructWorkday(
         combined[0].from !== clocks.from ||
         combined[0].to !== clocks.to)
     )
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "clocks");
     const measuredMinutes = Math.round(
       combined.reduce((total, { from, to }) => total + to - from, 0) / 60_000,
     );
@@ -346,7 +351,7 @@ export function reconstructWorkday(
       const distinctTimes = new Set(pointSources.map(source => source.observedAt));
       if (!row.estimatedMinutes || !row.estimateReason || row.workedMinutes !== null || clocks || measured.length ||
           (distinctTimes.size < 2 && !pointSources.some(source => source.changeSummary)))
-        throw invalidModelOutput();
+        throw new WorkdayGroupingError(index, "estimate");
     }
     if (
       measuredMinutes > 1440 ||
@@ -355,13 +360,13 @@ export function reconstructWorkday(
         !measuredMinutes &&
         !sources.some((proposal) => proposal.source === "stopwatch"))
     )
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "minutes");
     if (
       claims.some((claim) =>
         claimed.some((previous) => claimsOverlap(claim, previous)),
       )
     )
-      throw invalidModelOutput();
+      throw new WorkdayGroupingError(index, "reuse");
     claimed.push(...claims);
 
     const origin =
@@ -378,22 +383,7 @@ export function reconstructWorkday(
       "workday-claim-v1",
       claims.map(({ id, from, to }) => [id, from, to]),
     ]);
-    const requestedTitle = row.documentTitle;
     const scopedDocument = document && (document.matter?.id ?? null) === matterId ? document : undefined;
-    const correctedTitle =
-      requestedTitle &&
-      chatCorrections.some((text) =>
-        text.toLocaleLowerCase().includes(requestedTitle.toLocaleLowerCase()),
-      )
-        ? requestedTitle
-        : undefined;
-    const wording = scopedDocument
-      ? documentWording(
-          row.narrative,
-          scopedDocument,
-          correctedTitle,
-        )
-      : row.narrative;
     const proposal: CaptureProposal = {
       key: randomUUID(),
       digest: "",
@@ -409,7 +399,7 @@ export function reconstructWorkday(
         ? scopedDocument?.item.proposal.workProductId
         : undefined,
       activity: row.activity ?? "",
-      narrative: wording.slice(0, 2000),
+      narrative: "",
       startAt: clocks ? new Date(clocks.from).toISOString() : null,
       endAt: clocks ? new Date(clocks.to).toISOString() : null,
       workedMinutes: clocks ? measuredMinutes || null : row.workedMinutes,
@@ -417,13 +407,28 @@ export function reconstructWorkday(
         observedAt: origin.item.proposal.observedAt } : {}),
     };
     proposal.chargeMinutes = proposedWorkdayCharge(proposal, policy);
-    proposal.digest = proposalCommitment(proposal);
-    return {
-      eventKey,
-      proposal,
-      claims,
-      generated: true,
-      sourceDocumentTitle: scopedDocument?.sourceDocumentTitle?.slice(0, 500),
-    } satisfies WorkdayEvidence;
+    const item = { eventKey, proposal, claims, generated: true,
+      sourceDocumentTitle: scopedDocument?.sourceDocumentTitle?.slice(0, 500) } satisfies WorkdayEvidence;
+    return { item, documentTitle: scopedDocument?.documentTitle };
+  });
+}
+
+export function applyWorkdayWording(
+  group: ReturnType<typeof validateWorkdayGroups>[number], narrative: string, correctedTitle?: string,
+) {
+  const wording = group.documentTitle && correctedTitle ? replaceDocumentTerm(narrative, group.documentTitle, correctedTitle) : narrative;
+  const proposal = { ...group.item.proposal, narrative: wording.slice(0, 2000) };
+  proposal.digest = proposalCommitment(proposal);
+  return { ...group.item, proposal };
+}
+
+export function reconstructWorkday(
+  output: WorkdayModelOutput, evidence: ModelEvidence[], date: string, zone: string, chatCorrections: string[] = [],
+) {
+  const groups = validateWorkdayGroups(output.proposals, evidence, date, zone);
+  return groups.map((group, index) => {
+    const { narrative, documentTitle } = output.proposals[index];
+    const authorized = documentTitle && chatCorrections.some(text => text.toLocaleLowerCase().includes(documentTitle.toLocaleLowerCase()));
+    return applyWorkdayWording(group, narrative, authorized ? documentTitle : undefined);
   });
 }

@@ -655,3 +655,56 @@ test("a whole-day plan is followed by separate wording requests that isolate eac
   expect(prompts[3]).not.toContain("private guidance");
   expect(prompts[3]).not.toContain("private history");
 });
+
+test("an unsupported document activity gets one grouping repair before wording, preserving a valid stopwatch", async () => {
+  const timer = evidence("stopped-timer", { source: "stopwatch", projectId: null, matterId: matter.id });
+  const save = (id: string, activity: string) => evidence(id, { source: "documents", documentId: "doc",
+    activity, startAt: null, endAt: null, workedMinutes: null, observedAt: at("10:20") });
+  const amended = save("amendment", "MOD"), created = save("creation", "DFT");
+  amended.history = ["Private matter history absent from grouping"];
+  const { narrative: _timerNarrative, ...clock } = proposal(["stopped-timer"], { projectId: null });
+  const { narrative: _fileNarrative, ...draft } = proposal(["amendment"], {
+    activity: "DFT", documentId: "doc", startAt: null, endAt: null, workedMinutes: null,
+  });
+  for (const repair of [true, false]) {
+    const prompts: string[] = [];
+    const run = generateStructuredWorkday({ date, zone: "UTC", evidence: [created, amended, timer], skill: "", transcript: [],
+      async generate(prompt) {
+        prompts.push(prompt);
+        const payload = JSON.parse(prompt.split("\n\n").at(-1)!);
+        if (payload.stage === "wording") return JSON.stringify({ wording: payload.entries.map(({ index }: { index: number }) =>
+          ({ index, narrative: index === 0 ? "Discuss the agreement" : "Draft the agreement" })) });
+        return JSON.stringify({ proposals: [clock, repair && prompts.length === 2 ? { ...draft, evidenceIds: ["creation"] }
+          : { ...draft, wordingHint: "Untrusted previous output marker" }] });
+      } });
+    if (repair) {
+      const rows = await run;
+      expect(rows.map(row => row.proposal)).toMatchObject([
+        { source: "stopwatch", workedMinutes: 60, narrative: "Discuss the agreement" },
+        { source: "documents", activity: "DFT", documentId: "doc", narrative: "Draft the agreement" },
+      ]);
+      expect(rows[1].claims.map(claim => claim.id)).toEqual(["creation"]);
+      expect(prompts).toHaveLength(4);
+    } else {
+      await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
+      expect(prompts).toHaveLength(2);
+    }
+    expect(prompts[1]).toContain("Correct proposal 2.");
+    expect(prompts[1]).toContain("DFT requires a cited DFT save");
+    expect(prompts[1]).not.toContain("Untrusted previous output marker");
+    expect(prompts[1]).not.toContain(amended.history![0]);
+  }
+});
+
+test("format and evidence errors share the two grouping attempts and never reach wording", async () => {
+  const prompts: string[] = [];
+  const input = evidence("timer", { source: "stopwatch", projectId: null });
+  const { narrative: _, ...partialTimer } = proposal(["timer"], { projectId: null, endAt: at("09:10"), workedMinutes: 10 });
+  const run = generateStructuredWorkday({ date, zone: "UTC", evidence: [input], skill: "", transcript: [], async generate(prompt) {
+    prompts.push(prompt);
+    return prompts.length === 1 ? JSON.stringify({ proposals: [partialTimer] }) : "invalid JSON";
+  } });
+  await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
+  expect(prompts).toHaveLength(2);
+  expect(prompts[1]).toContain("Use each stopped timer once, with its exact full start and end.");
+});
