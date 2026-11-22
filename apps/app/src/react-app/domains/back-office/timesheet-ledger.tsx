@@ -72,7 +72,7 @@ export type InitialTimesheetDraft = {
   proposalDigest?: string;
   captureSource?: CaptureProposal["source"];
 };
-type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" | "workedMinutes" | "digest">;
+type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" | "workedMinutes" | "estimatedMinutes" | "digest">;
 
 type Props = {
   capture?: TimeCaptureSheet;
@@ -161,8 +161,8 @@ function PrivateOriginal({
             <dd>
               {original.date + " · "}
               {original.activity} · {original.narrative} ·{" "}
-              {original.workedMinutes === null
-                ? t("timesheets.ledger.unknown_minutes")
+              {original.estimatedMinutes !== undefined ? t("timeWorkspace.estimatedMinutes", { minutes: original.estimatedMinutes })
+                : original.workedMinutes === null ? t("timesheets.ledger.unknown_minutes")
                 : duration(original.workedMinutes) + " h"}
             </dd>
           </div>
@@ -202,12 +202,13 @@ export function TimesheetLedger({
   const currentState = useRef(state);
   currentState.current = state;
   const uid = useId();
+  const gridScroll = useRef<HTMLDivElement>(null);
   const {
     columns,
     control: columnChooser,
     layout,
     reveal,
-  } = useTimesheetColumns(columnScope ?? state.scope + ":" + state.userId);
+  } = useTimesheetColumns(columnScope ?? state.scope + ":" + state.userId, gridScroll);
   const [participants, setParticipants] = useState<
     { key: string; workerId: string; amounts?: TimeAmounts }[]
   >([]);
@@ -1204,7 +1205,7 @@ export function TimesheetLedger({
             {t("timesheets.sheet.edit_discard")}</Button>}
         </div>
       )}
-      <div role="grid" aria-label={t("timesheets.ledger.title")} className="bo-grid-scroll bo-time-scroll">
+      <div ref={gridScroll} role="grid" aria-label={t("timesheets.ledger.title")} className="bo-grid-scroll bo-time-scroll">
         <div role="row" className="bo-grid-header">
           <div role="columnheader" className="bo-check-cell">
             <span className="sr-only">{t("timesheets.ledger.select")}</span>
@@ -1214,6 +1215,7 @@ export function TimesheetLedger({
               role="columnheader"
               className="bo-grid-heading"
               key={column}
+              data-field={column}
               title={t(ledgerColumnKeys[column])}
             >
               {t(ledgerColumnKeys[column])}

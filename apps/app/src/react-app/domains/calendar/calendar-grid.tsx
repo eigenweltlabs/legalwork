@@ -16,6 +16,7 @@ type GridProps = {
   projectId?: string; showProjects: boolean; timeZone: string;
   dayLanes?: CalendarDayLane[]; untimedLabel?: string; preamble?: ReactNode; label?: string;
   nowLabel?: (clock: string) => string;
+  renderTimeOverlay?: (now: Date) => ReactNode;
   entryAppearance?: (item: CalendarDisplayOccurrence) => CalendarEntryAppearance | undefined;
   minimumEventSize?: { width: number; height: number };
   onOpen: (item: CalendarDisplayOccurrence, trigger: HTMLButtonElement) => void;
@@ -78,7 +79,7 @@ function TimeGrid(props: GridProps) {
     : days.map(day => ({ id: calendarDay(day), title: undefined, colorKey: null, day, items: props.items }));
   const minimumEventSize = props.minimumEventSize;
   const layouts = columns.map(column => layoutCalendarDay(column.items, calendarDay(column.day),
-    minimumEventSize && Math.ceil((minimumEventSize.height + 2) * 60 / CALENDAR_HOUR_HEIGHT)));
+    minimumEventSize && { minimumMinutes: Math.ceil((minimumEventSize.height + 2) * 60 / CALENDAR_HOUR_HEIGHT), anchorAtActualStart: true }));
   const minimumLaneWidths = layouts.map(segments => Math.max(lanes?.length ? 116 : 0,
     minimumEventSize ? minimumEventSize.width + 4 : 0,
     ...(minimumEventSize ? segments.map(segment => segment.columns * (minimumEventSize.width + 4)) : [])));
@@ -165,6 +166,9 @@ function TimeGrid(props: GridProps) {
             {week && key === today && <CalendarNow minute={minute} />}
           </div>;
         })}
+        {!week && props.renderTimeOverlay && <div className="pointer-events-none absolute inset-y-0 start-[52px] end-0">
+          {props.renderTimeOverlay(now)}
+        </div>}
         {!week && calendarDay(props.start) === today && <CalendarNow minute={minute} inset={52}
           label={props.nowLabel?.(now.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" }))} />}
       </div>

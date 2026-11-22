@@ -2,7 +2,6 @@ import { createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export const WorkspaceHeaderTarget = createContext<HTMLElement | null>(null);
-export const PeriodControlsTarget = createContext<HTMLElement | null>(null);
 export const TimekeeperControlTarget = createContext<HTMLElement | null>(null);
 
 export function TimeHeaderContent({ slot, children }: {

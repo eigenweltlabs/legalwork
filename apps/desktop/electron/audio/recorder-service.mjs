@@ -85,6 +85,7 @@ export class RecorderService {
   /**
    * @param {{
    *   userDataDir: string,
+   *   workdayRecordings?: ReturnType<typeof import("../workday-recordings.mjs").createWorkdayRecordingReporter>,
    *   resolveWorkerPath?: () => string,
    *   forkWorker?: (workerPath: string) => TranscriberWorkerHandle,
    *   appAudioAvailable?: () => boolean,
@@ -96,6 +97,7 @@ export class RecorderService {
    */
   constructor(options) {
     this.userDataDir = options.userDataDir;
+    this.workdayRecordings = options.workdayRecordings;
     this.resolveCloudConnection = options.resolveCloudConnection;
     this.generateMeetingNotes = options.generateMeetingNotes;
     this.modelsDir = path.join(options.userDataDir, "stt-models");
@@ -164,6 +166,7 @@ export class RecorderService {
      *   segments: import("@legalwork/types/audio").AudioTranscriptSegment[],
      *   sizeBytes: number,
      *   startedAt: number,
+     *   workday?: { owner: { profileId: string, epoch: number }, title: string, projectId: string | null },
      *   audioStream: import('node:fs').WriteStream | null,
      *   sourceStreams?: Map<import("@legalwork/types/audio").AudioCaptureSourceKind, import('node:fs').WriteStream>,
      *   finalizingStreams?: Set<string>,
@@ -869,6 +872,7 @@ export class RecorderService {
         throw new Error("The selected transcription engine is not ready.");
       }
     }
+    const owner = input?.ephemeral === true ? undefined : await this.workdayRecordings?.begin().catch(() => undefined);
     const id = nowId();
     const folderPath = path.join(this.recordingsDir, id);
     await fsp.mkdir(folderPath, { recursive: true });
@@ -928,6 +932,8 @@ export class RecorderService {
       segments: [],
       sizeBytes: 0,
       startedAt: Date.now(),
+      workday: owner ? { owner, title: meta.title.replace(/[\p{Cc}\p{Cf}]/gu, " ").trim().slice(0, 240) || "Meeting recording",
+        projectId: meta.projectIds?.[0] ?? null } : undefined,
       audioStream,
       sourceStreams,
       transcriptStream: this.createTranscriptJournal(meta),
@@ -1099,6 +1105,11 @@ export class RecorderService {
       this.speakerJobs.set(recordingId, job);
     }
     this.activeRecordings.delete(recordingId);
+    if (meta.status === "complete" && (meta.sizeBytes > 0 || meta.segmentCount > 0) && recording.workday) {
+      const { owner, title, projectId } = recording.workday;
+      await this.workdayRecordings?.complete(owner, { id: recordingId, title, projectId, startedAt: recording.startedAt, stoppedAt })
+        .catch(() => console.warn("Time tracking could not save the recording interval."));
+    }
     if (summarize) {
       const controller = new AbortController();
       const promise = Promise.resolve().then(() => this.finishMeetingNotes(recordingId, recording, controller.signal))

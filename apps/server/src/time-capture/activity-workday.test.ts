@@ -11,6 +11,10 @@ import {
   recordCompletedTask,
   recordWorkspaceObservations,
 } from "./activity-workday.js";
+import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { taskStore } from "../task-store.js";
+import { saveWorkdayLog } from "./day-log.js";
 import { digest } from "./private-workday.js";
 
 test("new foreground wins across overlapping windows; a background run remains separate", () => {
@@ -73,6 +77,15 @@ test("task completion date, stable identity through editor replacement and renam
         observations: [],
       }),
     ).rejects.toThrow();
+    const now = Date.now();
+    const agent = (start: number, end: number) => ({ projectId: "project", kind: "agent" as const, stream: "same-run", start: now + start, end: now + end });
+    await recordWorkspaceObservations(config, { profileId: profile.profileId, observations: [
+      agent(-90_000, -60_000), agent(-40_000, -10_000), agent(-80_000, -20_000),
+    ] });
+    const day = new Date(now - 90_000).toISOString().slice(0, 10);
+    const agentEvidence = (await readActivityEvidence(config, profile, day, "UTC")).filter(item => item.proposal.source === "agent");
+    expect(agentEvidence).toHaveLength(1);
+    expect(agentEvidence[0].proposal.startAt).toBe(new Date(now - 90_000).toISOString());
     const firstPath = join(folder, "first.docx"), replacement = join(folder, "replacement.docx"), moved = join(folder, "appeal.docx");
     await writeFile(firstPath, "example");
     const before = await stat(firstPath);
@@ -99,4 +112,29 @@ test("task completion date, stable identity through editor replacement and renam
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("a synchronized firm's task contributes only notes written by this member on the day", async () => {
+  const root = await mkdtemp(join(tmpdir(), "firm-task-daylog-"));
+  try {
+    const config = backOfficeTestConfig(root), at = "2026-11-22T10:42:00.000Z";
+    await writeEigenweltConnection(config, { platformURL: eigenweltPlatformUrl(),
+      account: { userId: "worker", orgId: "firm", orgName: "Fixture", orgRole: "org:member", userName: null, userEmail: null } });
+    const owner = await currentActivityProfile(config), tasks = await taskStore(config);
+    const seed = tasks.createTask({ title: "Synthetic review" }, { userId: null, name: null, email: null });
+    const note = { id: "worker-note", authorUserId: "worker", authorName: null, authorEmail: null, source: "member" as const, createdAt: at, body: "private text" };
+    const remote = { ...seed, id: crypto.randomUUID(), projectId: null, submission: null, attachments: [], notes: [
+      note, { ...note, id: "colleague", authorUserId: "other" }, { ...note, id: "agent", source: "agent" as const },
+      { ...note, id: "older", createdAt: "2026-11-20T10:00:00Z" },
+    ] };
+    tasks.applyRemoteTask(remote, "firm");
+    tasks.applyRemoteTask({ ...remote, id: crypto.randomUUID(), title: "Different firm", notes: [{ ...note, id: "other-firm" }] }, "other");
+    const rows = await readActivityEvidence(config, owner, "2026-11-22", "UTC");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].proposal).toMatchObject({ narrative: "Synthetic review", changeSummary: "Added note", observedAt: at, workedMinutes: null });
+    await saveWorkdayLog(owner.path, "2026-11-22", "UTC", at, rows);
+    const journal = await readFile(join(owner.path + ".day-log", "2026-11-22.json"), "utf8");
+    expect(journal).not.toContain("private text");
+    expect(journal).not.toContain("Different firm");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

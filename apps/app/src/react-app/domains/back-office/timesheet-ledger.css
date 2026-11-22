@@ -228,7 +228,7 @@
   color: var(--t-color-blue11);
 }
 
-.time-section-header, .time-section-header nav, .time-header-period, .time-header-period .bo-workday-controls {
+.time-section-header, .time-section-header nav {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -236,8 +236,6 @@
   white-space: nowrap;
 }
 .time-section-header { min-width: max-content; padding-inline: 4px; }
-.time-header-period:not(:empty) { margin-inline-start: 6px; padding-inline-start: 8px; border-inline-start: 1px solid var(--border); }
-.time-header-period .bo-workday-controls { min-height: 0; padding: 0; }
 .bo-time-toolbar {
   padding: 10px 16px 4px;
   gap: 5px;
@@ -396,4 +394,4 @@
 
 .time-unified .bo-time-ledger { min-height:0 }
 
-.time-record-sheet .bo-grid-fill { display:flex; justify-content:flex-end; align-items:center; padding-right:10px; color:var(--muted-foreground); }
+.time-record-actions { display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--muted-foreground); }

@@ -204,7 +204,7 @@ function isImageAttachment(attachment: ComposerAttachment) {
 }
 
 export function ReactSessionComposer(props: ComposerProps) {
-  let fileInput: HTMLInputElement | undefined;
+  const fileInput = useRef<HTMLInputElement>(null);
   const [commands, setCommands] = useState<SlashCommandOption[]>([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -1051,9 +1051,7 @@ export function ReactSessionComposer(props: ComposerProps) {
             <div className={props.assistantName ? "contents" : "mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-[var(--lw-border-subtle)] pt-2"}>
               <div className={props.assistantName ? "contents" : "flex min-w-0 flex-1 flex-wrap items-center gap-1.5"}>
                 <input
-                  ref={(element) => {
-                    fileInput = element ?? undefined;
-                  }}
+                  ref={fileInput}
                   type="file"
                   multiple
                   className="hidden"
@@ -1067,7 +1065,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   <DropdownMenuTrigger disabled={!props.attachmentsEnabled} className="lw-composer-control inline-flex h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 disabled:opacity-60" aria-label={t("composer.attach_files")} title={props.attachmentsDisabledReason ?? t("composer.attach_files")}><Plus size={16} /></DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
                     <DropdownMenuItem onClick={props.onPickProjectFiles}><FileText size={16} />{t("wiki.project_files")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => fileInput?.click()}><Paperclip size={16} />{t("wiki.project_upload")}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => fileInput.current?.click()}><Paperclip size={16} />{t("wiki.project_upload")}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu> : <>
                 <button
@@ -1077,7 +1075,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   }`}
                   onClick={() => {
                     if (!props.attachmentsEnabled) return;
-                    fileInput?.click();
+                    fileInput.current?.click();
                   }}
                   disabled={!props.attachmentsEnabled}
                   title={props.attachmentsDisabledReason ?? t("composer.attach_files")}

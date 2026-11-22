@@ -9,7 +9,7 @@ import { NativeBacklinks } from "./native-backlinks";
 import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
@@ -87,6 +87,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
     navigate = useNavigate(),
     cache = useQueryClient();
   const timesheet = embeddedObject ? undefined : timePage(location.pathname);
+  const DirectoryTheme = timesheet ? Fragment : BackOfficeTheme;
   const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
@@ -372,7 +373,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
-    <BackOfficeTheme>
+    <DirectoryTheme>
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
@@ -381,7 +382,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
         projects={projects.data?.projects ?? []}
       >
         <div
-          className={`bo ${detail ? "bo-has-detail" : ""}`}
+          className={timesheet ? "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : `bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
           {!timesheet && !embeddedObject && <nav className="bo-tabs" aria-label="Back Office">
@@ -458,7 +459,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,credential,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            client={client} directory={data} page={timesheet} workdayModels={workdayModels}
+            onSaveView={saveView} client={client} directory={data} page={timesheet} workdayModels={workdayModels}
             directoryRefresh={directoryError ? { error: directoryError, fetching: query.isFetching, retry: () => void query.refetch() } : undefined}
             renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
@@ -545,7 +546,8 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
                 </div>
               </header>
               <RecordGrid
-                key={object.id + String(team)}
+                key={JSON.stringify([object.id, client.baseUrl, data.directoryId, data.permissions.userId, data.permissions.principalKey, team])}
+                columnScope={JSON.stringify([client.baseUrl, data.scope, data.directoryId, data.permissions.userId, data.permissions.principalKey])}
                 object={object}
                 records={records}
                 draft={draft} localChoices={localDirectory?.localChoices}
@@ -735,6 +737,6 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
         </div>
       </RecordFilesProvider>
       </RecordCreationProvider>
-    </BackOfficeTheme>
+    </DirectoryTheme>
   );
 }

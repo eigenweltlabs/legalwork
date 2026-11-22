@@ -1,3 +1,4 @@
+import { syncDesktopProfile } from "./time-capture/desktop-activity.js";
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { signOutBackOffice } from "./back-office/sync.js";
 import { withSignOutSync } from "./signout-sync.js";
@@ -166,7 +167,7 @@ import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
 import { backOfficeDirectoryIdentity } from "./back-office/access.js";
 import { backOfficeStore } from "./back-office/store.js";
-import { observationBatch, recordWorkspaceObservations, recordCompletedTask, currentActivityProfile } from "./time-capture/activity-workday.js";
+import { observationBatch, recordWorkspaceObservations, beginTaskObservation, currentActivityProfile } from "./time-capture/activity-workday.js";
 import { requireTimekeepingOwner, isTimekeepingProject, canOpenTimekeeping, visibleTimekeepingProjects } from "./time-capture/profile.js";
 import { registerWorkdayRoutes, checkScheduledWorkday, readCaptureSettings } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
@@ -1982,11 +1983,12 @@ function createRoutes(
     if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
     if (method === "GET") {
       const { profileId, path, principal, user, scope } = await currentActivityProfile(config);
+      syncDesktopProfile(config, path);
       const [settings, directoryId] = await Promise.all([
         readCaptureSettings(path), backOfficeStore(config).then(store => backOfficeDirectoryIdentity(config, scope, store)),
       ]);
       const response = jsonResponse({ profileId, directoryId, principal, user, scope,
-        enabled: settings.enabled !== false, workspaceActivity: settings.workspaceActivity !== false });
+        enabled: settings.enabled !== false, workspaceActivity: settings.workspaceActivity !== false, desktopActivity: settings.desktopActivity === true });
       response.headers.set("Cache-Control", "no-store");
       return response;
     }
@@ -4040,7 +4042,9 @@ function createRoutes(
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
     const links = await prepareFormLinks(config, body.backOfficeLinks, "task", input.projectId ?? "");
+    const capture = input.id && store.getTask(input.id) ? undefined : await beginTaskObservation(config, ctx, actor.userId);
     const task = store.createTask(input, actor, undefined, links?.write);
+    await capture?.(task, "Created task");
     links?.committed();
     tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
@@ -4061,12 +4065,17 @@ function createRoutes(
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     const patch = parseTaskPatch(body);
     if (patch.projectId) await resolveWorkspace(config, patch.projectId);
-    const observe = patch.status === "done" && ctx.actor?.type === "host" && !ctx.agentAccess &&
-      ["localhost","127.0.0.1","::1","[::1]"].includes(config.host) && store.getTask(ctx.params.taskId)?.status !== "done";
-    const activityProfile = observe ? await currentActivityProfile(config).catch(() => undefined) : undefined;
+    const before = store.getTask(ctx.params.taskId);
+    const capture = await beginTaskObservation(config, ctx, actor.userId);
     const task = store.patchTask(ctx.params.taskId, patch, actor);
-    if (activityProfile && (!actor.userId || activityProfile.captureUser === actor.userId)) {
-      await recordCompletedTask(config, activityProfile, task).catch(() => {});
+    if (capture && before) {
+      const edited = (["title", "description", "status", "priority", "tags", "dueDate", "assigneeUserId", "projectId"] as const)
+        .some(field => JSON.stringify(before[field]) !== JSON.stringify(task[field]));
+      if (edited) await capture(task, task.status === "done" && before.status !== "done" ? "Completed task" : "Updated task");
+      if (patch.note && patch.noteSource !== "agent") {
+        const note = store.listNotes(task.id).reverse().find(row => row.createdAt === task.updatedAt && row.authorUserId === actor.userId && row.body === patch.note?.trim());
+        if (note) await capture({ ...task, id: note.id, updatedAt: note.createdAt }, "Added note");
+      }
     }
     tasksChanged();
     return jsonResponse({ ok: true, task });
@@ -4146,12 +4155,14 @@ function createRoutes(
     }
     let task = store.getTask(ctx.params.taskId);
     if (!task) throw new ApiError(404, "task_not_found", "That task does not exist.");
+    const capture = await beginTaskObservation(config, ctx, (await localTaskConnection()).actor.userId);
     for (const file of files) {
       task = await store.addAttachment(ctx.params.taskId, {
         filename: file.name || "attachment",
         contentType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
       });
+      await capture?.({ ...task, id: task.id + ":" + file.name, title: task.title + " · " + file.name }, "Attached file");
     }
     tasksChanged();
     return jsonResponse({ ok: true, task });

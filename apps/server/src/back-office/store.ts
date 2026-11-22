@@ -3,7 +3,7 @@ import type { DirectoryPosition } from "./paged-sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { validateGenericTime } from "./timesheet-data.js";
+import { prepareTimeRecordClient, validateGenericTime } from "./timesheet-data.js";
 import { isTimeMemberSource, memberSource, timeMemberContactId, timeMemberUserId } from "./time-member-identity.js";
 import { BackOfficeJournal } from "./journal.js";
 import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
@@ -705,8 +705,14 @@ export class BackOfficeStore {
           }
           values[id] = value;
         }
+        const recipientField = object.id === "timeEntries" && object.fields.find(field => field.id === "client");
+        if (recipientField && (recipientField.visibility !== "finance" || actor.finance) &&
+            (recipientField.visibility !== "private" || !existing || existing.ownerId === actor.userId))
+          prepareTimeRecordClient(this, scope, actor, parsed.values, values, existing);
         if (mergeable) {
           const keys = Object.keys(parsed.values);
+          if (recipientField && !keys.includes("client") && (values.client ?? null) !== (existing.values.client ?? null))
+            keys.push("client");
           const same = (a: BackOfficeRecord["values"][string] | undefined, b: BackOfficeRecord["values"][string] | undefined) => canonicalBackOfficeAudit(a ?? null) === canonicalBackOfficeAudit(b ?? null);
           if (revision !== parsed.revision) {
             if (existing.archivedAt && parsed.archived === undefined)

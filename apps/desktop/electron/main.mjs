@@ -33,15 +33,19 @@ import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermiss
 import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
+import { importWorkdayFileHistory } from "./workday-file-history.mjs";
 import { requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
+import { createWorkdayRecordingReporter } from "./workday-recordings.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
+import { createWorkdayDesktopCollector, desktopActivityOwner, macWorkdayAccessibility, readMacWorkdayForeground } from "./workday-desktop-activity.mjs";
+import { createWindowsForegroundReader } from "./workday-windows-foreground.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
@@ -775,11 +779,17 @@ const appAudioTap = new AppAudioTap({
 // merely armed for the hotkey.
 const powerSessions = new PowerSessions({ powerSaveBlocker });
 
+const workdayRecordings = createWorkdayRecordingReporter({
+  directory: path.join(app.getPath("userData"), "workday-recording-outbox"),
+  serverInfo: () => runtimeManager.legalworkServerInfo(),
+});
+
 /** @type {RecorderService | null} */
 let recorderServiceInstance = null;
 function recorderService() {
   if (!recorderServiceInstance) {
     recorderServiceInstance = new RecorderService({
+      workdayRecordings,
       userDataDir: app.getPath("userData"),
       appAudioAvailable: () => appAudioTap.isAvailable(),
       powerSessions,
@@ -3085,6 +3095,35 @@ ipcMain.handle("legalwork:system:architecture-download", async () => findArchite
   arch: resolveSystemArch(),
   feeds: [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL],
 }));
+const foregroundExecutable = process.platform === "darwin" ? resolveKeyMonitorPath(app)
+  : path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+const windowsForeground = process.platform === "win32" ? createWindowsForegroundReader(foregroundExecutable) : undefined;
+app.on("will-quit", () => windowsForeground?.close());
+const workdayDesktop = createWorkdayDesktopCollector({
+  platform: process.platform,
+  available: () => existsSync(foregroundExecutable),
+  trusted: () => systemPreferences.isTrustedAccessibilityClient(false),
+  helperTrusted: () => macWorkdayAccessibility(foregroundExecutable),
+  requestPermission: async () => {
+    if (systemPreferences.isTrustedAccessibilityClient(false)) {
+      if (await macWorkdayAccessibility(foregroundExecutable, true)) return;
+    } else if (systemPreferences.isTrustedAccessibilityClient(true)) {
+      if (await macWorkdayAccessibility(foregroundExecutable)) return;
+    }
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+  },
+  owner: async () => desktopActivityOwner(await runtimeManager.legalworkServerInfo()),
+  power: powerMonitor,
+  readForeground: withDocument => windowsForeground ? windowsForeground.read() : readMacWorkdayForeground(foregroundExecutable, withDocument),
+});
+function requireWorkdayMainFrame(event) {
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.sender.getURL()))
+    throw new Error("Open Timekeeping in the desktop app.");
+}
+for (const [channel, method] of Object.entries({
+  workdayDesktopStatus: workdayDesktop.status, requestWorkdayDesktopPermission: workdayDesktop.requestPermission,
+  sampleWorkdayDesktopActivity: workdayDesktop.sample,
+})) ipcMain.handle("legalwork:system:" + channel, event => { requireWorkdayMainFrame(event); return method(); });
 ipcMain.handle("legalwork:system:microphoneStatus", async () => {
   if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
   return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
@@ -3095,6 +3134,25 @@ ipcMain.handle("legalwork:system:askMicrophoneAccess", async () => {
   const granted = await systemPreferences.askForMediaAccess("microphone");
   const after = systemPreferences.getMediaAccessStatus("microphone");
   return { platform: process.platform, before, after, granted };
+});
+
+ipcMain.handle("legalwork:system:importWorkdayFileHistory", async (event, date, title, profileId) => {
+  requireWorkdayMainFrame(event);
+  try {
+    return await importWorkdayFileHistory({
+      info: await runtimeManager.legalworkServerInfo(), profileId, date,
+      choose: async () => {
+        const result = await dialog.showOpenDialog(activeWindowFromEvent(event), {
+          properties: ["openDirectory"],
+          title: typeof title === "string" ? title.slice(0, 160) : undefined,
+        });
+        return result.canceled ? null : result.filePaths[0];
+      },
+    });
+  } catch {
+    // Native filesystem and process errors can contain the selected directory or filenames.
+    throw Error("Could not check local file-use metadata.");
+  }
 });
 
 // ── Terminal IPC ────────────────────────────────────────────────────────
@@ -3249,6 +3307,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    void workdayRecordings.flush();
+    setInterval(() => { void workdayRecordings.flush(); }, 60_000).unref();
     await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
     // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
     await getActaportConnection().environment();

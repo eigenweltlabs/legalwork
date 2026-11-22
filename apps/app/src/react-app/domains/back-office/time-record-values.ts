@@ -1,6 +1,6 @@
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
-import { proposedCharge, proposedStopwatchCharge, resolveTimePolicy, type TimesheetState } from "@legalwork/types/timesheet";
+import { proposedCharge, proposedStopwatchCharge, resolveTimePolicy, soleMatterClient, type TimesheetState } from "@legalwork/types/timesheet";
 import { suggestBillingNarrative } from "@legalwork/types/billing-narrative";
 import { currentLocale, t } from "@/i18n";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
@@ -21,7 +21,7 @@ export function proposalAssignment(proposal: CaptureProposal, state: TimesheetSt
   const project = proposal.source === "stopwatch" ? undefined : state.projects.find(project => project.id === proposal.projectId);
   const matter = state.matters.find(matter => matter.id === proposal.matterId)
     ?? (project?.matterIds.length === 1 ? state.matters.find(matter => matter.id === project.matterIds[0]) : undefined);
-  const clientId = matter?.clientIds.length === 1 ? matter.clientIds[0] : "";
+  const clientId = soleMatterClient(matter, state.clients);
   const policy = resolveTimePolicy(state.policies, clientId, matter?.id ?? "", proposal.date, project?.id);
   return { project, matter, clientId, policy };
 }
@@ -58,7 +58,7 @@ export function proposalValues(proposal: CaptureProposal, state: TimesheetState)
   const narrative = isUntitledStopwatch(proposal) ? "" : proposal.narrative;
   return { name: narrative.slice(0, 240), billingNarrative: narrative, status: "Draft", matter: matter?.id ?? null, client: clientId || null,
     serviceDate: proposal.date, startedAt: proposal.startAt ?? proposal.date, endedAt: proposal.endAt,
-    recordedMinutes: stopwatch && duration !== null ? Math.round(duration) : proposal.workedMinutes,
+    recordedMinutes: stopwatch && duration !== null ? Math.round(duration) : proposal.workedMinutes ?? proposal.estimatedMinutes ?? null,
     billableMinutes: proposal.chargeMinutes ?? (duration === null ? null
       : stopwatch ? proposedStopwatchCharge(duration, policy) : proposedCharge(duration, policy)),
   };

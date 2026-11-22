@@ -10,6 +10,8 @@ import { captureProfile, readCaptureSettings } from "./routes.js";
 import { backOfficeAccess } from "../back-office/access.js";
 import { digest, type WorkdayEvidence } from "./private-workday.js";
 import { workdayWorkspaces } from "./workday-context.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { taskStore } from "../task-store.js";
 import { ApiError } from "../errors.js";
 
 type Profile = { profileId: string; path: string; captureUser: string };
@@ -29,6 +31,7 @@ type Activity = Omit<Observation, "projectId" | "kind"> & {
   projectId: string | null;
   kind: Observation["kind"] | "tasks";
   title?: string;
+  action?: string;
 };
 async function readJson<T>(path: string, empty: T): Promise<T> {
   try {
@@ -58,25 +61,19 @@ async function append(
   for (const date of new Set(events.map((event) => utcDay(event.start)))) {
     const path = fileFor(profile, date);
     await withFileWriteLock(path, async () => {
-      const rows = await readJson<Activity[]>(path, []);
-      for (const event of events.filter((row) => utcDay(row.start) === date)) {
-        // A second window can observe the same run. Preserve one union of its actual intervals.
-        const continuous = rows
-          .slice()
-          .reverse()
-          .find(
-            (row) =>
-              row.stream === event.stream &&
-              row.kind === event.kind &&
-              row.projectId === event.projectId &&
-              row.end >= event.start &&
-              event.end >= row.start,
-          );
-        if (continuous) {
-          continuous.start = Math.min(continuous.start, event.start);
-          continuous.end = Math.max(continuous.end, event.end);
-        } else rows.push(event);
+      const existing = await readJson<Activity[]>(path, []);
+      const incoming = events.filter(row => utcDay(row.start) === date);
+      const streams = new Map<string, Activity[]>();
+      for (const event of [...existing, ...incoming].sort((a, b) => a.start - b.start)) {
+        // A delayed sample can bridge multiple intervals, including reports from a second window.
+        const key = JSON.stringify([event.projectId, event.kind, event.stream]);
+        const stream = streams.get(key);
+        const previous = stream?.at(-1);
+        if (previous && previous.end >= event.start) previous.end = Math.max(previous.end, event.end);
+        else if (stream) stream.push(event);
+        else streams.set(key, [event]);
       }
+      const rows = [...streams.values()].flat();
       if (
         (await currentActivityProfile(config)).profileId !== profile.profileId
       )
@@ -122,29 +119,24 @@ export async function recordWorkspaceObservations(
     })),
   );
 }
-export async function recordCompletedTask(
-  config: ServerConfig,
-  profile: Profile,
-  task: {
-    id: string;
-    title: string;
-    projectId?: string | null;
-    updatedAt: string;
-  },
-) {
+type ObservedTask = { id: string; title: string; projectId?: string | null; updatedAt: string };
+type TaskAction = "Created task" | "Updated task" | "Completed task" | "Added note" | "Attached file";
+function taskObservation(task: ObservedTask, action: TaskAction): Activity {
+  const at = Date.parse(task.updatedAt);
+  return { kind: "tasks", stream: digest(["task", task.id, task.updatedAt, action]), projectId: task.projectId ?? null,
+    start: at, end: at, title: task.title.slice(0, 500), action };
+}
+export async function beginTaskObservation(config: ServerConfig, ctx: { actor?: { type: string }; agentAccess?: unknown }, userId: string | null) {
+  if (ctx.actor?.type !== "host" || ctx.agentAccess || config.readOnly || !["localhost", "127.0.0.1", "::1", "[::1]"].includes(config.host)) return;
+  const profile = await currentActivityProfile(config).catch(() => undefined);
+  if (!profile || (userId && profile.captureUser !== userId)) return;
+  const settings = await readCaptureSettings(profile.path).catch(() => undefined);
+  if (settings?.enabled === false || !settings?.tasks) return;
+  return (task: ObservedTask, action: TaskAction) => append(config, profile, [taskObservation(task, action)]).catch(() => {});
+}
+export async function recordCompletedTask(config: ServerConfig, profile: Profile, task: ObservedTask) {
   const settings = await readCaptureSettings(profile.path);
-  if (settings.enabled === false || !settings.tasks) return;
-  const completedAt = Date.parse(task.updatedAt);
-  await append(config, profile, [
-    {
-      kind: "tasks",
-      stream: digest(["task", task.id, task.updatedAt]),
-      projectId: task.projectId ?? null,
-      start: completedAt,
-      end: completedAt,
-      title: task.title.slice(0, 500),
-    },
-  ]);
+  if (settings.enabled !== false && settings.tasks) await append(config, profile, [taskObservation(task, "Completed task")]);
 }
 /** Focus notifications from two renderers can overlap. The most recently focused window owns that clock span. */
 export function exclusiveForeground(records: Activity[]): Activity[] {
@@ -177,6 +169,17 @@ export async function readActivityEvidence(
       ].map((day) => readJson<Activity[]>(fileFor(profile, day), [])),
     )
   ).flat();
+  if (settings.tasks) {
+    const account = (await readEigenweltConnection(config)).account;
+    if (account && account.userId === profile.captureUser) {
+      const notes = (await taskStore(config)).workdayNotes(account.orgId, account.userId, start, end);
+      const known = new Set(records.map(row => row.stream));
+      for (const note of notes) {
+        const row = taskObservation(note, "Added note");
+        if (!known.has(row.stream)) records.push(row);
+      }
+    }
+  }
   const allowed = new Set((await workdayWorkspaces(config)).map((w) => w.id));
   return exclusiveForeground(
     records.filter((row) => !row.projectId || allowed.has(row.projectId)),
@@ -207,7 +210,8 @@ export async function readActivityEvidence(
           : ("workspace" as const),
       observation: row.kind === "tasks" ? undefined : row.kind,
       observedAt,
-      activity: task ? "RES" : "",
+      activity: "",
+      ...(row.action ? { changeSummary: row.action } : {}),
       narrative:
         row.title ??
         (row.kind === "agent"

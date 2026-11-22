@@ -9,7 +9,7 @@ import { backOfficeAccess } from "../back-office/access.js";
 import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { startServer } from "../server.js";
 import { recordCompletedTask } from "./activity-workday.js";
-import { beginDocumentCapture, captureProfile } from "./routes.js";
+import { beginDocumentCapture, captureProfile, checkScheduledWorkday } from "./routes.js";
 
 test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and respects the selected model", async () => {
   const narrative = "Drafting Example";
@@ -21,18 +21,24 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     if (!prompt) throw Error("Missing private generation request");
     prompts.push(prompt);
     const input = z.discriminatedUnion("stage", [
-      z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string().nullable(), projectId: z.string() })) }),
+      z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string().nullable(), projectId: z.string().nullable(), source: z.string(), startAt: z.string().nullable(), endAt: z.string().nullable() })) }),
       z.object({ stage: z.literal("wording"), entries: z.array(z.object({ index: z.number() })) }),
     ]).parse(JSON.parse(prompt.trim().split("\n").at(-1) ?? ""));
     let content = "Invalid structured output";
     if (!invalidResponse) {
       if (input.stage === "grouping") {
+        const desktop = input.evidence.find(item => item.source === "desktop");
         const document = input.evidence.find(item => item.documentId);
+        if (desktop && desktop.startAt && desktop.endAt)
+          content = JSON.stringify({ proposals: [{ evidenceIds: [desktop.id], activity: "RES", documentId: null, projectId: null, matterId: null,
+            startAt: desktop.startAt, endAt: desktop.endAt, workedMinutes: Math.round((Date.parse(desktop.endAt) - Date.parse(desktop.startAt)) / 60_000) }] });
+        else {
         if (!document || input.evidence.length !== 2) throw Error("Expected one whole-day batch with both sources");
         content = JSON.stringify({ proposals: [{
           evidenceIds: input.evidence.map(item => item.id), activity: "DFT", documentId: document.documentId,
           projectId: document.projectId, matterId: null, startAt: null, endAt: null, workedMinutes: null,
         }] });
+        }
       } else content = JSON.stringify({ wording: input.entries.map(({ index }) => ({ index, narrative })) });
     }
     function chunk(delta: object, finish_reason: string | null) {
@@ -69,9 +75,12 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
       return captureStateSchema.parse(data);
     };
     const settings: CaptureAction = { type: "settings", settings: {
-      documents: true, calendar: false, tasks: true, schedule: { frequency: "daily", times: ["08:00"] },
+      documents: true, calendar: false, tasks: true, schedule: { frequency: "hourly" },
     } };
     await request(settings);
+    // Older empty-day checks wrote this placeholder even without a local model installed.
+    const old = JSON.parse(await readFile(profile.path, "utf8"));
+    await writeFile(profile.path, JSON.stringify({ ...old, lastModel: { workspaceId: "local", providerID: "local", modelID: "llama.cpp" } }));
     const capture = await beginDocumentCapture(config, { actor: { type: "host" } }, "example", "Folder/Example.docx");
     await mkdir(join(engine.directory, "Folder"));
     const file = join(engine.directory, "Folder", "Example.docx");
@@ -82,14 +91,30 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     });
     const suggest: CaptureAction = { type: "suggest", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
     expect((await request({ type: "calendar" })).proposals).toHaveLength(2);
-    expect((await request()).proposals).toEqual([]);
+    const beforeGeneration = await request();
+    expect(beforeGeneration.proposals).toEqual([]);
+    expect(beforeGeneration.modelReady).toBe(true);
     expect(prompts).toHaveLength(0);
     expect((await request(suggest)).status?.type).toBe("failed");
     expect(prompts).toHaveLength(2);
+    const journal = JSON.parse(await readFile(join(profile.path + ".day-log", date + ".json"), "utf8"));
+    expect(journal.observations.map((row: { proposal: { source: string } }) => row.proposal.source).sort()).toEqual(["documents", "tasks"]);
+    expect(JSON.stringify(journal)).not.toContain("Folder/");
     invalidResponse = false;
     expect((await request()).status?.type).toBe("failed");
     expect(prompts).toHaveLength(2);
-    const result = await request(suggest);
+    // Another workspace can map the same provider ID to different credentials
+    // or an endpoint. A stale app hint must not reauthorize that boundary.
+    for (const unsafe of [{ ...suggest.model!, workspaceId: "removed-workspace" }, { ...suggest.model!, providerID: "self-hosted" }]) {
+      expect((await request({ type: "settings-patch", change: { field: "model", value: unsafe } })).modelReady).toBe(false);
+      expect((await request(suggest)).status?.type).toBe("unavailable");
+      expect(prompts).toHaveLength(2);
+    }
+    // A model retirement within the selected provider on the same workspace
+    // recovers for the plain Add suggestions action and for scheduled runs.
+    const retired = { ...suggest.model!, modelID: "retired" };
+    expect((await request({ type: "settings-patch", change: { field: "model", value: retired } })).modelReady).toBe(true);
+    const result = await request({ type: "suggest" });
     expect(result.status?.type).toBe("ready");
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
@@ -113,6 +138,29 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
       expect(bytes.includes("Example.docx")).toBe(false);
       expect(bytes.includes(narrative)).toBe(false);
     }
+    const desktopUrl = "http://127.0.0.1:" + server.port + "/private-timesheet/desktop-activity?" + query;
+    const started = Date.now() - 66_000;
+    const observe = (time: number, host: boolean, endpoint = desktopUrl) => fetch(endpoint, { method: "POST",
+      headers: { authorization: "Bearer fixture", ...(host && { "x-legalwork-host-token": "host" }), "content-type": "application/json" },
+      body: JSON.stringify({ state: "active", platform: "darwin", permission: "granted", observedAt: time, idleSeconds: 1,
+        application: "Synthetic Editor", documentName: "Billing-review.pdf" }) });
+    expect((await observe(started, true)).status).toBe(409);
+    await request({ type: "settings-patch", change: { field: "desktopActivity", value: true } });
+    expect((await observe(started, false)).status).toBe(401);
+    const wrongProfile = new URL(desktopUrl);
+    wrongProfile.searchParams.set("profileId", "other");
+    expect((await observe(started, true, wrongProfile.toString())).status).toBe(409);
+    for (const seconds of [0, 15, 30, 45, 60]) expect((await observe(started + 1000 * seconds, true)).status).toBe(200);
+    await checkScheduledWorkday(config, {});
+    const desktop = await request();
+    expect(desktop.status?.type).toBe("ready");
+    expect(desktop.proposals.find(row => row.source === "desktop")).toMatchObject({ narrative, workedMinutes: 1 });
+    expect(prompts.some(prompt => prompt.includes("Billing-review.pdf") && prompt.includes("Synthetic Editor"))).toBe(true);
+    const readDay = async () => JSON.parse(await readFile(join(profile.path + ".day-log", date + ".json"), "utf8"));
+    expect((await readDay()).observations.some((row: { proposal: { source: string } }) => row.proposal.source === "desktop")).toBe(true);
+    await request({ type: "settings-patch", change: { field: "desktopActivity", value: false } });
+    expect((await request(suggest)).proposals.some(row => row.source === "desktop")).toBe(false);
+    expect((await readDay()).observations.some((row: { proposal: { source: string } }) => row.proposal.source === "desktop")).toBe(false);
     const priorCalls = prompts.length;
     // A request from a stale second window must respect the newer saved provider.
     const selected = { workspaceId: "local", providerID: "local", modelID: "llama.cpp" };
@@ -120,6 +168,7 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     const staleRequest = await request(suggest);
     expect(staleRequest.settings.model).toEqual(selected);
     expect(staleRequest.status?.type).toBe("unavailable");
+    expect(staleRequest.modelReady).toBe(false);
     expect(prompts).toHaveLength(priorCalls);
   } finally {
     await server.stop();

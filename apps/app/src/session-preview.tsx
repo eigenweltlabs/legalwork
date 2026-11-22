@@ -42,6 +42,9 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import { useSessionInboxStore } from "@/react-app/domains/session/sidebar/session-inbox-store";
 import { requestPanelTab } from "@/react-app/domains/session/panel/panel-tab-request";
 import { useLocale } from "@/i18n/use-locale";
+import { TimeWorkspacePanels } from "./react-app/domains/back-office/time-workspace-panels";
+import { TimeWorkspaceChat } from "./react-app/domains/back-office/time-workspace-chat";
+import "./react-app/domains/back-office/timesheet-workday.css";
 import { SessionPage } from "@/react-app/domains/session/chat/session-page";
 import { ProviderAuthModal } from "@/react-app/domains/connections/provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
@@ -83,6 +86,8 @@ const trialPreview = previewParams.has("trial");
 const fundedTrialPreview = previewParams.get("trial") === "member-limit";
 const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : trialPreview ? "plus" : null);
 const assistantPreview = previewParams.has("assistant");
+const timekeepingPreview = previewParams.has("timekeeping-chat");
+const keepPreviewWorkspace = () => {};
 const modelSettingsPreview = previewParams.has("model-settings");
 const assistantToday = "2026-10-07";
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
@@ -593,6 +598,8 @@ function previewFile(path: string): { content: string; updatedAt: number } {
 let previewAssistantSettings = { ...DEFAULT_ASSISTANT_SETTINGS };
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  privateTimeConversation: async () => ({ workspace, day: { date: assistantToday, sessionId: welcomeId } }),
+  privateTimeHistory: async () => ({ days: [], nextBefore: null }),
   assistantSettings: async () => ({ settings: previewAssistantSettings }),
   updateAssistantSettings: async settings => ({ settings: previewAssistantSettings = AssistantSettingsSchema.parse(settings) }),
   ...(dashboardExplorer ? {
@@ -823,8 +830,9 @@ const fixtureClient: LegalworkServerClient = {
   writeWorkspaceBinaryFile: async (_workspaceId, payload) => {
     if (previewParams.has("review-checks")) await new Promise(resolve => setTimeout(resolve, Number(previewParams.get("save-delay") ?? 2500)));
     const updatedAt = Date.now();
-    localStorage.setItem(`legalwork:synthetic-binary:${payload.path}`, JSON.stringify({ data: btoa(Array.from(new Uint8Array(payload.data), byte => String.fromCharCode(byte)).join("")), updatedAt }));
-    return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt };
+    const bytes = payload.data instanceof Blob ? new Uint8Array(await payload.data.arrayBuffer()) : new Uint8Array(payload.data);
+    localStorage.setItem(`legalwork:synthetic-binary:${payload.path}`, JSON.stringify({ data: btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join("")), updatedAt }));
+    return { ok: true, path: payload.path, bytes: bytes.byteLength, updatedAt };
   },
   storageRoots: async () => ({ roots: [{ id: "visual-cloud", name: "Northstar cloud files", kind: "s3", writable: true }] }),
   storageChildren: async () => ({ entries: [{ name: "Cloud review.md", path: "Cloud review.md", kind: "file", size: 4820, modifiedAt: null }] }),
@@ -989,7 +997,12 @@ function SessionPreview() {
           projectCalendarView={<CalendarView client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} projectName={activeWorkspace.name} />}
           homePage={showHome}
           workflowLibraryView={<WorkflowsPreview active={showWorkflows} workspaceId={activeWorkspace.id} reviewClient={fixtureClient} />}
-          mainView={showHome ? <AppHome
+          selectEmbeddedWorkspace={timekeepingPreview ? keepPreviewWorkspace : undefined}
+          mainView={timekeepingPreview ? <div className="flex h-full min-h-0 flex-col">
+            <TimeWorkspacePanels visible scope="visual-timekeeping" entries={<p>Sample time entries</p>} timeline={() => <p>Sample workday</p>}
+              chat={visible => <TimeWorkspaceChat client={fixtureClient} date={assistantToday} visible={visible}
+                identity={{ profileId: "visual-timekeeping", user: "local", scope: "local", principal: "" }} />} />
+          </div> : showHome ? <AppHome
             workspaces={[workspace, otherWorkspace]} projectId={homeProject}
             onProjectChange={(id) => { setHomeProject(id); pendingHome.current = { sessionId: null, uploads: new Map() }; }} onCreateProject={previewNotice}
             disabled={false} providerConnectedCount={1} onConnect={previewNotice}
@@ -1071,7 +1084,7 @@ function SessionPreview() {
             },
             modelPickerOpen, modelSelectorLocked: !modelSettingsPreview && !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel, onModelPickerOpenChange: setModelPickerOpen,
             onModelChange: next => { setSelectedModel(next); setModelPickerOpen(false); },
-            onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
+            onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: timekeepingPreview, attachmentsDisabledReason: timekeepingPreview ? null : "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant, onModelVariantChange: setModelVariant,
             modelBehaviorOptions: modelSettingsPreview ? [{ value: "balanced", label: "Balanced" }, { value: "light", label: "Light" }] : previewParams.has("composer-layout") ? [{ value: null, label: "Reasoning effort", isDefault: true }, { value: "high", label: "High" }] : [],
             agentLabel: "Assistant", selectedAgent: null,

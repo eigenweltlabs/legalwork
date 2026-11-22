@@ -2,6 +2,7 @@ import { replaceDocumentTerm } from "./document-terminology.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  captureFileSource,
   proposedCharge,
   proposedStopwatchCharge,
   timeActivities,
@@ -62,6 +63,8 @@ export const workdayModelOutputSchema = z.strictObject({
         startAt: z.iso.datetime({ offset: true }).nullable(),
         endAt: z.iso.datetime({ offset: true }).nullable(),
         workedMinutes: z.number().int().min(1).max(1440).nullable(),
+        estimatedMinutes: z.number().int().min(1).max(1440).optional(),
+        estimateReason: z.string().trim().min(1).max(500).optional(),
       }),
     )
     .max(200),
@@ -154,7 +157,7 @@ export function proposedWorkdayCharge(
   const minutes =
     proposal.source === "stopwatch" && clocks !== null
       ? clocks
-      : proposal.workedMinutes;
+      : proposal.workedMinutes ?? proposal.estimatedMinutes ?? null;
   if (minutes === null || minutes <= 0) return;
   const maxMinutes =
     rules.activityLimits[proposal.activity] ?? rules.maxMinutes;
@@ -196,6 +199,10 @@ export function modelInput(evidence: ModelEvidence[]) {
       startAt: proposal.startAt,
       endAt: proposal.endAt,
       observedAt: proposal.observedAt,
+      desktopContext: proposal.desktopContext,
+      fileUseSource: proposal.fileUseSource,
+      mailDirection: proposal.mailDirection,
+      threadKey: proposal.threadKey,
       timingEvidence: Boolean(humanInterval(proposal)),
       activity: proposal.activity || null,
       title: proposal.narrative,
@@ -232,6 +239,8 @@ export function reconstructWorkday(
       return found;
     });
     const sources = refs.map((ref) => ref.item.proposal);
+    if (sources.some(p => p.mailDirection === "received" && !sources.some(other =>
+      other.mailDirection === "sent" && other.threadKey && other.threadKey === p.threadKey))) throw invalidModelOutput();
     const timer = refs.find(ref => ref.item.proposal.source === "stopwatch");
     const matterId = timer?.matter?.id ?? row.matterId;
     const projects = new Set(
@@ -273,7 +282,7 @@ export function reconstructWorkday(
     const document = refs.find(
       (ref) =>
         ref.item.proposal.documentId === row.documentId &&
-        ref.item.proposal.source === "documents" &&
+        (ref.item.proposal.source === "documents" || captureFileSource(ref.item.proposal.source)) &&
         (!documentActivity || ref.item.proposal.activity === row.activity),
     );
     if (documentActivity && !document) throw invalidModelOutput();
@@ -330,6 +339,14 @@ export function reconstructWorkday(
     const measuredMinutes = Math.round(
       combined.reduce((total, { from, to }) => total + to - from, 0) / 60_000,
     );
+    if (row.estimatedMinutes !== undefined || row.estimateReason !== undefined) {
+      const pointSources = sources.filter(source => source.observedAt && source.mailDirection !== "received" &&
+        (["documents", "tasks", "gmail", "outlook"].includes(source.source) || captureFileSource(source.source)));
+      const distinctTimes = new Set(pointSources.map(source => source.observedAt));
+      if (!row.estimatedMinutes || !row.estimateReason || row.workedMinutes !== null || clocks || measured.length ||
+          (distinctTimes.size < 2 && !pointSources.some(source => source.changeSummary)))
+        throw invalidModelOutput();
+    }
     if (
       measuredMinutes > 1440 ||
       (row.workedMinutes !== null && row.workedMinutes !== measuredMinutes) ||
@@ -396,6 +413,8 @@ export function reconstructWorkday(
       startAt: clocks ? new Date(clocks.from).toISOString() : null,
       endAt: clocks ? new Date(clocks.to).toISOString() : null,
       workedMinutes: row.workedMinutes,
+      ...(row.estimatedMinutes !== undefined ? { estimatedMinutes: row.estimatedMinutes, estimateReason: row.estimateReason,
+        observedAt: origin.item.proposal.observedAt } : {}),
     };
     proposal.chargeMinutes = proposedWorkdayCharge(proposal, policy);
     proposal.digest = proposalCommitment(proposal);

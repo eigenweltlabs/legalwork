@@ -827,6 +827,16 @@ export class TaskStore {
     }
   }
 
+  /** A member-authored note has a real actor and action time. The task's general updated_at does not. */
+  workdayNotes(orgId: string, userId: string, from: number, to: number) {
+    return this.db.all(
+      `SELECT n.id, n.created_at, t.title, p.project_id FROM task_notes n
+       JOIN tasks t ON t.id = n.task_id LEFT JOIN task_projects p ON p.task_id = t.id
+       WHERE t.remote_org_id = ? AND t.deleted_at IS NULL AND n.author_user_id = ? AND n.source = 'member'
+         AND n.created_at >= ? AND n.created_at < ?`, [orgId, userId, from, to],
+    ).map(row => ({ id: text(row.id), title: text(row.title), projectId: nullableText(row.project_id), updatedAt: new Date(Number(row.created_at)).toISOString() }));
+  }
+
   listNotes(taskId: string): TaskNote[] {
     const rows = this.db.all(
       "SELECT * FROM task_notes WHERE task_id = ? ORDER BY created_at ASC, id ASC",

@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   system: {
+    workdayDesktopStatus() { return ipcRenderer.invoke("legalwork:system:workdayDesktopStatus"); },
+    requestWorkdayDesktopPermission() { return ipcRenderer.invoke("legalwork:system:requestWorkdayDesktopPermission"); },
+    sampleWorkdayDesktopActivity() { return ipcRenderer.invoke("legalwork:system:sampleWorkdayDesktopActivity"); },
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
     },
@@ -93,6 +96,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
     getMicrophoneStatus() {
       return ipcRenderer.invoke("legalwork:system:microphoneStatus");
+    },
+    importWorkdayFileHistory(date, title, profileId) {
+      return ipcRenderer.invoke("legalwork:system:importWorkdayFileHistory", date, title, profileId);
     },
     askMicrophoneAccess() {
       return ipcRenderer.invoke("legalwork:system:askMicrophoneAccess");

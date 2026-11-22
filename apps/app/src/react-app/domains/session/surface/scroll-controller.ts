@@ -27,6 +27,7 @@ const MANUAL_BROWSE_UPWARD_THRESHOLD_PX = 16;
 type SessionScrollControllerOptions = {
   selectedSessionId: string | null;
   renderedMessages: unknown;
+  emptyWelcome?: boolean;
   containerRef: RefObject<HTMLDivElement | null>;
   contentRef: RefObject<HTMLDivElement | null>;
 };
@@ -157,6 +158,14 @@ export function useSessionScrollController(
       setStickyBottom(selectedSessionId, null);
       programmaticScrollRef.current = true;
 
+      // An empty chat starts at its greeting, including in a short split pane.
+      if (options.emptyWelcome) {
+        container.scrollTop = 0;
+        lastKnownScrollTopRef.current = 0;
+        releaseProgrammaticScrollSoon();
+        return;
+      }
+
       if (behavior === "smooth") {
         container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
         releaseProgrammaticScrollSoon();
@@ -188,7 +197,7 @@ export function useSessionScrollController(
       };
       window.requestAnimationFrame(settle);
     },
-    [options.containerRef, refreshTopClippedMessage, releaseProgrammaticScrollSoon, selectedSessionId, setStickyBottom],
+    [options.containerRef, options.emptyWelcome, refreshTopClippedMessage, releaseProgrammaticScrollSoon, selectedSessionId, setStickyBottom],
   );
 
   const saveScrollPosition = useCallback(

@@ -1,3 +1,4 @@
+import type { DesktopActivitySample } from "@legalwork/types/time-capture";
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 import { fetchDesktopText } from "./desktop-text-fetch";
@@ -66,6 +67,10 @@ declare global {
         relaunch?: () => Promise<void>;
       };
       system?: {
+        importWorkdayFileHistory?: (date: string, title: string, profileId: string) => Promise<{ matched: number; imported: number; limited: boolean } | null>;
+        workdayDesktopStatus?: () => Promise<Pick<DesktopActivitySample, "platform" | "permission">>;
+        requestWorkdayDesktopPermission?: () => Promise<Pick<DesktopActivitySample, "platform" | "permission">>;
+        sampleWorkdayDesktopActivity?: () => Promise<DesktopActivitySample>;
         getArchitectureInfo?: () => Promise<{
           appArch: string;
           appArchLabel: string;

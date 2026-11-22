@@ -67,7 +67,11 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     narrative: command.narrative,
     parentDigest: parent.digest,
   };
-  const timeChanged = parent.startAt !== remaining.startAt || parent.endAt !== remaining.endAt ||
+  if (remaining.workedMinutes !== null || remaining.startAt || command.clearEstimate) {
+    delete remaining.estimatedMinutes;
+    delete remaining.estimateReason;
+  }
+  const timeChanged = parent.estimatedMinutes !== remaining.estimatedMinutes || parent.startAt !== remaining.startAt || parent.endAt !== remaining.endAt ||
     parent.workedMinutes !== remaining.workedMinutes;
   const matterChanged = matterOf(parent) !== matterOf(remaining);
   if (matterChanged) delete remaining.workProductId;

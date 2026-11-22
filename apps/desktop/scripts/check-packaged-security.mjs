@@ -28,8 +28,21 @@ for (const [name, enabled] of Object.entries({
   console.log(`PASS: ${name}=${enabled}`);
 }
 const resources = process.platform === "darwin" ? path.join(appPath, "Contents/Resources") : path.join(path.dirname(appPath), "resources");
-assert.ok(!listPackage(path.join(resources, "app.asar")).some(file => file.replaceAll("\\", "/").includes("/node_modules/@legalwork/opencode-release/generated/archive-cache")), "Packaged app must not include the engine build download cache");
+const archiveFiles = listPackage(path.join(resources, "app.asar")).map(file => file.replaceAll("\\", "/"));
+assert.ok(!archiveFiles.some(file => file.includes("/node_modules/@legalwork/opencode-release/generated/archive-cache")), "Packaged app must not include the engine build download cache");
 console.log("PASS: engine build download cache is absent from the packaged app");
+for (const module of ["workday-desktop-activity.mjs", "workday-windows-foreground.mjs", "workday-file-history.mjs"]) {
+  assert.ok(archiveFiles.includes("/electron/" + module), "Missing packaged desktop activity module: " + module);
+}
+if (process.platform === "darwin") {
+  const check = spawnSync(path.join(resources, "helpers/LegalWorkKeyMonitor"), ["--workday-accessibility"], {
+    encoding: "utf8", timeout: 5_000,
+  });
+  if (check.error) throw check.error;
+  assert.equal(check.status, 0);
+  assert.match(check.stdout, /^(true|false)$/);
+}
+console.log("PASS: packaged desktop activity providers are available");
 const nodeDirectory = path.join(resources, "node");
 const metadata = JSON.parse(await readFile(path.join(nodeDirectory, "runtime.json"), "utf8"));
 const expectedArch = metadata.source.target.split("-").at(-1);

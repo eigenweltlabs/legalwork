@@ -26,6 +26,9 @@ import {
   type StorageTransferEvent,
 } from "@legalwork/types/file-storage";
 import { serverSentEvents } from "@legalwork/types/sync-events";
+import { captureProfile } from "./time-capture/profile.js";
+import { backOfficeAccess } from "./back-office/access.js";
+import { dayInZone } from "./calendar/dates.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { withStorage } from "./file-storage/service.js";
@@ -120,6 +123,30 @@ afterAll(async () => {
   await rm(temporary, { recursive: true, force: true });
   for (const key of Object.keys(process.env)) if (!(key in priorEnv)) delete process.env[key];
   Object.assign(process.env, priorEnv);
+});
+
+test("time tracking records explicit storage writes without counting reads or failed overwrites", async () => {
+  const dav = webdavFixture();
+  const id = await connect(storageInputSchema.parse({ name: "Test file account", config: { kind: "webdav", endpoint: dav.endpoint + "/first" } }));
+  try {
+    const name = "Time-tracking-fixture.txt", bytes = (text: string) => Buffer.from(text).toString("base64");
+    expect((await api("POST", "/" + id + "/file", { path: name, dataBase64: bytes("private contents") })).status).toBe(201);
+    const first = fileSchema.parse(await (await api("GET", "/" + id + "/file?path=" + name)).json());
+    expect((await api("PUT", "/" + id + "/file", { path: name, version: first.version, dataBase64: bytes("private edit") })).status).toBe(200);
+    expect((await api("PUT", "/" + id + "/file", { path: name, version: first.version, dataBase64: bytes("failed edit") })).status).toBe(409);
+    const owner = await captureProfile(config, await backOfficeAccess(config));
+    const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const query = new URLSearchParams({ date, user: owner.user, scope: owner.scope, principal: owner.principal, profileId: owner.profileId });
+    await fetch(base + "/private-timesheet/workday?" + query, { method: "POST", headers: { authorization: "Bearer " + config.token,
+      "x-legalwork-host-token": config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ type: "suggest" }) });
+    const journal = JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8"));
+    expect(journal.observations.filter((row: { proposal: { narrative: string } }) => row.proposal.narrative === name)
+      .map((row: { proposal: { changeSummary: string } }) => row.proposal.changeSummary).sort()).toEqual(["Saved " + name, "Uploaded " + name]);
+    expect(JSON.stringify(journal)).not.toContain("private contents");
+  } finally {
+    await api("DELETE", "/" + id);
+    await dav.server.stop(true);
+  }
 });
 
 test("storage_read_file reads Office and PDF sources without a viewer or sandbox and preserves pagination", async () => {

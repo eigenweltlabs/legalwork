@@ -20,7 +20,8 @@
 .bo-workday-controls {
   flex: none;
   min-height: 36px;
-  padding: 10px 16px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
 }
 .bo-workday-toolbar-space { flex: 1; }
 .time-workspace-field select {
@@ -37,7 +38,7 @@
 .time-workspace-entry-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .time-workspace-timeline { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; padding: 12px; }
 .time-workspace-chat { height: 100%; min-height: 0; min-width: 0; }
-.time-workspace-private-toolbar { justify-content: flex-end; }
+.time-workspace-private-toolbar { justify-content: flex-end; padding-bottom: 6px; }
 .time-workspace-note,
 .time-workspace-status {
   margin: 6px 0;
@@ -65,13 +66,42 @@
 .time-proposal-decisions[data-calendar-proposal-actions] > button { width: 24px; height: 24px; }
 .time-proposal-decisions[data-calendar-proposal-actions] > button:hover { color: #171717; background: #eee; }
 .time-proposal-decisions[data-calendar-proposal-actions] > button > svg { width: 14px; height: 14px; }
-.time-workspace-form label { display: grid; gap: 6px; }
+.time-workspace-form label, [data-time-source-editor] label { min-width: 0; }
+.time-workspace-form label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.time-workspace-form [data-slot="select-trigger"], [data-time-source-editor] [data-slot="select-trigger"] { width: 100%; }
 .time-workspace-form :is(textarea, select, input) { width: 100%; }
 .time-workspace-form textarea { resize: vertical; }
 .time-workspace-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.time-workspace-guidelines details > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
-.time-workspace-guidelines textarea[spellcheck="false"] { font-family: monospace; }
-
 @media (max-width: 680px) {
   .bo-workday-controls { gap: 4px; padding-inline: 6px; }
+}
+
+.time-coverage-overlay {
+  pointer-events: auto;
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border-block: 1px dashed color-mix(in srgb, var(--primary) 35%, transparent);
+  background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--primary) 6%, transparent) 7px 8px);
+  text-align: start;
+  cursor: pointer;
+}
+.time-coverage-overlay:hover, .time-coverage-overlay:focus-visible { background-color: color-mix(in srgb, var(--primary) 7%, transparent); }
+.time-coverage-label {
+  position: sticky;
+  top: 3.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-inline-start: .4rem;
+  padding: .15rem .45rem;
+  border: 1px solid var(--border);
+  border-radius: .35rem;
+  color: var(--foreground);
+  background: var(--background);
+  font-size: .7rem;
+  line-height: 1rem;
+  white-space: nowrap;
 }

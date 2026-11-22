@@ -10,6 +10,7 @@ import {
   suggestBillingNarrative,
   timeActivities,
   resolveTimePolicy,
+  soleMatterClient,
   timePolicyError,
   timeEntryError,
   TimeDraftSchema,
@@ -57,11 +58,7 @@ const editableFields = TimeDraftSchema.omit({ createWorkProduct: true, workProdu
 function validateReferences(state: TimesheetState, draft: TimeDraft) {
   const matter = state.matters.find((m) => m.id === draft.matterId);
   if (!matter) timeError("Choose an accessible matter.", 404);
-  if (
-    draft.clientId
-      ? !matter.clientIds.includes(draft.clientId) || !state.clients.some((c) => c.id === draft.clientId)
-      : draft.billable
-  )
+  if (draft.clientId && (!matter.clientIds.includes(draft.clientId) || !state.clients.some((c) => c.id === draft.clientId)))
     timeError("Choose a billing client associated with this matter.");
   if (
     draft.projectId &&
@@ -286,6 +283,28 @@ function apply(
     return;
   }
   if (command.type === "invoice") timeError("Create and approve an invoice draft before issuing.", 409);
+  if (command.type === "assignBillingClient") {
+    const entry = requireEntry(state, command);
+    if (!entry.billable || entry.clientId || !["confirmed", "submitted", "approved"].includes(entry.status))
+      timeError("The entry is no longer awaiting an invoice recipient.", 409);
+    const assigned = { ...entry, clientId: command.clientId };
+    validateReferences(state, assigned);
+    if (entry.status === "confirmed") {
+      if (entry.workerId !== actor.userId) timeError("Only the timekeeper may edit this entry.", 403);
+    } else {
+      requireReviewer(state, entry, actor);
+    }
+    let updated = assigned;
+    if (entry.status === "approved") {
+      const amendments = state.adjustments ?? [];
+      if (amendments.some(a => a.status === "pending" && appliesTimeAdjustment(entry, a)))
+        timeError("Resolve pending corrections before assigning an invoice recipient.", 409);
+      updated = { ...adjustedTimeEntry(assigned, amendments), status: "submitted", adjustmentBaselineRevision: entry.revision + 1,
+        nonHourlyApproval: undefined, nonHourlyBasis: undefined };
+    }
+    writeEntry(store, scope, actor, entry, { ...updated, ...snapshotRate(state, updated) }, "assignBillingClient");
+    return;
+  }
   if (command.type === "productDetails") {
     if (!state.canManage) timeError("Billing configuration access is required.", 403);
     const product = state.products.find((p) => p.id === command.id);
@@ -387,7 +406,7 @@ function apply(
     return;
   }
   if (command.type === "create") {
-    const d = command.entry;
+    const d = { ...command.entry, clientId: command.entry.clientId || soleMatterClient(state.matters.find(m => m.id === command.entry.matterId), state.clients) };
     if (command.source === "suggestion") {
       if (!command.proposalDigest) timeError("A suggestion must reference its private original.");
       const booked = store.db.get(
@@ -454,9 +473,11 @@ function apply(
     const d = command.entry.billable && command.entry.nonBillableMinutes === undefined && e.billable && e.nonBillableMinutes
       ? { ...command.entry, nonBillableMinutes: e.nonBillableMinutes }
       : command.entry;
-    validateDraft(state, d);
+    const clientId = d.clientId || soleMatterClient(state.matters.find(m => m.id === d.matterId), state.clients);
+    const assigned = { ...d, clientId };
+    validateDraft(state, assigned);
     const product = ensureProduct(store, scope, state, actor.userId, d);
-    const { createWorkProduct: _create, ...billingFields } = d;
+    const { createWorkProduct: _create, ...billingFields } = assigned;
     const next: TimeEntry = {
       ...billingFields,
       id: e.id,
@@ -566,6 +587,8 @@ function apply(
       status =
         command.type === "submit" ? "submitted" : command.type === "confirm" ? "confirmed" : "declined";
     }
+    if (e.billable && !e.clientId && status === "approved")
+      timeError("Choose the invoice recipient for this matter before approving billable time.");
     if (
       e.billable &&
       (status === "submitted" || status === "approved") &&

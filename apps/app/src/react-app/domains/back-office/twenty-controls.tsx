@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { useRef, useState, useSyncExternalStore, type ComponentPropsWithoutRef, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { ThemeProvider } from "twenty-ui/theme";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { ChevronDown, X } from "lucide-react";
@@ -35,6 +35,14 @@ export function BackOfficeTheme({ children }: { children: ReactNode }) {
     >
       {children}
     </ThemeProvider>
+  );
+}
+
+export function BackOfficeSurface({ className = "", ...props }: ComponentPropsWithoutRef<"div">) {
+  return (
+    <BackOfficeTheme>
+      <div className={`bo ${className}`} {...props} />
+    </BackOfficeTheme>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   type WorkdayModelOutput,
 } from "./reconstruct-workday.js";
 import { acceptedFileProduct, modelEvidence } from "./workday-context.js";
+import { elapsedEvidence } from "./private-workday.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 
 const date = "2026-11-20";
@@ -73,6 +74,70 @@ test("document drafting preserves the guideline-based model narrative instead of
     expect(output[0].proposal.workedMinutes).toBe(17);
     expect(output[0].proposal.documentId).toBe("revision-file");
   }
+});
+
+test("elapsed inference clips an appointment in progress and leaves a future plan out without modifying the day log", () => {
+  const raw = [evidence("current").item, evidence("later", { startAt: at("11:00"), endAt: at("12:00") }).item];
+  const cut = elapsedEvidence(raw, date, "UTC", Date.parse(at("09:20")));
+  expect(cut).toHaveLength(1);
+  expect(cut[0].proposal).toMatchObject({ startAt: at("09:00"), endAt: new Date(at("09:20")).toISOString(), workedMinutes: 20 });
+  expect(raw[0].proposal.endAt).toBe(at("10:00"));
+});
+
+test("corroborating point actions allow a reviewable estimate without inventing clocks or measured work", () => {
+  const one = evidence("save", { source: "documents", documentId: "memo", activity: "MOD", startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:20") });
+  const two = evidence("sent", { source: "gmail", startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:27") });
+  const base = proposal(["save", "sent"], { activity: "MOD", documentId: "memo", startAt: null, endAt: null, workedMinutes: null });
+  const estimated = { ...base, estimatedMinutes: 5, estimateReason: "Memo amendment followed by sending the revised memo." };
+  const [result] = reconstructWorkday({ proposals: [estimated] }, [one, two], date, "UTC");
+  expect(result.proposal).toMatchObject({ estimatedMinutes: 5, estimateReason: estimated.estimateReason, startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:20") });
+  expect(result.claims?.map(claim => claim.id)).toEqual(["save", "sent"]);
+  const infer = (row: typeof base, refs = [one, two]) => reconstructWorkday({ proposals: [row] }, refs, date, "UTC");
+  expect(() => infer({ ...estimated, evidenceIds: ["save"] })).toThrow(/invalid/);
+  expect(() => infer({ ...estimated, workedMinutes: 5 })).toThrow(/invalid/);
+  expect(() => infer({ ...estimated, estimateReason: undefined })).toThrow(/invalid/);
+  expect(infer({ ...base, evidenceIds: ["save"] })[0].proposal.estimatedMinutes).toBeUndefined();
+});
+
+test("delivery can contextualize a related sent reply but cannot establish work or duration", () => {
+  const threadKey = "a".repeat(64);
+  const source = { source: "gmail" as const, startAt: null, endAt: null, workedMinutes: null, threadKey };
+  const incoming = evidence("in", { ...source, mailDirection: "received", observedAt: at("09:20") });
+  const outgoing = evidence("out", { ...source, mailDirection: "sent", observedAt: at("09:27") });
+  const base = proposal(["in", "out"], { activity: "EML", startAt: null, endAt: null, workedMinutes: null });
+  const infer = (row: typeof base, refs = [incoming, outgoing]) => reconstructWorkday({ proposals: [row] }, refs, date, "UTC");
+  expect(infer(base)).toHaveLength(1);
+  expect(() => infer({ ...base, evidenceIds: ["in"] })).toThrow(/invalid/);
+  expect(() => infer({ ...base, estimatedMinutes: 7, estimateReason: "Gap since delivery." })).toThrow(/invalid/);
+  const unrelated = evidence("out", { ...source, mailDirection: "sent", threadKey: "b".repeat(64) });
+  expect(() => infer(base, [incoming, unrelated])).toThrow(/invalid/);
+  const file = evidence("file", { ...source, source: "google-drive", activity: "MOD", documentId: "cloud", observedAt: at("09:23") });
+  expect(infer({ ...base, evidenceIds: ["file", "out"], documentId: "cloud", activity: "MOD", estimatedMinutes: 3,
+    estimateReason: "Modified memo followed by sending it." }, [file, outgoing])[0].proposal.source).toBe("google-drive");
+});
+
+test("distinct matters retain independently evidenced overlapping clock ranges", async () => {
+  const meeting = evidence("call");
+  const drafting = evidence("foreground", { source: "workspace", observation: "foreground", projectId: "other-project" });
+  drafting.matter = other;
+  const file = evidence("save", { source: "documents", documentId: "memo", activity: "MOD", projectId: "other-project",
+    startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:40") });
+  file.matter = other;
+  const result = await generateStructuredWorkday({ skill: "", evidence: [meeting, drafting, file], date, zone: "UTC", transcript: [],
+    generate: async prompt => {
+      const input = JSON.parse(prompt.split("\n").at(-1)!);
+      if (input.stage === "grouping") {
+        expect(prompt).toContain("clock ranges overlap");
+        return JSON.stringify({ proposals: [
+          { ...proposal(["call"]), narrative: undefined },
+          { ...proposal(["foreground", "save"], { matterId: other.id, projectId: "other-project", documentId: "memo", activity: "MOD",
+            startAt: at("09:30"), endAt: at("09:45"), workedMinutes: 15 }), narrative: undefined },
+        ] });
+      }
+      return JSON.stringify({ wording: [{ index: input.entries[0].index, narrative: input.entries[0].activity === "MOD" ? "Amending the memo" : "Meeting with client" }] });
+    } });
+  expect(result.map(item => [item.proposal.matterId, item.proposal.workedMinutes])).toEqual([[matter.id, 60], [other.id, 15]]);
+  expect(remainingEvidence([meeting, drafting, file], [result[0]]).map(ref => ref.item.eventKey)).toEqual(["foreground", "save"]);
 });
 
 test("whole-day reconstruction groups adjoining evidence, omits unrelated sources, and splits one interval without reuse", () => {

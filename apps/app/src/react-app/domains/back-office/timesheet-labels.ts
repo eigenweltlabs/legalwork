@@ -70,6 +70,7 @@ export const entryStatusKeys = {
 };
 
 export const historyActionKeys: Readonly<Record<string, string | undefined>> = {
+  assignBillingClient: "timesheets.ledger.event.assignBillingClient",
   declineSuggestion: "timesheets.ledger.event.declineSuggestion",
   create: "timesheets.ledger.event.create",
   update: "timesheets.ledger.event.update",
@@ -155,13 +156,19 @@ export const impactKeys = {
 
 export const sourceKeys = {
   stopwatch: "timesheets.source.stopwatch",
+  recordings: "timesheets.source.recordings",
   documents: "timesheets.source.documents",
+  "google-drive": "timesheets.source.google-drive",
+  onedrive: "timesheets.source.onedrive",
+  "onedrive-personal": "timesheets.source.onedrive-personal",
+  "sharepoint-files": "timesheets.source.sharepoint-files",
   gmail: "timesheets.source.gmail",
   outlook: "timesheets.source.outlook",
   "google-calendar": "timesheets.source.google-calendar",
   "outlook-calendar": "timesheets.source.outlook-calendar",
   calendar: "timesheets.calendar",
   tasks: "timesheets.tasks",
+  desktop: "timeWorkspace.desktopActivity",
   workspace: "timeWorkspace.workspaceActivity",
   agent: "timeWorkspace.agentActivity",
 };

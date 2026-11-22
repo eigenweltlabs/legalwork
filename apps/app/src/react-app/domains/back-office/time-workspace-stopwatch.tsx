@@ -70,6 +70,7 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
   const [now, setNow] = useState(Date.now);
   const trigger = useRef<HTMLButtonElement>(null);
   const picker = useRef<HTMLButtonElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   const actionButton = useRef<HTMLButtonElement>(null);
   const working = useRef(false);
   const restoreFocus = useRef<"matter" | "action">(undefined);
@@ -134,7 +135,10 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
       {clock && <span id={clockId} className="sr-only">{t("timeWorkspace.stopwatchElapsed", { time: clock })}</span>}
       <span role="status" className="sr-only">{notice}</span>
       <PopoverContent align="end" className="w-[min(22rem,92vw)]"
-        initialFocus={() => picker.current ?? actionButton.current} finalFocus={trigger}>
+        ref={popup} initialFocus={() => picker.current ?? actionButton.current} finalFocus={() => {
+          const focused = trigger.current?.ownerDocument.activeElement;
+          return !focused || focused === focused.ownerDocument.body || popup.current?.contains(focused) ? trigger.current : false;
+        }}>
         <PopoverTitle>{t("timesheets.source.stopwatch")}</PopoverTitle>
         {stopwatch.isPending && <p role="status">{t("timesheets.loading")}</p>}
         {!stopwatch.isPending && !available && <p role="status">{t("timeWorkspace.stopwatchUnavailable")}</p>}

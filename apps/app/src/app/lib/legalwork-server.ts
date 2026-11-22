@@ -38,7 +38,7 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
-import type { CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
+import type { DesktopActivitySample, CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -1873,7 +1873,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
-    activityProfile: () => requestJson<{ profileId: string; directoryId: string; scope: string; user: string; principal: string; enabled: boolean; workspaceActivity: boolean }>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
+    activityProfile: () => requestJson<{ profileId: string; directoryId: string; scope: string; user: string; principal: string; enabled: boolean; workspaceActivity: boolean; desktopActivity?: boolean }>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
+    recordDesktopTimeActivity: (context: { profileId: string; scope: string; principal: string; user: string }, sample: DesktopActivitySample, signal?: AbortSignal) =>
+      requestJson<{ ok: boolean }>(baseUrl, "/private-timesheet/desktop-activity?" + new URLSearchParams(context), {
+        token, hostToken, method: "POST", body: sample, signal,
+      }),
     observeActivity: (profileId:string, observations: {projectId:string;stream:string;kind:"foreground"|"passive"|"agent";start:number;end:number}[]) =>
       requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
     privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
@@ -1887,7 +1891,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl,
         "/private-timesheet/conversation?" + new URLSearchParams({ profileId, limit: String(limit), ...(before && { before }), ...(after && { after }) }), { token, hostToken }),
     privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string;profileId?:string}) =>
-      requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"digest">>(baseUrl,
+      requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"estimatedMinutes"|"digest">>(baseUrl,
         "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),
     privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction, signal?: AbortSignal) =>
       requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {

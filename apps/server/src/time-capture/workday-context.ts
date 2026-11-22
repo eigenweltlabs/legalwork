@@ -1,5 +1,6 @@
 import { visibleTimekeepingProjects } from "./profile.js";
 import {
+  captureFileSource,
   appliedTimePolicies,
   resolveTimePolicy,
   type TimePolicy,
@@ -333,7 +334,7 @@ export function modelEvidence(
         : [];
     const title =
       product?.name ??
-      (p.source === "documents"
+      (p.source === "documents" || captureFileSource(p.source)
         ? p.narrative.slice(0, p.narrative.length - extname(p.narrative).length)
         : undefined);
     return [

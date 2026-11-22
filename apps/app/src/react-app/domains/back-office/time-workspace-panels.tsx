@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { CalendarDays, List, MessageSquare } from "lucide-react";
+import { BackOfficeSurface } from "./twenty-controls";
 import { z } from "@legalwork/types/back-office";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -61,7 +62,7 @@ export function TimeWorkspacePanels({ scope, entries, timeline, chat, visible = 
   }, [sessionId]);
 
   const contents: Record<View, WorkspacePage["content"]> = {
-    entries: <div className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</div>,
+    entries: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</BackOfficeSurface>,
     timeline: <section className="time-workspace-timeline" data-workspace-tab="timeline" tabIndex={-1} aria-label={t(labelKeys.timeline, locale)}>{timeline(view, chooseView)}</section>,
     chat: shown => <section className="time-workspace-chat" data-workspace-tab="chat">{chat(shown)}</section>,
   };

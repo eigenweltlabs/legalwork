@@ -1,5 +1,5 @@
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../sync/session-sync";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { createClient } from "@/app/lib/opencode";
 import { useSessionInteractions } from "../sync/use-session-interactions";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
@@ -7,10 +7,11 @@ import { useModelPicker } from "../modals/use-model-picker";
 import { ModelPickerModal } from "../modals/model-picker-modal";
 import { useModelBehavior } from "../surface/use-model-behavior";
 import { useProviderListQuery, isModelAvailableInConnectedProviders } from "@/react-app/infra/provider-list-query";
-import { chatModelKey, useSessionModelStore } from "./session-model-store";
+import { chatModelKey, isOnDeviceTimekeepingModel, resolveTimekeepingChatModel, useSessionModelStore } from "./session-model-store";
 import { resolveModelDisplayName } from "@/app/utils";
 import type { ModelRef } from "@/app/types";
 import { useChatModelPreferences } from "@/react-app/kernel/use-chat-model-preferences";
+import { t } from "@/i18n";
 
 type ModelSettings = Pick<SessionSurfaceProps, "selectedModel" | "modelSelectorLocked" | "modelPickerOpen" | "onModelPickerOpenChange" | "onModelChange" | "modelVariant" | "modelVariantLabel" | "modelBehaviorOptions" | "onModelVariantChange">;
 
@@ -30,31 +31,56 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
   const stored = useSessionModelStore(state => state.selections[key]);
   const providers = useProviderListQuery({ client, baseUrl: props.opencodeBaseUrl, directory: props.workspaceRoot || undefined });
   const assistant = useChatModelPreferences(Boolean(props.assistantDate), providers.data);
-  const selection = props.assistantDate
-    ? { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant }
-    : stored ?? { model: props.timekeeping?.model ?? props.selectedModel, variant: props.modelVariant };
+  const defaults = useMemo(() => ({ model: props.selectedModel, variant: props.modelVariant }), [props.selectedModel, props.modelVariant]);
+  const timekeeping = Boolean(props.timekeeping);
+  const savedModel = props.timekeeping?.model;
+  const foreignModel = Boolean(savedModel?.workspaceId && savedModel.workspaceId !== props.workspaceId);
+  const savedChoiceKey = JSON.stringify([key, savedModel?.workspaceId, savedModel?.providerID, savedModel?.modelID]);
+  const changingFrom = useRef<string | null>(null);
+  const selection = useMemo(() => {
+    if (props.assistantDate) return { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant };
+    if (foreignModel && savedModel) return { model: savedModel, variant: null };
+    return timekeeping ? resolveTimekeepingChatModel(providers.data, stored, savedModel, defaults) : stored ?? defaults;
+  }, [props.assistantDate, assistant.model, assistant.variant, foreignModel, timekeeping, providers.data, stored, savedModel, defaults]);
   useEffect(() => {
-    const model = props.timekeeping?.model ?? props.selectedModel;
-    if (!props.assistantDate && model.providerID && model.modelID) useSessionModelStore.getState().initialize(key, { model, variant: props.modelVariant });
-  }, [key, props.assistantDate, props.selectedModel, props.timekeeping?.model, props.modelVariant]);
+    if (!props.assistantDate && !timekeeping && defaults.model.providerID && defaults.model.modelID)
+      useSessionModelStore.getState().initialize(key, defaults);
+  }, [key, props.assistantDate, timekeeping, defaults]);
   const picker = useModelPicker({ client, baseUrl: props.opencodeBaseUrl, workspaceRoot: props.workspaceRoot, listenForDefaults: false });
-  const unavailable = Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
+  // Matching IDs can refer to different endpoints in different projects.
+  const unavailable = foreignModel || Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
   useEffect(() => {
-    if (props.active && props.timekeeping && providers.data && !unavailable && selection.model.providerID && selection.model.modelID)
-      props.timekeeping.modelChanged(selection.model);
-  }, [props.active, props.timekeeping, providers.data, unavailable, selection.model]);
+    // Let an explicit picker change reach the profile before running recovery.
+    if (changingFrom.current === savedChoiceKey) return;
+    changingFrom.current = null;
+    if (!props.active || !props.timekeeping || !providers.data || unavailable || !selection.model.providerID || !selection.model.modelID || isOnDeviceTimekeepingModel(savedModel)) return;
+    if (stored && (stored.model.providerID !== selection.model.providerID || stored.model.modelID !== selection.model.modelID))
+      useSessionModelStore.getState().select(key, selection);
+    props.timekeeping.modelChanged(selection.model);
+  }, [props.active, props.timekeeping, providers.data, unavailable, selection, stored, key, savedModel, savedChoiceKey]);
+  const chooseSessionModel = (model: ModelRef, variant: string | null, picked: boolean) => {
+    if (props.timekeeping) {
+      if (!picked && (foreignModel || (savedModel && model.providerID !== savedModel.providerID))) return;
+      if (!providers.data || !model.providerID || !model.modelID || !isModelAvailableInConnectedProviders(providers.data, model)) return;
+    }
+    useSessionModelStore.getState().select(key, { model, variant });
+    if (props.timekeeping) {
+      changingFrom.current = foreignModel || model.providerID !== savedModel?.providerID || model.modelID !== savedModel?.modelID ? savedChoiceKey : null;
+      props.timekeeping.modelChanged(model, picked && foreignModel);
+    }
+  };
   const select = (model: ModelRef) => {
     if (props.assistantDate) assistant.onModelChange(model);
     else {
-      useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
+      chooseSessionModel(model, selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null, true);
       if (!props.timekeeping) props.onModelChange(model);
     }
     picker.setCompactOpen(false); picker.setOpen(false);
   };
   const selectBehavior = (model: ModelRef, variant: string | null) => {
     if (props.assistantDate) assistant.onSelectionChange({ model, variant });
-    else useSessionModelStore.getState().select(key, { model, variant });
+    else chooseSessionModel(model, variant, false);
   };
   const modelSettings: ModelSettings = {
     selectedModel: selection.model,
@@ -72,7 +98,10 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
       assistantHeader={props.renderAssistantHeader?.(modelSettings) ?? props.assistantHeader}
       modelLabel={resolveModelDisplayName(selection.model.modelID)} modelUnavailable={unavailable}
       onModelClick={() => picker.setOpen(true)} onChangeModel={select}
-      onSendDraft={(draft, id, options) => props.onSendDraft(props.timekeeping ? { ...draft, modelContext: [draft.modelContext, props.timekeeping.context].filter(Boolean).join("\n\n") } : draft, id, { ...options, modelSelection: { model: selection.model, variant: behavior.modelVariantValue } })}
+      onSendDraft={(draft, id, options) => {
+        if (props.timekeeping && (unavailable || !providers.data || !selection.model.providerID || !selection.model.modelID)) throw new Error(t("session_route.model_unavailable"));
+        return props.onSendDraft(props.timekeeping ? { ...draft, modelContext: [draft.modelContext, props.timekeeping.context].filter(Boolean).join("\n\n") } : draft, id, { ...options, modelSelection: { model: selection.model, variant: behavior.modelVariantValue } });
+      }}
     />
     <ModelPickerModal open={picker.open} options={picker.options} query={picker.query} setQuery={picker.setQuery}
       target="session" current={selection.model} onSelect={select} onBehaviorChange={selectBehavior}

@@ -1,27 +1,25 @@
-import { t } from "@/i18n";
+import { Sparkles } from "lucide-react";
+import { currentLocale, t } from "@/i18n";
+import { calendarDay } from "../calendar/calendar-format";
 
-export function WorkdayCoverage({ date, checkedThrough, now = Date.now() }: {
-  date: string; checkedThrough?: string; now?: number;
+export function WorkdayCoverage({ date, checkedThrough, now, busy, onCheck }: {
+  date: string; checkedThrough?: string; now: Date; busy: boolean; onCheck: () => void;
 }) {
-  const start = new Date(date + "T00:00:00");
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  const through = checkedThrough ? Math.min(end.getTime(), Date.parse(checkedThrough)) : start.getTime();
-  const elapsed = Math.min(end.getTime(), Math.max(start.getTime(), now));
-  const covered = Math.max(start.getTime(), Math.min(elapsed, through));
-  const fraction = (instant: number) => 100 * (instant - start.getTime()) / (end.getTime() - start.getTime());
-  const format = (instant: number) => new Date(instant).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  const unchecked = elapsed - covered >= 60_000 && t("timeWorkspace.coverageGap", {
-    start: format(covered), end: elapsed === end.getTime() ? "24:00" : format(elapsed),
-  });
-  const label = covered <= start.getTime() ? t("timeWorkspace.coverageNone")
-    : covered >= end.getTime() ? t("timeWorkspace.coverageFull")
-    : t("timeWorkspace.coverageUntil", { time: format(covered) });
-  return <div className="flex min-w-24 max-w-56 flex-1 flex-col gap-1 text-xs text-muted-foreground">
-    <span>{unchecked || label}</span>
-    <div aria-hidden="true" className="flex h-1 overflow-hidden rounded-full bg-muted/35">
-      <span className="bg-primary/70" style={{ width: fraction(covered) + "%" }} />
-      <span className="bg-muted-foreground/30" style={{ width: fraction(elapsed) - fraction(covered) + "%" }} />
-    </div>
-  </div>;
+  const today = calendarDay(now);
+  if (date > today) return null;
+  const checked = checkedThrough ? new Date(checkedThrough) : undefined;
+  const startDay = checked && calendarDay(checked);
+  const minute = (time: Date) => time.getHours() * 60 + time.getMinutes();
+  const start = !checked || !startDay || startDay < date ? 0 : startDay > date ? 1440 : minute(checked);
+  const end = date === today ? minute(now) : 1440;
+  if (start >= end) return null;
+  const format = (value: number) => value === 1440 ? "24:00" :
+    new Date(2000, 0, 1, 0, value).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
+  const label = t("timeWorkspace.coverageGap", { start: format(start), end: format(end) });
+  return <button type="button" disabled={busy} data-workday-unchecked
+    aria-label={label + ". " + t("timeWorkspace.addSuggestions")} title={label + ". " + t("timeWorkspace.addSuggestions")}
+    onClick={onCheck} className="time-coverage-overlay"
+    style={{ top: start / 1440 * 100 + "%", height: (end - start) / 1440 * 100 + "%" }}>
+    <span className="time-coverage-label"><Sparkles size={12} />{label}</span>
+  </button>;
 }

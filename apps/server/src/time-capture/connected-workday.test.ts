@@ -19,17 +19,17 @@ test("mail opt-in reads sent subjects for the local date without bodies, recipie
       expect(opt?.signal).toBe(signal);
       if (path.includes("format=metadata"))
         return {
-          internalDate: String(Date.parse("2026-11-11T23:00:00Z")),
+          labelIds: ["SENT"], threadId: "thread-fixture", internalDate: String(Date.parse("2026-11-11T23:00:00Z")),
           payload: { headers: [{ name: "Subject", value: "Synthetic heading" }] },
         };
       return { messages: [{ id: "m1" }] };
     },
     signal,
   );
-  expect(new URL("https://example.test" + paths[0]).searchParams.get("labelIds")).toBe("SENT");
+  expect(new URL("https://example.test" + paths[0]).searchParams.get("q")).toContain("-in:spam");
   expect(paths[1]).not.toMatch(/From|To|body|snippet|format=full/i);
   expect(result[0]?.proposal).toMatchObject({
-    source: "gmail",
+    source: "gmail", mailDirection: "sent",
     narrative: "Synthetic heading",
     startAt: null,
     endAt: null,
@@ -50,7 +50,7 @@ test("mail opt-in reads sent subjects for the local date without bodies, recipie
     }),
   ).toBe(true);
 });
-test("Outlook only reads sent items and validates the next page before requesting it", async () => {
+test("Outlook validates the next page before requesting it and requests metadata only", async () => {
   const paths: string[] = [];
   await expect(
     accountWorkdayEvidence(
@@ -58,6 +58,8 @@ test("Outlook only reads sent items and validates the next page before requestin
       day,
       zone,
       async (path) => {
+        if (path.startsWith("/v1.0/me?")) return { mail: "worker@example.test" };
+        if (path.includes("/mailFolders/")) return { id: path };
         paths.push(path);
         return { value: [], "@odata.nextLink": "https://evil.test/v1.0/me/messages?skiptoken=private" };
       },
@@ -65,7 +67,7 @@ test("Outlook only reads sent items and validates the next page before requestin
     ),
   ).rejects.toMatchObject({ code: "invalid_page_token" });
   expect(paths).toHaveLength(1);
-  expect(paths[0]).toStartWith("/v1.0/me/mailFolders/sentitems/messages?");
+  expect(paths[0]).toStartWith("/v1.0/me/messages?");
   expect(paths[0]).not.toMatch(/bodyPreview|toRecipients|attachments/);
 });
 test("connected primary calendar and equivalent LegalWork occurrence share identity, with clock duration", async () => {
@@ -76,6 +78,7 @@ test("connected primary calendar and equivalent LegalWork occurrence share ident
     day,
     zone,
     async (path) => {
+      if (path.includes("/calendarList?")) return { items: [] };
       expect(path).toStartWith("/calendar/v3/calendars/primary/events?");
       return {
         items: [
@@ -126,6 +129,7 @@ test("Graph calendar uses UTC and omits all-day duration, cancellations and item
     day,
     zone,
     async (path, opts) => {
+      if (path.startsWith("/v1.0/me/calendars?")) return { value: [] };
       expect(path).toStartWith("/v1.0/me/calendar/calendarView?");
       expect(opts?.headers?.Prefer).toContain('outlook.timezone="UTC"');
       return {
@@ -156,4 +160,21 @@ test("Graph calendar uses UTC and omits all-day duration, cancellations and item
     signal,
   );
   expect(result.map((item) => item.proposal.workedMinutes)).toEqual([30, null]);
+});
+
+test("Google Calendar preserves an unspecified end, applies the event timezone and excludes a worker decline on an owned secondary calendar", async () => {
+  const rows = await accountWorkdayEvidence(account("google-calendar"), day, zone, async path => {
+    if (path.includes("/calendarList?")) return { items: [
+      { id: "worker@example.test", primary: true, accessRole: "owner" }, { id: "second", accessRole: "owner" }] };
+    const event = { summary: "New York appointment", start: { dateTime: day + "T09:00:00.125", timeZone: "America/New_York" },
+      end: { dateTime: day + "T10:00:00", timeZone: "America/New_York" } };
+    if (path.includes("/primary/")) return { items: [{ ...event, id: "no-end", endTimeUnspecified: true },
+      { ...event, id: "timed" }] };
+    expect(path).toContain("email");
+    return { items: [{ ...event, id: "declined", attendees: [{ self: true, email: "shared@example.test" },
+      { email: "worker@example.test", responseStatus: "declined" }] }] };
+  }, signal);
+  expect(rows.map(row => row.proposal)).toMatchObject([
+    { observedAt: day + "T14:00:00.125Z", startAt: null, endAt: null, workedMinutes: null },
+    { startAt: day + "T14:00:00.125Z", endAt: day + "T15:00:00.000Z", workedMinutes: 60 } ]);
 });

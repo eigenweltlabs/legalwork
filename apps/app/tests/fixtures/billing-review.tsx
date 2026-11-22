@@ -655,6 +655,18 @@ try {
   await draw({ ...actor, entries: [{ ...row, status: "approved" }], policies: [{ ...policy, maxMinutes: 30 }] });
   assert.equal(host.querySelector('[aria-label="10 min over limit"]'), null);
   assert.ok(!match("Create Invoice").disabled);
+  await render(null);
+  const selectable = { ...actor, supportsBillingClientAssignment: true,
+    clients: [...actor.clients, { id: "second", name: "Second recipient" }],
+    matters: [{ ...actor.matters[0], clientIds: ["c", "second"] }],
+    entries: [{ ...row, clientId: "", narrative: "Unassigned matter billing" }] };
+  await draw(selectable);
+  await click(match("Create Invoice"));
+  await select("Matter", "m");
+  await select("Client", "second");
+  assert.ok(host.textContent?.includes("Unassigned matter billing"));
+  await click(match("Assign to Second recipient"));
+  assert.deepEqual(calls.at(-1), { type: "assignBillingClient", id: row.id, revision: row.revision, clientId: "second" });
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

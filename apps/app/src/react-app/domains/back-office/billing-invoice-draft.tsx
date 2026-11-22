@@ -223,7 +223,11 @@ export function BillingInvoiceDraft({
       entry.billable &&
       entry.clientId === clientId &&
       reviewer;
-    return { entry, policy, authorized };
+    const currentReview = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
+    const currentSolo = state.scope === "local" && currentReview.soloApproval;
+    const canAssign = entry.status === "confirmed" ? entry.workerId === state.userId :
+      (currentReview.reviewerId === state.userId || (currentSolo && !currentReview.reviewerId)) && (entry.workerId !== state.userId || currentSolo);
+    return { entry, policy, authorized, canAssign };
   });
   const hourlyCurrencies = [...new Set(authorizedRows.flatMap(({ entry, authorized }) =>
     authorized && isHourlyInvoiceLine(entry) ? [entry.currency] : [],
@@ -233,7 +237,7 @@ export function BillingInvoiceDraft({
   const currencySupported = state.supportsHourlyInvoiceCurrency === true;
   const legacyCutoffUnavailable = !fixed && allOpen && !currencySupported && Boolean(hourlyCurrency) &&
     authorizedRows.some(({ entry, authorized }) => authorized && (!isHourlyInvoiceLine(entry) || entry.currency !== hourlyCurrency));
-  const checks = authorizedRows.map(({ entry, policy, authorized }) => {
+  const checks = authorizedRows.map(({ entry, policy, authorized, canAssign }) => {
     const line = adjustedTimeEntry(entry, adjustments);
     const eligible = authorized && (fixed || (isHourlyInvoiceLine(entry) && entry.currency === hourlyCurrency));
     const picked = eligible && (allOpen || !excluded.has(entry.id));
@@ -266,7 +270,7 @@ export function BillingInvoiceDraft({
       ? preparedLine.actionFirst
       : check?.actionFirst;
     if (actionFirst) rules.push(t("back_office.billing.action_first"));
-    return { entry, line, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked };
+    return { entry, line, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked, canAssign };
   });
   const suggestedWording = checks.flatMap(({ picked, line, suggested, accepted }) =>
     picked && suggested && accepted !== suggested
@@ -577,6 +581,7 @@ export function BillingInvoiceDraft({
                           authorized,
                           eligible,
                           picked,
+                          canAssign,
                         }) => {
                           const previewLine = visibleDraft?.lines.find(
                             (item) => item.entry.id === entry.id,
@@ -613,6 +618,11 @@ export function BillingInvoiceDraft({
                               </td>
                               <td>
                                 {t(entryStatusKeys[entry.status])}
+                                {state.supportsBillingClientAssignment && entry.billable && !entry.clientId && canAssign &&
+                                  <small><button type="button" className="bo-invoice-link" disabled={pending}
+                                    onClick={() => void send({ type: "assignBillingClient", id: entry.id, revision: entry.revision, clientId }).catch(() => {})}>
+                                    {t("invoiceReview.assign_recipient", { client: currentClient?.name ?? "" })}
+                                  </button></small>}
                                 {entry.status === "confirmed" && (
                                   <small>
                                     {entry.workerId === state.userId ? (

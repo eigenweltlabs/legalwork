@@ -102,6 +102,11 @@ test.skipIf(!nativeMcpBinary)("private guideline preview extracts selected text 
     expect((await interrupted).status).toBe(409);
     expect((await state()).guidelines).toEqual(saved.guidelines);
     expect(prompts).toHaveLength(2);
+    // A preview's workspace model hint cannot override the private profile's
+    // selected provider and send a client's billing guidelines elsewhere.
+    await state({ type: "settings-patch", change: { field: "model", value: { ...model, providerID: "private-endpoint" } } });
+    expect((await preview()).status).toBe(409);
+    expect(prompts).toHaveLength(2);
     expect((await engine.client().session.list({ directory: engine.directory })).data).toHaveLength(0);
   } finally {
     release.resolve();

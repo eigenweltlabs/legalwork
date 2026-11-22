@@ -384,6 +384,8 @@ if let mode = modeArguments.first {
     case "--paste": runPasteMode()
     case "--prepare-paste": runPreparePasteMode()
     case "--meeting-activity": runMeetingActivityMode()
+    case "--workday-foreground": runWorkdayForeground(documentRequested: modeArguments.dropFirst().first == "--document")
+    case "--workday-accessibility": runWorkdayAccessibility(requested: modeArguments.dropFirst().first == "--request")
     case "--watch-focused-display": runFocusedDisplayMode()
     default:
         FileHandle.standardError.write(Data("Unknown mode: \(mode)\n".utf8))

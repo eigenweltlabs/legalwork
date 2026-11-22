@@ -153,7 +153,7 @@ export function BillingReview({
       (!throughEndDate || (e.billable && !e.legacy)) &&
       (!dates.to || e.date <= dates.to) &&
       (!matter || matter === e.matterId) &&
-      (!billTo || billTo === e.clientId),
+      (!billTo || billTo === e.clientId || (!e.clientId && state.matters.some(m => m.id === e.matterId && m.clientIds.includes(billTo)))),
   );
   const reviewInfo = useMemo(
     () =>
@@ -581,6 +581,13 @@ export function BillingReview({
                                 <small>{t("back_office.billing.submitted_text")}</small>
                                 {e.submittedNarrative ?? e.narrative}
                               </div>
+                              {state.supportsBillingClientAssignment && e.billable && !e.clientId && info.eligible &&
+                                <label>{t("timesheets.sheet.bill_to")}
+                                  <select aria-label={t("timesheets.sheet.bill_to")} value="" disabled={pending}
+                                    onChange={event => { const clientId = event.target.value; if (clientId) void send({ type: "assignBillingClient", id: e.id, revision: e.revision, clientId }).catch(() => {}); }}>
+                                    <option value="">{t("timesheets.sheet.choose_bill_to")}</option>
+                                    <BillingOptions options={state.clients.filter(client => state.matters.find(m => m.id === e.matterId)?.clientIds.includes(client.id))} />
+                                  </select></label>}
                               {e.suggestion && (
                                 <>
                                   <div>

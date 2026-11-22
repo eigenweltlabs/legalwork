@@ -55,7 +55,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     const initial = fromDraft({
       date: proposal.date, activity: proposal.activity, projectId: project?.id, matterId: matter?.id, clientId,
       narrative: isUntitledStopwatch(proposal) ? "" : proposal.narrative,
-      workedMinutes: proposal.workedMinutes ?? undefined,
+      workedMinutes: proposal.workedMinutes ?? proposal.estimatedMinutes,
       billableMinutes: duration === null || stopwatch ? undefined : proposal.chargeMinutes ?? proposedCharge(duration, initialPolicy),
       workProductId: state.products.find(product =>
         product.id === (proposal.workProductId ?? proposal.documentId) && product.matterId === matter?.id)?.id,
@@ -80,7 +80,6 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   const values = charge !== null && !edited.manualCharge && Number.isFinite(charge)
     ? { ...edited, charge: edited.worked || (duration !== null && proposal.workedMinutes === null) ? String(charge) : "" }
     : suggestion ? { ...edited, ...suggestion } : edited;
-  const conflict = capture.overlaps.has(proposal.key);
   const selectedMatter = matchMatter(matters, values.matter);
   const fields: RowColumn[] = state.supportsTimeAllocations
     ? ["matter", "activity", "product", "narrative", "worked", "billableWork", "nonBillable", "charge"]
@@ -148,7 +147,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     }
   }
   async function accept() {
-    if (!canEdit || conflict || inFlight.current) return false;
+    if (!canEdit || inFlight.current) return false;
     const reviewed = serialize(current.current);
     return run(async () => {
       if (capture.writeDraft && !await saveFields()) return false;
@@ -231,6 +230,8 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       {fields.map(column => (
         <label key={column} onBlur={column === "matter" || column === "activity" ? privateSave : undefined}>
           {t(ledgerColumnKeys[column])}
+          {column === "worked" && proposal.estimatedMinutes != null && proposal.workedMinutes == null &&
+            <small className="text-muted-foreground">{t("timeWorkspace.estimatedMinutes", { minutes: proposal.estimatedMinutes })}{proposal.estimateReason && " · " + proposal.estimateReason}</small>}
           {column === "narrative"
             ? <Textarea rows={3} maxLength={2000} data-column={column} value={values.narrative} disabled={!canEdit || busy}
                 onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />
@@ -240,7 +241,8 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
                 onChange={value => { change(column, value); }} />
             : column === "matter"
             ? <TimeSelect label={t(ledgerColumnKeys.matter)} value={values.matter} placeholder={t("timesheets.workday.choose")}
-                disabled={!canEdit || busy} options={matters.map(({ label }) => ({ id: label, name: label }))}
+                disabled={!canEdit || busy} options={matters.filter(item => !item.clientId || state.matters.find(m => m.id === item.matterId)?.clientIds.length === 1 || item.label === values.matter)
+                  .map(({ label }) => ({ id: label, name: label }))}
                 onChange={value => change(column, value)} />
             : <Input data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
                 disabled={!canEdit || busy} readOnly={column === "charge" && !values.billable}
@@ -249,7 +251,6 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
           {choices[column] && <datalist id={id + column}>{choices[column]?.map(value => <option key={value} value={value} />)}</datalist>}
         </label>
       ))}
-      {conflict && <p role="status">{t("timesheets.workday.overlap")}</p>}
       {error && <div role="alert">{error}
         {savedConflict ? <>
           <dl>{rowColumns.filter(field => Object.hasOwn(differentTimeValues(serialize(values), savedConflict.values), field)).map(field => <div key={field}>
@@ -278,7 +279,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
           }} />
       </label>}
       <div className="time-workspace-actions">
-        <TimeProposalActions busy={busy} canAccept={canEdit && !conflict} onDismiss={() => void dismiss()} />
+        <TimeProposalActions busy={busy} canAccept={canEdit} onDismiss={() => void dismiss()} />
         <Button type="button" size="sm" variant="outline" disabled={busy}
           onClick={() => void run(async () => {
             const reviewed = current.current;

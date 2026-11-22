@@ -42,6 +42,8 @@ export type CalendarOccurrence = {
   kind: CalendarItem["kind"] | "task"; title: string; start: string; end: string | null;
   allDay: boolean; timeZone: string; status: string; assigneeUserId: string | null;
   provenance: CalendarItem["provenance"] | null; verified: boolean; recurring: boolean;
+  /** Present only on the server’s personal workday query. */
+  participantUserId?: string;
 };
 
 export const CalendarCreateSchema = z.strictObject({

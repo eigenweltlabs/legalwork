@@ -23,6 +23,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
+import { DesktopTimeActivityListener } from "./desktop-time-activity";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
@@ -67,6 +68,7 @@ export function AppRoot() {
           <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
           <LegalMemoryPermissions />
+          <DesktopTimeActivityListener />
           <Routes>
               <Route
                 path="/welcome"

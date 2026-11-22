@@ -81,9 +81,9 @@ test("only successful opted-in local editor saves yield a private workday sugges
     requireApproval: async () => {},
     requireClientScope: () => {},
     resolveWorkspace: async () => config.workspaces[0],
-    resolveInboxEnabled: () => false,
+    resolveInboxEnabled: () => true,
     resolveOutboxEnabled: () => false,
-    resolveInboxMaxBytes: () => 0,
+    resolveInboxMaxBytes: () => 10_000,
     scopeRank: () => 3,
   });
   registerWorkdayRoutes({
@@ -285,6 +285,25 @@ test("only successful opted-in local editor saves yield a private workday sugges
     expect(previous.proposals.map((p) => p.narrative)).toEqual(
       ["Existing.md", "Synthetic.docx"].filter(narrative => narrative !== accepted.narrative),
     );
+    const attachment = new FormData();
+    attachment.set("file", new File(["synthetic image bytes"], "Exhibit.png"));
+    const uploaded = await dispatch(new Request(base + "/workspace/matter-project/inbox", {
+      method: "POST", headers: { "X-LegalWork-Host-Token": config.hostToken }, body: attachment,
+    }));
+    expect(uploaded.status).toBe(200);
+    const imported = await dispatch(new Request(base + "/workspace/matter-project/files/import", {
+      method: "POST", headers: host, body: JSON.stringify({ path: "Chronology.pdf", dataBase64: Buffer.from("synthetic").toString("base64") }),
+    }));
+    expect(imported.status).toBe(201);
+    const copied = await dispatch(new Request(base + "/workspace/matter-project/files/copy", {
+      method: "POST", headers: host, body: JSON.stringify({ path: "Chronology.pdf", targetPath: "Filed.pdf" }),
+    }));
+    expect(copied.status).toBe(201);
+    await workday({ type: "suggest" });
+    const persisted = JSON.parse(await readFile(join(folder, files[0] + ".day-log", day + ".json"), "utf8"));
+    expect(persisted.observations.map((row: {proposal: {changeSummary?: string}}) => row.proposal.changeSummary)).toEqual(
+      expect.arrayContaining(["Attached Exhibit.png", "Imported Chronology.pdf", "Copied Filed.pdf"]));
+    expect(JSON.stringify(persisted)).not.toContain("synthetic image bytes");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

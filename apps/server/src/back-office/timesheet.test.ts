@@ -76,6 +76,39 @@ async function fixture() {
   return { store, create, d, run, state, matter, client };
 }
 const sel = (e: TimeEntry) => [{ id: e.id, revision: e.revision }];
+test("recording defers an ambiguous invoice recipient and review assigns it before invoicing", async () => {
+  const { store, client, matter, create, d, run, state } = await fixture();
+  const second = create("clients", { name: "Second recipient", billingAddress: "Other billing address" });
+  const unrelated = create("clients", { name: "Unrelated client" });
+  const solo = run(owner, { type: "create", requestId: randomUUID(), entry: { ...d, clientId: "" } }).entries[0];
+  expect(solo.clientId).toBe(client.id);
+  store.saveRecord("local", owner, { ...matter, values: { clients: [client.id, second.id] } });
+  const requestId = randomUUID();
+  const ambiguous = run(owner, { type: "create", requestId, source: "suggestion", proposalDigest: "d".repeat(64),
+    entry: { ...d, clientId: "" } }).entries.find(entry => entry.groupId === requestId)!;
+  expect(ambiguous).toMatchObject({ clientId: "", workedMinutes: 17, billableMinutes: 20 });
+  const generic = store.saveRecord("local", owner, { objectId: "timeEntries", revision: 0, values: {
+    name: "Unassigned record", matter: matter.id, serviceDate: d.date, recordedMinutes: 17, billableMinutes: 20 } });
+  expect(generic.values.client ?? null).toBeNull();
+  expect(() => run(owner, { type: "update", id: ambiguous.id, revision: ambiguous.revision, entry: { ...d, clientId: unrelated.id } })).toThrow(/associated with this matter/);
+  const submitted = run(owner, { type: "submit", entries: sel(ambiguous) }).entries.find(entry => entry.id === ambiguous.id)!;
+  expect(state(eva).entries.some(entry => entry.id === submitted.id)).toBe(true);
+  expect(() => run(eva, { type: "approve", entries: sel(submitted) })).toThrow(/invoice recipient/);
+  const assign = { type: "assignBillingClient" as const, ...sel(submitted)[0], clientId: second.id };
+  expect(() => run(eva, { ...assign, clientId: unrelated.id })).toThrow(/associated with this matter/);
+  expect(() => run(ben, assign)).toThrow();
+  const assigned = run(eva, assign).entries.find(entry => entry.id === submitted.id)!;
+  expect(assigned).toMatchObject({ clientId: second.id, status: "submitted", workedMinutes: 17, billableMinutes: 20 });
+  expect(() => run(eva, assign)).toThrow(/changed/);
+  const approved = run(eva, { type: "approve", entries: sel(assigned) }).entries.find(entry => entry.id === submitted.id)!;
+  const prepared = prepareInvoice([approved]);
+  expect(() => run(eva, { ...prepared, draft: { ...prepared.draft, clientId: client.id } })).toThrow();
+  const preview = run(eva, prepared);
+  expect(preview.invoiceDraft?.lines[0].entry.clientId).toBe(second.id);
+  const issued = run(eva, approveInvoice(command => run(eva, command), preview));
+  expect(issued.invoices[0].clientId).toBe(second.id);
+});
+
 test("entry rules, idempotent meetings, products, corrections and atomic independent review", async () => {
   const { store, d, run, state } = await fixture();
   const input = {

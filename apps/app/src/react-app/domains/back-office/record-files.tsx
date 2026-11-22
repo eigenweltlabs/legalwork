@@ -34,7 +34,7 @@ import {
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { classifyOpenTarget } from "../session/artifacts/open-target";
 import { t } from "@/i18n";
-import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
+import { BackOfficeTheme, DirectoryDialog, DirectorySelect } from "./twenty-controls";
 
 import { PreviewUnavailable } from "../session/artifacts/preview";
 
@@ -120,71 +120,73 @@ export function RecordFilesProvider({
     >
       {children}
       {preview && (
-        <DirectoryDialog
-          title={preview.name}
-          wide
-          onClose={() => setPreview(null)}
-        >
-          <div className="bo-file-preview">
-            <div className="bo-file-preview-toolbar">
-              <span className="bo-muted">
-                {t("back_office.files.immutable")}
-              </span>
-              <Button
-                size="sm"
-                startIcon={<Download size={14} />}
-                onClick={() => void download(preview)}
-              >
-                {t("back_office.files.download")}
-              </Button>
-            </div>
-            {error && (
-              <p className="bo-error" role="alert">
-                {error}
-              </p>
-            )}
-            <Suspense
-              fallback={
-                <p className="bo-muted">{t("back_office.files.loading")}</p>
-              }
-            >
-              {["html", "view", "browser", "external"].includes(
-                classifyOpenTarget(preview.name, "file"),
-              ) ? (
-                <PreviewUnavailable />
-              ) : (
-                <AttachmentViewer
-                  key={preview.id}
-                  client={client}
-                  workspaceId={`back-office:${preview.recordId}`}
-                  workspaceRoot=""
-                  sessionId={`back-office:${preview.recordId}`}
-                  isRemoteWorkspace
-                  localReadOnly
-                  target={{
-                    id: preview.id,
-                    kind: "file",
-                    value: preview.name,
-                    name: preview.name,
-                    preview: classifyOpenTarget(preview.name, "file"),
-                    exists: true,
-                    confidence: 100,
-                    reason: t("back_office.attachment"),
-                    size: preview.size,
-                  }}
-                  loadFile={() =>
-                    client.downloadBackOfficeFile(
-                      preview.recordId,
-                      preview.fieldId,
-                      preview.id,
-                    )
-                  }
-                  onClose={() => setPreview(null)}
-                />
+        <BackOfficeTheme>
+          <DirectoryDialog
+            title={preview.name}
+            wide
+            onClose={() => setPreview(null)}
+          >
+            <div className="bo-file-preview">
+              <div className="bo-file-preview-toolbar">
+                <span className="bo-muted">
+                  {t("back_office.files.immutable")}
+                </span>
+                <Button
+                  size="sm"
+                  startIcon={<Download size={14} />}
+                  onClick={() => void download(preview)}
+                >
+                  {t("back_office.files.download")}
+                </Button>
+              </div>
+              {error && (
+                <p className="bo-error" role="alert">
+                  {error}
+                </p>
               )}
-            </Suspense>
-          </div>
-        </DirectoryDialog>
+              <Suspense
+                fallback={
+                  <p className="bo-muted">{t("back_office.files.loading")}</p>
+                }
+              >
+                {["html", "view", "browser", "external"].includes(
+                  classifyOpenTarget(preview.name, "file"),
+                ) ? (
+                  <PreviewUnavailable />
+                ) : (
+                  <AttachmentViewer
+                    key={preview.id}
+                    client={client}
+                    workspaceId={`back-office:${preview.recordId}`}
+                    workspaceRoot=""
+                    sessionId={`back-office:${preview.recordId}`}
+                    isRemoteWorkspace
+                    localReadOnly
+                    target={{
+                      id: preview.id,
+                      kind: "file",
+                      value: preview.name,
+                      name: preview.name,
+                      preview: classifyOpenTarget(preview.name, "file"),
+                      exists: true,
+                      confidence: 100,
+                      reason: t("back_office.attachment"),
+                      size: preview.size,
+                    }}
+                    loadFile={() =>
+                      client.downloadBackOfficeFile(
+                        preview.recordId,
+                        preview.fieldId,
+                        preview.id,
+                      )
+                    }
+                    onClose={() => setPreview(null)}
+                  />
+                )}
+              </Suspense>
+            </div>
+          </DirectoryDialog>
+        </BackOfficeTheme>
       )}
     </Context.Provider>
   );

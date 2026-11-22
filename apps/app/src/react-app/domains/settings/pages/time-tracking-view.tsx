@@ -14,6 +14,7 @@ import { sourceKeys } from "../../back-office/timesheet-labels";
 import { TimeSettingsGroup, TimeSelect, TimeSetting, TimeSwitch } from "../../back-office/time-settings-controls";
 import { TimeWorkspaceGuidelines } from "../../back-office/time-workspace-guidelines";
 import { LayoutStack } from "../settings-layout";
+import { DesktopActivitySetting } from "./desktop-activity-setting";
 
 type SettingAction = Extract<CaptureAction, { type: "settings-patch" | "guideline" }>;
 
@@ -50,7 +51,7 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
       await cache.cancelQueries({ queryKey: key });
       cache.setQueryData(dayKey, result);
       cache.setQueryData(profileKey, current => current?.profileId === profile.profileId ? {
-        ...current, enabled: result.settings.enabled !== false, workspaceActivity: result.settings.workspaceActivity !== false,
+        ...current, enabled: result.settings.enabled !== false, desktopActivity: result.settings.desktopActivity === true, workspaceActivity: result.settings.workspaceActivity !== false,
       } : current);
       await cache.invalidateQueries({ queryKey: key });
     },
@@ -77,15 +78,15 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
     </TimeSettingsGroup>
     {enabled && <>
       <TimeSettingsGroup title={t("timeWorkspace.scheduleTitle")}>
-        <TimeSetting title={t("timeWorkspace.frequency")} description={t("scheduled.your_schedule")}>
+        <TimeSetting title={t("timeWorkspace.frequency")} description={t(schedule.frequency === "hourly" ? "timeWorkspace.hourlyHelp" : "timeWorkspace.dailyHelp")}>
           <TimeSelect label={t("timeWorkspace.frequency")} value={schedule.frequency} disabled={pending}
             options={[{ id: "hourly", name: t("timeWorkspace.hourly") }, { id: "daily", name: t("scheduled.daily") }]}
             onChange={frequency => { if (frequency === "hourly") change({ field: "schedule", value: { frequency } });
               if (frequency === "daily") saveTimes(["08:00", "20:00"]); }} />
         </TimeSetting>
         {schedule.frequency === "daily" && <TimeSetting title={t("timeWorkspace.runTimes")}>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {schedule.times.map((time, index) => <div className="flex items-center" key={time}>
+          <ul className="grid gap-2" aria-label={t("timeWorkspace.runTimes")}>
+            {schedule.times.map((time, index) => <li className="flex items-center gap-2" key={time}>
               <Input type="time" className="w-30" aria-label={t("timeWorkspace.runAt", { time })} disabled={pending}
                 defaultValue={time} onBlur={event => {
                   const value = event.currentTarget.value;
@@ -95,28 +96,32 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
                 }} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
               {schedule.times.length > 1 && <Button variant="ghost" size="icon-xs" disabled={pending}
                 aria-label={t("timeWorkspace.removeTime", { time })} onClick={() => saveTimes(schedule.times.filter(value => value !== time))}><X /></Button>}
-            </div>)}
-            {schedule.times.length < 24 && <Button size="sm" variant="outline" disabled={pending} onClick={() => {
+            </li>)}
+            {schedule.times.length < 24 && <li><Button size="sm" variant="outline" disabled={pending} onClick={() => {
               const next = Array.from({ length: 24 }, (_, i) => String((8 + i) % 24).padStart(2, "0") + ":00").find(value => !schedule.times.includes(value));
               if (next) saveTimes([...schedule.times, next]);
-            }}><Plus />{t("timeWorkspace.addTime")}</Button>}
-          </div>
+            }}><Plus />{t("timeWorkspace.addTime")}</Button></li>}
+          </ul>
         </TimeSetting>}
       </TimeSettingsGroup>
       <TimeSettingsGroup title={t("timesheets.sources")}>
-        {(["calendar", "tasks", "documents", "workspaceActivity"] as const).map(source => <TimeSwitch key={source}
+        {(["calendar", "tasks", "documents", "workspaceActivity", "recordings"] as const).map(source => <TimeSwitch key={source}
           label={t(source === "workspaceActivity" ? "timeWorkspace.workspaceActivity" : sourceKeys[source])}
+          description={source === "recordings" ? t("timesheets.source.recordingsDescription") : undefined}
           checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
           disabled={pending} onChange={value => change({ field: source, value })} />)}
+        <DesktopActivitySetting profileId={profile.profileId} checked={settings.desktopActivity === true} disabled={pending}
+          onChange={value => change({ field: "desktopActivity", value })} />
         <TimeSetting title={t("timesheets.source.stopwatch")}>
           <TimeSelect label={t("timesheets.source.stopwatch")} disabled={pending} value={settings.stopwatchMode ?? "always"}
             options={[{ id: "always", name: t("timeWorkspace.timerAlways") }, { id: "evidence", name: t("timeWorkspace.timerEvidence") }]}
             onChange={value => { if (value === "always" || value === "evidence") change({ field: "stopwatchMode", value }); }} />
         </TimeSetting>
         {connections.map(account => <TimeSwitch key={account.provider + account.account}
-          label={t(sourceKeys[account.provider])} checked={captureAccountEnabled(settings, account)} disabled={pending}
+          label={[t(sourceKeys[account.provider]), account.name].filter(Boolean).join(" · ")} checked={captureAccountEnabled(settings, account)} disabled={pending}
           onChange={value => change({ field: "account", account, value })} />)}
       </TimeSettingsGroup>
+      <p className="text-sm text-muted-foreground">{t("timesheets.connector_context")}</p>
       <Link className="text-sm underline" to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
     </>}
     {enabled && (targets.error ? <p role="alert">{targets.error.message}</p> : targets.data &&

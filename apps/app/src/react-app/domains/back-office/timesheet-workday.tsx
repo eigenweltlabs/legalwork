@@ -22,10 +22,9 @@ import { TimeSelect } from "./time-settings-controls";
 import { TimeWorkspacePanels } from "./time-workspace-panels";
 import { TimeWorkspaceChat } from "./time-workspace-chat";
 import { TimeWorkspaceStopwatch, useTimeWorkspaceStopwatch } from "./time-workspace-stopwatch";
-import { PeriodControlsTarget, TimeHeaderContent } from "./time-workspace-header";
 import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
-import { overlappingWorkdayRanges, workdayProposalDisplay, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
+import { workdayProposalDisplay, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import { DirectProposalDecisionContext, type DirectProposalDecision, type ProposalDecision } from "./time-proposal-actions";
 import "./timesheet-workday.css";
 
@@ -292,11 +291,6 @@ export function TimesheetWorkday({
     if (!timekeeper) return record.ownerId === identity.user;
     return typeof timekeeper === "string" && ownContactIds.has(timekeeper);
   });
-  const booked = state.service === "records" ? ownRecords.flatMap(({ values }) =>
-    typeof values.startedAt === "string" && values.startedAt.includes("T") && typeof values.endedAt === "string"
-      ? [{ startAt: values.startedAt, endAt: values.endedAt }] : [],
-  ) : confirmed;
-  const overlaps = overlappingWorkdayRanges(shown, booked);
   function selectDate(next: string, openDay = false) {
     if (!next || (next === date && !openDay)) return;
     if (dateLocked && next !== date) {
@@ -316,7 +310,7 @@ export function TimesheetWorkday({
   }
   const capture: TimeCaptureSheet = {
     proposals: shown, visible, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
-    overlaps, linkableRecords: ownRecords, selectDate, act, writeDraft,
+    linkableRecords: ownRecords, selectDate, act, writeDraft,
     openSource: (proposal, draftRevision) => {
       focusRequest.current = { target: "editor" };
       setCorrection({ proposal, draftRevision });
@@ -337,7 +331,6 @@ export function TimesheetWorkday({
         <>
           <div className="time-workspace-private-toolbar shrink-0">
             {local && settings && settings.enabled !== false && <>
-              <WorkdayCoverage date={date} checkedThrough={data?.checkedThrough} />
               <Button size="sm" variant="outline" disabled={running || refreshing || date > calendarDay(new Date())}
                 onClick={() => void addSuggestions()}>{refreshing ? <Loader2 className="animate-spin" /> : <Plus />}
                 {t("timeWorkspace.addSuggestions")}</Button>
@@ -349,12 +342,17 @@ export function TimesheetWorkday({
             }} />}
           </div>
           {settings?.enabled !== false && !refreshing && status && status.type !== "ready" && <p className="time-workspace-note" role="alert">
-            {t(status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
+            {status.failedSources?.length ? t("timeWorkspace.sourcesFailed", { sources: status.failedSources
+              .map(item => t(sourceKeys[item.provider]) + (item.name ? " (" + item.name + ")" : "")).join(", ") })
+              : t(status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
           </p>}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline date={date} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
+                renderTimeOverlay={settings && settings.enabled !== false ? now =>
+                  <WorkdayCoverage date={date} checkedThrough={data?.checkedThrough} now={now}
+                    busy={running || refreshing} onCheck={() => void addSuggestions()} /> : undefined}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
                   busyKey: deciding?.key ?? correcting?.proposal.key,
@@ -418,7 +416,7 @@ export function TimesheetWorkday({
   const status = data?.status;
   return (
     <section className="bo-workday time-unified">
-      {visible && <TimeHeaderContent slot={PeriodControlsTarget}><div className="bo-workday-controls">
+      {visible && <div className="bo-workday-controls" role="toolbar" aria-label={t("timesheets.workspace_title")}>
         <div className="time-sheet-period">
           <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
             onClick={() => selectDate(adjacentPeriod(date, period, -1))}><ChevronLeft size={16} /></Button>
@@ -435,11 +433,11 @@ export function TimesheetWorkday({
         </div>
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
         <TimesheetPeriodSwitch period={period} onChange={setPeriod} />
-        <span className="bo-workday-toolbar-space" />
-        {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} matters={state.matters} />}
         {local && <Button size="icon-sm" variant="ghost" nativeButton={false} render={<Link to="/settings/time-tracking" />}
           aria-label={t("timesheets.ai_settings")}><Settings size={16} /></Button>}
-      </div></TimeHeaderContent>}
+        <span className="bo-workday-toolbar-space" />
+        {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} matters={state.matters} />}
+      </div>}
       {(error || workday.error || overview.error) && <p className="time-workspace-status" role="alert">
         {error || workday.error?.message || overview.error?.message}
         {workday.error && <Button variant="ghost" size="xs" onClick={() => void workday.refetch()}>{t("timesheets.retry")}</Button>}

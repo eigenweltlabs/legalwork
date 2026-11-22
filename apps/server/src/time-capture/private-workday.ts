@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
 import type { CaptureProposal, CaptureSettings } from "@legalwork/types/time-capture";
-import { captureProposalSchema } from "../back-office/timesheet-schema.js";
+import { captureFileSource, captureProposalSchema } from "../back-office/timesheet-schema.js";
 import { z } from "zod";
 import { addDays, dayInZone, zonedInstant } from "../calendar/dates.js";
 
@@ -22,7 +22,7 @@ export type WorkdayEvidence = z.infer<typeof workdayEvidenceSchema>;
 export type Interval = { from: number; to: number };
 export function humanInterval(proposal: CaptureProposal): Interval | undefined {
   if (proposal.source === "workspace" && proposal.observation !== "foreground") return;
-  if (proposal.source === "agent" || proposal.source === "documents" || proposal.source === "tasks" ||
+  if (proposal.source === "agent" || proposal.source === "documents" || captureFileSource(proposal.source) || proposal.source === "tasks" ||
       proposal.source === "gmail" || proposal.source === "outlook" || !proposal.startAt || !proposal.endAt) return;
   const from = Date.parse(proposal.startAt), to = Date.parse(proposal.endAt);
   if (Number.isFinite(from) && Number.isFinite(to) && to > from) return { from, to };
@@ -42,6 +42,25 @@ export function claimsOverlap(a: EvidenceClaim, b: EvidenceClaim) {
     b.from === null || b.to === null || intervalsOverlap({ from: a.from, to: a.to }, { from: b.from, to: b.to }));
 }
 
+/** A timed calendar appointment is a plan. Only elapsed parts may support a workday suggestion. */
+export function elapsedEvidence(rows: WorkdayEvidence[], date: string, zone: string, now: number): WorkdayEvidence[] {
+  const today = dayInZone(new Date(now).toISOString(), zone);
+  if (date > today) return [];
+  if (date < today) return rows;
+  return rows.flatMap(item => {
+    const p = item.proposal;
+    if (p.observedAt && Date.parse(p.observedAt) > now) return [];
+    if (!p.startAt) return [item];
+    const start = Date.parse(p.startAt);
+    if (start >= now) return [];
+    if (!p.endAt || Date.parse(p.endAt) <= now) return [item];
+    const endAt = new Date(now).toISOString();
+    const workedMinutes = p.workedMinutes === null ? null : Math.round((now - start) / 60_000) || null;
+    const claims = item.claims?.map(claim => ({ ...claim, to: claim.to === null ? null : Math.min(claim.to, now) }));
+    return [{ ...item, claims, proposal: { ...p, endAt, workedMinutes } }];
+  });
+}
+
 export function workdayEvidence(
   events: CalendarOccurrence[],
   day: string,
@@ -57,7 +76,7 @@ export function workdayEvidence(
     if (!settings[source] || !["event", "task"].includes(event.kind) || event.status === "cancelled")
       return [];
     if (source === "tasks" && !["done", "completed"].includes(event.status)) return [];
-    if (event.assigneeUserId && event.assigneeUserId !== userId) return [];
+    if (event.assigneeUserId && event.assigneeUserId !== userId && !(userId && event.participantUserId === userId)) return [];
     let startAt = event.allDay ? null : zonedInstant(event.start, event.timeZone);
     const observationStart = startAt ? Date.parse(startAt) : undefined;
     let endAt = !event.allDay && event.end ? zonedInstant(event.end, event.timeZone) : null;

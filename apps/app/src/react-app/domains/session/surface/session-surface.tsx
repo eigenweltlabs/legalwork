@@ -173,8 +173,8 @@ export type SessionSurfaceProps = {
   timekeeping?: {
     date: string;
     history: LegalworkServerClient["mainAssistantHistory"];
-    model?: ModelRef;
-    modelChanged: (model: ModelRef) => void;
+    model?: ModelRef & { workspaceId?: string };
+    modelChanged: (model: ModelRef, confirm?: boolean) => void;
     context: string;
   };
   assistantDate?: string;
@@ -1858,7 +1858,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const emptyWelcome = !props.assistantDate && displayedMessages.length === 0 && effectiveActivityStatus === "idle";
   const sessionScroll = useSessionScrollController({
+    emptyWelcome,
     selectedSessionId: props.sessionId,
     renderedMessages: displayedMessages,
     containerRef: scrollRef,
@@ -2033,10 +2035,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
-          <div ref={contentRef} className="lw-session-column">
+          <div ref={contentRef} className={cn("lw-session-column", emptyWelcome && "flex min-h-full flex-col justify-center")}>
             {history.loading && <div role="status" className="pointer-events-none sticky top-0 z-10 h-0 overflow-visible text-center"><span className="inline-block rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">{t("assistant.loading_history")}</span></div>}
             {history.error && <div className="sticky top-0 z-10 h-0 overflow-visible text-center"><button type="button" className="rounded-full bg-background px-3 py-1 text-xs text-muted-foreground" onClick={history.retry}>{t("assistant.history_failed")} · {t("scheduled.retry")}</button></div>}
-            <div className={cn(dailyDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
+            <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
             {showOnboarding && !pastSections.length && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">

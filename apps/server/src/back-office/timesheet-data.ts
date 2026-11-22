@@ -329,6 +329,7 @@ export function readTimesheet(
     supportsBillingComparisons: false,
     supportsTimeAllocations: true,
     supportsInvoiceDrafts: scope === "local",
+    supportsBillingClientAssignment: scope === "local",
     supportsHourlyInvoiceCurrency: scope === "local",
     supportsInvoiceWordingReview: scope === "local" && actor.model && actor.finance && actor.edit,
     invoiceDraft,
@@ -409,6 +410,26 @@ export function readTimesheet(
   };
 }
 
+/** Derive a recipient only from a single visible link, including for a firm's records-only directory. */
+export function prepareTimeRecordClient(store: BackOfficeStore, scope: string, actor: BackOfficeActor,
+  patch: BackOfficeRecord["values"], values: BackOfficeRecord["values"], previous?: BackOfficeRecord | null) {
+  if (!Object.hasOwn(patch, "matter") && !Object.hasOwn(patch, "client")) return;
+  if (Object.hasOwn(patch, "matter") && values.matter !== previous?.values.matter && !Object.hasOwn(patch, "client")) values.client = null;
+  if (typeof values.matter !== "string") return;
+  const matter = store.raw(scope, values.matter);
+  if (!matter || matter.archivedAt || matter.objectId !== "matters" || !store.canRead(scope, matter, actor))
+    timeError("Choose an accessible matter.");
+  const linked = ids(matter.values.clients);
+  const candidate = values.client || (linked.length === 1 ? linked[0] : undefined);
+  if (!candidate) return;
+  const client = typeof candidate === "string" && linked.includes(candidate) ? store.raw(scope, candidate) : null;
+  if (client && !client.archivedAt && client.objectId === "clients" && store.canRead(scope, client, actor)) {
+    values.client = client.id;
+  } else if (values.client) {
+    timeError("Choose a billing client associated with this matter.");
+  }
+}
+
 /** Generic imports and record edits may stage draft time. Workflow decisions belong to Timesheets. */
 export function validateGenericTime(
   store: BackOfficeStore,
@@ -443,30 +464,20 @@ export function validateGenericTime(
   if (previous && previous.ownerId !== actor.userId && (values.timekeeper ?? null) !== (old?.timekeeper ?? null))
     timeError("Only the original entry owner can correct its timekeeper.", 403);
   const minutes = values.billableMinutes;
-  if (minutes == null || minutes === 0) return;
-  if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 1440)
+  if (minutes != null && (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 1440))
     timeError("Enter whole chargeable minutes between zero and 1440.");
-  const date = legacyServiceDate(values);
-  if (
-    typeof values.matter !== "string" ||
-    typeof values.client !== "string" ||
-    !date
-  )
-    timeError(
-      "Billable imports need a matter, billing client and service date. Use Timesheets for duration-only entries.",
-    );
+  if (!values.matter && !minutes) return;
   const state = readTimesheet(store, scope, actor, [], [], true);
-  if (
-    !state.matters.some((m) => m.id === values.matter && m.clientIds.includes(String(values.client))) ||
-    !state.clients.some((c) => c.id === values.client)
-  )
+  const matter = state.matters.find(item => item.id === values.matter);
+  if (!matter) timeError("Choose an accessible matter.");
+  const clientId = values.client ?? "";
+  if (typeof clientId !== "string" || (clientId &&
+      (!matter.clientIds.includes(clientId) || !state.clients.some(client => client.id === clientId))))
     timeError("Choose a billing client associated with this matter.");
-  const policy = resolveTimePolicy(
-    state.policies,
-    values.client,
-    values.matter,
-    date,
-  );
+  if (!minutes) return;
+  const date = legacyServiceDate(values);
+  if (!date) timeError("Billable time needs a service date.");
+  const policy = resolveTimePolicy(state.policies, clientId, matter.id, date);
   if (policy.enforceIncrement && minutes % policy.incrementMinutes)
     timeError(`Chargeable time must be a multiple of ${policy.incrementMinutes} minutes.`);
 }

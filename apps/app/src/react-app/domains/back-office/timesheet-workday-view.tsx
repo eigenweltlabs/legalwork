@@ -38,20 +38,6 @@ function interval({ startAt, endAt }: WorkdayRange) {
   const start = Date.parse(startAt), end = Date.parse(endAt);
   return start < end ? { start, end } : undefined;
 }
-export function overlappingWorkdayRanges(proposals: readonly CaptureProposal[], booked: readonly WorkdayRange[]) {
-  const overlaps = new Set<string>();
-  for (const proposal of proposals) {
-    const range = interval(proposal);
-    if (!range) continue;
-    const collide = (item: WorkdayRange) => {
-      const other = interval(item);
-      return other && other.start < range.end && other.end > range.start;
-    };
-    if (proposals.some((other) => other.key !== proposal.key && collide(other)) || booked.some(collide))
-      overlaps.add(proposal.key);
-  }
-  return overlaps;
-}
 export function proposalTitle(proposal: CaptureProposal) {
   return isUntitledStopwatch(proposal)
     ? t("timesheets.source.stopwatch") : proposal.narrative;
@@ -79,7 +65,7 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, drafts, state, view, selected, editorId, preamble, onOpen, decisions,
+  date, proposals, drafts, state, view, selected, editorId, preamble, renderTimeOverlay, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
@@ -89,6 +75,7 @@ export function WorkdayTimeline({
   selected: string | undefined;
   editorId?: string;
   preamble?: ReactNode;
+  renderTimeOverlay?: (now: Date) => ReactNode;
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
   decisions?: {
     canAccept: boolean;
@@ -129,7 +116,7 @@ export function WorkdayTimeline({
     }
   }
   return <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
-    dayLanes={view === "matters" ? [...groups.values()] : undefined} preamble={preamble}
+    dayLanes={view === "matters" ? [...groups.values()] : undefined} preamble={preamble} renderTimeOverlay={renderTimeOverlay}
     minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
     label={t("timesheets.workday.timeline")} untimedLabel={t("timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}
@@ -141,7 +128,8 @@ export function WorkdayTimeline({
         secondaryLabel: item.allDay ? [
           item.projectName,
           t(sourceKeys[source.proposal.source]),
-          source.proposal.workedMinutes === null ? undefined : source.proposal.workedMinutes + " min",
+          source.proposal.estimatedMinutes !== undefined ? t("timeWorkspace.estimatedMinutes", { minutes: source.proposal.estimatedMinutes })
+            : source.proposal.workedMinutes === null ? undefined : source.proposal.workedMinutes + " min",
         ].filter(Boolean).join(" · ") : item.projectName,
         buttonAttributes: {
           "data-proposal-id": item.id,
@@ -199,7 +187,7 @@ export function WorkdayCorrectionForm({
   const [narrative, setNarrative] = useState(p.narrative),
     [start, setStart] = useState(localClock(p.startAt)),
     [end, setEnd] = useState(localClock(p.endAt)),
-    [actual, setActual] = useState(p.workedMinutes?.toString() ?? ""),
+    [actual, setActual] = useState((p.workedMinutes ?? p.estimatedMinutes)?.toString() ?? ""),
     [matter, setMatter] = useState(originalMatter),
     [splitSource, setSplitSource] = useState<string>(),
     [minutes, setMinutes] = useState("12"),
@@ -234,8 +222,7 @@ export function WorkdayCorrectionForm({
     const m = state.matters.find((x) => x.id === id);
     if (!m) return "";
     const project = assignment(id).projectId ?? undefined;
-    if (m.clientIds.length !== 1) return t("timesheets.workday.choose_client_preview", { minutes });
-    const policy = resolveTimePolicy(state.policies, m.clientIds[0], id, p.date, project);
+    const policy = resolveTimePolicy(state.policies, m.clientIds.length === 1 ? m.clientIds[0] : "", id, p.date, project);
     if (p.source === "stopwatch")
       return t("timesheets.workday.minutes_rounded", {
         minutes, charge: proposedStopwatchCharge(measured, policy),
@@ -292,7 +279,8 @@ export function WorkdayCorrectionForm({
             ...(p.source !== "stopwatch" && !split && matter === originalMatter ? { matterId: p.matterId ?? null, projectId: p.projectId } : sourceMatch),
             startAt,
             endAt,
-            workedMinutes: shortStopwatch ? null : total,
+            workedMinutes: shortStopwatch || (!split && !startAt && total === p.estimatedMinutes) ? null : total,
+            ...(p.estimatedMinutes !== undefined && total === null ? { clearEstimate: true } : {}),
             ...(split && targetMatch.matterId
               ? {
                   split: {
@@ -332,6 +320,9 @@ export function WorkdayCorrectionForm({
           ]} onChange={setActivity} />
         </label>
       </div>
+      {p.estimatedMinutes !== undefined && <p className="text-sm text-muted-foreground">
+        {t("timeWorkspace.estimatedMinutes", { minutes: p.estimatedMinutes })}{p.estimateReason ? " · " + p.estimateReason : ""}
+      </p>}
       {canSplit && <label className="flex items-center gap-2 text-sm">
         <Checkbox checked={split} onCheckedChange={checked => setSplitSource(checked ? p.digest : undefined)} />
         {t("timesheets.workday.split")}

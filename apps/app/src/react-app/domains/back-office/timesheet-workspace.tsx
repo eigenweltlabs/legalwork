@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, List, ListChecks, Settings2 } from "lucide-react";
-import { PeriodControlsTarget, TimeHeaderContent, TimekeeperControlTarget, WorkspaceHeaderTarget } from "./time-workspace-header";
+import { TimeHeaderContent, TimekeeperControlTarget, WorkspaceHeaderTarget } from "./time-workspace-header";
 import { Button as AppButton } from "@/components/ui/button";
 
 import {
@@ -25,8 +25,10 @@ import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
+import type { SaveBackOfficeView } from "./record-grid";
 import { TimeRecordSheet } from "./time-record-sheet";
 import { TimeWorkflowProposal } from "./time-workflow-proposal";
+import { BackOfficeSurface } from "./twenty-controls";
 import { TimeSetting, TimeSettingsGroup } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 
@@ -34,7 +36,7 @@ export function TimesheetWorkspace({
   client,
   directory,
   page,
-  renderRecords,
+  renderRecords, onSaveView,
   workdayModels,
   directoryRefresh,
 }: {
@@ -43,12 +45,12 @@ export function TimesheetWorkspace({
   page: keyof typeof timeRoutes;
   workdayModels?: WorkdayModelOption[];
   directoryRefresh?: { error: Error; retry: () => void; fetching: boolean };
+  onSaveView: SaveBackOfficeView;
   renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
   const [invoiceEditing, setInvoiceEditing] = useState(false);
-  const [controlsTarget, setControlsTarget] = useState<HTMLDivElement | null>(null);
   const [timekeeperTarget, setTimekeeperTarget] = useState<HTMLDivElement | null>(null);
   const billingReviewPage = page === "billing-review";
   const { userId, principalKey, replicaId } = directory.permissions;
@@ -167,7 +169,7 @@ export function TimesheetWorkspace({
                 </AppButton>
               ))}
           </nav>
-          {timekeepingPage && <><div ref={setControlsTarget} className="time-header-period" /><div ref={setTimekeeperTarget} /></>}
+          {timekeepingPage && <div ref={setTimekeeperTarget} />}
         </div>
       </TimeHeaderContent>
       {loadError && (
@@ -197,11 +199,11 @@ export function TimesheetWorkspace({
       )}
       {state && (timekeepingPage || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={!timekeepingPage}>
-          <PeriodControlsTarget.Provider value={controlsTarget}><TimekeeperControlTarget.Provider value={timekeeperTarget}>
+          <TimekeeperControlTarget.Provider value={timekeeperTarget}>
           <TimesheetWorkday key={workdayScope} visible={timekeepingPage} dateLocked={dateLocked}
             client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate}>
             {(capture, workspace) => recordsOnly
-              ? <TimeRecordSheet client={client} directory={directory} state={state} capture={capture} workspace={workspace} />
+              ? <TimeRecordSheet onSaveView={onSaveView} client={client} directory={directory} state={state} capture={capture} workspace={workspace} />
               : workspace(
                 <TimesheetLedger visible={timekeepingPage} capture={capture}
                   onOriginal={isLoopbackLegalworkServerUrl(client.baseUrl) ? digest =>
@@ -216,7 +218,7 @@ export function TimesheetWorkspace({
                   capture={capture} onCommand={send} canEdit={directory.permissions.edit} />,
               )}
           </TimesheetWorkday>
-          </TimekeeperControlTarget.Provider></PeriodControlsTarget.Provider>
+          </TimekeeperControlTarget.Provider>
         </div>
       )}
       {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
@@ -248,38 +250,42 @@ export function TimesheetWorkspace({
       )}
       {state && !recordsOnly && (state.canReview || state.canManage) && (billingReviewPage || invoiceEditing) && (
         <div hidden={!billingReviewPage}>
-          <BillingReview
-            canEdit={directory.permissions.edit}
-            initialDate={initialDate}
-            initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
-            workdayModels={workdayModels}
-            client={client}
-            state={state}
-            onCommand={send}
-            onInvoiceEditingChange={setInvoiceEditing}
-          />
+          <BackOfficeSurface>
+            <BillingReview
+              canEdit={directory.permissions.edit}
+              initialDate={initialDate}
+              initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
+              workdayModels={workdayModels}
+              client={client}
+              state={state}
+              onCommand={send}
+              onInvoiceEditingChange={setInvoiceEditing}
+            />
+          </BackOfficeSurface>
         </div>
       )}
       {state && !recordsOnly && page === "billing-settings" && (
-        <BillingPreferences
-          accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
-          previewWord={template => client.previewBillingTemplate(template,state.scope)}
-          key={[params.get("project"), params.get("matter"), params.get("client"), params.get("date")].join("/")}
-          initialDate={initialDate}
-          state={state}
-          onCommand={send}
-          initialProjectId={params.get("project") ?? undefined}
-          initialMatterId={
-            !params.has("directory") || params.get("directory") === directory.directoryId
-              ? (params.get("matter") ?? undefined)
-              : undefined
-          }
-          initialClientId={
-            !params.has("directory") || params.get("directory") === directory.directoryId
-              ? (params.get("client") ?? undefined)
-              : undefined
-          }
-        />
+        <BackOfficeSurface>
+          <BillingPreferences
+            accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
+            previewWord={template => client.previewBillingTemplate(template,state.scope)}
+            key={[params.get("project"), params.get("matter"), params.get("client"), params.get("date")].join("/")}
+            initialDate={initialDate}
+            state={state}
+            onCommand={send}
+            initialProjectId={params.get("project") ?? undefined}
+            initialMatterId={
+              !params.has("directory") || params.get("directory") === directory.directoryId
+                ? (params.get("matter") ?? undefined)
+                : undefined
+            }
+            initialClientId={
+              !params.has("directory") || params.get("directory") === directory.directoryId
+                ? (params.get("client") ?? undefined)
+                : undefined
+            }
+          />
+        </BackOfficeSurface>
       )}
 
     </>

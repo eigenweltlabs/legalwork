@@ -44,6 +44,7 @@ import type {
   BackOfficeValue,
   BackOfficeView,
 } from "@legalwork/types/back-office";
+import { useRecordGridColumns, revealGridColumn } from "./record-grid-columns";
 import { FieldIcon } from "./record-values";
 import { RecordGridRow, type EditingCell } from "./record-grid-row";
 import { RecordKanban, RecordCalendar, RecordList } from "./record-views";
@@ -106,6 +107,8 @@ const defaultWidths: Record<string, number> = {
   leadLawyer: 131,
   openedOn: 112,
 };
+export type SaveBackOfficeView = (view: BackOfficeView, expected: BackOfficeView | null) => Promise<BackOfficeView>;
+
 export function RecordGrid({
   object,
   records,
@@ -120,7 +123,7 @@ export function RecordGrid({
   onSaveView,
   archived,
   sheet,
-  onArchivedChange, lockedSchema = false, readOnlyFields,
+  onArchivedChange, columnScope, lockedSchema = false, readOnlyFields,
 }: {
   sheet?: {
     columns: string[];
@@ -137,6 +140,7 @@ export function RecordGrid({
     leading?: (record: BackOfficeRecord) => ReactNode;
     details?: (record: BackOfficeRecord, columns: readonly string[]) => ReactNode;
   };
+  columnScope: string;
   lockedSchema?: boolean;
   readOnlyFields?: readonly string[];
   object: BackOfficeObject;
@@ -155,7 +159,7 @@ export function RecordGrid({
   ) => Promise<void>;
   onOpen: (record: BackOfficeRecord) => void;
   onCreate: (values?: Record<string, BackOfficeValue>) => void;
-  onSaveView: (view: BackOfficeView, expected: BackOfficeView | null) => Promise<BackOfficeView>;
+  onSaveView: SaveBackOfficeView;
   archived: boolean;
   onArchivedChange: (archived: boolean) => void;
 }) {
@@ -164,7 +168,7 @@ export function RecordGrid({
   const urlViewId = searchParams.get("viewId");
   const initialView = views.find(
     (view) =>
-      view.id === urlViewId && view.objectId === object.id && !view.archived,
+      view.id === urlViewId && view.objectId === object.id && !view.archived && (!sheet || view.type === "table"),
   );
   const viewAnchor = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState(initialView?.query ?? "");
@@ -172,15 +176,11 @@ export function RecordGrid({
     field: initialView?.sortField ?? (sheet?.columns[0] ?? "name"),
     direction: initialView?.sortDirection ?? "asc",
   });
-  const [columns, setColumns] = useState(
-    initialView?.columns ??
-      sheet?.columns ??
-      defaults[object.id] ??
-      object.fields.slice(0, 7).map((field) => field.id),
-  );
-  const [widths, setWidths] = useState<Record<string, number>>(
-    initialView?.widths ?? { ...defaultWidths, ...sheet?.widths },
-  );
+  const { columns, widths, setColumns, setWidths, selectLayout, acknowledgeLayout } = useRecordGridColumns(columnScope, object.id, {
+    columns: sheet?.columns ?? defaults[object.id] ?? object.fields.slice(0, 7).map(field => field.id),
+    widths: { ...defaultWidths, ...sheet?.widths },
+  }, initialView);
+  const revealField = useRef<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
   const [editing, setEditing] = useState<EditingCell | null>(null);
@@ -203,7 +203,7 @@ export function RecordGrid({
       view.id === activeViewId && view.objectId === object.id && !view.archived,
   );
   const [layout, setLayout] = useState<BackOfficeView["type"]>(
-    initialView?.type ?? "table",
+    sheet ? "table" : initialView?.type ?? "table",
   );
   const [groupField, setGroupField] = useState<string | null>(
     initialView?.groupField ?? null,
@@ -314,6 +314,11 @@ export function RecordGrid({
   const selectable = useMemo(() => rows.filter(record => record.revision > 0), [rows]);
   const selectedCount = useMemo(() => selectable.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [selectable, selectedIds]);
   const scroll = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!revealField.current) return;
+    revealGridColumn(scroll.current, revealField.current);
+    revealField.current = null;
+  }, [columns]);
   const editingIndex = editing ? rows.findIndex(row => row.id === editing.record) : -1;
   // Small tables can scroll entirely on the compositor, even during a fast reversal.
   const windowed = rows.length > 120 || rows.length * visibleFields.length > 1200;
@@ -387,13 +392,7 @@ export function RecordGrid({
     }
   };
   const applyView = (view?: BackOfficeView, updateUrl = true) => {
-    setColumns(
-      view?.columns ??
-        sheet?.columns ??
-        defaults[object.id] ??
-        object.fields.slice(0, 7).map((field) => field.id),
-    );
-    setWidths(view?.widths ?? { ...defaultWidths, ...sheet?.widths });
+    selectLayout(view);
     setQuery(view?.query ?? "");
     setSort({
       field: view?.sortField ?? sheet?.columns[0] ?? "name",
@@ -426,7 +425,7 @@ export function RecordGrid({
           (view) =>
             view.id === urlViewId &&
             view.objectId === object.id &&
-            !view.archived,
+            !view.archived && (!sheet || view.type === "table"),
         ),
         false,
       );
@@ -526,7 +525,7 @@ export function RecordGrid({
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
-      readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
+      readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable && !archived} selected={selectedIds.has(record.id)}
       allowedRelationIds={sheet?.allowedRelationIds}
       canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length + (sheet.appendedRowCount ?? 0) - 1 || column < visibleFields.length - 1 : undefined}
       editing={editing?.record === record.id ? editing : undefined}
@@ -553,7 +552,7 @@ export function RecordGrid({
               startIcon={<ActiveIcon size={14} />}
               endIcon={<ChevronDown size={12} />}
             >
-              {activeView?.name ||
+              {archived && <span>{t("back_office.archive")} · </span>}{activeView?.name ||
                 t("back_office.all_records", { name: object.plural })}
               <span className="bo-view-count">· {rows.filter(row => row.id !== sheet?.blankId).length + (sheet?.appendedRowCount ?? 0)}</span>
             </Button>
@@ -566,7 +565,7 @@ export function RecordGrid({
             {t("back_office.all_records", { name: object.plural })}
           </Dropdown.ActionItem>
           {views
-            .filter((view) => view.objectId === object.id && !view.archived)
+            .filter((view) => view.objectId === object.id && !view.archived && (!sheet || view.type === "table"))
             .map((view) => {
               const Icon = viewIcons[view.icon ?? view.type];
               return (
@@ -689,7 +688,7 @@ export function RecordGrid({
                     sortDirection: sort.direction === "desc" ? "desc" : "asc",
                     calendarMode,
                   }, viewBase)
-                    .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
+                    .then(saved => { acknowledgeLayout(saved); setViewBase(current => current?.id === saved.id ? saved : current); })
                     .catch((error) => toast.error(error.message))
                 }
               >
@@ -705,22 +704,23 @@ export function RecordGrid({
                   value={field.id}
                   indicator="checkbox"
                   selected={columns.includes(field.id)}
-                  disabled={field.id === "name"}
+                  disabled={columns.includes(field.id) && (visibleFields.length === 1 || (!sheet && field.id === "name"))}
                   closeOnSelect={false}
                   startIcon={<FieldIcon field={field} />}
-                  onSelect={() =>
+                  onSelect={() => {
+                    if (!columns.includes(field.id)) revealField.current = field.id;
                     setColumns((current) =>
                       current.includes(field.id)
                         ? current.filter((id) => id !== field.id)
                         : [...current, field.id],
-                    )
-                  }
+                    );
+                  }}
                 >
                   {field.label}
                 </Dropdown.OptionItem>
               ))}
             <Dropdown.Separator />
-            <Dropdown.ActionItem onClick={() => onArchivedChange(!archived)}>
+            <Dropdown.ActionItem onClick={() => { setSelected([]); onArchivedChange(!archived); }}>
               {archived ? t("back_office.show_active_records") : t("back_office.show_archive")}
             </Dropdown.ActionItem>
             {editable && (
@@ -762,7 +762,7 @@ export function RecordGrid({
             setCalendarMode(mode);
             if (viewBase)
               void onSaveView({ ...viewBase, calendarMode: mode }, viewBase)
-                .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
+                .then(saved => { acknowledgeLayout(saved); setViewBase(current => current?.id === saved.id ? saved : current); })
                 .catch((error) => toast.error(error.message));
           }}
         />
@@ -802,6 +802,7 @@ export function RecordGrid({
               <div
                 className="bo-grid-heading"
                 role="columnheader"
+                data-field={field.id}
                 key={field.id}
                 draggable
                 onDragStart={(event) =>
@@ -883,7 +884,6 @@ export function RecordGrid({
                 }
               />}
             </div>
-            <div className="bo-grid-fill" />
             <div className="bo-grid-fill" />
           </div>
           <div className={windowed ? "bo-windowed-rows" : undefined}

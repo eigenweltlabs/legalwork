@@ -252,7 +252,8 @@ test("a firm without a workflow service uses existing records; private evidence 
   try {
     const access = await backOfficeAccess(config, true), store = await backOfficeStore(config);
     const client = store.saveRecord("firm", access.actor, { objectId: "clients", revision: 0, values: { name: "Test client" } });
-    const matter = store.saveRecord("firm", access.actor, { objectId: "matters", revision: 0, values: { name: "Test matter", clients: [client.id] } });
+    const addedClient = store.saveRecord("firm", access.actor, { objectId: "clients", revision: 0, values: { name: "Another eligible recipient" } });
+    const matter = store.saveRecord("firm", access.actor, { objectId: "matters", revision: 0, values: { name: "Test matter", clients: [client.id, addedClient.id] } });
     await syncBackOffice(config);
     const path = "/back-office/timesheet?scope=team&expectedUserId=worker";
     const response = await api(path);
@@ -293,7 +294,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).drafts[proposal.key].values.billingNarrative).toBe("PRIVATE edited wording");
     expect((await api("/private-timesheet/workday?" + context, { ...draftAction, proposalDigest: "f".repeat(64) })).status).toBe(409);
     const booking = { timekeeperUserId: "worker", id: proposal.key, create: true, revision: 0, objectId: "timeEntries", values: { name: "Confirmed research", billingNarrative: "Confirmed research", status: "Draft",
-      matter: matter.id, client: client.id, serviceDate: proposal.date, startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: 13, billableMinutes: 20 },
+      matter: matter.id, client: null, serviceDate: proposal.date, startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: 13, billableMinutes: 20 },
       privateProposal: { key: proposal.key, digest: proposal.digest, profileId: profile.profileId } };
     expect((await api("/back-office/records", booking, false)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, privateProposal: { ...booking.privateProposal, profileId: "another" } })).status).toBe(409);
@@ -360,6 +361,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     await expect(acceptPrivateProposal(config, profile, another.key, another.digest, async () => "duplicate", "record")).rejects.toMatchObject({ status: 409 });
     expect(created?.values.recordedMinutes).toBe(13);
     expect(created?.values.billableMinutes).toBe(20);
+    expect(created?.values.client ?? null).toBeNull();
     expect(created?.access).toBe("org");
     const sent = JSON.stringify(uploads);
     expect(sent).not.toContain("PRIVATE");

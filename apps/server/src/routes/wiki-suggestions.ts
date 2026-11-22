@@ -1,3 +1,4 @@
+import { beginFileAction } from "../time-capture/routes.js";
 import { workspaceContentPath } from "../project-storage-paths.js";
 import { lineChanges } from "../wiki/line-diff.js";
 import { realpath } from "node:fs/promises";
@@ -57,9 +58,12 @@ export function registerWikiSuggestionRoutes(options: {
     const wiki = await destination(ctx, draft.destination, true);
     const attachments = [];
     for (let index = 0; index < draft.attachments.length; index++) attachments.push(await repo.attachment(draft, index));
+    const capture = !agentPublication ? await beginFileAction(config, ctx, ctx.params.workspaceId, draft.destination.path, "wiki:" + wiki.id, "Saved") : undefined;
     const saved = await store.writeContribution(wiki.id, draft.destination.path, draft.content, draft.destination.baseRevision ?? "", attachments, agentPublication);
     options.onChanged?.(wiki.id);
-    return repo.finish({ ...draft, content: saved.content, attachments: draft.attachments.map((file, index) => ({ ...file, path: saved.attachments[index].path })) }, "saved");
+    const completed = await repo.finish({ ...draft, content: saved.content, attachments: draft.attachments.map((file, index) => ({ ...file, path: saved.attachments[index].path })) }, "saved");
+    await capture?.();
+    return completed;
   };
   const publishIfAllowed = async (ctx: RequestContext, repo: WikiSuggestions, draft: WikiSuggestion) => {
     if (!await authenticateWikiAgentRequest(config, ctx.request) || (await store.get(draft.destination.wikiId)).requireAgentApproval !== false) return draft;

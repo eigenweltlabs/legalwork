@@ -96,12 +96,12 @@ export function TimeSelect({
         if (next !== null) onChange(next);
       }}
     >
-      <SelectTrigger ref={triggerRef} id={id} aria-label={label} className="max-w-full">
+      <SelectTrigger ref={triggerRef} id={id} aria-label={label} className="min-w-0 max-w-full">
         <SelectValue placeholder={placeholder} className="min-w-0 truncate" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent align="start" className="w-max min-w-(--anchor-width) max-w-[min(32rem,var(--available-width))] max-h-[min(20rem,var(--available-height))]">
         {choices.map((choice) => (
-          <SelectItem key={choice.value} value={choice.value}>
+          <SelectItem key={choice.value} value={choice.value} textClassName="block min-w-0 shrink whitespace-normal [overflow-wrap:anywhere]">
             {choice.label}
           </SelectItem>
         ))}

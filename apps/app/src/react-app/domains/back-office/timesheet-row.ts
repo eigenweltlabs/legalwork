@@ -104,7 +104,8 @@ export function adjacentPeriod(value: string, period: TimePeriod, direction: 1 |
 export function matterOptions(state: Pick<LedgerDirectory, "matters" | "clients" | "projects">) {
   const clients = new Map(state.clients.map((client) => [client.id, client.name]));
   const matches = state.matters.flatMap((matter) => {
-    const ids = matter.clientIds.length ? matter.clientIds : [""];
+    const ids = matter.clientIds.filter(id => clients.has(id));
+    if (matter.clientIds.length !== 1 || !ids.length) ids.unshift("");
     const projects = state.projects.filter((project) => project.matterIds.includes(matter.id));
     return ids.flatMap((clientId) =>
       [undefined, ...projects].map((project) => ({

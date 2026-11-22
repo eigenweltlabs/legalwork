@@ -6,7 +6,7 @@ import type { BackOfficeRecord, BackOfficeValue, BackOfficeView } from "@legalwo
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
-  window, document: window.document, navigator: window.navigator,
+  window, document: window.document, navigator: window.navigator, localStorage: window.localStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement,
   Element: window.Element, Node: window.Node, Event: window.Event,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
@@ -133,8 +133,8 @@ try {
   await reset();
   const view = BackOfficeViewSchema.parse({ id: crypto.randomUUID(), objectId: "matters", name: "Original view", columns: ["name"] });
   const viewWrites: { view: BackOfficeView; expected: BackOfficeView | null }[] = [];
-  const grid = (current: BackOfficeView) => <MemoryRouter initialEntries={[`/?viewId=${view.id}`]}>
-    <RecordGrid object={object} records={[original]} views={[current]} editable finance userId="owner" archived={false}
+  const grid = (current: BackOfficeView, scope = "editing-fixture") => <MemoryRouter initialEntries={[`/?viewId=${view.id}`]}>
+    <RecordGrid columnScope={scope} object={object} records={[original]} views={[current]} editable finance userId="owner" archived={false}
       onArchivedChange={() => {}} onOpen={() => {}} onCreate={() => {}} onSave={onSave}
       onSaveView={async (next, expected) => { viewWrites.push({ view: next, expected }); throw new Error("View conflict"); }} />
   </MemoryRouter>;
@@ -152,10 +152,30 @@ try {
   assert.equal(viewWrites[0].view.query, "My filter");
   assert.equal(input("Search records").value, "My filter", "A view conflict must preserve unsaved settings");
   await reset();
+  await render(grid(view));
+  const toggle = [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === "Options");
+  assert.ok(toggle);
+  await act(async () => toggle.click());
+  const fieldLabel = object.fields.find(field => field.id === "fileNumber")!.label;
+  const extra = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(item => item.textContent?.trim() === fieldLabel);
+  assert.ok(extra);
+  await act(async () => extra.click());
+  const hasFileNumber = () => Boolean(host.querySelector('[role="columnheader"][data-field="fileNumber"]'));
+  assert.ok(hasFileNumber());
+  await reset();
+  await render(grid(view));
+  assert.ok(hasFileNumber(), "A named view retains the person's column choices");
+  await reset();
+  await render(grid(view, "another-account"));
+  assert.equal(hasFileNumber(), false);
+  await reset();
+  await render(grid({ ...view, columns: ["name", "status"] }));
+  assert.equal(hasFileNumber(), false, "A changed shared layout supersedes the previous personal overlay");
+  await reset();
   fail = false;
   function Sheet() {
     const [record, setRecord] = useState(original);
-    return <MemoryRouter><RecordGrid object={{ ...object!, fields: [nameField, field] }} records={[record]} views={[]}
+    return <MemoryRouter><RecordGrid columnScope="editing-fixture" object={{ ...object!, fields: [nameField, field] }} records={[record]} views={[]}
       sheet={{ columns: ["name", "notes"], blankId: "new" }} editable finance userId="owner" archived={false}
       onArchivedChange={() => {}} onOpen={() => {}} onCreate={() => {}}
       onSave={async (base, patch) => { await onSave(base, patch); setRecord(current => ({ ...current, values: { ...current.values, ...patch }, revision: current.revision + 1 })); }}

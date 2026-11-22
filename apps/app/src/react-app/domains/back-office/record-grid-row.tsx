@@ -125,7 +125,7 @@ export const RecordGridRow = memo(function RecordGridRow({
           </div>
         );
       })}
-      <div className="bo-grid-fill">{trailing}</div>
+      <div className={sheet ? "time-record-actions" : "bo-grid-fill"}>{trailing}</div>
       {details && <div className="bo-grid-row-details">{details}</div>}
     </div>
   );

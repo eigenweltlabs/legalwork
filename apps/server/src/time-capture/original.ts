@@ -18,6 +18,7 @@ export function proposalCommitment(p: CaptureProposal) {
         p.startAt,
         p.endAt,
         p.workedMinutes,
+        ...(p.estimatedMinutes !== undefined ? ["estimate", p.estimatedMinutes, p.estimateReason ?? null, p.observedAt ?? null] : []),
         ...(p.matterId || p.parentDigest ? [p.matterId ?? null, p.parentDigest ?? null] : []),
         ...(p.documentId || p.workProductId || p.chargeMinutes !== undefined
           ? ["scoped-context", p.documentId ?? null, p.workProductId ?? null, p.chargeMinutes ?? null] : []),
@@ -25,7 +26,7 @@ export function proposalCommitment(p: CaptureProposal) {
     )
     .digest("hex");
 }
-export function originalBillingComparison(
+export function originalCaptureProposal(
   original: CaptureProposal | undefined,
   digest: string,
   originals: Record<string, CaptureProposal> = {},
@@ -56,6 +57,11 @@ export function originalBillingComparison(
     visited.add(parent.digest);
     current = parent;
   }
+  return current;
+}
+
+export function originalBillingComparison(original: CaptureProposal | undefined, digest: string, originals: Record<string, CaptureProposal> = {}) {
+  const current = originalCaptureProposal(original, digest, originals);
   const { date, activity, narrative, workedMinutes } = current;
   return {
     digest,
@@ -64,5 +70,6 @@ export function originalBillingComparison(
     activity,
     narrative,
     workedMinutes,
+    ...(current.estimatedMinutes !== undefined ? { estimatedMinutes: current.estimatedMinutes, estimateReason: current.estimateReason } : {}),
   };
 }

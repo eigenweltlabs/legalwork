@@ -1,3 +1,4 @@
+import { beginFileAction } from "../time-capture/routes.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
@@ -493,7 +494,9 @@ export function registerStorageRoutes({
       paths: [join(workspaceFileRoot(current, destination), destination)],
     });
     const location = resolveWorkspaceFile(current, parsed.data.localPath);
+    const capture = await beginFileAction(config, ctx, current.id, destination, "workspace", "Copied");
     const saved = await keepWorkspaceCopy(location.root, location.relativePath, destination, workspaceFileRoot(current, destination));
+    await capture?.();
     await recordAudit(current.path, {
       id: randomUUID(),
       timestamp: Date.now(),
@@ -534,6 +537,7 @@ export function registerStorageRoutes({
         if (input.mode === "replace" && !input.version)
           throw new ApiError(400, "storage_version_required", "Reload this file before saving changes.");
         const current = await resolveWorkspace(config, ctx.params.id);
+        const capture = await beginFileAction(config, ctx, current.id, path, connection.id, input.mode === "create" ? "Uploaded" : "Saved");
         const staged = await (async () => {
           if (endpoint === "from-workspace") {
             if (!input.localPath) throw new ApiError(400, "invalid_storage_file", "Choose a workspace file.");
@@ -565,6 +569,7 @@ export function registerStorageRoutes({
               return { version: saved.version };
             }),
           );
+          await capture?.();
           await recordAudit(current.path, {
             id: randomUUID(),
             timestamp: Date.now(),
@@ -601,6 +606,7 @@ export function registerStorageRoutes({
         throw new ApiError(400, "invalid_storage_file", "File content is not valid base64.");
       const data = Buffer.from(input.dataBase64, "base64");
       ensureFileSize(data.length);
+      const capture = await beginFileAction(config, ctx, ctx.params.id, path, connection.id, method === "POST" ? "Uploaded" : "Saved");
       const result = await serializeWrite(connection.id, () =>
         withStorage(connection, async (adapter) => {
           await adapter.write(
@@ -615,6 +621,7 @@ export function registerStorageRoutes({
           return { version: saved.version };
         }),
       );
+      await capture?.();
       await recordAudit((await resolveWorkspace(config, ctx.params.id)).path, {
         id: randomUUID(),
         timestamp: Date.now(),

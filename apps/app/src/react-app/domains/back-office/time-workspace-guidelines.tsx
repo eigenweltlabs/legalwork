@@ -3,7 +3,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeSelect } from "./time-settings-controls";
 import { Button } from "@/components/ui/button";
-import { t } from "@/i18n";
+import { t, currentLocale } from "@/i18n";
+import { ChevronRight, FileText, Link2, Plus, Upload } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Surface } from "../../design-system/surface";
 import {
   workdayGuidelineSchema,
   guidelineRuleSuggestionsSchema,
@@ -14,6 +17,7 @@ import {
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
 import { roundingKeys } from "./timesheet-labels";
+import "./time-workspace-guidelines.css";
 
 type Guideline = CaptureState["guidelines"][number];
 type Actions = Extract<CaptureAction, { type: "guideline" }>;
@@ -95,6 +99,7 @@ export function TimeWorkspaceGuidelines({
     signal: AbortSignal,
   ) => Promise<{ text: string; textlessPages: number[] }>;
 }) {
+  const filePicker = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<Guideline>();
   const [name, setName] = useState("");
   const [scope, setScope] = useState<Scope>(initialTarget?.scope ?? "firm");
@@ -283,90 +288,103 @@ export function TimeWorkspaceGuidelines({
       if (extraction.current === controller) extraction.current = undefined;
     }
   }
+  const targetName = (scope: Scope, id: string) => scope === "firm" ? t(scopeKeys.firm)
+    : (scope === "client" ? state.clients : state.matters).find(item => item.id === id)?.name ?? t(scopeKeys[scope]);
+  const fixedTarget = Boolean(editing || initialTarget);
   return (
     <section className="time-workspace-guidelines grid gap-3" aria-labelledby="billing-guidelines-title">
-      <h3 id="billing-guidelines-title" className="text-sm font-semibold">{t("timeWorkspace.guidelines")}</h3>
+      <div className="flex items-center justify-between gap-3">
+        <h3 id="billing-guidelines-title" className="text-[13px] font-semibold">{t("timeWorkspace.guidelines")}</h3>
+        {!formOpen && <Button variant="outline" size="sm" disabled={busy} onClick={() => { load(); setFormOpen(true); }}>
+          <Plus />{t("timeWorkspace.guidelineNew")}
+        </Button>}
+      </div>
       <p className="text-sm text-muted-foreground">{t("timeWorkspace.guidelineHint")}</p>
-      {latest.size === 0 && <p className="text-sm text-muted-foreground">{t("timeWorkspace.guidelinesEmpty")}</p>}
-      {Array.from(latest.values()).sort((a, b) => a.name.localeCompare(b.name)).map(item => {
-        const owner = item.scope === "firm" ? t(scopeKeys.firm) :
-          (item.scope === "client" ? state.clients : state.matters).find(record => record.id === item.targetId)?.name;
-        return <Button key={item.id} type="button" variant="outline" className="h-auto justify-between gap-4 text-left" disabled={busy}
-          onClick={() => { load(item); setFormOpen(true); }}>
-          <span className="truncate">{item.name}</span>
-          <span className="text-xs text-muted-foreground">{owner} · {item.effectiveFrom} · v{item.revision}</span>
-        </Button>;
-      })}
-      <Button className="justify-self-start" variant="outline" size="sm" disabled={busy} onClick={() => { load(); setFormOpen(true); }}>
-        {t("timeWorkspace.guidelineNew")}
-      </Button>
-      {formOpen && <form
-        className="time-workspace-form"
-        onSubmit={(event) => void submit(event)}
-      >
-        <label>
-          {t("timeWorkspace.guidelineName")}
-          <Input
-            value={name}
-            required
-            maxLength={240}
-            disabled={busy}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          {t("timeWorkspace.guidelineScope")}
-          <TimeSelect label={t("timeWorkspace.guidelineScope")} value={scope} disabled={busy || Boolean(editing || initialTarget)}
-            options={Object.entries(scopeKeys).map(([id, key]) => ({ id, name: t(key) }))}
-            onChange={next => {
-              if (next === "firm" || next === "client" || next === "matter") { setScope(next); setTarget(""); }
-            }} />
-        </label>
-        {scope !== "firm" && (
+      {!formOpen && <Surface className="divide-y divide-border/70 overflow-hidden">
+        {latest.size === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{t("timeWorkspace.guidelinesEmpty")}</p>}
+        {Array.from(latest.values()).sort((a, b) => a.name.localeCompare(b.name)).map(item => (
+          <button key={item.id} type="button" className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-muted/40"
+            disabled={busy} onClick={() => { load(item); setFormOpen(true); }}>
+            <FileText className="size-4 shrink-0 text-muted-foreground" />
+            <span className="grid min-w-0 flex-1 gap-1">
+              <span className="font-medium">{item.name}</span>
+              <span className="text-xs text-muted-foreground">{item.scope === "firm" ? t(scopeKeys.firm) :
+                t(scopeKeys[item.scope]) + " · " + targetName(item.scope, item.targetId)}</span>
+            </span>
+            <span className="text-right text-xs text-muted-foreground">
+              {new Date(item.effectiveFrom + "T12:00:00").toLocaleDateString(currentLocale())} · v{item.revision}
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        ))}
+      </Surface>}
+      {formOpen && <Surface><form className="time-guideline-form" onSubmit={(event) => void submit(event)}>
+        <div className="time-guideline-identity">
           <label>
-            {t(scopeKeys[scope])}
-            <TimeSelect label={t(scopeKeys[scope])} value={target} disabled={busy || Boolean(editing || initialTarget)}
-              placeholder={t(scope === "client" ? "timesheets.sheet.choose_bill_to" : "timesheets.workday.choose")}
-              options={scope === "client" ? state.clients : state.matters} onChange={setTarget} />
+            {t("timeWorkspace.guidelineName")}
+            <Input
+              value={name}
+              required
+              maxLength={240}
+              disabled={busy}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
           </label>
-        )}
-        <label>
-          {t("timeWorkspace.guidelineEffective")}
-          <Input
-            type="date"
-            value={effective}
-            required
-            disabled={busy}
-            onChange={(event) => setEffective(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          {t("timeWorkspace.guidelineFile")}
-          <Input
-            type="file"
-            accept=".txt,.docx,.pdf,.json"
-            disabled={busy}
-            onChange={(event) => {
+          {fixedTarget ? (
+            <div className="time-guideline-target">
+              <span>{t("timeWorkspace.guidelineScope")}</span>
+              {scope === "firm" ? <strong>{t(scopeKeys.firm)}</strong> : <Link className="inline-flex items-center gap-1.5 text-sm underline underline-offset-2" to={`/back-office/${scope === "matter" ? "matters" : "clients"}?record=${encodeURIComponent(target)}`}>
+                <Link2 size={13} />{t(scopeKeys[scope])} · {targetName(scope, target)}
+              </Link>}
+            </div>
+          ) : <>
+            <label>
+              {t("timeWorkspace.guidelineScope")}
+              <TimeSelect label={t("timeWorkspace.guidelineScope")} value={scope} disabled={busy}
+                options={Object.entries(scopeKeys).map(([id, key]) => ({ id, name: t(key) }))}
+                onChange={next => {
+                  if (next === "firm" || next === "client" || next === "matter") { setScope(next); setTarget(""); }
+                }} />
+            </label>
+            {scope !== "firm" && (
+              <label>
+                {t(scopeKeys[scope])}
+                <TimeSelect label={t(scopeKeys[scope])} value={target} disabled={busy}
+                  placeholder={t(scope === "client" ? "timesheets.sheet.choose_bill_to" : "timesheets.workday.choose")}
+                  options={scope === "client" ? state.clients : state.matters} onChange={setTarget} />
+              </label>
+            )}
+          </>}
+          <label>
+            {t("timeWorkspace.guidelineEffective")}
+            <Input
+              type="date"
+              value={effective}
+              required
+              disabled={busy}
+              onChange={(event) => setEffective(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="time-guideline-instructions">{t("timeWorkspace.guidelineText")}</label>
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => filePicker.current?.click()}>
+            <Upload />{t("timeWorkspace.guidelineImport")}
+          </Button>
+          <input ref={filePicker} type="file" hidden aria-label={t("timeWorkspace.guidelineFile")}
+            accept=".txt,.docx,.pdf,.json" disabled={busy} onChange={event => {
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
               if (file) void preview(file);
-            }}
-          />
-        </label>
+            }} />
+        </div>
         {loadingFile && (
           <p role="status">{t("timeWorkspace.guidelineReading")}</p>
         )}
         {loadingRules && <p role="status">{t("timeWorkspace.guidelineExtracting")}</p>}
         {sourceWarning && <p role="status">{sourceWarning}</p>}
-        <label>
-          {t("timeWorkspace.guidelineText")}
-          <Textarea
-            rows={5}
-            value={instructions}
-            disabled={busy}
-            onChange={(event) => { setInstructions(event.currentTarget.value); setSuggestions(undefined); }}
-          />
-        </label>
+        <Textarea id="time-guideline-instructions" rows={5} value={instructions} disabled={busy}
+          onChange={(event) => { setInstructions(event.currentTarget.value); setSuggestions(undefined); }} />
         {instructions.length > maximumInstructions && (
           <p role="alert">{t("timeWorkspace.guidelineTextSize")}</p>
         )}
@@ -376,27 +394,29 @@ export function TimeWorkspaceGuidelines({
             const controller = new AbortController(); extraction.current = controller;
             setError(""); void inferRules(instructions, controller);
           }}>{t("timeWorkspace.guidelineExtract")}</Button>}
-        <fieldset disabled={busy} className="grid gap-3">
-          <legend>{t("timeWorkspace.guidelineTimeRules")}</legend>
-          {(["minimumMinutes", "maxMinutes", "incrementMinutes"] as const).map(field => <label key={field}>
-            {t("timeWorkspace." + field)}
-            <Input type="number" min="1" max="1440" value={currentRules?.[field] ?? ""}
-              onChange={event => updateRule(field, event.currentTarget.value ? Number(event.currentTarget.value) : undefined)} />
-          </label>)}
-          <label>{t("back_office.billing.rounding")}
-            <TimeSelect label={t("back_office.billing.rounding")} value={currentRules?.rounding ?? ""} disabled={busy}
-              options={[{ id: "", name: t("timeWorkspace.guidelineInherited") },
-                ...(["choose", "up", "down", "nearest"] as const).map(id => ({ id, name: t(roundingKeys[id]) }))]}
-              onChange={value => updateRule("rounding", value || undefined)} />
-          </label>
-          <label>{t("timeWorkspace.guidelineEnforceIncrement")}
-            <TimeSelect label={t("timeWorkspace.guidelineEnforceIncrement")}
-              value={currentRules?.enforceIncrement === undefined ? "" : String(currentRules.enforceIncrement)} disabled={busy}
-              options={[{ id: "", name: t("timeWorkspace.guidelineInherited") }, { id: "true", name: t("timeWorkspace.guidelineYes") },
-                { id: "false", name: t("timeWorkspace.guidelineNo") }]}
-              onChange={value => updateRule("enforceIncrement", value === "" ? undefined : value === "true")} />
-          </label>
-        </fieldset>
+        <details className="time-guideline-rules" key={suggestions ? "extracted" : "manual"} open={suggestions ? true : undefined}>
+          <summary>{t("timeWorkspace.guidelineTimeRules")}</summary>
+          <fieldset disabled={busy} aria-label={t("timeWorkspace.guidelineTimeRules")}>
+            {(["minimumMinutes", "maxMinutes", "incrementMinutes"] as const).map(field => <label key={field}>
+              {t("timeWorkspace." + field)}
+              <Input type="number" min="1" max="1440" value={currentRules?.[field] ?? ""}
+                onChange={event => updateRule(field, event.currentTarget.value ? Number(event.currentTarget.value) : undefined)} />
+            </label>)}
+            <label>{t("back_office.billing.rounding")}
+              <TimeSelect label={t("back_office.billing.rounding")} value={currentRules?.rounding ?? ""} disabled={busy}
+                options={[{ id: "", name: t("timeWorkspace.guidelineInherited") },
+                  ...(["choose", "up", "down", "nearest"] as const).map(id => ({ id, name: t(roundingKeys[id]) }))]}
+                onChange={value => updateRule("rounding", value || undefined)} />
+            </label>
+            <label>{t("timeWorkspace.guidelineEnforceIncrement")}
+              <TimeSelect label={t("timeWorkspace.guidelineEnforceIncrement")}
+                value={currentRules?.enforceIncrement === undefined ? "" : String(currentRules.enforceIncrement)} disabled={busy}
+                options={[{ id: "", name: t("timeWorkspace.guidelineInherited") }, { id: "true", name: t("timeWorkspace.guidelineYes") },
+                  { id: "false", name: t("timeWorkspace.guidelineNo") }]}
+                onChange={value => updateRule("enforceIncrement", value === "" ? undefined : value === "true")} />
+            </label>
+          </fieldset>
+        </details>
         {suggestions && <div className="text-xs text-muted-foreground">
           <p>{t("timeWorkspace.guidelineReviewRules")}</p>
           {Object.entries(suggestions.evidence).map(([field, quote]) => <p key={field}><strong>{t("timeWorkspace." + field)}</strong>: {quote}</p>)}
@@ -418,15 +438,13 @@ export function TimeWorkspaceGuidelines({
           />
         </details>
         {error && <p role="alert">{error}</p>}
-        <Button
-          type="submit"
-          size="sm"
-          disabled={busy || instructions.length > maximumInstructions}
-        >
-          {t("timeWorkspace.guidelineSave")}
-        </Button>
-        <Button size="sm" type="button" variant="ghost" disabled={busy} onClick={() => { load(); setFormOpen(false); }}>{t("common.cancel")}</Button>
-      </form>}
+        <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+          <Button size="sm" type="button" variant="ghost" disabled={busy} onClick={() => { load(); setFormOpen(false); }}>{t("common.cancel")}</Button>
+          <Button type="submit" size="sm" disabled={busy || instructions.length > maximumInstructions}>
+            {t("timeWorkspace.guidelineSave")}
+          </Button>
+        </div>
+      </form></Surface>}
     </section>
   );
 }

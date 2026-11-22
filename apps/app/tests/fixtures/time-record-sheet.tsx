@@ -80,7 +80,7 @@ let rosterOffline = true;
 const createdRows = new Map<string, BackOfficeRecord>();
 const writeSchema = z.object({
   id: z.string(), revision: z.number(), values: z.record(z.string(), BackOfficeValueSchema), create: z.boolean().optional(),
-  timekeeperUserId: z.string().optional(), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
+  archived: z.boolean().optional(), timekeeperUserId: z.string().optional(), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
   privateProposal: z.object({ key: z.string(), digest: z.string(), profileId: z.string(), draftRevision: z.number().optional() }).optional(),
 });
 const writes: z.infer<typeof writeSchema>[] = [];
@@ -89,6 +89,8 @@ const client = createLegalworkServerClient({ baseUrl: "http://localhost" });
 client.backOffice = async (path, options) => {
   if (path === "/time-members" && rosterOffline) throw new Error("Roster unavailable");
   if (path === "/time-members") return { members: [{ userId: "worker", name: "Worker", email: null }, { userId: "other", name: "Other worker", email: null, canRecordTimeFor: canDelegate }] };
+  if (path.startsWith("?manifest=") && path.includes("archivedObject=timeEntries")) return directory;
+  if (path === "/records/timeEntries?archived=true") return { records: [...createdRows.values()].filter(record => record.archivedAt) };
   assert.equal(path, "/records");
   const write = writeSchema.parse(options?.body);
   writes.push(write);
@@ -103,7 +105,7 @@ client.backOffice = async (path, options) => {
   }
   const created = createdRows.get(write.id);
   if (created) {
-    const record = { ...created, revision: created.revision + 1, values: { ...created.values, ...write.values } };
+    const record = { ...created, revision: created.revision + 1, archivedAt: write.archived === undefined ? created.archivedAt : write.archived ? new Date().toISOString() : null, values: { ...created.values, ...write.values } };
     createdRows.set(write.id, record);
     return { record };
   }
@@ -119,12 +121,12 @@ const host = document.createElement("div");
 document.body.append(host);
 let root = createRoot(host);
 const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
-  proposals: [], drafts: {}, date: first, dates: [first], overlaps: new Set(), selectDate: () => {},
+  proposals: [], drafts: {}, date: first, dates: [first], selectDate: () => {},
   privateAvailable: false, act: async action => { privateActions.push(action); return true; }, openSource: () => {}, ...values,
 });
 const render = async (capture: TimeCaptureSheet, records = directory.records) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
-    <TimeRecordSheet client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture}
+    <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture}
       workspace={(entries, renderProposal) => <>{entries}<aside>{capture.proposals.map(proposal => {
         const details = renderProposal(proposal);
         return details && <div key={proposal.key} data-private-proposal={proposal.key}>{details}</div>;
@@ -176,11 +178,6 @@ function proposalDetails(id: string) {
   const details = host.querySelector<HTMLElement>('[data-private-proposal="' + id + '"]');
   assert.ok(details, "Missing private suggestion " + id);
   return details;
-}
-function selectField(root: HTMLElement, label: string) {
-  const element = [...root.querySelectorAll("label")].find(item => item.textContent?.startsWith(label))?.querySelector("select");
-  assert.ok(element, label);
-  return element;
 }
 async function chooseProposalOption(root: HTMLElement, label: string, choice: string, excluded?: string) {
   const trigger = root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="' + label + '"]');
@@ -236,29 +233,11 @@ try {
   assert.equal(visible(proposal.key), false);
   assert.equal(writes.length, 0);
   assert.ok(privateActions.some(action => action.type === "draft" && action.key === proposal.key && action.proposalDigest === proposal.digest));
-  await render({ ...active, overlaps: new Set([proposal.key]) });
-  assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).disabled);
   await render(active);
   await act(async () => button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).click());
-  assert.equal(writes.length, 0, "chargeable time needs a linked client");
-  async function chooseBillingClient(id: string, value: string) {
-    if (!visible(id)) {
-      const client = linkedClients.find(item => item.id === value);
-      assert.ok(client);
-      return chooseProposalOption(proposalDetails(id), t("timesheets.sheet.bill_to"), client.name, "Unrelated client");
-    }
-    const selector = selectField(row(id), t("timesheets.sheet.bill_to"));
-    assert.equal([...selector.options].some(option => option.value === unrelated), false);
-    await act(async () => {
-      selector.value = value;
-      selector.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
-  }
-  await chooseBillingClient(proposal.key, secondary);
-  assert.equal(writes.length, 0, "choosing a client does not accept a suggestion");
-  await act(async () => button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).click());
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].values.client, secondary);
+  assert.equal(writes.length, 1, "a suggestion on a multi-client matter can be booked immediately");
+  assert.equal(writes[0].values.client, null);
+  assert.equal(writes[0].values.billableMinutes, 15);
   assert.deepEqual(writes[0].privateProposal, { key: proposal.key, digest: proposal.digest, profileId: directory.captureProfileId });
   assert.equal(writes[0].values.billingNarrative, "Edited privately");
   assert.ok(visible(proposal.key));
@@ -344,16 +323,12 @@ try {
   assert.equal(writes[3].values.status, "Draft");
   assert.deepEqual(writes[3].values.hourlyRate, { amountMinor: 12000, currency: "EUR" });
   const unlinked = { ...proposal, key: crypto.randomUUID(), matterId: noClients };
-  const uncharged = { ...proposal, key: crypto.randomUUID() };
-  await render(capture({ proposals: [unlinked, uncharged], privateAvailable: true }), [workerContact, current]);
+  await render(capture({ proposals: [unlinked], privateAvailable: true }), [workerContact, current]);
+  assert.equal(proposalDetails(unlinked.key).querySelector('[aria-label="' + t("timesheets.sheet.bill_to") + '"]'), null);
   await act(async () => button(proposalDetails(unlinked.key), t("timesheets.sheet.accept")).click());
-  assert.equal(writes.length, 4);
-  assert.match(proposalDetails(unlinked.key).textContent ?? "", /Add a client to this matter/);
-  await editProposal(uncharged.key, 'input[data-field="billableMinutes"]', "0");
-  await act(async () => button(proposalDetails(uncharged.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 5);
   assert.equal(writes[4].values.client, null);
-  assert.equal(writes[4].values.billableMinutes, 0);
+  assert.equal(writes[4].values.billableMinutes, 15, "unlinked matters keep their chargeable time");
   const firstCell = host.querySelector<HTMLElement>('[role="gridcell"]');
   assert.ok(firstCell);
   const reverseTab = () => new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
@@ -376,7 +351,7 @@ try {
   const lastTab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => cell(finalRow, 6).dispatchEvent(lastTab));
   assert.equal(lastTab.defaultPrevented, false, "Tab at the last column leaves the grid");
-  // Editing a booked row must never send a chargeable matter change without its bill-to.
+  // Changing matter removes the prior recipient immediately and preserves other fields.
   await render(capture(), [workerContact, current]);
   const choose = async (column: number, label: string) => {
     await act(async () => cell(row(savedRow.id), column).click());
@@ -386,28 +361,21 @@ try {
   };
   const before = current;
   await choose(2, "Second matter");
-  assert.equal(writes.length, 5);
-  assert.match(row(savedRow.id).textContent ?? "", /Choose a billing client/);
-  const narrative = await enter(row(savedRow.id), 3, "Unrelated queued narrative");
-  await act(async () => narrative.blur());
-  assert.equal(writes.length, 5);
-  current = { ...current, revision: current.revision + 1, values: { ...current.values, privateNote: "Remote update" } };
-  await render(capture(), [workerContact, current]);
-  await chooseBillingClient(savedRow.id, secondary);
-  assert.equal(writes.length, 7);
+  assert.equal(writes.length, 6);
   assert.equal(writes[5].revision, before.revision);
   assert.deepEqual(writes[5].expectedValues, { matter, client: primary });
-  assert.deepEqual(writes[5].values, { matter: secondMatter, client: secondary });
-  assert.deepEqual(writes[6].values, { billingNarrative: "Unrelated queued narrative", name: "Unrelated queued narrative" });
+  assert.deepEqual(writes[5].values, { matter: secondMatter, client: null });
+  current = { ...current, revision: current.revision + 1, values: { ...current.values, privateNote: "Remote update" } };
+  await render(capture(), [workerContact, current]);
+  const narrative = await enter(row(savedRow.id), 3, "Edited with recipient deferred");
+  await act(async () => narrative.blur());
+  assert.equal(writes.length, 7);
+  assert.deepEqual(writes[6].values, { billingNarrative: "Edited with recipient deferred", name: "Edited with recipient deferred" });
   assert.equal(current.values.privateNote, "Remote update");
-
-  await chooseBillingClient(savedRow.id, "");
-  assert.equal(writes.length, 7, "clearing a billing client waits while the row has a positive charge");
   const zeroCharge = await enter(row(savedRow.id), 5, "0");
   await act(async () => zeroCharge.blur());
   assert.equal(writes.length, 8);
-  assert.deepEqual(writes[7].expectedValues, { client: secondary, billableMinutes: 15 });
-  assert.deepEqual(writes[7].values, { client: null, billableMinutes: 0 });
+  assert.deepEqual(writes[7].values, { billableMinutes: 0 });
   // A date edit keeps the draft on its originating day. Only the completed record belongs to the target day.
   let openedDate = "";
   const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
@@ -571,7 +539,7 @@ try {
   }); };
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
     <TimesheetWorkday client={client} directory={pendingDirectory} state={state} initialDate={first} onDateChange={() => {}}>
-      {(capture, workspace) => <TimeRecordSheet client={client} directory={pendingDirectory} state={state}
+      {(capture, workspace) => <TimeRecordSheet onSaveView={async view => view} client={client} directory={pendingDirectory} state={state}
         capture={capture} workspace={workspace} />}
     </TimesheetWorkday>
   </BackOfficeTheme></QueryClientProvider></MemoryRouter>));
@@ -616,6 +584,16 @@ try {
   assert.equal(writes.at(-1)?.values.endedAt, null);
   assert.equal(untimed.workedMinutes, null, "reviewed minutes do not rewrite the original source evidence");
 
+  const estimated = { ...untimed, startAt: null, endAt: null, key: crypto.randomUUID(), estimatedMinutes: 18 };
+  await render(capture({ proposals: [estimated], privateAvailable: true }));
+  assert.ok(proposalDetails(estimated.key).textContent?.includes(t("timeWorkspace.estimatedMinutes", { minutes: 18 })));
+  assert.equal(proposalDetails(estimated.key).querySelector<HTMLInputElement>('[data-field="recordedMinutes"]')?.value, "18");
+  await act(async () => button(proposalDetails(estimated.key), t("timesheets.sheet.accept")).click());
+  assert.equal(createdRows.get(estimated.key)?.values.recordedMinutes, 18);
+  assert.equal(createdRows.get(estimated.key)?.values.startedAt, first);
+  assert.equal(createdRows.get(estimated.key)?.values.endedAt, null);
+  assert.equal(estimated.workedMinutes, null);
+
   const retryable = { ...untimed, key: crypto.randomUUID(), workedMinutes: 17, chargeMinutes: 18 };
   await render(capture({ proposals: [retryable], privateAvailable: true }));
   rejectCreate = true;
@@ -638,6 +616,43 @@ try {
   await act(async () => button(proposalDetails(privateRetry.key), t("timesheets.retry")).click());
   assert.equal(writes.length, beforePrivateRetry, "retrying an edit must not accept the proposal");
   assert.equal(proposalDetails(privateRetry.key).querySelector('[role="alert"]'), null);
+  const archiveCandidate = { ...savedRow, id: crypto.randomUUID(), values: { ...savedRow.values, name: "Archive fixture", status: "Draft" } };
+  createdRows.set(archiveCandidate.id, archiveCandidate);
+  const menuItem = (name: string) => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(item => item.textContent?.trim() === name);
+    assert.ok(item, name);
+    return item;
+  };
+  const options = () => act(async () => button(host, t("back_office.options")).click());
+  await render(capture(), [workerContact, archiveCandidate]);
+  const hasField = (field: string) => Boolean(host.querySelector('[role="columnheader"][data-field="' + field + '"]'));
+  assert.equal(hasField("name"), false);
+  await options();
+  const fieldLabel = (id: string) => directory.model.objects.find(object => object.id === "timeEntries")!.fields.find(field => field.id === id)!.label;
+  await act(async () => menuItem(fieldLabel("name")).click());
+  assert.ok(hasField("name"), "an initially hidden Name column can be selected");
+  await act(async () => menuItem(t("back_office.show_archive")).click());
+  await render(capture(), [workerContact, archiveCandidate]);
+  assert.equal(visible(archiveCandidate.id), false, "the archive excludes active entries");
+  assert.equal(host.querySelector(".time-new-entry"), null);
+  await options();
+  await act(async () => menuItem(t("back_office.show_active_records")).click());
+  await act(async () => row(archiveCandidate.id).querySelector<HTMLElement>('[role="checkbox"],input[type="checkbox"]')!.click());
+  await act(async () => button(host, t("back_office.archive")).click());
+  assert.equal(writes.at(-1)?.archived, true);
+  await options();
+  await act(async () => menuItem(t("back_office.show_archive")).click());
+  await render(capture(), [workerContact]);
+  assert.ok(visible(archiveCandidate.id), "the archived time entry is available to restore");
+  assert.ok(!row(archiveCandidate.id).querySelector('[aria-label="' + t("timesheets.ledger.duplicate") + '"]'));
+  await act(async () => row(archiveCandidate.id).querySelector<HTMLElement>('[role="checkbox"],input[type="checkbox"]')!.click());
+  await act(async () => button(host, t("calendar.restore")).click());
+  assert.equal(writes.at(-1)?.archived, false);
+  assert.equal(writes.at(-1)?.revision, archiveCandidate.revision + 1);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await render(capture());
+  assert.ok(hasField("name"), "the default time-entry view retains its columns on remount");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

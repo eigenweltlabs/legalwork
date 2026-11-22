@@ -1,10 +1,9 @@
 import { activeCaptureProfile as profile, captureProfile, timekeepingPreset } from "./profile.js";
 export { captureProfile } from "./profile.js";
 import { timeActivities } from "../back-office/timesheet-schema.js";
-import { createEngineClient, workspaceEngineLocation } from "../engine-client.js";
-import { generateConnectedTimeText } from "./connected-model.js";
+import { connectedWorkdayModel, generateConnectedTimeText } from "./connected-model.js";
 import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
-import { localWorkdayModel, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
+import { desktopActivitySampleSchema, captureAccountEnabled, localWorkdayModel, type CaptureAccount, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
@@ -12,10 +11,10 @@ import { timeWorkspaces } from "../back-office/timesheet-data.js";
 import { changeStopwatch, createStopwatchReader, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
 import { renameSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { originalBillingComparison, proposalCommitment } from "./original.js";
+import { originalBillingComparison, originalCaptureProposal, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { z } from "zod";
 import {
   stopwatchActionSchema,
@@ -31,17 +30,22 @@ import {
 import { backOfficeAccess, backOfficeDirectoryIdentity } from "../back-office/access.js";
 import { nextOccurrence, wallTime } from "../scheduled-tasks/schedule.js";
 import { addDays, dayInZone, zonedInstant } from "../calendar/dates.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { globalCalendarOccurrences } from "../calendar/service.js";
 import { ApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { addRoute, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { documentEvidence, eligibleDocumentReference } from "./document-workday.js";
-import { claimsFor, claimsOverlap, digest, intervalsOverlap, workdayEvidence, workdayEvidenceSchema, type WorkdayEvidence } from "./private-workday.js";
+import { documentEvidence, eligibleDocumentReference, eligibleFileReference } from "./document-workday.js";
+import { claimsFor, claimsOverlap, digest, elapsedEvidence, workdayEvidence, workdayEvidenceSchema, type WorkdayEvidence } from "./private-workday.js";
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
 import { generateLocalTimeText, localModel, workdaySkill } from "./local-model.js";
 import { modelInput, proposedWorkdayCharge, remainingEvidence } from "./reconstruct-workday.js";
 import { acceptedDocumentEntry, captureMatter, draftRules, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
+import { readFileHistory, fileHistoryInput, importFileHistory } from "./desktop-file-history.js";
+import { recordingEvidence, recordingInput } from "./meeting-recording.js";
+import { readDesktopEvidence, recordDesktopSample, resetDesktopSampling, resolveDesktopForeground } from "./desktop-activity.js";
+import { saveWorkdayLog } from "./day-log.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
 import { extractGuidelineRules } from "./guideline-rules.js";
@@ -54,6 +58,7 @@ const savedSchema = z.object({
   settingsPatched: z.boolean().default(false),
   lastRun: z.number(),
   lastScheduledSlot: z.number().default(0),
+  connectionNames: z.record(z.string(), z.string().max(320)).default({}),
   checkedThrough: z.record(z.iso.date(), z.iso.datetime()).default({}),
   days: z.record(z.iso.date(), z.array(workdayEvidenceSchema)),
   reconstruction: z.record(z.iso.date(), z.object({ key: z.string(), status: workdayStatusSchema })).default({}),
@@ -66,6 +71,11 @@ const savedSchema = z.object({
   fileProducts: z.record(z.string(), z.record(z.string(), z.string())).default({}),
   pendingBookings: z.record(z.uuid(), z.boolean()).default({}),
   bookingRequests: z.record(z.uuid(), z.string()).default({}),
+  fileHistoryRevision: z.record(z.iso.date(), z.string()).default({}),
+  recordings: z.record(z.iso.date(), z.record(z.string(), workdayEvidenceSchema)).default({}),
+  recordingEpoch: z.number().int().nonnegative().default(0),
+  desktopHistoryEpoch: z.number().int().nonnegative().default(0),
+  personalDriveEpoch: z.number().int().nonnegative().default(0),
   documentEpoch: z.number().int().nonnegative().default(0),
   documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)).default({}),
   originals: z.record(z.string(), captureProposalSchema).default({}),
@@ -82,6 +92,7 @@ const defaults = (): Saved => ({
   settingsPatched: false,
   lastRun: 0,
   lastScheduledSlot: 0,
+  connectionNames: {},
   checkedThrough: {},
   days: {},
   reconstruction: {},
@@ -99,6 +110,11 @@ const defaults = (): Saved => ({
   reconciled: {},
   documentSaves: {},
   documentEpoch: 0,
+  personalDriveEpoch: 0,
+  fileHistoryRevision: {},
+  desktopHistoryEpoch: 0,
+  recordings: {},
+  recordingEpoch: 0,
 });
 async function load(path: string): Promise<Saved> {
   try {
@@ -110,6 +126,12 @@ async function load(path: string): Promise<Saved> {
 }
 export async function readCaptureSettings(path: string) {
   return (await load(path)).settings;
+}
+export async function personalDriveConsent(config: ServerConfig, account: CaptureAccount) {
+  const owner = await profile(config);
+  const saved = await load(owner.path);
+  if (saved.settings.enabled === false || !captureAccountEnabled(saved.settings, account)) throw new ApiError(409, "private_workday_changed", "The personal drive source changed.");
+  return { path: owner.path, epoch: saved.personalDriveEpoch };
 }
 export async function readCaptureGuidelines(path: string) {
   return Object.values((await load(path)).guidelines).flat();
@@ -135,18 +157,15 @@ const loopback = (config: ServerConfig) =>
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host);
 // A save can span a prompt or an account change. Capture only when the same
 // local profile has consent both before the save and after it succeeds.
-export async function beginDocumentCapture(
+async function beginDocumentObservation(
   config: ServerConfig,
   ctx: { actor?: { type: string }; agentAccess?: unknown },
-  projectId: string,
-  reference: string,
 ) {
   if (
     config.readOnly ||
     !loopback(config) ||
     ctx.agentAccess ||
-    ctx.actor?.type !== "host" ||
-    !eligibleDocumentReference(reference)
+    ctx.actor?.type !== "host"
   )
     return;
   try {
@@ -154,16 +173,14 @@ export async function beginDocumentCapture(
     const { path } = owner;
     const snapshot = await load(path);
     if (snapshot.settings.enabled === false || !snapshot.settings.documents) return;
-    return async (before: CaptureFileIdentity | null, after: CaptureFileIdentity) => {
+    return async (observation: (owner: Awaited<ReturnType<typeof profile>>) => Promise<ReturnType<typeof documentEvidence>>) => {
       try {
         await withFileWriteLock(path, async () => {
           if ((await profile(config)).path !== path) return;
           const current = await load(path);
           if (current.settings.enabled === false || !current.settings.documents || current.documentEpoch !== snapshot.documentEpoch) return;
-          const documentId = await localCaptureDocumentId(config, owner, projectId, before, after);
-          if (!documentId || (await profile(config)).path !== path) return;
-          const evidence = documentEvidence(projectId, reference, !before, new Date(), documentId);
-          if (!evidence) return;
+          const evidence = await observation(owner);
+          if (!evidence || (await profile(config)).path !== path) return;
           const records = (current.documentSaves[evidence.proposal.date] ??= {});
           if (Object.hasOwn(records, evidence.eventKey)) return;
           records[evidence.eventKey] = evidence.proposal;
@@ -176,6 +193,29 @@ export async function beginDocumentCapture(
   } catch {
     return;
   }
+}
+
+export async function beginDocumentCapture(
+  config: ServerConfig, ctx: { actor?: { type: string }; agentAccess?: unknown }, projectId: string, reference: string,
+) {
+  if (!eligibleDocumentReference(reference)) return;
+  const record = await beginDocumentObservation(config, ctx);
+  if (record) return (before: CaptureFileIdentity | null, after: CaptureFileIdentity) =>
+    record(async owner => {
+      const id = await localCaptureDocumentId(config, owner, projectId, before, after);
+      return id ? documentEvidence(projectId, reference, !before, new Date(), id) : undefined;
+    });
+}
+
+/** Use only at a successful explicit host action. Reading, syncing, aborted writes and agent actions do not qualify. */
+export async function beginFileAction(
+  config: ServerConfig, ctx: { actor?: { type: string }; agentAccess?: unknown }, projectId: string,
+  reference: string, scope: string, action: "Attached" | "Imported" | "Copied" | "Uploaded" | "Saved",
+) {
+  if (!eligibleFileReference(reference)) return;
+  const record = await beginDocumentObservation(config, ctx);
+  if (record) return () => record(async () => documentEvidence(projectId, reference, false, new Date(),
+    digest([projectId, scope, reference]), action));
 }
 /** Resolve only the worker-approved billing fields from this device's accepted private originals. */
 
@@ -327,18 +367,11 @@ function overlapsEvidence(a: WorkdayEvidence, b: WorkdayEvidence) {
   return claimsFor(a).some(claim => claimsFor(b).some(other => claimsOverlap(claim, other)));
 }
 
-function clocks(item: WorkdayEvidence) {
-  const { startAt, endAt, workedMinutes } = item.proposal;
-  if (startAt && endAt) return [{ from: Date.parse(startAt), to: Date.parse(endAt) }];
-  if (!item.generated || workedMinutes === null) return [];
-  return claimsFor(item).flatMap(claim => claim.from !== null && claim.to !== null ? [{ from: claim.from, to: claim.to }] : []);
-}
-
 function requireUnbooked(saved: Saved, item: WorkdayEvidence) {
-  const isBooked = (other: WorkdayEvidence) => other.proposal.key !== item.proposal.key && !!saved.accepted[other.proposal.key];
-  if ((saved.days[item.proposal.date] ?? []).some(other => isBooked(other) &&
-    (overlapsEvidence(item, other) || clocks(item).some(a => clocks(other).some(b => intervalsOverlap(a, b))))))
-    throw new ApiError(409, "private_already_booked", "The source or time overlaps a suggestion already booked or being saved.");
+  const conflict = (saved.days[item.proposal.date] ?? []).some(other =>
+    other.proposal.key !== item.proposal.key && saved.accepted[other.proposal.key] && overlapsEvidence(item, other));
+  if (conflict)
+    throw new ApiError(409, "private_already_booked", "This source was already used for a saved time entry.");
 }
 
 type Profile = Awaited<ReturnType<typeof profile>>;
@@ -376,11 +409,21 @@ function applyProposals(saved: Saved, date: string, proposed: WorkdayEvidence[])
   saved.days[date] = [...next, ...locked, ...timers];
 }
 
+/** Retain both feeds in the local log but give inference one occurrence, preferring the LegalWork calendar's project link. */
+function uniqueOccurrences(observations: WorkdayEvidence[]) {
+  const seen = new Map<string, WorkdayEvidence>();
+  for (const observation of observations) {
+    const previous = seen.get(observation.eventKey);
+    if (!previous || observation.proposal.source === "calendar" || observation.proposal.mailDirection === "sent") seen.set(observation.eventKey, observation);
+  }
+  return [...seen.values()];
+}
+
 function rawProposals(evidence: WorkdayEvidence[]) {
   const group = new Map<string, WorkdayEvidence>();
   for (const item of evidence) {
     const p = item.proposal;
-    if (p.source === "agent" || p.source === "workspace") continue;
+    if (p.source === "agent" || p.source === "workspace" || p.source === "desktop" || p.mailDirection === "received") continue;
     if (p.source !== "documents" || !p.documentId) { group.set(item.eventKey, item); continue; }
     const eventKey = digest(["document-day", p.date, p.documentId]);
     const previous = group.get(eventKey);
@@ -391,27 +434,36 @@ function rawProposals(evidence: WorkdayEvidence[]) {
 }
 
 async function modelChoice(config: ServerConfig, owner: Profile, profile: Pick<Saved, "settings" | "lastModel">,
-  workspaces: WorkspaceInfo[], signal: AbortSignal, requested?: WorkdayModel): Promise<WorkdayModel> {
+  workspaces: WorkspaceInfo[], signal: AbortSignal, requested?: WorkdayModel, passive = false): Promise<WorkdayModel> {
   const { settings, lastModel } = profile;
-  // A stale window cannot override an explicitly saved composer selection.
-  if (settings.model) {
-    const { workspaceId, providerID, modelID } = settings.model;
-    return { workspaceId: workspaceId ?? workspaces[0]?.id ?? "local", providerID, modelID };
+  const explicit = settings.model ?? requested;
+  if (explicit && localChoice(explicit)) return localWorkdayModel;
+  // Older empty-day runs could record llama.cpp as their last model despite
+  // never using it. Only a current user preference may pin an unavailable runtime.
+  if (!explicit && lastModel && localChoice(lastModel) && await localModel()) return localWorkdayModel;
+  const choices = [settings.model, requested, lastModel].filter(choice => !!choice).filter(choice =>
+    !localChoice(choice) && (!explicit || choice.providerID === explicit.providerID));
+  const privateProject = workspaces.find(item => item.preset === timekeepingPreset(owner.profileId));
+  if (explicit) {
+    // The same provider ID can refer to different private endpoints in two
+    // projects. Only a new composer choice authorizes re-binding a saved one.
+    const id = explicit.workspaceId ?? (lastModel?.providerID === explicit.providerID ? lastModel.workspaceId : undefined);
+    const workspace = id ? workspaces.find(item => item.id === id)
+      : privateProject ?? (workspaces.length === 1 ? workspaces[0] : undefined);
+    if (!workspace) return localWorkdayModel;
+    return await connectedWorkdayModel(config, [workspace], choices, signal, passive, explicit.providerID) ?? localWorkdayModel;
   }
-  if (requested) return requested;
-  if (lastModel) return lastModel;
-  const workspace = workspaces.find(item => item.preset === timekeepingPreset(owner.profileId))
-    ?? workspaces.find(item => item.preset === "main-assistant");
-  if (workspace) {
-    try {
-      const selected = await createEngineClient(config, workspace).model.default({ location: workspaceEngineLocation(workspace) }, { signal });
-      if (selected.data && selected.data.enabled !== false)
-        return { workspaceId: workspace.id, providerID: selected.data.providerID, modelID: selected.data.id };
-    } catch { signal.throwIfAborted(); }
-  }
-  return localWorkdayModel;
+  const candidates = [
+    privateProject,
+    ...choices.map(choice => workspaces.find(item => item.id === choice.workspaceId)),
+  ].filter(workspace => !!workspace);
+  const assistant = workspaces.find(item => item.preset === "main-assistant");
+  const initialProject = !candidates.length && workspaces.find(item => item !== assistant);
+  if (assistant) candidates.push(assistant);
+  if (initialProject) candidates.push(initialProject);
+  return await connectedWorkdayModel(config, [...new Set(candidates)], choices, signal, passive) ?? localWorkdayModel;
 }
-function localChoice(choice: WorkdayModel) {
+function localChoice(choice: Pick<WorkdayModel, "providerID" | "modelID">) {
   return choice.providerID === localWorkdayModel.providerID && choice.modelID === localWorkdayModel.modelID;
 }
 
@@ -453,38 +505,49 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
     const settings = initial.settings;
     const withModel = action.type !== "calendar";
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const choice = withModel ? await modelChoice(config, owner, initial, workspaces, signal, "model" in action ? action.model : undefined) : localWorkdayModel;
-    const runtime = withModel && localChoice(choice) ? await localModel() : null;
+    let choice = localWorkdayModel;
+    if (withModel && date > dayInZone(new Date(started).toISOString(), zone))
+      throw new ApiError(400, "future_workday", "Choose today or an earlier date to generate suggestions.");
     const workspacesById = new Set(workspaces.map(workspace => workspace.id));
+    const account = settings.calendar ? (await readEigenweltConnection(config)).account : null;
     const events = settings.calendar
-      ? await globalCalendarOccurrences(config, addDays(date, -1), addDays(date, 2), workspaces, { calendar: true, tasks: false })
+      ? await globalCalendarOccurrences(config, addDays(date, -1), addDays(date, 2), workspaces, { calendar: true, tasks: false,
+        worker: { userId: owner.captureUser, email: account?.userId === owner.captureUser ? account.userEmail : null } })
       : [];
     let sourceFailure = false;
-    const imported = await readConnected(config, settings, date, signal).catch(error => {
+    const failedAccounts: (CaptureAccount & { reason: string })[] = [];
+    const names: Record<string, string> = {};
+    const scannedAccounts: CaptureAccount[] = [];
+    const imported = await readConnected(config, settings, date, signal, {
+      onFailed: ({ provider, account }, reason) => { failedAccounts.push({ provider, account, reason }); },
+      onName: ({ account }, name) => { names[account] = name; },
+      onRead: ({ provider, account }) => { scannedAccounts.push({ provider, account }); },
+    }).catch(error => {
       if (!withModel || signal.aborted) throw error;
       sourceFailure = true;
       return [];
     });
-    const byEvidence = new Map<string, WorkdayEvidence>();
-    // Prefer a project-linked local event when the same occurrence appears in both feeds.
-    for (const item of [
-      ...imported, ...workdayEvidence(events, date, settings, owner.captureUser, zone),
+    const evidence = [...imported, ...workdayEvidence(events, date, settings, owner.captureUser, zone),
       ...await readActivityEvidence(config, owner, date, zone),
-    ]) {
-      if (item.proposal.projectId && !workspacesById.has(item.proposal.projectId)) continue;
-      byEvidence.set(item.eventKey, item);
-    }
+      ...(settings.desktopActivity ? await readDesktopEvidence(owner, date, zone) : []),
+      ...(settings.desktopActivity ? await readFileHistory(owner.path, date) : [])];
+    if (settings.recordings) evidence.push(...Object.values(initial.recordings[date] ?? {}));
     if (settings.documents)
-      for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {}))
-        if (!proposal.projectId || workspacesById.has(proposal.projectId)) byEvidence.set(eventKey, { eventKey, proposal });
-    if (withModel && settings.stopwatchMode === "evidence")
-      for (const item of initial.days[date] ?? [])
-        if (!item.generated && item.proposal.source === "stopwatch" && !protectedProposal(initial, item) &&
-            (!item.proposal.projectId || workspacesById.has(item.proposal.projectId))) byEvidence.set(item.eventKey, item);
-    const evidence = [...byEvidence.values()].sort((a, b) => a.eventKey.localeCompare(b.eventKey));
-    const inputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts]);
+      for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {})) evidence.push({ eventKey, proposal });
+    if (withModel) {
+      for (const item of initial.days[date] ?? []) {
+        if (item.generated || item.proposal.source !== "stopwatch") continue;
+        const proposal = originalCaptureProposal(item.proposal, item.proposal.digest, initial.originals);
+        evidence.push({ eventKey: item.eventKey, proposal });
+      }
+    }
+    const from = (item: WorkdayEvidence) => item.proposal.startAt ?? item.proposal.observedAt ?? "";
+    const eligible = evidence.filter(item => !item.proposal.projectId || workspacesById.has(item.proposal.projectId))
+      .sort((a, b) => from(a).localeCompare(from(b)) || a.eventKey.localeCompare(b.eventKey));
+    const inputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts, s.fileHistoryRevision[date], s.settings.recordings ? Object.keys(s.recordings[date] ?? {}) : []]);
     const revision = inputs(initial);
     let key = "";
+    let usedModel = false;
     const verify = async () => {
       signal.throwIfAborted();
       await verifyProfile();
@@ -497,56 +560,84 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         const current = await load(path);
         await verifyProfile();
         if (inputs(current) !== revision) return;
+        Object.assign(current.connectionNames, names);
+        if (failedAccounts.length) {
+          if (proposals) {
+            const currentProposals = proposals;
+            // Keep pending drafts from unavailable feeds until those feeds can confirm replacement or removal.
+            const retained = (current.days[date] ?? []).filter(row => !protectedProposal(current, row) &&
+              claimsFor(row).some(claim => failedAccounts.some(account => account.provider === claim.source && account.account === claim.account)) &&
+              !currentProposals.some(next => overlapsEvidence(next, row)));
+            proposals = [...proposals, ...retained];
+          }
+          const failedSources = failedAccounts.map(({ provider, account }) => ({ provider, account, name: current.connectionNames[account] }));
+          const labels = failedSources.map(item => item.provider + (item.name ? " (" + item.name + ")" : ""));
+          const failedModel = status.type !== "ready" ? " " + status.message : "";
+          status = { type: "failed", failedSources, message: "Could not check " + labels.join(", ") + ". Retry to complete this day." + failedModel };
+        }
         if (proposals) applyProposals(current, date, proposals);
         current.lastRun = now();
         if (scheduledSlot !== undefined) current.lastScheduledSlot = scheduledSlot;
         if (status.type === "ready" && withModel)
           current.checkedThrough[date] = new Date(started).toISOString();
         current.reconstruction[date] = { key, status };
-        if (key && withModel) {
+        if (key && withModel && !failedAccounts.length) {
           const { [key]: previous, ...cache } = current.reconstructionCache[date] ?? {};
           current.reconstructionCache[date] = Object.fromEntries([
             ...Object.entries(cache).slice(-11), [key, { status, proposals: proposals ?? previous?.proposals }],
           ]);
-          if (status.type === "ready") current.lastModel = choice;
+          if (status.type === "ready" && usedModel) current.lastModel = choice;
         }
         await save(path, current);
       });
     };
-    if (!withModel) {
-      const raw = rawProposals(evidence);
-      await commit({ type: "ready", message: "Activity sources refreshed." }, raw);
-      return;
-    }
     if (sourceFailure) {
       await commit({ type: "failed", message: "A selected activity source could not be read. Check its connection and retry." });
       return;
     }
+    if (!withModel) {
+      const raw = rawProposals(uniqueOccurrences(eligible));
+      await commit({ type: "ready", message: "Activity sources refreshed." }, raw);
+      return;
+    }
+    // Save new observations before inference. A failed feed preserves its own prior observations.
+    const observed = await withFileWriteLock(path, async () => {
+      await verify();
+      return saveWorkdayLog(path, date, zone, new Date(started).toISOString(), eligible, failedAccounts, scannedAccounts);
+    });
     try {
+      choice = await modelChoice(config, owner, initial, workspaces, signal, "model" in action ? action.model : undefined);
+      const runtime = localChoice(choice) ? await localModel() : null;
       const skill = await workdaySkill(workspaces.find(item => item.preset === timekeepingPreset(owner.profileId)));
-      const all = modelEvidence(evidence, await context(), Object.values(initial.guidelines).flat(),
+      const elapsed = resolveDesktopForeground(elapsedEvidence(uniqueOccurrences(observed), date, zone, started));
+      // Delivery alone establishes no human action. Give the model inbound context only for a thread the worker replied to.
+      const sentThreads = new Set(elapsed.filter(row => row.proposal.mailDirection === "sent").map(row => row.proposal.threadKey));
+      const actionable = elapsed.filter(({ proposal }) =>
+        (proposal.source !== "stopwatch" || settings.stopwatchMode === "evidence") &&
+        (proposal.mailDirection !== "received" || !!proposal.threadKey && sentThreads.has(proposal.threadKey)));
+      const all = modelEvidence(actionable, await context(), Object.values(initial.guidelines).flat(),
         date, initial.fileProducts);
       const transcript = action.revisionRequest ? [action.revisionRequest] : [];
-      key = digest(["workday-reconstruction-v3", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
+      key = digest(["workday-reconstruction-v5", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
-      if (cached?.status.type === "ready") {
+      if (!failedAccounts.length && cached?.status.type === "ready") {
         // Identical sources reuse proposals, but the schedule still completed a source check.
         await commit(cached.status, initial.reconstruction[date]?.key === key ? undefined : cached.proposals);
         return;
       }
-      if (localChoice(choice) && !runtime) {
+      const excluded = (initial.days[date] ?? []).filter(item => protectedProposal(initial, item));
+      const remaining = remainingEvidence(all, excluded);
+      if (remaining.length && localChoice(choice) && !runtime) {
         await commit({ type: "unavailable", message: "Choose an available model to prepare workday suggestions." });
         return;
       }
-      const excluded = (initial.days[date] ?? []).filter(item => protectedProposal(initial, item));
-      const remaining = remainingEvidence(all, excluded);
       const currentDraft = action.revisionRequest ? (initial.days[date] ?? []).flatMap(item => {
         if (protectedProposal(initial, item)) return [];
         const evidenceIds = remaining.filter(ref => overlapsEvidence(ref.item, item)).map(ref => ref.item.eventKey);
         if (!evidenceIds.length) return [];
-        const { key, matterId, projectId, documentId, activity, startAt, endAt, workedMinutes } = item.proposal;
-        return [{ key, evidenceIds, matterId, projectId, documentId, activity, startAt, endAt, workedMinutes }];
+        const { key, matterId, projectId, documentId, activity, startAt, endAt, workedMinutes, estimatedMinutes, estimateReason } = item.proposal;
+        return [{ key, evidenceIds, matterId, projectId, documentId, activity, startAt, endAt, workedMinutes, estimatedMinutes, estimateReason }];
       }) : undefined;
       const workspace = remaining.length && !runtime
         ? resolveWorkspace ? await resolveWorkspace(config, choice.workspaceId) : workspaces.find(entry => entry.id === choice.workspaceId)
@@ -556,6 +647,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       const proposals = await generateStructuredWorkday({ skill, evidence: remaining, date, zone, transcript, currentDraft,
         generate: async prompt => {
           await verify();
+          usedModel = true;
           if (runtime) return generateLocalTimeText(runtime, prompt, signal);
           if (!workspace) throw new ApiError(409, "timesheet_model_unavailable", "Choose an available model.");
           return generateConnectedTimeText(config, workspace, choice, prompt, verify, signal);
@@ -642,6 +734,68 @@ export function registerWorkdayRoutes(options: {
 }) {
   const { routes, config } = options;
   const readStopwatch = createStopwatchReader();
+  for (const method of ["GET", "POST"]) addRoute(routes, method, "/private-timesheet/meeting-recording", "host-token", async ctx => {
+    if (!loopback(config) || ctx.agentAccess) throw new ApiError(403, "private_activity", "Open your local desktop.");
+    const owner = await profile(config);
+    const input = method === "POST" ? recordingInput.safeParse(await options.readJsonBodyLimited(ctx.request, 4096)) : undefined;
+    if (input && !input.success) throw new ApiError(400, "invalid_recording", "Invalid recording times or title.");
+    return withFileWriteLock(owner.path, async () => {
+      const saved = await load(owner.path);
+      const enabled = saved.settings.enabled !== false && saved.settings.recordings === true;
+      const consent = { profileId: owner.profileId, enabled, epoch: saved.recordingEpoch };
+      if ((await profile(config)).path !== owner.path) throw new ApiError(409, "private_workday_changed", "The active account changed.");
+      if (!input) return options.jsonResponse(consent);
+      options.ensureWritable(config);
+      if (!enabled || input.data.profileId !== consent.profileId || input.data.epoch !== consent.epoch)
+        throw new ApiError(409, "private_workday_changed", "Meeting recording consent changed.");
+      const row = input.data;
+      const projectId = row.projectId && (await workdayWorkspaces(config)).some(project => project.id === row.projectId) ? row.projectId : null;
+      let added = 0;
+      for (const item of recordingEvidence({ ...row, projectId }, Intl.DateTimeFormat().resolvedOptions().timeZone)) {
+        const date = item.proposal.date;
+        const items = saved.recordings[date] ??= {};
+        if (items[item.eventKey]) continue;
+        items[item.eventKey] = item;
+        delete saved.checkedThrough[date];
+        added++;
+      }
+      if (added) await save(owner.path, saved);
+      return options.jsonResponse({ added });
+    });
+  });
+  for (const method of ["GET", "POST"]) addRoute(routes, method, "/private-timesheet/desktop-history", "host-token", async ctx => {
+    if (!loopback(config) || ctx.agentAccess) throw new ApiError(403, "private_activity", "Open your local desktop.");
+    const owner = await profile(config);
+    if (owner.profileId !== ctx.url.searchParams.get("profileId")) throw new ApiError(409, "private_workday_changed", "The active account changed.");
+    return withFileWriteLock(owner.path, async () => {
+      const saved = await load(owner.path);
+      if (saved.settings.enabled === false || !saved.settings.desktopActivity) throw new ApiError(403, "desktop_activity_disabled", "Turn on desktop activity in Time tracking.");
+      if ((await profile(config)).path !== owner.path) throw new ApiError(409, "private_workday_changed", "The active account changed.");
+      if (method === "GET") return options.jsonResponse({ epoch: saved.desktopHistoryEpoch });
+      options.ensureWritable(config);
+      const input = fileHistoryInput.safeParse(await options.readJsonBodyLimited(ctx.request, 256_000));
+      if (!input.success) throw new ApiError(400, "invalid_desktop_history", "Invalid file-use records.");
+      if (input.data.epoch !== saved.desktopHistoryEpoch) throw new ApiError(409, "private_workday_changed", "Desktop activity settings changed.");
+      const { imported, revision } = await importFileHistory(owner.path, input.data, Intl.DateTimeFormat().resolvedOptions().timeZone);
+      if (revision && revision !== saved.fileHistoryRevision[input.data.date]) {
+        saved.fileHistoryRevision[input.data.date] = revision;
+        delete saved.checkedThrough[input.data.date];
+        await save(owner.path, saved);
+      }
+      return options.jsonResponse({ imported });
+    });
+  });
+  addRoute(routes, "POST", "/private-timesheet/desktop-activity", "host-token", async ctx => {
+    if (!loopback(config) || ctx.agentAccess) throw new ApiError(403, "private_activity", "Open your local desktop.");
+    options.ensureWritable(config);
+    const owner = await profile(config);
+    if ((["profileId", "scope", "principal", "user"] as const).some(field => ctx.url.searchParams.get(field) !== owner[field]))
+      throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+    const sample = desktopActivitySampleSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 4096));
+    if (!sample.success) throw new ApiError(400, "invalid_desktop_sample", "Invalid desktop activity sample.");
+    if (!ctx.request.signal.aborted) await recordDesktopSample(config, owner, sample.data);
+    return options.jsonResponse({ ok: true });
+  });
   addRoute(routes, "POST", "/workspace/:id/timekeeping/workday", "client", async ctx => {
     const owner = await profile(config);
     const workspace = config.workspaces.find(item => item.id === ctx.params.id);
@@ -666,7 +820,7 @@ export function registerWorkdayRoutes(options: {
       throw new ApiError(409, "private_workday_changed", "The active timekeeping profile changed.");
     return options.jsonResponse({ date: input.date, status: saved.reconstruction[input.date]?.status, suggestions: rows.map(({ proposal }) => ({
       key: proposal.key, matterId: proposal.matterId, narrative: proposal.narrative, activity: proposal.activity,
-      startAt: proposal.startAt, endAt: proposal.endAt, recordedMinutes: proposal.workedMinutes, billableMinutes: proposal.chargeMinutes,
+      startAt: proposal.startAt, endAt: proposal.endAt, recordedMinutes: proposal.workedMinutes, estimatedMinutes: proposal.estimatedMinutes, estimateReason: proposal.estimateReason, billableMinutes: proposal.chargeMinutes,
     })) });
   });
   for (const method of ["GET", "POST"])
@@ -831,8 +985,15 @@ export function registerWorkdayRoutes(options: {
                 throw new ApiError(409, "private_workday_changed", "Reopen the settings before changing activity sources.");
               if (digest(s.settings) !== digest(next))
                 for (const job of workdaysRunning.get(path)?.values() ?? []) job.controller.abort();
+              if ((next.enabled !== false && Boolean(next.recordings)) !== (s.settings.enabled !== false && Boolean(s.settings.recordings)))
+                s.recordingEpoch = Math.max(Date.now(), s.recordingEpoch + 1);
+              if (next.enabled !== s.settings.enabled || next.desktopActivity !== s.settings.desktopActivity) { resetDesktopSampling(config); s.desktopHistoryEpoch++; }
               const evidenceSettings = ({ schedule, enabled, intervalMinutes, ...sources }: Saved["settings"]) => digest(sources);
               if (evidenceSettings(next) !== evidenceSettings(s.settings)) s.checkedThrough = {};
+              const personalAccounts = (settings: Saved["settings"]) => (settings.connections ?? settings.fileConnections ?? [])
+                .filter(account => account.provider === "onedrive-personal").map(account => account.account).sort();
+              if (s.settings.enabled !== next.enabled || digest(personalAccounts(s.settings)) !== digest(personalAccounts(next)))
+                s.personalDriveEpoch++;
               if (Boolean(s.settings.documents) !== Boolean(next.documents) || s.settings.enabled !== next.enabled)
                 s.documentEpoch++;
               if (digest([s.settings.model]) !== digest([next.model])) s.reconstruction = {};
@@ -941,17 +1102,17 @@ export function registerWorkdayRoutes(options: {
           });
       }
       const s = await load(path);
-      const connections = (await connectedWorkdayAccounts(config)).map(({ provider, account }) => ({
-        provider,
-        account,
+      const connections = (await connectedWorkdayAccounts(config, true)).map(({ provider, account, id }) => ({
+        provider, account, name: s.connectionNames[account] ?? (z.email().safeParse(id).success ? id : account.slice(0, 8)),
       }));
       const status = s.reconstruction[date]?.status;
       const proposals = await visibleProposals(config, s, date, connections, sourcePreview);
+      const available = s.settings.enabled !== false && await modelChoice(config, owner, s, await workdayWorkspaces(config), ctx.request.signal, undefined, true);
       const result = options.jsonResponse({
         settings: s.settings,
         drafts: Object.fromEntries(Object.entries(s.drafts).filter(([, draft]) => draft.date === date)),
         connections,
-        modelReady: Boolean(await localModel()),
+        modelReady: Boolean(available && (!localChoice(available) || await localModel())),
         guidelines: Object.values(s.guidelines).flatMap(versions => versions.slice(-1)),
         status,
         checkedThrough: s.checkedThrough[date],

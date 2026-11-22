@@ -37,7 +37,7 @@ const productReference = z.string().trim().max(1000);
 export const TimeDraftSchema = z.strictObject({
   date,
   matterId: id,
-  clientId: z.string().max(200),
+  clientId: z.string().max(200).default(""),
   startAt: z.iso.datetime({ offset: true }).optional(),
   endAt: z.iso.datetime({ offset: true }).optional(),
   projectId: id.optional(),
@@ -52,6 +52,13 @@ export const TimeDraftSchema = z.strictObject({
   workProductTitle: z.string().trim().min(1).max(240).optional(),
 });
 export type TimeDraft = z.infer<typeof TimeDraftSchema>;
+
+/** A shared matter can be recorded before a billing recipient is chosen. */
+export function soleMatterClient(matter: { clientIds: readonly string[] } | undefined, clients: readonly { id: string }[]) {
+  if (matter?.clientIds.length !== 1) return "";
+  const [id] = matter.clientIds;
+  return clients.some(client => client.id === id) ? id : "";
+}
 // Strip the review, pricing and workflow fields on a creation snapshot before returning it to its author.
 export const DelegatedTimeEntrySchema = z.object({
   ...TimeDraftSchema.omit({ createWorkProduct: true }).shape,
@@ -635,6 +642,7 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     approve: z.boolean(),
   }),
   z.strictObject({ type: z.literal("policy"), policy: TimePolicySchema }),
+  z.strictObject({ type: z.literal("assignBillingClient"), ...ref.shape, clientId: id }),
   z.strictObject({ type: z.literal("prepareInvoice"), draft: InvoiceDraftInputSchema }),
   z.strictObject({ type: z.literal("reviewInvoiceWording"), id: z.uuid(), revision: digest,
     model: z.strictObject({ workspaceId: id, providerID: id, modelID: z.string().trim().min(1).max(300) }),
@@ -688,6 +696,7 @@ export const TimesheetStateSchema = z.object({
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
   supportsInvoiceDrafts: z.boolean().optional(),
+  supportsBillingClientAssignment: z.boolean().optional(),
   supportsHourlyInvoiceCurrency: z.boolean().optional(),
   supportsInvoiceWordingReview: z.boolean().optional(),
   invoiceDraft: TimeInvoiceDraftSchema.optional(),
