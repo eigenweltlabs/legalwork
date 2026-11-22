@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { offsetDate, periodLabels, timePeriods, weekDates, type TimePeriod, type TimeTotals } from "./timesheet-row";
@@ -5,8 +6,8 @@ import { offsetDate, periodLabels, timePeriods, weekDates, type TimePeriod, type
 export function TimesheetPeriodSwitch({ period, onChange }: { period: TimePeriod; onChange: (period: TimePeriod) => void }) {
   return (
     <div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
-      {timePeriods.map(value => <button key={value} type="button" aria-pressed={period === value}
-        onClick={() => onChange(value)}>{t(periodLabels[value])}</button>)}
+      {timePeriods.map(value => <Button key={value} type="button" variant={period === value ? "secondary" : "ghost"} size="xs" aria-pressed={period === value}
+        onClick={() => onChange(value)}>{t(periodLabels[value])}</Button>)}
     </div>
   );
 }

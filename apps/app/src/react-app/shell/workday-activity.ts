@@ -7,6 +7,8 @@ type Stream = Pick<Sample, "projectId" | "stream" | "kind">;
 /** A renderer observes its own focus. Busy sessions are independent of the selected project. */
 export function useWorkdayActivity(
   client: LegalworkServerClient | null | undefined,
+  profileId: string | null,
+  refreshProfile: () => void,
   workspace: string | null,
   agents: { projectId: string; stream: string }[],
 ) {
@@ -28,30 +30,10 @@ export function useWorkdayActivity(
     tick.current?.();
   }, [workspace, agents]);
   useEffect(() => {
-    if (!client) return;
+    if (!client || !profileId) return;
     const windowId = crypto.randomUUID();
-    let profile = "",
-      stopped = false,
-      connecting = false,
-      lastInput = Date.now(),
-      last = Date.now();
+    let lastInput = Date.now(), last = Date.now();
     let previous: Stream[] = [];
-    const connect = async () => {
-      if (connecting || stopped) return;
-      connecting = true;
-      try {
-        const next = await client.activityProfile();
-        if (!stopped) {
-          profile = next.profileId;
-          last = Date.now();
-          previous = streams();
-        }
-      } catch {
-        /* Hosted surfaces may have no private device service. */
-      } finally {
-        connecting = false;
-      }
-    };
     const foreground = () =>
       document.visibilityState === "visible" &&
       document.hasFocus() &&
@@ -79,19 +61,15 @@ export function useWorkdayActivity(
       const observed = previous;
       last = now;
       previous = streams();
-      if (!profile) {
-        void connect();
-        return;
-      }
       // A sleeping host cannot attest elapsed time while suspended.
       if (now <= start || now - start > 90_000 || !observed.length) return;
       void client
         .observeActivity(
-          profile,
+          profileId,
           observed.map((row) => ({ ...row, start, end: now })),
         )
         .catch(() => {
-          profile = "";
+          refreshProfile();
         });
     };
     tick.current = sample;
@@ -104,7 +82,7 @@ export function useWorkdayActivity(
       lastInput = Date.now();
       sample();
     };
-    void connect();
+    previous = streams();
     const timer = window.setInterval(sample, 30_000);
     window.addEventListener("focus", focus);
     window.addEventListener("blur", sample);
@@ -113,8 +91,7 @@ export function useWorkdayActivity(
     for (const name of ["pointerdown", "pointermove", "keydown", "wheel"])
       window.addEventListener(name, input, { passive: true });
     return () => {
-      sample();
-      stopped = true;
+      previous = [];
       tick.current = undefined;
       clearInterval(timer);
       window.removeEventListener("focus", focus);
@@ -124,5 +101,5 @@ export function useWorkdayActivity(
       for (const name of ["pointerdown", "pointermove", "keydown", "wheel"])
         window.removeEventListener(name, input);
     };
-  }, [client]);
+  }, [client, profileId, refreshProfile]);
 }

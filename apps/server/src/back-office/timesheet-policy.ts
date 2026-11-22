@@ -24,8 +24,8 @@ export function authorizeIncrement(
     incrementExceptionReason: reason,
     ...rule
   } = policy;
-  if (rule.stopwatchRoundUp !== undefined && rule.scope !== "project")
-    timeError("Set stopwatch rounding on a project.");
+  if (rule.stopwatchRoundUp !== undefined && rule.scope !== "matter")
+    timeError("Set stopwatch rounding on a matter.");
   if (rule.bindingIncrement !== undefined && rule.scope !== "client")
     timeError("Only a client can bind its billing increment.");
   if (rule.bindingIncrement && rule.enforceIncrement === false)

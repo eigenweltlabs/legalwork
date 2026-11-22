@@ -17,24 +17,36 @@ export const workdayModelSchema = z.object({
 export type WorkdayModel = z.infer<typeof workdayModelSchema>;
 export type WorkdayModelOption = WorkdayModel & { label: string };
 export const localWorkdayModel: WorkdayModel = { workspaceId: "local", providerID: "local", modelID: "llama.cpp" };
+const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+export const workdayScheduleSchema = z.discriminatedUnion("frequency", [
+  z.strictObject({ frequency: z.literal("hourly") }),
+  z.strictObject({ frequency: z.literal("daily"), times: z.array(timeOfDaySchema).min(1).max(24)
+    .refine(times => new Set(times).size === times.length, "Choose different run times.") }),
+]);
+export type WorkdaySchedule = z.infer<typeof workdayScheduleSchema>;
+export function workdaySchedule(settings: Pick<CaptureSettings, "schedule" | "intervalMinutes">): WorkdaySchedule {
+  return settings.schedule ?? (Boolean(settings.intervalMinutes) ? { frequency: "hourly" } : { frequency: "daily", times: ["08:00", "20:00"] });
+}
 export const captureSettingsSchema = z.strictObject({
   calendar: z.boolean(),
   tasks: z.boolean(),
   documents: z.boolean().optional(),
   workspaceActivity: z.boolean().optional(),
   stopwatchMode: z.enum(["always", "evidence"]).optional(),
-  /** Compatibility with existing device profiles. Opening a workday now prepares suggestions automatically. */
+  enabled: z.boolean().optional(),
+  schedule: workdayScheduleSchema.optional(),
+  /** Read profiles written before scheduling was introduced. */
   aiSuggestions: z.boolean().optional(),
   model: workdayModelSchema.partial({ workspaceId: true }).optional(),
   connections: z.array(captureAccountSchema).max(16).optional(),
   disabledConnections: z.array(captureAccountSchema).optional(),
-  intervalMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
+  intervalMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
 });
 export const captureSettingsChangeSchema = z.discriminatedUnion("field", [
-  z.strictObject({ field: z.enum(["calendar", "tasks", "documents", "workspaceActivity"]), value: z.boolean() }),
+  z.strictObject({ field: z.enum(["enabled", "calendar", "tasks", "documents", "workspaceActivity"]), value: z.boolean() }),
   z.strictObject({ field: z.literal("model"), value: captureSettingsSchema.shape.model.unwrap().nullable() }),
   z.strictObject({ field: z.literal("stopwatchMode"), value: captureSettingsSchema.shape.stopwatchMode.unwrap() }),
-  z.strictObject({ field: z.literal("intervalMinutes"), value: captureSettingsSchema.shape.intervalMinutes }),
+  z.strictObject({ field: z.literal("schedule"), value: workdayScheduleSchema }),
   z.strictObject({ field: z.literal("account"), account: captureAccountSchema, value: z.boolean() }),
 ]);
 export const captureSettingsPatchSchema = z.strictObject({ type: z.literal("settings-patch"), change: captureSettingsChangeSchema });
@@ -44,7 +56,7 @@ export function captureAccountEnabled(settings: AccountSelection, account: Captu
   return !settings.disabledConnections?.some(choice => sameCaptureAccount(choice, account));
 }
 export function captureEnabled(settings: CaptureSettings, accounts?: CaptureAccount[]) {
-  return (
+  return settings.enabled !== false && (
     settings.calendar ||
     settings.tasks ||
     settings.documents === true ||
@@ -92,27 +104,6 @@ export type PrivateDraftPatch = z.infer<typeof privateDraftPatchSchema>;
 export const privateBookingRevisionSchema = z.strictObject({ date: z.iso.date(), revision: privateRevision });
 export type PrivateBookingRevision = z.infer<typeof privateBookingRevisionSchema>;
 const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
-const allScopes = z.discriminatedUnion("scope", [
-  z.strictObject({ scope: z.literal("personal") }),
-  z.strictObject({ scope: z.literal("matter"), matterId: z.string().min(1).max(200) }),
-  z.strictObject({ scope: z.literal("document"), documentId: z.string().min(1).max(200), matterId: z.string().min(1).max(200).optional() }),
-]);
-const instructionText = z.string().trim().min(1).max(2000);
-export const workdayChatSchema = z.object({
-  id: z.uuid(), role: z.enum(["user", "assistant"]), text: instructionText,
-  permanent: z.boolean().optional(), replyTo: z.uuid().optional(),
-});
-export const savedWorkdayInstructionSchema = z.object({
-  id: z.uuid(), text: instructionText, scope: z.enum(["personal", "matter", "document"]),
-  kind: z.literal("wording-example").optional(),
-  matterId: z.string().min(1).max(200).optional(), documentId: z.string().min(1).max(200).optional(),
-});
-export const workdayChatActionSchema = z.strictObject({
-  type: z.literal("chat"), id: z.uuid(), text: instructionText, model: workdayModelSchema.optional(), instruction: allScopes.optional(),
-});
-export const workdayInstructionActionSchema = z.strictObject({
-  type: z.literal("instruction"), id: z.uuid(), text: instructionText.nullable(),
-});
 export const workdayStatusSchema = z.object({ type: z.enum(["ready", "unavailable", "failed"]), message: z.string() });
 export const workdayGuidelineSchema = z.strictObject({
   id: z.uuid(), revision: z.number().int().nonnegative(), name: z.string().trim().min(1).max(240),
@@ -139,12 +130,10 @@ export const captureStateSchema = z.object({
   proposals: z.array(captureProposalSchema),
   drafts: z.record(z.string(), privateEntryDraftSchema).default({}),
   connections: z.array(captureAccountSchema).default([]),
-  chat: z.array(workdayChatSchema).default([]),
-  instructions: z.array(savedWorkdayInstructionSchema).default([]),
   guidelines: z.array(workdayGuidelineSchema).default([]),
   status: workdayStatusSchema.optional(),
+  checkedThrough: z.iso.datetime().optional(),
 });
-export type WorkdayInstruction = z.infer<typeof savedWorkdayInstructionSchema>;
 export type WorkdayGuideline = z.infer<typeof workdayGuidelineSchema>;
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 /** Keep sub-minute stopwatch evidence when proposing invoice units, avoiding double rounding. */
@@ -160,13 +149,11 @@ export type CaptureState = z.infer<typeof captureStateSchema>;
 
 export type CaptureAction =
   | WorkdayCorrection
-  | z.infer<typeof workdayChatActionSchema>
-  | z.infer<typeof workdayInstructionActionSchema>
   | z.infer<typeof workdayGuidelineActionSchema>
   | { type: "settings"; settings: CaptureSettings }
   | z.infer<typeof captureSettingsPatchSchema>
-  | { type: "suggest" | "refresh"; model?: WorkdayModel }
-  | { type: "run" | "calendar" }
+  | { type: "suggest"; model?: WorkdayModel }
+  | { type: "calendar" }
   | { type: "dismiss"; key: string; digest?: string }
   | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }
   | PrivateDraftPatch
@@ -204,16 +191,19 @@ export const workdayCorrectionSchema = z.strictObject({
 });
 export type WorkdayCorrection = z.infer<typeof workdayCorrectionSchema>;
 
-export const stopwatchActionSchema = z.strictObject({
-  type: z.enum(["start", "stop", "assign"]),
-  id: z.uuid(),
-  projectId: z.string().min(1).max(200).optional(),
-});
+const stopwatchMatterId = z.string().min(1).max(200);
+export const stopwatchActionSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("start"), id: z.uuid(), matterId: stopwatchMatterId }),
+  z.strictObject({ type: z.literal("assign"), id: z.uuid(), matterId: stopwatchMatterId }),
+  z.strictObject({ type: z.literal("stop"), id: z.uuid() }),
+]);
 export const stopwatchStateSchema = z.object({
+  enabled: z.boolean().default(true),
   profileId: z.string().length(64),
-  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime(), projectId: z.string().nullable().default(null) }).nullable(),
+  // Existing runs without a matter can still be resumed and assigned.
+  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime(), matterId: stopwatchMatterId.nullable().default(null) }).nullable(),
   lastStopped: z.object({ id: z.uuid(), stoppedAt: z.iso.datetime(), date: z.iso.date() }).nullable(),
-  projects: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
+  matters: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
 export type StopwatchAction = z.infer<typeof stopwatchActionSchema>;
 export type StopwatchState = z.infer<typeof stopwatchStateSchema>;

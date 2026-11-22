@@ -1,18 +1,22 @@
-import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button } from "twenty-ui/primitives/input";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ItemDescriptionInput } from "@/react-app/design-system/item-detail";
+import { DialogFooter } from "@/components/ui/dialog";
+import { TimeSelect } from "./time-settings-controls";
 import { captureChargeMinutes, type CaptureProposal, type CaptureState, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
   proposedStopwatchCharge,
   resolveTimePolicy,
-  timeActivities,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 import { CalendarGrid } from "../calendar/calendar-grid";
 import type { CalendarDisplayOccurrence } from "../calendar/connected-calendars";
 import type { TimelineView } from "./time-workspace-panels";
-import { sourceKeys } from "./timesheet-labels";
+import { activityOptions, sourceKeys } from "./timesheet-labels";
 import { isUntitledStopwatch } from "./time-record-values";
 import { TimeProposalActions, type ProposalDecision } from "./time-proposal-actions";
 import { matchMatter, matterOptions } from "./timesheet-row";
@@ -20,7 +24,7 @@ import { matchMatter, matterOptions } from "./timesheet-row";
 type Directory = Pick<TimesheetState, "matters" | "projects" | "policies">;
 type TimelineDirectory = Directory & Pick<TimesheetState, "clients" | "service">;
 function matterFor(p: CaptureProposal, state: Directory) {
-  const linked = state.projects.find((project) => project.id === p.projectId)?.matterIds;
+  const linked = p.source === "stopwatch" ? undefined : state.projects.find((project) => project.id === p.projectId)?.matterIds;
   return state.matters.find(matter => matter.id === p.matterId) ??
     (linked?.length === 1 ? state.matters.find(matter => matter.id === linked[0]) : undefined);
 }
@@ -189,7 +193,6 @@ export function WorkdayCorrectionForm({
   save: (action: WorkdayCorrection) => Promise<boolean>;
   close: () => void;
 }) {
-  const activityId = useId();
   const canSplit = p.source !== "stopwatch";
   const originalMatter = matterFor(p, state)?.id ?? "";
   const [activity, setActivity] = useState(p.activity);
@@ -218,7 +221,7 @@ export function WorkdayCorrectionForm({
   const shortStopwatch = p.source === "stopwatch" && elapsed !== null && elapsed > 0 && total === 0;
   function assignment(id: string) {
     const m = state.matters.find((x) => x.id === id);
-    const project = state.projects.find((x) => x.id === p.projectId && x.matterIds.includes(id));
+    const project = p.source !== "stopwatch" ? state.projects.find((x) => x.id === p.projectId && x.matterIds.includes(id)) : undefined;
     return { matterId: m?.id ?? null, projectId: project?.id ?? null };
   }
   const targetMatch = assignment(target);
@@ -250,15 +253,9 @@ export function WorkdayCorrectionForm({
       upper: Math.ceil(minutes / policy.incrementMinutes) * policy.incrementMinutes,
     });
   }
-  const options = state.matters.map((m) => (
-    <option key={m.id} value={m.id}>
-      {m.name}
-      {m.reference ? " · " + m.reference : ""}
-    </option>
-  ));
+  const options = state.matters.map(({ id, name, reference }) => ({ id, name: reference ? name + " · " + reference : name }));
   return (
-    <form
-      className="bo-workday-correction"
+    <form data-time-source-editor className="grid gap-4"
       onSubmit={async (event) => {
         event.preventDefault();
         setError("");
@@ -266,7 +263,7 @@ export function WorkdayCorrectionForm({
           ((start || end) && (!startAt || !endAt)) ||
           (total !== null && !shortStopwatch && (!Number.isInteger(total) || total < 1 || total > 1440)) ||
           (elapsed !== null && elapsed <= 0) ||
-          !narrative.trim()
+          (p.source === "stopwatch" && !sourceMatch.matterId) || !narrative.trim()
         ) {
           setError(t("timesheets.workday.invalid"));
           return;
@@ -292,7 +289,7 @@ export function WorkdayCorrectionForm({
             ...(draftRevision === undefined ? {} : { draftRevision }),
             narrative,
             activity: activity.trim() || null,
-            ...(!split && matter === originalMatter ? { matterId: p.matterId ?? null, projectId: p.projectId } : sourceMatch),
+            ...(p.source !== "stopwatch" && !split && matter === originalMatter ? { matterId: p.matterId ?? null, projectId: p.projectId } : sourceMatch),
             startAt,
             endAt,
             workedMinutes: shortStopwatch ? null : total,
@@ -310,84 +307,53 @@ export function WorkdayCorrectionForm({
           close();
       }}
     >
-      <label>
-        {t("timesheets.workday.matter")}
-        <select value={matter} onChange={(e) => setMatter(e.target.value)}>
-          <option value="">{t("timesheets.workday.unassigned")}</option>
-          {options}
-        </select>
+      <label className="grid gap-1.5 text-sm">{t("timesheets.workday.description")}
+        <ItemDescriptionInput className="min-h-16 rounded-lg border bg-background px-3 py-2" value={narrative} required
+          maxLength={2000} onChange={event => setNarrative(event.currentTarget.value)} />
       </label>
-      <label>
-        {t("timesheets.workday.start")}
-        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+      <label className="grid gap-1.5 text-sm">{t("timesheets.workday.matter")}
+        <TimeSelect label={t("timesheets.workday.matter")} value={matter} onChange={setMatter}
+          placeholder={t("timesheets.workday.choose")} options={canSplit ? [{ id: "", name: t("timesheets.workday.unassigned") }, ...options] : options} />
       </label>
-      <label>
-        {t("timesheets.workday.end")}
-        <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
-      </label>
-      <label>
-        {t("timesheets.workday.worked")}
-        <input
-          type="number"
-          min="1"
-          max="1440"
-          disabled={!!start || !!end}
-          value={start && end ? String(total ?? "") : actual}
-          onChange={(e) => setActual(e.target.value)}
-        />
-      </label>
-      <label>
-        {t("timesheets.ledger.activity")}
-        <input value={activity} maxLength={100} list={activityId} onChange={event => setActivity(event.currentTarget.value)} />
-        <datalist id={activityId}>
-          {Object.keys({ ...timeActivities, ...activityLabels }).map(code => <option key={code} value={code} />)}
-        </datalist>
-      </label>
-      <label className="bo-workday-narrative">
-        {t("timesheets.workday.description")}
-        <input value={narrative} maxLength={2000} onChange={(e) => setNarrative(e.target.value)} />
-      </label>
-      {canSplit && <label className="bo-workday-split">
-        <input type="checkbox" checked={split} onChange={(e) => setSplitSource(e.target.checked ? p.digest : undefined)} />
+      <div className="grid grid-cols-2 gap-3">
+        <label className="grid gap-1.5 text-sm">{t("timesheets.workday.start")}
+          <Input type="time" value={start} onChange={event => setStart(event.currentTarget.value)} />
+        </label>
+        <label className="grid gap-1.5 text-sm">{t("timesheets.workday.end")}
+          <Input type="time" value={end} onChange={event => setEnd(event.currentTarget.value)} />
+        </label>
+        <label className="grid gap-1.5 text-sm">{t("timesheets.workday.worked")}
+          <Input type="number" min="1" max="1440" disabled={!!start || !!end}
+            value={start && end ? String(total ?? "") : actual} onChange={event => setActual(event.currentTarget.value)} />
+        </label>
+        <label className="grid min-w-0 gap-1.5 text-sm">{t("timesheets.ledger.activity")}
+          <TimeSelect label={t("timesheets.ledger.activity")} value={activity} options={[
+            { id: "", name: t("timeWorkspace.noActivity") }, ...activityOptions(activityLabels, activity),
+          ]} onChange={setActivity} />
+        </label>
+      </div>
+      {canSplit && <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={split} onCheckedChange={checked => setSplitSource(checked ? p.digest : undefined)} />
         {t("timesheets.workday.split")}
       </label>}
-      {split && (
-        <>
-          <label>
-            {t("timesheets.workday.last_minutes")}
-            <input
-              type="number"
-              min="1"
-              max={total ? total - 1 : 1439}
-              value={minutes}
-              onChange={(e) => setMinutes(e.target.value)}
-            />
-          </label>
-          <label>
-            {t("timesheets.workday.target")}
-            <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">{t("timesheets.workday.choose")}</option>
-              {options}
-            </select>
-          </label>
-          {total && +minutes > 0 && +minutes < total && target && target !== matter && (
-            <p>
-              {preview(matter, total - Number(minutes), (chargeMinutes ?? total) - Number(minutes))} / {preview(target, Number(minutes))}
-            </p>
-          )}
-        </>
-      )}
-      {!split && total !== null && p.source === "stopwatch" && <p>{preview(matter, total, chargeMinutes ?? total)}</p>}
-      <p>{t("timesheets.workday.dictation")}</p>
-      {error && <p role="alert">{error}</p>}
-      <div>
-        <Button type="submit" size="sm" disabled={pending} focusableWhenDisabled>
-          {t("timesheets.workday.apply")}
-        </Button>
-        <Button size="sm" type="button" variant="ghost" onClick={close}>
-          {t("timesheets.workday.cancel")}
-        </Button>
-      </div>
+      {split && <>
+        <label className="grid gap-1.5 text-sm">{t("timesheets.workday.last_minutes")}
+          <Input type="number" min="1" max={total ? total - 1 : 1439} value={minutes}
+            onChange={event => setMinutes(event.currentTarget.value)} />
+        </label>
+        <label className="grid gap-1.5 text-sm">{t("timesheets.workday.target")}
+          <TimeSelect label={t("timesheets.workday.target")} value={target} options={options}
+            placeholder={t("timesheets.workday.choose")} onChange={setTarget} />
+        </label>
+        {total && +minutes > 0 && +minutes < total && target && target !== matter &&
+          <p className="text-sm text-muted-foreground">{preview(matter, total - Number(minutes), (chargeMinutes ?? total) - Number(minutes))} / {preview(target, Number(minutes))}</p>}
+      </>}
+      {!split && total !== null && p.source === "stopwatch" && <p className="text-sm text-muted-foreground">{preview(matter, total, chargeMinutes ?? total)}</p>}
+      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+      <DialogFooter className="m-0 border-0 bg-transparent p-0">
+        <Button type="button" size="sm" variant="ghost" onClick={close}>{t("common.cancel")}</Button>
+        <Button type="submit" size="sm" disabled={pending || (!canSplit && !matter)}>{t("common.save")}</Button>
+      </DialogFooter>
     </form>
   );
 }

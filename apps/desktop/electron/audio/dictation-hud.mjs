@@ -10,7 +10,7 @@ const CHANNEL = "legalwork:dictation-hud";
 
 /** A non-activating control bar: clicking it must preserve the paste target. */
 export class DictationHud {
-  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string) => Promise<unknown> }} actions */
+  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string, includeMatters?: boolean) => Promise<unknown> }} actions */
   constructor(actions) {
     this.actions = actions;
     /** @type {BrowserWindow | null} */
@@ -57,12 +57,12 @@ export class DictationHud {
     this.onDisplayChange = () => {
       if (!this.drag && this.window && !this.window.isDestroyed()) { this.followDisplay(); this.positionWindow(); }
     };
-    this.onAction = (event, action, version, projectId) => {
+    this.onAction = (event, action, version, matterId) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
       if (!this.status.miniBarEnabled) return;
       if (["stopwatch-start", "stopwatch-stop", "stopwatch-retry", "stopwatch-prepare", "stopwatch-assign"].includes(action))
-        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof projectId === "string" ? projectId : undefined);
+        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof matterId === "string" ? matterId : undefined);
       if (action === "meeting-start" && ["idle", "meeting-error"].includes(this.displayState)) this.actions.onMeetingStart?.();
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();

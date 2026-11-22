@@ -75,6 +75,22 @@ const clientUpload = (rules: WorkdayGuideline["rules"]): WorkdayGuideline => ({
   ...upload(rules), scope: "client", targetId: "client",
 });
 
+test("a saved client guideline reaches only the client's matters from its effective date", () => {
+  const current = state();
+  const other = { ...matter, id: "other-matter", clientIds: ["other-client"] };
+  const joint = { ...matter, id: "joint-matter", clientIds: ["client", "other-client"] };
+  current.clients.push({ id: "other-client", name: "Other client" });
+  current.matters.push(other, joint);
+  const instructions = "Include the document title.";
+  const guidelines = [clientUpload({ instructions, minimumMinutes: 12 })];
+  expect(draftRules(current, guidelines, matter, date)).toMatchObject({ guidelineInstructions: [instructions], minimumMinutes: 12 });
+  expect(draftRules(current, guidelines, other, date).guidelineInstructions).toEqual([]);
+  expect(draftRules(current, guidelines, joint, date).guidelineInstructions).toEqual([]);
+  expect(draftRules(current, guidelines, matter, "2026-11-20").guidelineInstructions).toEqual([]);
+  expect(effectiveWorkdayGuidelines(current, guidelines, { date, matterId: joint.id, clientId: "client" })).toEqual(guidelines);
+  expect(effectiveWorkdayGuidelines(current, guidelines, { date, matterId: joint.id, clientId: "other-client" })).toEqual([]);
+});
+
 function projectException(policies: TimePolicy[], incrementMinutes: number): TimePolicy {
   const term = bindingTimeTerm(policies, "client", date, "project");
   if (!term) throw new Error("Expected a published binding term.");

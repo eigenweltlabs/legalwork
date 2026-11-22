@@ -164,8 +164,11 @@ import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
 import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts.js";
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
+import { backOfficeDirectoryIdentity } from "./back-office/access.js";
+import { backOfficeStore } from "./back-office/store.js";
 import { observationBatch, recordWorkspaceObservations, recordCompletedTask, currentActivityProfile } from "./time-capture/activity-workday.js";
-import { registerWorkdayRoutes, startWorkdaySchedule } from "./time-capture/routes.js";
+import { requireTimekeepingOwner, isTimekeepingProject, canOpenTimekeeping, visibleTimekeepingProjects } from "./time-capture/profile.js";
+import { registerWorkdayRoutes, checkScheduledWorkday, readCaptureSettings } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
@@ -1007,7 +1010,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       ]), domainRules(session.permissions ?? []).map(rule => ({ ...rule, session: true })));
     },
   });
+  const guardPrivateTimekeeping = async (actor: Actor | undefined, project?: WorkspaceInfo) => {
+    if (!project || !isTimekeepingProject(project)) return;
+    if (!canOpenTimekeeping(actor)) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    await requireTimekeepingOwner(config, project);
+  };
   const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string, metadataOnly = false, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
+    await guardPrivateTimekeeping(actor, config.workspaces.find(workspace => workspace.id === workspaceId));
     const wiki = (await readWikis()).find((item) => item.workspaceId === workspaceId);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki && !metadataOnly) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
@@ -1016,7 +1025,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
     const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)), config.workspaces);
+    const canonical = await realpath(directory).catch(() => resolve(directory));
+    const accessibleFolder = config.workspaces.find(item => isTimekeepingProject(item) && (canonical === item.path || canonical.startsWith(item.path + sep)));
+    await guardPrivateTimekeeping(actor, accessibleFolder);
+    const wiki = wikiForDirectory(await readWikis(), canonical, config.workspaces);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1203,7 +1215,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
           : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
         if (request.method === "GET" && workspaceList && response.ok) {
           const wikis = await readWikis();
-          const hidden = new Set<string>();
+          const visibleProjects = new Set((await visibleTimekeepingProjects(config, actor)).map(project => project.id));
+          const hidden = new Set(config.workspaces.filter(project => !visibleProjects.has(project.id)).map(project => project.id));
           for (const wiki of wikis) {
             if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
             else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
@@ -1325,7 +1338,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     void scheduleFirmHubSync(config, { force: true });
     wikiSync.start();
     await assistantRuntime.start();
-    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(), startWorkdaySchedule(config));
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(signal => checkScheduledWorkday(config, { signal })));
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1967,7 +1980,16 @@ function createRoutes(
   registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace});
   for (const method of ["GET","POST"]) addRoute(routes, method, "/private-timesheet/activity", "host-token", async ctx => {
     if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
-    if (method === "GET") return jsonResponse({profileId: (await currentActivityProfile(config)).profileId});
+    if (method === "GET") {
+      const { profileId, path, principal, user, scope } = await currentActivityProfile(config);
+      const [settings, directoryId] = await Promise.all([
+        readCaptureSettings(path), backOfficeStore(config).then(store => backOfficeDirectoryIdentity(config, scope, store)),
+      ]);
+      const response = jsonResponse({ profileId, directoryId, principal, user, scope,
+        enabled: settings.enabled !== false, workspaceActivity: settings.workspaceActivity !== false });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
     ensureWritable(config);
     await recordWorkspaceObservations(config, observationBatch.parse(await readJsonBodyLimited(ctx.request, 128 * 1024)));
     return jsonResponse({ok:true});
@@ -5345,6 +5367,7 @@ function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceIn
 
 async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
   const workspace = resolveWorkspaceMetadata(config, id);
+  if (isTimekeepingProject(workspace)) await requireTimekeepingOwner(config, workspace);
   const resolvedWorkspace = resolve(workspace.path);
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {

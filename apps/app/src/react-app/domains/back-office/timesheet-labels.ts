@@ -1,3 +1,4 @@
+import { timeActivities } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 
 // Map stored domain values to complete locale keys. Resolve the key at render time so
@@ -48,6 +49,16 @@ export const activityKeys: Readonly<Record<string, string | undefined>> = {
   DR: "timesheets.ledger.activity.DR",
   DDR: "timesheets.ledger.activity.DDR",
 };
+
+export function activityOptions(labels: Record<string, string>, current: string) {
+  const codes = new Set([...Object.keys(timeActivities), ...Object.keys(labels)]);
+  if (current) codes.add(current);
+  return [...codes].map(id => {
+    const key = activityKeys[id];
+    const label = labels[id] || (key && t(key)) || timeActivities[id];
+    return { id, name: label && label !== id ? label + " · " + id : id };
+  });
+}
 
 export const entryStatusKeys = {
   declined: "timesheets.ledger.status.declined",

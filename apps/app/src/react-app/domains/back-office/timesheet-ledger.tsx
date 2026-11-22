@@ -8,6 +8,8 @@ import {
   historyActionKeys,
   historyFieldKeys,
 } from "./timesheet-labels";
+import { BackOfficeObjectSchema, backOfficeViewFilters, compileBackOfficeFilters, type BackOfficeRecord } from "@legalwork/types/back-office";
+import { RecordSearchFilters, RecordFilterChips } from "./record-search-filters";
 import { Link } from "react-router-dom";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import {
@@ -240,7 +242,10 @@ export function TimesheetLedger({
   const restored = Object.entries(capture?.drafts ?? {}).find(([id, item]) =>
     item.date === date && item.values.workflow && !item.proposalDigest &&
     !state.entries.some(entry => entry.groupId === id));
-  const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
+  const [provenance, setProvenance] = useState(initialDraft?.source);
+  const stopwatchDraft = Boolean(provenance && initialDraft?.captureSource === "stopwatch");
+  const draftMatters = stopwatchDraft ? matters.filter(option => !option.projectId) : matters;
+  const [draft, setDraft] = useState(() => fromDraft(stopwatchDraft ? { ...initialDraft?.entry, projectId: undefined } : initialDraft?.entry ?? {}, own, date, state, draftMatters));
   const [draftChanged, setDraftChanged] = useState(false);
   const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
   const privateQueue = useRef<Promise<SavedWorkflowDraft | false>>(Promise.resolve(false));
@@ -253,7 +258,6 @@ export function TimesheetLedger({
     revision: 0, values: workflowDraftValues(emptyRow(date, own)),
   });
   const restoredKeys = useRef(new Set<string>());
-  const [provenance, setProvenance] = useState(initialDraft?.source);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [selected, setSelected] = useState("");
   const [history, setHistory] = useState("");
@@ -301,8 +305,31 @@ export function TimesheetLedger({
     setDraft(initial);
     setDraftChanged(true);
   }, [date, editing, own, restoredKey, restoredFields, restoredRevision]);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState(() => backOfficeViewFilters());
+  const filterObject = useMemo(() => BackOfficeObjectSchema.parse({
+    id: "timeEntries", label: t("back_office.timeEntries.singular"), plural: t("back_office.timeEntries.plural"),
+    fields: [
+      { id: "name", label: t(ledgerColumnKeys.narrative), type: "text" },
+      { id: "matter", label: t(ledgerColumnKeys.matter), type: "text" },
+      { id: "activity", label: t(ledgerColumnKeys.activity), type: "text" },
+      { id: "date", label: t(ledgerColumnKeys.date), type: "date" },
+      { id: "worked", label: t(ledgerColumnKeys.worked), type: "number" },
+      { id: "charge", label: t(ledgerColumnKeys.charge), type: "number" },
+      { id: "status", label: t("timesheets.ledger.status"), type: "select", options: Object.values(entryStatusKeys).map(key => t(key)) },
+    ],
+  }), [locale]);
   const ownEntries = state.entries.filter(e => e.workerId === state.userId && e.status !== "declined");
-  const rows = ownEntries.filter(e => dates.includes(e.date))
+  const periodEntries = ownEntries.filter(e => dates.includes(e.date));
+  const searchRecords: BackOfficeRecord[] = periodEntries.map((entry): BackOfficeRecord => ({
+    id: entry.id, objectId: "timeEntries", ownerId: entry.workerId, revision: entry.revision, schemaRevision: 1,
+    createdAt: entry.date, updatedAt: entry.date, archivedAt: null, members: [], access: "members", sourceId: undefined,
+    values: { name: entry.narrative, matter: state.matters.find(matter => matter.id === entry.matterId)?.name ?? "",
+      activity: entry.activityLabel ?? labelForCode(activityKeys, entry.activity), date: entry.date,
+      worked: entry.workedMinutes, charge: entry.billableMinutes, status: labelForCode(entryStatusKeys, entry.status) },
+  })).filter(row => Object.values(row.values).some(value => String(value ?? "").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())));
+  const matchingIds = new Set(searchRecords.filter(compileBackOfficeFilters(filterObject, filters)).map(row => row.id));
+  const rows = periodEntries.filter(entry => matchingIds.has(entry.id))
     .sort(
       (a, b) =>
         a.date.localeCompare(b.date) ||
@@ -312,8 +339,10 @@ export function TimesheetLedger({
   const countedRows = rows.filter(row => row.status !== "pending");
   const bookingIds = new Set(bookings.map(item => item.id));
   const hasReceipt = (entry: TimeEntry) => entry.groupId !== undefined && bookingIds.has(entry.groupId);
-  const createdRows = ownEntries.filter(entry => entry.status !== "pending" && hasReceipt(entry));
-  const regularRows = countedRows.filter(entry => !hasReceipt(entry));
+  const otherDayBookings = bookings.filter(item => !dates.includes(state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date)
+    || !ownEntries.some(entry => entry.groupId === item.id));
+  const createdRows = ownEntries.filter(entry => !dates.includes(entry.date) && hasReceipt(entry));
+  const regularRows = countedRows;
   const awaitingConfirmation = rows.filter(row => row.status === "pending");
   const { totals, byDate } = periodTimeTotals(countedRows);
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
@@ -352,16 +381,15 @@ export function TimesheetLedger({
     setHistory("");
   }
   function policyFor(values: RowValues) {
-    const matter = matchMatter(matters, values.matter);
+    const matter = matchMatter(draftMatters, values.matter);
     return resolveTimePolicy(
       state.policies,
       matter?.clientId ?? "",
       matter?.matterId ?? "",
       values.date,
-      matter?.projectId ?? (!values.matter && provenance ? initialDraft?.entry.projectId : undefined),
+      matter?.projectId ?? (!values.matter && provenance && !stopwatchDraft ? initialDraft?.entry.projectId : undefined),
     );
   }
-  const stopwatchDraft = Boolean(provenance && initialDraft?.captureSource === "stopwatch");
   function stopwatchCharge(values: RowValues) {
     return stopwatchRowCharge(initialDraft?.entry ?? {}, values, policyFor(values));
   }
@@ -511,7 +539,7 @@ export function TimesheetLedger({
       setNotice("");
       return true;
     }
-    const result = !saveBeforeBooking && review ? review.parsed : parseRow(current, state);
+    const result = !saveBeforeBooking && review ? review.parsed : parseRow(current, state, row === "new" ? draftMatters : matters);
     if ("error" in result) {
       setError(result.error);
       focus(row, result.field);
@@ -549,7 +577,7 @@ export function TimesheetLedger({
           setError(t("timesheets.distinct_people"));
           return false;
         }
-        const parsed = parseRow({ ...current, ...participantAmounts(participant.amounts), workers: worker.label }, state);
+        const parsed = parseRow({ ...current, ...participantAmounts(participant.amounts), workers: worker.label }, state, draftMatters);
         if ("error" in parsed) {
           setError(worker.label + " · " + parsed.error);
           return false;
@@ -807,7 +835,8 @@ export function TimesheetLedger({
     }
   }
   function editors(row: string, values: RowValues) {
-    const localMatter = matchMatter(matters, values.matter);
+    const options = row === "new" ? draftMatters : matters;
+    const localMatter = matchMatter(options, values.matter);
     const catalog = resolveTimePolicy(
       state.policies,
       localMatter?.clientId ?? "",
@@ -817,7 +846,7 @@ export function TimesheetLedger({
     ).activityLabels;
     const activityName = (code: string) => catalog[code] || labelForCode(activityKeys, code);
     const choices: Partial<Record<RowColumn, string[]>> = {
-      matter: matters.map((m) => m.label),
+      matter: options.map((m) => m.label),
       workers: people.map((p) => p.label),
       activity: Object.keys({ ...timeActivities, ...catalog }),
       product: values.createProduct ? [] : productOptions(state, localMatter?.matterId).map((p) => p.label),
@@ -873,7 +902,7 @@ export function TimesheetLedger({
               const saveOnLeave = (capture && row === "new" && !provenance) || column === columns[columns.length - 1];
               if (saveOnLeave && !inside) {
                 const normalized = valuesForSave(row, reviewed);
-                const parsed = parseRow(normalized, state);
+                const parsed = parseRow(normalized, state, options);
                 if (!("error" in parsed)) void save(row, false, false, { values: normalized, parsed });
               }
             }}
@@ -1124,7 +1153,12 @@ export function TimesheetLedger({
           {t("timesheets.ledger.today")}
         </button>
         </>}
+        {canEdit && <Button size="sm" variant="ghost" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
+          {t("timesheets.ledger.new")}
+        </Button>}
         <div className="bo-view-actions">
+          <RecordSearchFilters object={filterObject} records={searchRecords} rows={searchRecords} finance={false}
+            query={search} onQuery={setSearch} filters={filters} onFilters={setFilters} />
           {columnChooser}
           {canEdit && !!ready.length && (
             <Button
@@ -1148,17 +1182,8 @@ export function TimesheetLedger({
           )}
         </div>
       </div>
+      <RecordFilterChips object={filterObject} records={searchRecords} filters={filters} onFilters={setFilters} />
       <TimesheetWeekTotals dates={dates} date={date} totalsByDate={byDate} onDateChange={day => chooseDate(day, true)} />
-      <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
-        {[
-          [t("timesheets.ledger.worked_total"), totals.worked],
-          [t("timesheets.ledger.charge_total"), totals.charge],
-        ].map(([key, value]) => (
-          <span key={key}>
-            {key} <b>{duration(Number(value))} h</b>
-          </span>
-        ))}
-      </div>
       {activeCap !== null && (
         <div className="bo-time-cap" role="status">
           <AlertTriangle size={13} />
@@ -1199,9 +1224,6 @@ export function TimesheetLedger({
           </div>
         </div>
         {regularRows.map(renderEntry)}
-        {canEdit && !showComposer && <Button size="sm" variant="ghost" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
-          {t("timesheets.ledger.new")}
-        </Button>}
         {showComposer && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
             <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
@@ -1334,11 +1356,16 @@ export function TimesheetLedger({
         {receipt(item => {
           const created = createdRows.filter(entry => entry.groupId === item.id);
           return created.length ? created.map(renderEntry) : undefined;
-        }, item => state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date)}
+        }, item => state.entries.find(entry => entry.groupId === item.id && entry.workerId === state.userId)?.date ?? item.date, otherDayBookings)}
         {awaitingConfirmation.length > 0 && <details className="bo-time-delegated">
           <summary>{t("timeWorkspace.awaitingConfirmation")}</summary>
           {awaitingConfirmation.map(renderEntry)}
         </details>}
+        <div className="bo-grid-summary bo-time-summary" aria-label={t("timesheets.ledger.totals")}>
+          <div />
+          {columns.map(column => <div key={column}>{column === "worked" || column === "charge"
+            ? <span aria-label={t(ledgerColumnKeys[column])}>{column === "worked" ? totals.worked : totals.charge} min</span> : null}</div>)}
+        </div>
       </div>
       {delegated.length > 0 && (
         <details className="bo-time-delegated">

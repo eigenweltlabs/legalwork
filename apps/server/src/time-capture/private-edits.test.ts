@@ -43,10 +43,17 @@ test("two workday windows preserve disjoint settings and draft edits, and detect
     await read({ type: "settings-patch", change: { field: "calendar", value: false } });
     await read({ type: "settings-patch", change: { field: "account", account: accountA, value: false } });
     await read({ type: "settings-patch", change: { field: "account", account: accountB, value: false } });
-    const settings = (await read({ type: "settings-patch", change: { field: "intervalMinutes", value: 30 } })).settings;
-    expect(settings).toMatchObject({ calendar: false, intervalMinutes: 30, disabledConnections: [accountA, accountB] });
+    const settings = (await read({ type: "settings-patch", change: { field: "schedule", value: { frequency: "daily", times: ["17:30"] } } })).settings;
+    expect(settings).toMatchObject({ calendar: false, schedule: { frequency: "daily", times: ["17:30"] }, disabledConnections: [accountA, accountB] });
     expect((await request({ type: "settings", settings: second.settings })).status).toBe(409);
     expect((await read()).settings).toEqual(settings);
+
+    const status = () => fetch(new URL("/private-timesheet/activity", url), { headers: { "X-LegalWork-Host-Token": config.hostToken } }).then(response => response.json());
+    await read({ type: "settings-patch", change: { field: "enabled", value: false } });
+    expect(await status()).toMatchObject({ profileId, scope, principal, user, enabled: false, directoryId: expect.any(String) });
+    expect((await request({ type: "suggest" })).status).toBe(409);
+    await read({ type: "settings-patch", change: { field: "enabled", value: true } });
+    expect(await status()).toMatchObject({ enabled: true });
 
     const edit: CaptureAction = { type: "draft-patch", key, date, revision: first.drafts[key].revision ?? 0, changes: { billingNarrative: "First window wording" } };
     const updated = (await read(edit)).drafts[key];

@@ -43,11 +43,8 @@ export type ModelEvidence = {
   matter?: { id: string; name: string };
   sourceDocumentTitle?: string;
   documentTitle?: string;
-  terminology?: { from: string; to: string }[];
   history?: string[];
-  confirmedWording?: string[];
   rules?: DraftRules;
-  instructions: string[];
 };
 
 const reference = z.string().min(1).max(200);
@@ -185,10 +182,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       matter,
       documentTitle,
       history,
-      confirmedWording,
       rules,
-      instructions,
-      terminology,
     }) => ({
       id: eventKey,
       source: proposal.source,
@@ -198,10 +192,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       documentId: proposal.documentId,
       documentTitle,
       priorDescriptions: history,
-      confirmedWording,
       rules,
-      instructions,
-      terminology,
       startAt: proposal.startAt,
       endAt: proposal.endAt,
       observedAt: proposal.observedAt,
@@ -218,11 +209,9 @@ function documentWording(
   document: ModelEvidence,
   correctedTitle?: string,
 ) {
-  const wording = document.terminology?.reduce((text, { from, to }) =>
-    replaceDocumentTerm(text, from, to), narrative) ?? narrative;
   return correctedTitle && document.documentTitle
-    ? replaceDocumentTerm(wording, document.documentTitle, correctedTitle)
-    : wording;
+    ? replaceDocumentTerm(narrative, document.documentTitle, correctedTitle)
+    : narrative;
 }
 
 export function reconstructWorkday(
@@ -243,6 +232,8 @@ export function reconstructWorkday(
       return found;
     });
     const sources = refs.map((ref) => ref.item.proposal);
+    const timer = refs.find(ref => ref.item.proposal.source === "stopwatch");
+    const matterId = timer?.matter?.id ?? row.matterId;
     const projects = new Set(
       sources.flatMap((proposal) =>
         proposal.projectId ? [proposal.projectId] : [],
@@ -269,7 +260,7 @@ export function reconstructWorkday(
       throw invalidModelOutput();
     const policy = refs.find(
       (ref) =>
-        ref.matter?.id === row.matterId &&
+        ref.matter?.id === matterId &&
         (!row.projectId || ref.item.proposal.projectId === row.projectId),
     )?.rules;
     if (
@@ -357,7 +348,7 @@ export function reconstructWorkday(
     claimed.push(...claims);
 
     const origin =
-      refs.find((ref) => ref.item.proposal.source === "stopwatch") ??
+      timer ??
       document ??
       refs.find(
         (ref) =>
@@ -371,7 +362,7 @@ export function reconstructWorkday(
       claims.map(({ id, from, to }) => [id, from, to]),
     ]);
     const requestedTitle = row.documentTitle;
-    const scopedDocument = document && (document.matter?.id ?? null) === row.matterId ? document : undefined;
+    const scopedDocument = document && (document.matter?.id ?? null) === matterId ? document : undefined;
     const correctedTitle =
       requestedTitle &&
       chatCorrections.some((text) =>
@@ -394,8 +385,8 @@ export function reconstructWorkday(
       account,
       observation,
       dismissed: false,
-      projectId: row.projectId ?? [...projects][0] ?? null,
-      matterId: row.matterId ?? undefined,
+      projectId: timer ? null : row.projectId ?? [...projects][0] ?? null,
+      matterId: matterId ?? undefined,
       documentId: row.documentId ?? undefined,
       workProductId: row.documentId
         ? scopedDocument?.item.proposal.workProductId

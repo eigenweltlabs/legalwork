@@ -20,12 +20,13 @@ export const privateStopwatchSchema = z.object({
 const emptySnapshot = () => ({ active: null, lastStopped: null });
 export const emptyStopwatch = () => ({ ...emptySnapshot(), stoppedIds: [] });
 const stopwatchSnapshotSchema = z.object({
+  settings: z.object({ enabled: z.boolean().optional() }).optional(),
   stopwatch: privateStopwatchSchema.pick({ active: true, lastStopped: true }).default(emptySnapshot),
 });
 
 /** The atomic profile remains authoritative. Polling an unchanged file only needs its metadata. */
 export function createStopwatchReader() {
-  let cached: { path: string; file: BigIntStats; stopwatch: z.infer<typeof stopwatchSnapshotSchema>["stopwatch"] } | undefined;
+  let cached: { path: string; file: BigIntStats; stopwatch: z.infer<typeof stopwatchSnapshotSchema>["stopwatch"] & { enabled: boolean } } | undefined;
   return async (path: string) => {
     try {
       const file = await stat(path, { bigint: true });
@@ -35,7 +36,8 @@ export function createStopwatchReader() {
       const handle = await open(path, "r");
       try {
         const file = await handle.stat({ bigint: true });
-        const { stopwatch } = stopwatchSnapshotSchema.parse(JSON.parse(await handle.readFile("utf8")));
+        const snapshot = stopwatchSnapshotSchema.parse(JSON.parse(await handle.readFile("utf8")));
+        const stopwatch = { ...snapshot.stopwatch, enabled: snapshot.settings?.enabled !== false };
         cached = { path, file, stopwatch };
         return stopwatch;
       } finally {
@@ -44,7 +46,7 @@ export function createStopwatchReader() {
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") {
         cached = undefined;
-        return emptySnapshot();
+        return { ...emptySnapshot(), enabled: true };
       }
       throw error;
     }
@@ -93,15 +95,17 @@ export function changeStopwatch(
   if (action.type === "start") {
     if (timer.active?.id === action.id) return;
     if (timer.active) throw new ApiError(409, "stopwatch_running", "A stopwatch is already running.");
-    timer.active = { id: action.id, startedAt: now.toISOString(), projectId: action.projectId ?? null, zone };
+    timer.active = { id: action.id, startedAt: now.toISOString(), matterId: action.matterId, zone };
     return;
   }
   if (timer.active?.id !== action.id)
     throw new ApiError(409, "stopwatch_changed", "This stopwatch is no longer running.");
   if (action.type === "assign") {
-    timer.active.projectId = action.projectId ?? null;
+    timer.active.matterId = action.matterId;
     return;
   }
+  if (!timer.active.matterId)
+    throw new ApiError(409, "stopwatch_matter", "Choose a matter before stopping this timer.");
   const start = Date.parse(timer.active.startedAt);
   const end = now.getTime();
   if (end < start)
@@ -118,7 +122,8 @@ export function changeStopwatch(
       date: span.date,
       digest: "",
       source: "stopwatch",
-      projectId: timer.active.projectId,
+      projectId: null,
+      matterId: timer.active.matterId,
       narrative: "Stopwatch",
       activity: "",
       dismissed: false,

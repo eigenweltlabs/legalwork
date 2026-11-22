@@ -78,7 +78,6 @@ Object.entries({
 }).forEach(([key, value]) => Object.defineProperty(globalThis, key, { value, configurable: true }));
 
 // Initialize Lexical after the test DOM exists and before the shared composer is loaded.
-const { $getRoot, CONTROLLED_TEXT_INSERTION_COMMAND, getNearestEditorFromDOMNode } = await import("lexical");
 // The Bun DOM fixture has no asset bundler. Panel avatar URLs are supplied by Vite in the app.
 const { mock } = await import("bun:test");
 mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-animation", () => ({ assistantAvatarAnimations: {} }));
@@ -599,14 +598,14 @@ try {
       </MemoryRouter>,
     ),
   );
-  const correction = document.querySelector<HTMLFormElement>(".bo-workday-correction");
+  const correction = document.querySelector<HTMLFormElement>("[data-time-source-editor]");
   assert.ok(correction);
   await act(async () =>
     correction.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })),
   );
   assert.equal(correctedMinutes, null);
   assert.equal(correctedRevision, 4);
-  const splitControl = correction.querySelector<HTMLInputElement>(".bo-workday-split input");
+  const splitControl = correction.querySelector<HTMLInputElement>("[role=checkbox]");
   assert.ok(splitControl, "calendar suggestions allow splitting");
   await act(async () => splitControl.click());
   await act(async () =>
@@ -622,7 +621,7 @@ try {
       </MemoryRouter>,
     ),
   );
-  assert.equal(correction.querySelector(".bo-workday-split"), null, "stopwatch corrections cannot be split");
+  assert.equal(correction.querySelector("[role=checkbox]"), null, "stopwatch corrections cannot be split");
   correctedSplit = "Not submitted";
   await act(async () => correction.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
   assert.equal(correctedSplit, undefined, "a previously selected split is omitted after switching to a stopwatch");
@@ -632,7 +631,7 @@ try {
   const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
   const { createLegalworkServerClient, LegalworkServerError } = await import("../../src/app/lib/legalwork-server");
   const { TimesheetCommandSchema } = await import("@legalwork/types/timesheet");
-  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { gcTime: 0 } } });
   const writes: TimesheetCommand[] = [];
   const privateWrites: CaptureAction[] = [];
   const workdayDrafts: CaptureState["drafts"] = {};
@@ -661,10 +660,10 @@ try {
         stopwatchActions.push(action);
         if (action.type === "start") {
           assert.equal(activeStopwatch, null);
-          activeStopwatch = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId ?? null };
+          activeStopwatch = { id: action.id, startedAt: new Date().toISOString(), matterId: action.matterId };
         } else {
           assert.equal(activeStopwatch?.id, action.id);
-          if (action.type === "assign" && activeStopwatch) activeStopwatch = { ...activeStopwatch, projectId: action.projectId ?? null };
+          if (action.type === "assign" && activeStopwatch) activeStopwatch = { ...activeStopwatch, matterId: action.matterId };
           if (action.type === "stop") {
             lastStopped = { id: action.id, date: base.date, stoppedAt: base.date + "T12:10:00Z" };
             activeStopwatch = null;
@@ -672,7 +671,7 @@ try {
           }
         }
       }
-      return { profileId: captureProfileId, active: activeStopwatch, lastStopped, projects: [{ id: "p1", name: "Project" }] };
+      return { profileId: captureProfileId, active: activeStopwatch, lastStopped, enabled: true };
     },
     privateWorkday: async (context: { profileId?: string; date: string }, action?: CaptureAction): Promise<CaptureState> => {
       workdayReads++;
@@ -702,7 +701,7 @@ try {
         proposals: context.profileId === "profile-a" && context.date === base.date
           ? [capture, unknown, ...(lastStopped && lastStopped.id !== overlayRunId ? [recordedTimer] : [])]
           : [],
-        drafts, connections: [], modelReady: false, chat: [], instructions: [], guidelines: [],
+        drafts, connections: [], modelReady: false, guidelines: [],
         status: { type: "ready", message: "Synthetic internal status" },
       };
     },
@@ -768,8 +767,9 @@ try {
       target.focus();
       target.click();
     });
-    assert.ok(proposalHeading());
-    assert.equal(document.activeElement, proposalHeading(), "activating a proposal takes focus to its editor heading");
+    for (let i = 0; i < 20 && (!proposalHeading() || document.activeElement !== proposalHeading()); i++) await settle();
+    assert.ok(proposalHeading(), "Missing timeline dialog for " + proposal.narrative);
+    assert.ok(document.activeElement === proposalHeading(), "activating a proposal takes focus to its editor heading");
     assert.equal(target.getAttribute("aria-expanded"), "true");
     assert.equal(target.getAttribute("aria-controls"), proposalHeading()?.closest("[id].time-workspace-editor")?.id);
   }
@@ -809,17 +809,6 @@ try {
     await menuItem(label);
   }
   const moveTab = (id: string, destination: number) => tabMenu(id, "Move to pane " + destination);
-  const composerSelector = '[contenteditable="true"][role="textbox"]';
-  async function typeMessage(editor: HTMLElement, message: string) {
-    await act(async () => {
-      editor.focus();
-      // happy-dom has no native text entry. Use the same insertion command as the Lexical contenteditable.
-      const lexical = getNearestEditorFromDOMNode(editor);
-      assert.ok(lexical);
-      lexical.update(() => { $getRoot().clear(); $getRoot().selectEnd(); lexical.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, message); });
-    });
-    assert.equal(editor.textContent?.trim(), message);
-  }
   const separator = () => {
     const separator = workspaceGroup().querySelector<HTMLElement>('[role="separator"]');
     assert.ok(separator);
@@ -835,7 +824,9 @@ try {
     });
   };
   await openProposal(capture);
-  await press("Close suggestion", true);
+  const closeSuggestion = document.querySelector<HTMLButtonElement>(".time-workspace-editor [data-slot=dialog-close]");
+  assert.ok(closeSuggestion);
+  await act(async () => { closeSuggestion.focus(); closeSuggestion.click(); });
   assert.equal(proposalHeading(), null);
   assert.equal(document.activeElement, block(capture));
   assert.equal(block(capture)?.getAttribute("aria-expanded"), "false");
@@ -863,34 +854,30 @@ try {
   assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
   const stopwatchTrigger = document.querySelector<HTMLButtonElement>('button[aria-label="Stopwatch"]');
   assert.ok(stopwatchTrigger);
-  const stopwatchProject = () => document.querySelector<HTMLSelectElement>('[data-slot="popover-content"] select');
-  const chooseStopwatchProject = async (value: string) => {
-    const picker = stopwatchProject();
-    assert.ok(picker);
-    await act(async () => {
-      picker.value = value;
-      picker.dispatchEvent(new window.Event("change", { bubbles: true }));
-    });
+  const selectPopup = async (label: string, value: string) => {
+    const select = document.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${label}"]`);
+    assert.ok(select, label);
+    await act(async () => select.click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === value);
+    assert.ok(option, value);
+    await act(async () => { option.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true })); option.click(); });
+    await settle();
   };
+  const stopwatchMatter = () => document.querySelector<HTMLButtonElement>('[data-slot="popover-content"] [role="combobox"]');
   await act(async () => { stopwatchTrigger.focus(); stopwatchTrigger.click(); });
-  for (let i = 0; i < 20 && document.activeElement !== stopwatchProject(); i++) await settle();
-  assert.equal(document.activeElement, stopwatchProject());
-  assert.deepEqual([...stopwatchProject()!.options].map((option) => option.textContent), ["No project", "Project"]);
-  assert.equal(stopwatchProject()?.value, "");
-  await chooseStopwatchProject("p1");
+  for (let i = 0; i < 20 && document.activeElement !== stopwatchMatter(); i++) await settle();
+  assert.equal(document.activeElement, stopwatchMatter());
+  assert.equal(button("Start stopwatch")?.disabled, true);
+  await selectPopup(t("timesheets.workday.matter"), "M · 26/12");
   await press("Start stopwatch");
   for (let i = 0; i < 20 && document.activeElement !== stopwatchTrigger; i++) await settle();
   assert.equal(document.activeElement, stopwatchTrigger);
   const started = stopwatchActions.at(-1);
   assert.ok(started?.type === "start");
-  assert.equal(started.projectId, "p1", "app start updates the same profile snapshot read by the HUD");
+  assert.equal(started.matterId, "matter", "app start updates the same profile snapshot read by the HUD");
 
   await press("Stopwatch");
-  assert.equal(stopwatchProject()?.value, "p1");
-  await chooseStopwatchProject("");
-  assert.deepEqual(stopwatchActions.at(-1), { type: "assign", id: started.id });
-  for (let i = 0; i < 20 && document.activeElement !== stopwatchProject(); i++) await settle();
-  assert.equal(document.activeElement, stopwatchProject());
+  assert.match(stopwatchMatter()?.textContent ?? "", /M · 26\/12/);
   responseLost = true;
   await press("Stop stopwatch");
   for (let i = 0; i < 20 && (!block(recordedTimer) || document.activeElement !== stopwatchTrigger); i++) await settle();
@@ -900,14 +887,9 @@ try {
   assert.equal(writes.length, 0, "starting or stopping the stopwatch does not book time");
 
   await press("Stopwatch");
-  await press("Start stopwatch");
-  assert.equal(stopwatchActions.at(-1)?.projectId, undefined, "the user can start with No project");
-  await press(t("timesheets.ai_settings"));
-  const sourceSwitch = document.querySelector<HTMLElement>('[data-slot="popover-content"] [role="switch"]');
-  assert.ok(sourceSwitch);
-  assert.equal(sourceSwitch.dataset.size, "default");
-  assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
-  await press(t("timesheets.ai_settings"));
+  assert.equal(button("Start stopwatch")?.disabled, true, "each start requires a matter");
+  await press("Stopwatch");
+  assert.ok(document.querySelector('a[href="/settings/time-tracking"]'), "the toolbar opens the app's time tracking settings");
   const proposalPanel = document.querySelector<HTMLFormElement>('[data-time-proposal]');
   assert.ok(proposalPanel);
   const proposedText = proposalPanel.querySelector<HTMLTextAreaElement>('[data-column="narrative"]');
@@ -918,9 +900,9 @@ try {
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   assert.equal(document.activeElement, proposedCharge, "a background refresh keeps focus and the in-progress value in the editor");
   assert.equal(proposedCharge.value, "30");
-  await press("Edit source and times", true);
+  await press(t("common.edit"), true);
   assert.equal(document.activeElement, proposalHeading());
-  const cancelCorrection = document.querySelector<HTMLButtonElement>('.bo-workday-correction button[type="button"]');
+  const cancelCorrection = document.querySelector<HTMLButtonElement>('[data-time-source-editor] [data-slot=dialog-footer] button[type="button"]');
   assert.ok(cancelCorrection);
   await act(async () => { cancelCorrection.focus(); cancelCorrection.click(); });
   assert.equal(document.activeElement, proposalHeading());
@@ -1020,10 +1002,10 @@ try {
   assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 4 }] });
   cache.clear();
   const nearestPolicy = {
-    scope: "project", targetId: "p2", effectiveFrom: "2026-01-01", revision: 1, stopwatchRoundUp: false,
+    scope: "matter", targetId: "nearest", effectiveFrom: "2026-01-01", revision: 1, stopwatchRoundUp: false,
   } satisfies TimePolicy;
-  const timerState = { ...state, entries: [], policies: [nearestPolicy], projects: [
-    ...state.projects, { id: "p2", name: "Nearest", matterIds: ["matter"] },
+  const timerState = { ...state, entries: [], policies: [nearestPolicy], matters: [
+    ...state.matters, { id: "nearest", name: "Nearest", reference: "", clientIds: ["client"] },
   ] };
   await act(async () => root.render(
     <MemoryRouter><BackOfficeTheme><TimesheetLedger key="timer" state={timerState} onCommand={send}
@@ -1033,10 +1015,10 @@ try {
     /></BackOfficeTheme></MemoryRouter>,
   ));
   assert.equal(cell("new", "charge").value, "20");
-  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
-  assert.equal(cell("new", "charge").value, "10", "project switch recalculates the stopwatch proposal");
-  await input(cell("new", "matter"), "Client · M · 26/12 · Project");
-  assert.equal(cell("new", "charge").value, "20", "seconds survive the project switch");
+  await input(cell("new", "matter"), "Client · Nearest");
+  assert.equal(cell("new", "charge").value, "10", "matter switch recalculates the stopwatch proposal");
+  await input(cell("new", "matter"), "Client · M · 26/12");
+  assert.equal(cell("new", "charge").value, "20", "seconds survive the matter switch");
   await key(cell("new", "narrative"), "Enter");
   const timed = commands.at(-1);
   assert.ok(timed?.type === "create");
@@ -1057,15 +1039,15 @@ try {
   assert.equal(participantInputs.length, 3);
   await input(participantInputs[0], "21");
   assert.equal(participantInputs[2].value, "30");
-  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
+  await input(cell("new", "matter"), "Client · Nearest");
   assert.equal(participantInputs[2].value, "20");
   await input(participantInputs[2], "40");
-  await input(cell("new", "matter"), "Client · M · 26/12 · Project");
+  await input(cell("new", "matter"), "Client · M · 26/12");
   assert.equal(participantInputs[2].value, "40");
   await input(cell("new", "billableWork"), "21");
   assert.equal(cell("new", "charge").value, "30");
   await input(cell("new", "charge"), "40");
-  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
+  await input(cell("new", "matter"), "Client · Nearest");
   await input(cell("new", "billableWork"), "13");
   assert.equal(cell("new", "charge").value, "40", "explicit charge edits remain intentional");
   await input(cell("new", "nonBillable"), "4");
@@ -1074,7 +1056,7 @@ try {
   const { BillingPreferences } = await import("../../src/react-app/domains/back-office/billing-preferences");
   await act(async () => root.render(
     <MemoryRouter><BackOfficeTheme><BillingPreferences state={timerState} onCommand={send}
-      initialProjectId="p1" initialDate={base.date}
+      initialMatterId="matter" initialDate={base.date}
     /></BackOfficeTheme></MemoryRouter>,
   ));
   const roundSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="Round stopwatch time up"]');
@@ -1087,8 +1069,8 @@ try {
   await act(async () => savePolicy.click());
   const savedPolicy = commands.at(-1);
   assert.ok(savedPolicy?.type === "policy");
-  assert.equal(savedPolicy.policy.scope, "project");
-  assert.equal(savedPolicy.policy.targetId, "p1");
+  assert.equal(savedPolicy.policy.scope, "matter");
+  assert.equal(savedPolicy.policy.targetId, "matter");
   assert.equal(savedPolicy.policy.stopwatchRoundUp, false);
 
   const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
@@ -1120,12 +1102,9 @@ try {
   };
   const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
-  let failNextChat = false;
   let workdayProposals = [exact, partial, inlineTimer, unedited];
   let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 };
   let modelStatus: NonNullable<CaptureState["status"]>["type"] = "ready";
-  const chatByDay = new Map<string, CaptureState["chat"]>();
-  let instructions: CaptureState["instructions"] = [];
   const guidelines: CaptureState["guidelines"] = [];
   const privateDrafts: CaptureState["drafts"] = {};
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
@@ -1158,19 +1137,9 @@ try {
           proposalDigest: action.proposalDigest, revision: (privateDrafts[action.key]?.revision ?? 0) + 1 };
         else delete privateDrafts[action.key];
       }
-      if (action?.type === "chat") {
-        if (failNextChat) { failNextChat = false; throw new Error("Synthetic connection interrupted"); }
-        if (action.instruction) instructions.push({ id: action.id, text: action.text, ...action.instruction });
-        chatByDay.set(context.date, [
-          ...(chatByDay.get(context.date) ?? []), { id: action.id, role: "user", text: action.text },
-          { id: crypto.randomUUID(), role: "assistant", text: "Updated the private day draft." },
-        ]);
-      }
-      if (action?.type === "instruction") instructions = instructions.filter(item => item.id !== action.id);
       if (action?.type === "guideline") guidelines.push({ ...action.guideline, revision: action.guideline.revision + 1 });
       return {
         settings: workdaySettings, modelReady: false, connections: [], guidelines: [...guidelines],
-        instructions: [...instructions], chat: chatByDay.get(context.date) ?? [],
         status: { type: modelStatus, message: "Raw internal status must stay private" },
         drafts: Object.fromEntries(Object.entries(privateDrafts).filter(([, draft]) => draft.date === context.date)),
         proposals: workdayProposals.filter(proposal => proposal.date === context.date
@@ -1182,7 +1151,7 @@ try {
   const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
   const renderWorkday = () => act(async () => root.render(
     <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
-      <TimesheetWorkday client={workdayClient} models={[{ ...selectedModel, label: "Haiku" }]} directory={workdayDirectory} state={weeklyState}
+      <TimesheetWorkday client={workdayClient} directory={workdayDirectory} state={weeklyState}
         initialDate={base.date} onDateChange={() => {}}>
         {(captureSheet, workspace) => workspace(
           <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />,
@@ -1197,15 +1166,6 @@ try {
   const selectNative = async (element: HTMLSelectElement, value: string) => {
     await act(async () => { element.value = value; element.dispatchEvent(new window.Event("change", { bubbles: true })); });
   };
-  const selectPopup = async (label: string, value: string) => {
-    const select = document.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${label}"]`);
-    assert.ok(select, label);
-    await act(async () => select.click());
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === value);
-    assert.ok(option, value);
-    await act(async () => { option.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true })); option.click(); });
-    await settle();
-  };
   const until = async (ready: () => unknown) => { for (let i = 0; i < 25 && !ready(); i++) await settle(); };
   const proposalForm = (proposal: CaptureProposal) => document.querySelector<HTMLFormElement>(`[data-time-proposal="${proposal.key}"]`);
   const acceptFor = (proposal: CaptureProposal) => proposalForm(proposal)?.querySelector<HTMLButtonElement>('button[type="submit"]');
@@ -1215,13 +1175,35 @@ try {
   };
 
   await renderWorkday();
-  await until(() => workdayActions.some(action => action.type === "refresh"));
-  assert.deepEqual(workdayActions.find(action => action.type === "refresh"), { type: "refresh", model: selectedModel },
-    "opening the day requests private suggestions even for an older profile with AI previously off");
-  assert.equal(document.querySelector('.bo-workday-controls [role="switch"]'), null);
-  assert.doesNotMatch(document.body.textContent ?? "", /Day draft is ready/);
+  await until(() => Boolean(block(inlineTimer)));
+  assert.equal(workdayActions.some(action => action.type === "suggest"), false,
+    "opening the workday reads its private state without starting a reconstruction");
   assert.ok(block(inlineTimer), "the default mode keeps the stopped timer visible");
-  await press(t("timesheets.ai_settings"));
+  assert.match(document.body.textContent ?? "", /Unchecked/);
+  const { TimeTrackingSettingsView } = await import("../../src/react-app/domains/settings/pages/time-tracking-view");
+  const settingsClient = { ...workdayClient, activityProfile: async () => ({
+    profileId: "synthetic", directoryId: workdayDirectory.directoryId!, scope: workdayDirectory.scope, user: weeklyState.userId,
+    principal: "", enabled: workdaySettings.enabled !== false, workspaceActivity: true,
+  }), backOffice: async (path: string) =>
+    path.startsWith("/timesheet") ? weeklyState : workdayDirectory };
+  await act(async () => root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/settings/time-tracking"]}>
+    <TimeTrackingSettingsView client={settingsClient} /></MemoryRouter></QueryClientProvider>));
+  await until(() => document.querySelector(".time-workspace-guidelines"));
+  const enableSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="' + t("timeWorkspace.suggestionsEnabled") + '"]');
+  assert.ok(enableSwitch);
+  const scheduleTimes = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[type="time"]')).map(input => input.value);
+  assert.deepEqual(scheduleTimes(), ["08:00", "20:00"]);
+  await selectPopup(t("timeWorkspace.frequency"), t("timeWorkspace.hourly"));
+  assert.deepEqual(workdaySettings.schedule, { frequency: "hourly" });
+  await act(async () => enableSwitch.click());
+  await until(() => enableSwitch.getAttribute("aria-checked") === "false" && !enableSwitch.hasAttribute("disabled"));
+  assert.equal(workdaySettings.enabled, false);
+  assert.equal(document.querySelector('[role="combobox"][aria-label="' + t("timeWorkspace.frequency") + '"]'), null);
+  await act(async () => enableSwitch.click());
+  await until(() => enableSwitch.getAttribute("aria-checked") === "true" && !enableSwitch.hasAttribute("disabled"));
+  assert.equal(workdaySettings.enabled, true);
+  await until(() => document.querySelector(".time-workspace-guidelines"));
+  await press(t("timeWorkspace.guidelineNew"));
   const guidelineForm = document.querySelector<HTMLFormElement>(".time-workspace-guidelines form");
   const guidelineText = guidelineForm?.querySelector<HTMLTextAreaElement>("textarea");
   const guidelineFile = guidelineForm?.querySelector<HTMLInputElement>('input[type="file"]');
@@ -1273,20 +1255,100 @@ try {
   assert.equal(guidelines[0]?.rules.minimumMinutes, 12, "the user can correct extracted rules before saving");
   assert.equal(guidelines[0]?.rules.incrementMinutes, 6);
   assert.equal(guidelines[0]?.scope, "firm");
-  assert.equal(guidelines[0]?.effectiveFrom, base.date);
+  assert.equal(guidelines[0]?.effectiveFrom, new Date().toLocaleDateString("en-CA"));
   await selectPopup(t("timesheets.source.stopwatch"), "Use as an AI source");
   assert.equal(workdaySettings.stopwatchMode, "evidence");
+  {
+    const { Routes, Route } = await import("react-router-dom");
+    const clientRecord = { ...workdayDirectory.records[0], id: crypto.randomUUID(), objectId: "clients",
+      values: { name: "Review client" } };
+    const matterRecord = { ...clientRecord, id: crypto.randomUUID(), objectId: "matters",
+      values: { name: "Review matter", clients: [clientRecord.id] } };
+    const directory = { ...workdayDirectory, records: [clientRecord, matterRecord] };
+    const targets = { ...weeklyState,
+      clients: [...weeklyState.clients, { id: clientRecord.id, name: clientRecord.values.name }],
+      matters: [...weeklyState.matters, { id: matterRecord.id, name: matterRecord.values.name, clientIds: [clientRecord.id], reference: "" }] };
+    const linkedClient = { ...settingsClient, backOffice: async (path: string) => {
+      if (path.startsWith("/timesheet?")) return targets;
+      if (path === "/projects") return { projects: [] };
+      if (path.startsWith("/native-linked/")) return { links: [] };
+      assert.ok(path.startsWith("?manifest="), path);
+      return directory;
+    } };
+    const linkedCache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { gcTime: 0 } } });
+    let visit = 0;
+    const openMatterRecord = async () => {
+      await act(async () => root.render(<QueryClientProvider client={linkedCache}>
+        <MemoryRouter key={++visit} initialEntries={["/back-office/matters?record=" + matterRecord.id]}>
+          <Routes>
+            <Route path="/back-office/:object" element={<BackOfficePage client={linkedClient} />} />
+            <Route path="/settings/time-tracking" element={<TimeTrackingSettingsView client={linkedClient} />} />
+          </Routes>
+        </MemoryRouter></QueryClientProvider>));
+      await until(() => document.querySelector('a[href^="/settings/time-tracking?"]'));
+    };
+    const followGuidelineLink = async (scope: string, recordId: string) => {
+      const link = document.querySelector<HTMLAnchorElement>('a[href^="/settings/time-tracking?"]');
+      assert.ok(link);
+      const params = new URL(link.href).searchParams;
+      assert.equal(params.get(scope), recordId);
+      assert.equal(params.get("directory"), directory.directoryId);
+      await act(async () => link.click());
+      await until(() => document.querySelector(".time-workspace-guidelines"));
+    };
+    const openRelatedClient = async () => {
+      const chip = [...document.querySelectorAll<HTMLElement>(".bo-detail-fields span")]
+        .find(el => !el.children.length && el.textContent === clientRecord.values.name);
+      assert.ok(chip, "the matter links to the client in its record detail");
+      await act(async () => chip.click());
+      await until(() => document.querySelector('a[href*="client=' + clientRecord.id + '"]'));
+    };
+    const form = () => document.querySelector<HTMLFormElement>(".time-workspace-guidelines form");
+    const option = (label: string) => form()?.querySelector<HTMLElement>('[role="combobox"][aria-label="' + label + '"]');
+    const selected = (label: string) => option(t(label))?.querySelector('[data-slot="select-value"]')?.textContent;
+    await openMatterRecord();
+    await openRelatedClient();
+    await followGuidelineLink("client", clientRecord.id);
+    assert.equal(selected("timeWorkspace.guidelineScope"), t("back_office.billing.scope_client"));
+    assert.equal(selected("back_office.billing.scope_client"), clientRecord.values.name);
+    const guidelineName = "Client narrative requirements";
+    const wording = "Use the document title in each draft narrative.";
+    await input(form()!.querySelector("input")!, guidelineName);
+    await input(form()!.querySelector("textarea")!, wording);
+    await submit(form());
+    await until(() => !form());
+    const saved = guidelines.find(item => item.name === guidelineName);
+    assert.equal(saved?.scope, "client");
+    assert.equal(saved?.targetId, clientRecord.id);
+    const savedButton = () => [...document.querySelectorAll<HTMLButtonElement>(".time-workspace-guidelines button")]
+      .find(el => el.textContent?.includes(guidelineName));
+    await openMatterRecord();
+    await followGuidelineLink("matter", matterRecord.id);
+    assert.equal(selected("back_office.billing.scope_matter"), matterRecord.values.name);
+    assert.equal(savedButton(), undefined, "the matter settings show only that matter's guidelines");
+    await openMatterRecord();
+    await openRelatedClient();
+    await followGuidelineLink("client", clientRecord.id);
+    assert.equal(form(), null, "returning to the same client opens its saved guidelines");
+    const savedVersion = savedButton();
+    assert.ok(savedVersion?.textContent?.includes(clientRecord.values.name));
+    await act(async () => savedVersion!.click());
+    assert.equal(form()?.querySelector("textarea")?.value, wording);
+    assert.equal(selected("back_office.billing.scope_client"), clientRecord.values.name);
+    assert.equal(option(t("back_office.billing.scope_client"))?.hasAttribute("disabled"), true);
+  }
+  await renderWorkday();
+  await until(() => document.querySelector(".time-workspace-private-toolbar"));
   await until(() => !block(inlineTimer));
   assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
-  await press(t("timesheets.ai_settings"));
   modelStatus = "failed";
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(inlineTimer)));
   assert.ok(block(inlineTimer), "a failed model leaves the manual timer accessible");
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
-  await press(t("timesheets.retry"));
+  await press(t("timeWorkspace.addSuggestions"));
   await until(() => !block(inlineTimer));
-  assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest", model: selectedModel });
+  assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest" });
   assert.equal(block(inlineTimer), null, "retry uses the recovered model for the same day");
 
   await press("Week");
@@ -1308,10 +1370,7 @@ try {
   assert.ok(document.querySelector(`[data-calendar-untimed] [data-proposal-id="${unedited.key}"]`));
   await openProposal(exact);
   assert.equal(acceptFor(exact)?.disabled, true);
-  const link = proposalForm(exact)?.querySelector<HTMLSelectElement>("select");
-  assert.ok(link);
-  await act(async () => link.focus());
-  await selectNative(link, booked.id);
+  await selectPopup(t("timesheets.sheet.reconcile"), booked.narrative + " · " + booked.workedMinutes + " min");
   await until(() => !block(exact));
   assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
     type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7, draftRevision: 1,
@@ -1320,12 +1379,10 @@ try {
   assert.equal(document.activeElement, block(partial), "linking also returns focus to a surviving timeline block");
   await openProposal(partial);
   assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the second suggestion");
-  const activityInput = proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="activity"]');
-  assert.ok(activityInput);
-  await input(activityInput, "");
-  await press("Edit source and times", true);
+  await selectPopup(t("timesheets.ledger.activity"), t("timeWorkspace.noActivity"));
+  await press(t("common.edit"), true);
   assert.equal(document.activeElement, proposalHeading());
-  const correctionForm = document.querySelector<HTMLFormElement>(".bo-workday-correction");
+  const correctionForm = document.querySelector<HTMLFormElement>("[data-time-source-editor]");
   const correctedStart = correctionForm?.querySelector<HTMLInputElement>('input[type="time"]');
   assert.ok(correctedStart);
   await input(correctedStart, "10:34");
@@ -1338,6 +1395,9 @@ try {
   assert.equal(acceptFor(partial)?.disabled, false, "touching boundaries do not overlap");
   assert.equal(proposalForm(partial)?.querySelector<HTMLInputElement>('[data-column="billableWork"]')?.value, "16");
 
+  const closeEdited = document.querySelector<HTMLButtonElement>(".time-workspace-editor [data-slot=dialog-close]");
+  assert.ok(closeEdited);
+  await act(async () => closeEdited.click());
   await calendarAction(unedited, t("timesheets.sheet.decline"));
   await until(() => !block(unedited));
   assert.equal(block(unedited), null);
@@ -1366,40 +1426,8 @@ try {
   assert.equal(document.activeElement?.getAttribute("data-workspace-tab"), "timeline", "dismissing the last suggestion focuses the timeline");
 
   await selectTab("chat");
-  const chatPanel = document.querySelector<HTMLElement>(".time-workspace-chat");
-  const chatForm = chatPanel?.querySelector<HTMLFormElement>("form[data-workday-chat-composer]") ?? null;
-  const message = chatForm?.querySelector<HTMLElement>(composerSelector);
-  assert.ok(message);
-  await typeMessage(message, "Rename the draft item today");
-  await submit(chatForm);
-  await until(() => chatPanel?.textContent?.includes("Updated the private day draft."));
-  assert.match(chatPanel?.textContent ?? "", /Rename the draft item today/);
-  const dayCorrection = workdayActions.find(action => action.type === "chat");
-  assert.ok(dayCorrection?.type === "chat" && !dayCorrection.instruction);
-  assert.equal(chatForm?.querySelector("select"), null);
-  const chatOptions = async () => {
-    const optionsSelector = `form[data-workday-chat-composer] button[aria-label="${t("timeWorkspace.chatPurpose")}"]`;
-    await until(() => document.querySelector(optionsSelector));
-    const trigger = document.querySelector<HTMLButtonElement>(optionsSelector);
-    assert.ok(trigger);
-    await act(async () => trigger.click());
-  };
-  await chatOptions();
-  const purpose = document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select");
-  assert.ok(purpose);
-  await selectNative(purpose, "personal");
-  await chatOptions();
-  await typeMessage(message, "Use a short action verb for future drafts");
-  await submit(chatForm);
-  await chatOptions();
-  const rules = document.querySelector<HTMLDetailsElement>("[data-workday-chat-options] details");
-  assert.ok(rules);
-  await act(async () => rules.querySelector("summary")?.click());
-  assert.ok(rules.open);
-  assert.match(rules.textContent ?? "", /Use a short action verb/);
-  await chatOptions();
-  assert.deepEqual(workdayActions.filter(action => action.type === "chat").at(-1)?.instruction, { scope: "personal" });
-
+  assert.ok(document.querySelector('[data-workspace-tab="chat"]'));
+  assert.equal(document.querySelector("form[data-workday-chat-composer]"), null);
   await selectTab("entries");
   await press("Month");
   assert.equal(document.querySelectorAll(".bo-time-month button").length, 30);
@@ -1411,61 +1439,15 @@ try {
   assert.equal(selectedPeriod(), "Day");
   assert.equal(dayInput(), base.date);
   await selectTab("chat");
-  assert.doesNotMatch(chatPanel?.textContent ?? "", /Rename the draft item today/);
-  await chatOptions();
-  assert.match(document.querySelector("[data-workday-chat-options] details")?.textContent ?? "", /Use a short action verb/);
-  await chatOptions();
-
   const remount = async () => {
     await act(async () => root.render(null));
     await renderWorkday();
     await settle();
   };
-  const chatComposer = () => document.querySelector<HTMLElement>(`.time-workspace-chat ${composerSelector}`);
-  const currentChatComposer = chatComposer();
-  assert.ok(currentChatComposer);
-  await typeMessage(currentChatComposer, "Keep this correction for its own day");
-  await chatOptions();
-  const rememberedPurpose = document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select");
-  assert.ok(rememberedPurpose);
-  await selectNative(rememberedPurpose, "personal");
-  await chatOptions();
-  failNextChat = true;
-  await submit(document.querySelector<HTMLFormElement>("form[data-workday-chat-composer]")!);
-  const failedChat = workdayActions.filter(action => action.type === "chat").at(-1);
-  assert.ok(failedChat);
-  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day");
-  await press("Next day");
-  await until(() => chatComposer() && !chatComposer()?.textContent?.trim());
-  assert.equal(chatComposer()?.textContent?.trim(), "", "another day starts with its own composer");
-  const nextDayComposer = chatComposer();
-  assert.ok(nextDayComposer);
-  await typeMessage(nextDayComposer, "A different day's correction");
-  await press("Previous day");
-  await until(() => chatComposer()?.textContent?.trim() === "Keep this correction for its own day");
-  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day");
-  await chatOptions();
-  assert.equal(document.querySelector<HTMLSelectElement>("[data-workday-chat-options] select")?.value, "personal");
-  await chatOptions();
-  failNextChat = true;
-  await submit(document.querySelector<HTMLFormElement>("form[data-workday-chat-composer]")!);
-  assert.equal(workdayActions.filter(action => action.type === "chat").at(-1)?.id, failedChat.id,
-    "retry after a day switch keeps the original private request ID");
-  await remount();
-  await selectTab("chat");
-  assert.equal(chatComposer()?.textContent?.trim(), "Keep this correction for its own day", "leaving the workspace preserves the day draft");
-
   const originalDirectoryId = workdayDirectory.directoryId;
   workdayDirectory.directoryId = "migration-synthetic-directory";
-  const legacyKey = "legalwork.time-workspace:" + JSON.stringify([workdayClient.baseUrl, workdayDirectory.directoryId,
-    { scope: workdayDirectory.scope, user: workdayDirectory.permissions.userId, principal: "" }]);
-  localStorage.setItem(legacyKey, JSON.stringify({ layout: { entries: 59, private: 41 }, view: "chat", timeline: "matters" }));
   await remount();
-  assert.equal(panes().length, 1, "a legacy single-view layout is restored for this directory");
-  assert.equal(tabNode("chat")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
-  assert.equal(chatComposer()?.textContent?.trim(), "", "another directory cannot see this chat draft");
-  await selectTab("timeline");
-  assert.match(document.querySelector('[role="combobox"][aria-label="Timeline layout"]')?.textContent ?? "", /By matter/);
+  assert.equal(panes().length, 2, "a new directory opens the standard workspace layout");
   workdayDirectory.directoryId = originalDirectoryId;
   await remount();
   await newTab("Reset workspace layout");
@@ -1481,13 +1463,8 @@ try {
   assert.deepEqual(paneOrder(strips()[1]), ["chat", "timeline"]);
   assert.equal(document.activeElement, timelineTab);
   await selectTab("chat");
-  const draftEditor = document.querySelector<HTMLElement>(`.time-workspace-chat ${composerSelector}`);
-  assert.ok(draftEditor);
-  await typeMessage(draftEditor, "Keep this draft while moving chat");
   await moveTab("chat", 1);
   assert.equal(paneOf("chat"), paneOf("entries"));
-  assert.equal(document.querySelector(`.time-workspace-chat ${composerSelector}`), draftEditor);
-  assert.equal(draftEditor.textContent?.trim(), "Keep this draft while moving chat");
   await remount();
   assert.deepEqual(paneOrder(strips()[0]), ["entries", "chat"]);
   assert.deepEqual(paneOrder(strips()[1]), ["timeline"]);
@@ -1528,6 +1505,37 @@ try {
   assert.equal(proposalForm(inlineTimer)?.querySelector<HTMLInputElement>('[data-column="charge"]')?.value,
     "37", "an older stopwatch draft keeps its manually adjusted billable minutes");
 
+  // Creating a query while rendering Back Office must not synchronously notify an unrelated sidebar subscription.
+  const { getReactQueryClient } = await import("../../src/react-app/infra/query-client");
+  const { useQueryCacheState } = await import("../../src/react-app/infra/query-cache-state");
+  const { useQuery } = await import("@tanstack/react-query");
+  const { spyOn } = await import("bun:test");
+  const sharedCache = getReactQueryClient();
+  const watchedKey = ["synthetic-sidebar-interaction"];
+  const observed = () => document.querySelector("output")?.textContent;
+  function CacheSubscriber() { return <output>{useQueryCacheState(watchedKey, "empty")}</output>; }
+  let readsDuringMount = 0;
+  function QueryMount() {
+    const reads = spyOn(sharedCache, "getQueryData");
+    useQuery({ queryKey: ["synthetic-back-office-directory"], queryFn: async () => [], enabled: false });
+    readsDuringMount += reads.mock.calls.filter(([key]) => key === watchedKey).length;
+    reads.mockRestore();
+    return null;
+  }
+  const mount = (withDirectory: boolean) => act(async () => root.render(<QueryClientProvider client={sharedCache}>
+    <CacheSubscriber />{withDirectory && <QueryMount />}</QueryClientProvider>));
+  await mount(false);
+  await mount(true);
+  assert.equal(readsDuringMount, 0, "subscribers read their own key when it changes");
+  assert.equal(observed(), "empty");
+  await act(async () => { sharedCache.setQueryData(watchedKey, "updated"); });
+  await until(() => observed() === "updated");
+  assert.equal(observed(), "updated");
+  await act(async () => sharedCache.removeQueries({ queryKey: watchedKey, exact: true }));
+  await until(() => observed() === "empty");
+  assert.equal(observed(), "empty", "removing the observed query restores its fallback");
+  await act(async () => root.render(null));
+  sharedCache.clear();
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

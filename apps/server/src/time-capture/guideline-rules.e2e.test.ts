@@ -64,8 +64,8 @@ test.skipIf(!nativeMcpBinary)("private guideline preview extracts selected text 
       expect(response.status, JSON.stringify(data)).toBe(200);
       return captureStateSchema.parse(data);
     };
-    const unrelated = "Unrelated private instruction for a synthetic case.";
-    await state({ type: "chat", id: randomUUID(), text: unrelated, instruction: { scope: "personal" } });
+    const unrelated = "Unrelated private billing draft for a synthetic case.";
+    await state({ type: "draft", key: randomUUID(), date, values: { narrative: unrelated } });
     const before = await readFile(path, "utf8");
     const warning = await preview(randomUUID());
     expect(warning.status).toBe(409);

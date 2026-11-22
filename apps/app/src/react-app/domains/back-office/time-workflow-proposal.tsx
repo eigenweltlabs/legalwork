@@ -1,3 +1,6 @@
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { TimeSelect } from "./time-settings-controls";
 import { useId, useRef, useState } from "react";
 import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
 import { Button } from "@/components/ui/button";
@@ -5,14 +8,14 @@ import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-a
 import type { BackOfficeValue } from "@legalwork/types/back-office";
 import { captureChargeMinutes, type CaptureAction, type CaptureProposal, type PrivateBookingRevision } from "@legalwork/types/time-capture";
 import {
-  timeActivities, proposedCharge, resolveTimePolicy, type TimesheetCommand, type TimesheetState,
+  proposedCharge, resolveTimePolicy, type TimesheetCommand, type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 import {
   fromDraft, matchMatter, matterOptions, workerOptions, productOptions, parseRow, changeAmounts,
   rowColumns, stopwatchRowCharge, type RowColumn, type RowValues,
 } from "./timesheet-row";
-import { ledgerColumnKeys } from "./timesheet-labels";
+import { activityOptions, ledgerColumnKeys } from "./timesheet-labels";
 import { timeRecordDate } from "./time-record-values";
 import type { TimeCaptureSheet } from "./time-record-sheet";
 import { differentTimeValues, privateDraftConflict } from "./time-record-edits";
@@ -25,7 +28,8 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   canEdit: boolean;
 }) {
   const id = useId();
-  const matters = matterOptions(state), worker = workerOptions(state).find(person => person.id === state.userId);
+  const directory = proposal.source === "stopwatch" ? { ...state, projects: [] } : state;
+  const matters = matterOptions(directory), worker = workerOptions(state).find(person => person.id === state.userId);
   const { project, matter, clientId, policy: initialPolicy } = proposalAssignment(proposal, state);
   const stopwatch = proposal.source === "stopwatch";
   const duration = captureChargeMinutes(proposal);
@@ -152,7 +156,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         setError(t("timesheets.sheet.edit_suggestion_changed"));
         return false;
       }
-      const parsed = parseRow(current.current, state);
+      const parsed = parseRow(current.current, directory);
       if ("error" in parsed) {
         setError(parsed.error);
         return false;
@@ -170,9 +174,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     });
   }
   const choices: Partial<Record<RowColumn, string[]>> = {
-    matter: matters.map(matter => matter.label),
     product: productOptions(state, selectedMatter?.matterId).map(product => product.label),
-    activity: Object.keys({ ...timeActivities, ...policy.activityLabels }),
   };
   const linkMatter = selectedMatter?.matterId;
   const entriesById = new Map(state.entries.map(entry => [entry.id, entry]));
@@ -227,12 +229,20 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     }}>
       <ProposalDecisionReceiver proposal={proposal} accept={accept} dismiss={dismiss} />
       {fields.map(column => (
-        <label key={column}>
+        <label key={column} onBlur={column === "matter" || column === "activity" ? privateSave : undefined}>
           {t(ledgerColumnKeys[column])}
           {column === "narrative"
-            ? <textarea rows={3} maxLength={2000} data-column={column} value={values.narrative} disabled={!canEdit || busy}
+            ? <Textarea rows={3} maxLength={2000} data-column={column} value={values.narrative} disabled={!canEdit || busy}
                 onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />
-            : <input data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
+            : column === "activity"
+            ? <TimeSelect label={t(ledgerColumnKeys.activity)} value={values.activity} disabled={!canEdit || busy}
+                options={[{ id: "", name: t("timeWorkspace.noActivity") }, ...activityOptions(policy.activityLabels, values.activity)]}
+                onChange={value => { change(column, value); }} />
+            : column === "matter"
+            ? <TimeSelect label={t(ledgerColumnKeys.matter)} value={values.matter} placeholder={t("timesheets.workday.choose")}
+                disabled={!canEdit || busy} options={matters.map(({ label }) => ({ id: label, name: label }))}
+                onChange={value => change(column, value)} />
+            : <Input data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
                 disabled={!canEdit || busy} readOnly={column === "charge" && !values.billable}
                 list={choices[column] ? id + column : undefined}
                 onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />}
@@ -260,16 +270,12 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
         </> : <Button type="button" variant="outline" size="xs" onClick={() => void run(() => saveFields())}>{t("timesheets.retry")}</Button>}
       </div>}
       {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
-        <select value="" disabled={!canEdit} aria-disabled={busy || undefined} onChange={event => {
-          if (busy) return;
-          const match = matches.find(record => record.id === event.target.value);
-          if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
-        }}>
-          <option value="">{t("timeWorkspace.chooseRecorded")}</option>
-          {matches.map(record => <option key={record.id} value={record.id}>
-            {String(record.values.billingNarrative || record.values.name)} · {String(record.values.recordedMinutes)} min
-          </option>)}
-        </select>
+        <TimeSelect label={t("timesheets.sheet.reconcile")} value="" disabled={!canEdit || busy} placeholder={t("timeWorkspace.chooseRecorded")}
+          options={matches.map(record => ({ id: record.id, name: String(record.values.billingNarrative || record.values.name) + " · " + String(record.values.recordedMinutes) + " min" }))}
+          onChange={id => {
+            const match = matches.find(record => record.id === id);
+            if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
+          }} />
       </label>}
       <div className="time-workspace-actions">
         <TimeProposalActions busy={busy} canAccept={canEdit && !conflict} onDismiss={() => void dismiss()} />
@@ -283,7 +289,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
               workProductId: reviewed.productId, activity: reviewed.activity, narrative: reviewed.narrative || proposal.narrative,
             }, capture.drafts[proposal.key] || baseline.current.revision > 0 ? baseline.current.revision : undefined);
             return true;
-          })}>{t("timeWorkspace.editTimes")}</Button>
+          })}>{t("common.edit")}</Button>
       </div>
     </form>
   );

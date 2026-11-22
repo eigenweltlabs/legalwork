@@ -101,6 +101,7 @@ import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-vi
 import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
+import { TimeTrackingSettingsView } from "@/react-app/domains/settings/pages/time-tracking-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
@@ -221,6 +222,7 @@ function parseSettingsPath(pathname: string): {
     case "updates":
     case "recovery":
     case "office-addins":
+    case "time-tracking":
     case "recorder":
     case "debug":
       return { tab: head, redirectPath: null };
@@ -2380,6 +2382,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "office-addins":
         return <OfficeAddinsView />;
+      case "time-tracking":
+        return <TimeTrackingSettingsView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "recorder":
         return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : (
           <RecorderSettingsView

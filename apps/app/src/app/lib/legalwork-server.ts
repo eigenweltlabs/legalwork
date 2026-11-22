@@ -1873,13 +1873,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
-    activityProfile: () => requestJson<{profileId:string}>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
+    activityProfile: () => requestJson<{ profileId: string; directoryId: string; scope: string; user: string; principal: string; enabled: boolean; workspaceActivity: boolean }>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
     observeActivity: (profileId:string, observations: {projectId:string;stream:string;kind:"foreground"|"passive"|"agent";start:number;end:number}[]) =>
       requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
     privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
       requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId ? "?profileId=" + encodeURIComponent(profileId) : ""), {
         token, hostToken, method: action ? "POST" : "GET", body: action,
       }),
+    privateTimeConversation: (profileId: string, signal?: AbortSignal) =>
+      requestJson<{ workspace: LegalworkWorkspaceInfo; day: { sessionId: string; date: string } }>(baseUrl,
+        "/private-timesheet/conversation?" + new URLSearchParams({ profileId }), { token, hostToken, method: "POST", signal, timeoutMs: 90_000 }),
+    privateTimeHistory: (profileId: string, before?: string, limit = 1, after?: string) =>
+      requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl,
+        "/private-timesheet/conversation?" + new URLSearchParams({ profileId, limit: String(limit), ...(before && { before }), ...(after && { after }) }), { token, hostToken }),
     privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string;profileId?:string}) =>
       requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"digest">>(baseUrl,
         "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),

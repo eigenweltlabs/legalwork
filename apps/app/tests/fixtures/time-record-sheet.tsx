@@ -182,6 +182,16 @@ function selectField(root: HTMLElement, label: string) {
   assert.ok(element, label);
   return element;
 }
+async function chooseProposalOption(root: HTMLElement, label: string, choice: string, excluded?: string) {
+  const trigger = root.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="' + label + '"]');
+  assert.ok(trigger, label);
+  await act(async () => trigger.click());
+  const choices = [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+  if (excluded) assert.ok(!choices.some(option => option.textContent?.trim() === excluded));
+  const option = choices.find(item => item.textContent?.trim() === choice);
+  assert.ok(option, choice);
+  await act(async () => { option.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true })); option.click(); });
+}
 async function editProposal(id: string, field: "textarea" | 'input[data-field="recordedMinutes"]' | 'input[data-field="billableMinutes"]', value: string) {
   const input = proposalDetails(id).querySelector(field);
   assert.ok(input instanceof window.HTMLInputElement || input instanceof window.HTMLTextAreaElement);
@@ -212,7 +222,8 @@ try {
   assert.equal(host.querySelector(".bo-time-week"), null);
   assert.ok(![...host.querySelectorAll('[role="columnheader"]')].some(header => header.textContent?.includes(t("timesheets.sheet.bill_to"))));
   assert.equal(host.querySelector("[data-sheet-blank]"), null);
-  assert.ok(host.querySelector(".time-new-entry"));
+  assert.equal(host.querySelectorAll(".time-new-entry").length, 1);
+  assert.ok(host.querySelector(".bo-view-toolbar .time-new-entry"));
   assert.equal(visible(proposal.key), false);
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.decline")));
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")));
@@ -231,7 +242,12 @@ try {
   await act(async () => button(proposalDetails(proposal.key), t("timesheets.sheet.accept")).click());
   assert.equal(writes.length, 0, "chargeable time needs a linked client");
   async function chooseBillingClient(id: string, value: string) {
-    const selector = selectField(visible(id) ? row(id) : proposalDetails(id), t("timesheets.sheet.bill_to"));
+    if (!visible(id)) {
+      const client = linkedClients.find(item => item.id === value);
+      assert.ok(client);
+      return chooseProposalOption(proposalDetails(id), t("timesheets.sheet.bill_to"), client.name, "Unrelated client");
+    }
+    const selector = selectField(row(id), t("timesheets.sheet.bill_to"));
     assert.equal([...selector.options].some(option => option.value === unrelated), false);
     await act(async () => {
       selector.value = value;
@@ -293,11 +309,8 @@ try {
 
   const reconcile = { ...proposal, key: crypto.randomUUID() };
   await render(capture({ proposals: [reconcile], privateAvailable: true }), [workerContact, current]);
-  const matchingEntries = selectField(proposalDetails(reconcile.key), t("timesheets.sheet.reconcile"));
-  await act(async () => {
-    matchingEntries.value = current.id;
-    matchingEntries.dispatchEvent(new window.Event("change", { bubbles: true }));
-  });
+  await chooseProposalOption(proposalDetails(reconcile.key), t("timesheets.sheet.reconcile"),
+    String(current.values.billingNarrative || current.values.name) + " · " + String(current.values.recordedMinutes) + " min");
   assert.deepEqual(privateActions.at(-1), { type: "reconcile", key: reconcile.key, digest: reconcile.digest, recordId: current.id, recordRevision: current.revision });
   assert.equal(visible(reconcile.key), false);
   assert.equal(writes.length, 3);
@@ -400,8 +413,19 @@ try {
   const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
   await render(origin, [workerContact, current]);
   const previousCreations = host.querySelectorAll(".time-created-entry").length;
-  const summaryValues = () => [...host.querySelectorAll(".time-sheet-summary > span:not(.time-sheet-sync)")].map(item => item.textContent);
+  const summaryValues = () => [...host.querySelectorAll("[data-total-field]")].map(item => item.textContent);
   const originTotals = summaryValues();
+  const search = host.querySelector<HTMLInputElement>(".bo-search input");
+  assert.ok(search);
+  const setSearch = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  assert.ok(setSearch);
+  await act(async () => {
+    setSearch.call(search, "no matching narrative");
+    search.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  assert.deepEqual(summaryValues(), ["0 min", "0 min"], "both totals follow Back Office search");
+  await act(async () => button(host, t("integrations.clear_search")).click());
+  assert.deepEqual(summaryValues(), originTotals);
   const offDayId = blank().dataset.recordId;
   assert.ok(offDayId);
   const workDate = await enter(blank(), 0, second);
@@ -439,7 +463,7 @@ try {
   await render(capture({ date: second, dates: [second] }));
   assert.equal(visible(offDayId), true);
   assert.equal(host.querySelector(".time-booking-receipt"), null);
-  assert.equal(host.querySelector(".time-sheet-summary select"), null, "membership alone does not enable delegation");
+  assert.equal(host.querySelector(`[role="combobox"][aria-label="${t("timesheets.ledger.workers")}"]`), null, "membership alone does not enable delegation");
   rosterOffline = false;
   canDelegate = true;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
@@ -449,9 +473,12 @@ try {
   const otherEntry = { ...current, id: crypto.randomUUID(), values: { ...current.values, timekeeper: otherContact.id } };
   const workerRecords = [workerContact, current, otherContact, otherEntry];
   await render(workerView, workerRecords);
-  const filter = host.querySelector<HTMLSelectElement>(".time-sheet-summary select");
+  const filter = host.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${t("timesheets.ledger.workers")}"]`);
   assert.ok(filter);
-  await act(async () => { filter.value = "member:other"; filter.dispatchEvent(new window.Event("change", { bubbles: true })); });
+  await act(async () => filter.click());
+  const other = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent?.includes("Other worker"));
+  assert.ok(other);
+  await act(async () => { other.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true })); other.click(); });
   assert.ok(visible(otherEntry.id));
   assert.equal(visible(currentWorkersProposal.key), false, "a worker filter cannot turn a private suggestion into a ledger row");
   assert.ok(proposalDetails(currentWorkersProposal.key), "the private side remains scoped to the current user");
@@ -466,7 +493,7 @@ try {
   rosterOffline = true;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
   await render(workerView, workerRecords);
-  assert.equal(host.querySelector(".time-sheet-summary select"), null, "a roster error removes cached delegation");
+  assert.equal(host.querySelector(`[role="combobox"][aria-label="${t("timesheets.ledger.workers")}"]`), null, "a roster error removes cached delegation");
   assert.equal(visible(otherEntry.id), false);
   assert.ok(visible(savedRow.id), "the authenticated member's contact entries remain visible");
   assert.ok(!button(proposalDetails(currentWorkersProposal.key), t("timesheets.sheet.accept")).disabled);
@@ -474,7 +501,7 @@ try {
   canDelegate = false;
   await act(async () => { await queryClient.invalidateQueries({ queryKey: ["back-office"] }); });
   await render(active, [workerContact, current]);
-  assert.equal(host.querySelector(".time-sheet-summary select"), null);
+  assert.equal(host.querySelector(`[role="combobox"][aria-label="${t("timesheets.ledger.workers")}"]`), null);
 
   // A poll applies another window's stored draft while this editor still owns focus.
   for (const { field, valueKey, typed, original, remote } of [
@@ -523,7 +550,7 @@ try {
     ...beforeDirectoryRefresh, key: crypto.randomUUID(), digest: "f".repeat(64), narrative: "Other private work",
   });
   const pendingDirectory = { ...directory, records: [workerContact, singleClientMatter, ...clientRecords] };
-  client.privateStopwatch = async () => ({ profileId: directory.captureProfileId ?? "", active: null, lastStopped: null, projects: [] });
+  client.privateStopwatch = async () => ({ profileId: directory.captureProfileId ?? "", active: null, lastStopped: null, enabled: true });
   const workdayDrafts: TimeCaptureSheet["drafts"] = {};
   let sameProposalWasEdited = true;
   client.privateWorkday = async (_context, action) => {

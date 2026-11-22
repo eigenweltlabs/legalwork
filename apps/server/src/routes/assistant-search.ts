@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { visibleTimekeepingProjects } from "../time-capture/profile.js";
 import { ApiError } from "../errors.js";
 import { searchAssistantSessions, searchFingerprint } from "../assistant-session-search.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -28,13 +29,15 @@ export function registerAssistantSearchRoutes(options: {
 }) {
   const { config, routes, jsonResponse } = options;
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
-  const projects = async (projectId?: string) => {
+  const projects = async (ctx: RequestContext, projectId?: string) => {
+    const visible = await visibleTimekeepingProjects(config, ctx.actor);
     if (projectId) {
+      if (!visible.some(item => item.id === projectId)) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
       const workspace = await options.resolveWorkspace(config, projectId);
 
       return { workspaces: [workspace], unavailable: [] };
     }
-    const candidates = config.workspaces.filter(workspace => options.canAccessProject?.(workspace.id) !== false);
+    const candidates = visible.filter(workspace => options.canAccessProject?.(workspace.id) !== false);
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });
@@ -46,13 +49,13 @@ export function registerAssistantSearchRoutes(options: {
     if (input.scope === "project" && !input.projectId) throw new ApiError(400, "project_required", "Choose a project for project-scoped search.");
     const projectId = input.scope === "assistant" ? config.workspaces.find(isMainAssistant)?.id : input.scope === "project" ? input.projectId : undefined;
     if (input.scope === "assistant" && !projectId) return jsonResponse({ items: [], nextCursor: null, scanned: 0, unavailable: [] });
-    const accessible = await projects(projectId);
+    const accessible = await projects(ctx, projectId);
     return jsonResponse({ ...await searchAssistantSessions(config, accessible.workspaces, { ...input, includeToolOutputs: input.includeToolOutputs === "true" }, ctx.request.signal), unavailable: accessible.unavailable });
   });
   addRoute(routes, "GET", "/assistant/tasks", "client", async ctx => {
     read(ctx);
     const input = query(z.object({ ...page, status: z.enum(["open", "in_progress", "done", "cancelled", "unfinished"]).optional(), sort: z.enum(["created", "updated", "due", "priority"]).optional() }), ctx);
-    const accessible = await projects(input.projectId), connection = await readEigenweltConnection(config), orgId = connectedTaskOrgId(connection);
+    const accessible = await projects(ctx, input.projectId), connection = await readEigenweltConnection(config), orgId = connectedTaskOrgId(connection);
     const links = await projectSyncStore(config);
     const visible = new Set(accessible.workspaces.filter(workspace => {
       const link = links.linkByWorkspace(workspace.id);
@@ -74,7 +77,7 @@ export function registerAssistantSearchRoutes(options: {
     read(ctx);
     const input = query(z.object({ ...page, from: z.iso.date(), to: z.iso.date(), kind: z.enum(["deadline", "event", "task"]).optional() }), ctx);
     if (input.to <= input.from || input.to > addDays(input.from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
-    const accessible = await projects(input.projectId);
+    const accessible = await projects(ctx, input.projectId);
     const fingerprint = searchFingerprint([input.query, input.from, input.to, input.kind, input.projectId]);
     let after = "";
     if (input.cursor) {

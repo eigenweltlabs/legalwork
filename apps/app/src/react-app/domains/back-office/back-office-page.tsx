@@ -1,5 +1,7 @@
+import { isLoopbackLegalworkServerUrl } from "@/app/lib/legalwork-server";
 import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { timePage } from "./time-routes";
+import { timeTrackingProfile } from "./time-tracking-profile";
 import { TimesheetWorkspace } from "./timesheet-workspace";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
@@ -146,18 +148,14 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
   useEffect(
     () =>
       onSyncPoke((poke) => {
-        if (poke.policy || poke.reload) {
+        if (poke.policy) {
           setDraft(null);
           setSyncDetailsOpen(false);
           setDiscardChange(null);
           setError("");
         }
-        if (poke.policy || poke.reload || poke.backOffice || poke.resync)
-          void cache.invalidateQueries({
-            queryKey: ["back-office", client.baseUrl],
-          }, { cancelRefetch: false });
       }),
-    [cache, client.baseUrl],
+    [],
   );
   useEffect(() => {
     setDraft(null);
@@ -191,6 +189,8 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
         object.id === detail?.objectId &&
         !isInternalBackOfficeObject(object.id),
     );
+  const billingTarget = detail?.objectId === "matters" ? "matter" : detail?.objectId === "clients" ? "client" : undefined;
+  const timeTracking = useQuery(timeTrackingProfile(billingTarget ? client : null));
   const request = (path: string, body: unknown, method = "POST") =>
     client.backOffice(path, { method, body, team });
   const refresh = async () => {
@@ -372,7 +372,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
-    <BackOfficeTheme time={Boolean(timesheet)}>
+    <BackOfficeTheme>
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
@@ -611,11 +611,15 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
               onOpen={openRecord}
             >
               {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
-                {object && data.directoryId && ["matters", "clients"].includes(object.id) && (
-                  <Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
-                    [object.id === "matters" ? "matter" : "client"]: detail.id,
+                {timeTracking.data?.enabled !== false && billingTarget && data.directoryId && (
+                  <><Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+                    [billingTarget]: detail.id,
                     directory: data.directoryId,
                   })}>{t("timesheets.review_rules")}</Link>
+                  {isLoopbackLegalworkServerUrl(client.baseUrl) && <Link className="bo-time-secondary" to={"/settings/time-tracking?" + new URLSearchParams({
+                    [billingTarget]: detail.id,
+                    directory: data.directoryId,
+                  })}>{t("timeWorkspace.guidelines")}</Link>}</>
                 )}
                 <NativeBacklinks client={client} state={data} id={detail.id}/>
               </>}

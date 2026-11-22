@@ -85,7 +85,11 @@ async function append(
           "profile_changed",
           "The active account changed.",
         );
-      await privateWrite(path, rows);
+      await withFileWriteLock(profile.path, async () => {
+        const settings = await readCaptureSettings(profile.path);
+        const capture = events[0]?.kind === "tasks" ? settings.tasks : settings.workspaceActivity !== false;
+        if (settings.enabled !== false && capture) await privateWrite(path, rows);
+      });
     });
   }
 }
@@ -96,7 +100,8 @@ export async function recordWorkspaceObservations(
   const profile = await currentActivityProfile(config);
   if (batch.profileId !== profile.profileId)
     throw new ApiError(409, "profile_changed", "The active account changed.");
-  if ((await readCaptureSettings(profile.path)).workspaceActivity === false)
+  const settings = await readCaptureSettings(profile.path);
+  if (settings.enabled === false || settings.workspaceActivity === false)
     return;
   const now = Date.now();
   const allowed = new Set((await workdayWorkspaces(config)).map((w) => w.id));
@@ -127,7 +132,8 @@ export async function recordCompletedTask(
     updatedAt: string;
   },
 ) {
-  if (!(await readCaptureSettings(profile.path)).tasks) return;
+  const settings = await readCaptureSettings(profile.path);
+  if (settings.enabled === false || !settings.tasks) return;
   const completedAt = Date.parse(task.updatedAt);
   await append(config, profile, [
     {
@@ -163,6 +169,7 @@ export async function readActivityEvidence(
   const start = Date.parse(zonedInstant(date, zone)),
     end = Date.parse(zonedInstant(addDays(date, 1), zone));
   const settings = await readCaptureSettings(profile.path);
+  if (settings.enabled === false) return [];
   const records = (
     await Promise.all(
       [

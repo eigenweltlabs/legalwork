@@ -61,7 +61,6 @@
 .bo-time-state button:hover {
   background: var(--bo-surface);
 }
-.bo-time-totals,
 .bo-time-footer {
   display: flex;
   flex-wrap: wrap;
@@ -72,13 +71,8 @@
   color: var(--bo-muted);
   font-variant-numeric: tabular-nums;
 }
-.bo-time-totals span {
-  white-space: nowrap;
-}
-.bo-time-totals b {
-  font-weight: 500;
-  color: var(--t-font-color-primary);
-}
+
+
 .bo-time-week {
   flex-shrink: 0;
   min-width: 0;
@@ -125,7 +119,8 @@
   padding-bottom: 12px;
 }
 .bo-time-scroll .bo-grid-row,
-.bo-time-scroll .bo-grid-header {
+.bo-time-scroll .bo-grid-header,
+.bo-time-scroll .bo-time-summary {
   grid-template-columns: var(--time-tracks);
   width: 100%;
   min-width: var(--time-min-width);
@@ -233,22 +228,16 @@
   color: var(--t-color-blue11);
 }
 
-.time-section-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 8px 20px;
-  min-height: 48px;
-  padding: 7px 16px;
-  border-bottom: 1px solid var(--bo-border);
-}
-.time-section-header nav {
+.time-section-header, .time-section-header nav, .time-header-period, .time-header-period .bo-workday-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 4px;
+  white-space: nowrap;
 }
+.time-section-header { min-width: max-content; padding-inline: 4px; }
+.time-header-period:not(:empty) { margin-inline-start: 6px; padding-inline-start: 8px; border-inline-start: 1px solid var(--border); }
+.time-header-period .bo-workday-controls { min-height: 0; padding: 0; }
 .bo-time-toolbar {
   padding: 10px 16px 4px;
   gap: 5px;
@@ -258,13 +247,7 @@
   display: inline-flex;
   align-items: center;
 }
-.bo-time-period {
-  padding: 2px;
-  border: 1px solid var(--bo-border);
-  border-radius: var(--lw-radius-lg);
-  background: var(--bo-surface);
-}
-.bo-time-period button,
+.bo-time-period { gap: 2px; }
 .bo-time-date button {
   display: inline-flex;
   align-items: center;
@@ -275,11 +258,6 @@
   font-size: 12px;
   color: var(--t-font-color-secondary);
 }
-.bo-time-period button[aria-pressed="true"] {
-  color: var(--bo-text);
-  background: var(--bo-bg);
-  box-shadow: 0 1px 2px var(--bo-border);
-}
 .bo-time-date {
   margin: 0 3px;
 }
@@ -287,14 +265,8 @@
   max-width: 120px;
   font-variant-numeric: tabular-nums;
 }
-.bo-time-totals {
-  padding: 5px 18px 11px;
-  gap: 12px;
-}
-.bo-time-totals span + span {
-  border-inline-start: 1px solid var(--bo-border);
-  padding-inline-start: 12px;
-}
+
+
 .bo-time-new:focus-within {
   background: var(--bo-hover);
 }
@@ -384,22 +356,11 @@
   margin-top: 4px;
 }
 @media (max-width: 760px) {
-  .time-section-header {
-    padding: 9px 12px;
-    gap: 7px;
-  }
-  .time-section-header nav {
-    order: 2;
-    width: 100%;
-  }
   .time-record-settings { padding: 20px 16px }
   .bo-time-toolbar {
     padding-inline: 10px;
   }
-  .bo-time-totals {
-    padding-inline: 12px;
-    gap: 4px 8px;
-  }
+
 }
 .time-ledger-pane:not([hidden]) {
   display: flex;
@@ -411,7 +372,6 @@
 .time-unified { display:flex; flex-direction:column; flex:1; min-height:0; padding:0; overflow:hidden }
 .time-sheet-period { display:flex; gap:2px }
 .time-record-sheet { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden }
-.time-sheet-summary { display:flex; flex-shrink:0; align-items:center; gap:16px; padding:6px 16px; font-size:12px; color:var(--muted-foreground) }
 .time-sheet-sync { margin-left:auto; display:inline-flex; align-items:center; gap:5px }
 .time-record-sheet .bo-grid-row-details { grid-column:1 / -1; min-width:0; padding:0 8px 8px 8px; font-size:12px; color:var(--muted-foreground) }
 .time-record-sheet .bo-grid-row-detail { background:var(--t-accent-quaternary, var(--bo-surface)) }

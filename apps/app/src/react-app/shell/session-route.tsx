@@ -157,6 +157,8 @@ import type { HomeDraftAttachment } from "@/react-app/domains/session/home/home-
 import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { isInternalSession } from "@legalwork/types/session-visibility";
+import { Button } from "@/components/ui/button";
+import { timeTrackingProfile } from "../domains/back-office/time-tracking-profile";
 import { useWorkdayActivity } from "./workday-activity";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -479,6 +481,10 @@ export function SessionRoute() {
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
   const reloadCoordinator = useReloadCoordinator();
+  const [timeChatWorkspace, setTimeChatWorkspace] = useState<import("./route-workspaces").RouteWorkspace | null>(null);
+  const selectEmbeddedWorkspace = useCallback((workspace: import("@/app/lib/legalwork-server").LegalworkWorkspaceInfo | null) => {
+    setTimeChatWorkspace(current => current?.id === workspace?.id ? current : workspace ? { ...workspace, displayNameResolved: workspace.displayName || workspace.name } : null);
+  }, []);
   const [legalworkServerHostInfoState, setLegalworkServerHostInfoState] = useState<LegalworkServerInfo | null>(null);
   const [legalworkServerSettingsVersion, setLegalworkServerSettingsVersion] = useState(0);
   const {
@@ -529,6 +535,7 @@ export function SessionRoute() {
     handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    pageWorkspace: timeSection ? timeChatWorkspace : null,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -2470,7 +2477,10 @@ export function SessionRoute() {
     chatOwnerId: selectedSessionInfo ? selectedWorkspaceId : undefined,
   });
   const observedWorkspace = sidebarWorkspaces.find(workspace => workspace.id === visibleWorkdayProject);
-  useWorkdayActivity(hostToken ? client : null, workspaceServerId(observedWorkspace) || null, observedAgents);
+  const timeProfile = useQuery(timeTrackingProfile(hostToken ? client : null));
+  useWorkdayActivity(hostToken ? client : null,
+    timeProfile.data?.enabled && timeProfile.data.workspaceActivity ? timeProfile.data.profileId : null,
+    timeProfile.refetch, workspaceServerId(observedWorkspace) || null, observedAgents);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
@@ -2739,6 +2749,7 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      selectEmbeddedWorkspace={selectEmbeddedWorkspace}
       fileWorkspaceGroups={fileWorkspaceGroups}
       workflowLibraryView={workflowLibraryView}
       homePage={homePage}
@@ -2873,7 +2884,13 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        backOfficePage ? (client ? <BackOfficePage client={client}
+        timeSection && timeProfile.isLoading ? <PageLoading><PageLoadingSpinner /></PageLoading>
+        : timeSection && timeProfile.data?.enabled === false ? (
+          <div className="m-auto grid justify-items-center gap-3 p-6 text-sm">
+            <p>{t("timeWorkspace.trackingOff")}</p>
+            <Button variant="outline" size="sm" onClick={() => navigate("/settings/time-tracking")}>{t("timesheets.ai_settings")}</Button>
+          </div>
+        ) : backOfficePage ? (client ? <BackOfficePage client={client}
           workdayModels={selectedWorkspaceId ? (accessProviders ?? []).flatMap(provider =>
             Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
               workspaceId: selectedWorkspaceId, providerID: provider.id, modelID,

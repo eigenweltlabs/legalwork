@@ -5,13 +5,14 @@ import type { StopwatchAction, StopwatchState } from "@legalwork/types/time-capt
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
+import { TimeSelect } from "./time-settings-controls";
 import { t } from "@/i18n";
 import { calendarClientScope } from "../calendar/calendar-cache";
 
 function applied(state: StopwatchState, action: StopwatchAction) {
   if (action.type === "stop") return state.lastStopped?.id === action.id;
   if (action.type === "start") return state.active?.id === action.id || state.lastStopped?.id === action.id;
-  return state.active?.id === action.id && state.active.projectId === (action.projectId ?? null);
+  return state.active?.id === action.id && state.active.matterId === action.matterId;
 }
 
 export function useTimeWorkspaceStopwatch(client: LegalworkServerClient, profileId: string | undefined, enabled: boolean) {
@@ -59,20 +60,20 @@ function elapsed(startedAt: string, now: number) {
   return values.slice(values[0] > 0 ? 0 : 1).map(value => String(value).padStart(2, "0")).join(":");
 }
 
-export function TimeWorkspaceStopwatch({ stopwatch }: { stopwatch: ReturnType<typeof useTimeWorkspaceStopwatch> }) {
+export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: ReturnType<typeof useTimeWorkspaceStopwatch>; matters: { id: string; name: string; reference?: string | null }[] }) {
   const clockId = useId();
   const [open, setOpen] = useState(false);
-  const [project, setProject] = useState("");
+  const [matter, setMatter] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState(false);
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(Date.now);
   const trigger = useRef<HTMLButtonElement>(null);
-  const picker = useRef<HTMLSelectElement>(null);
+  const picker = useRef<HTMLButtonElement>(null);
   const actionButton = useRef<HTMLButtonElement>(null);
   const working = useRef(false);
-  const restoreFocus = useRef<"project" | "action">(undefined);
-  const startRetry = useRef<StopwatchAction>(undefined);
+  const restoreFocus = useRef<"matter" | "action">(undefined);
+  const startRetry = useRef<Extract<StopwatchAction, { type: "start" }>>(undefined);
   const available = Boolean(stopwatch.data) && !stopwatch.isError;
   const active = available ? stopwatch.data?.active : undefined;
   const clock = active ? elapsed(active.startedAt, now) : null;
@@ -84,7 +85,7 @@ export function TimeWorkspaceStopwatch({ stopwatch }: { stopwatch: ReturnType<ty
   }, [active?.startedAt]);
   useLayoutEffect(() => {
     if (pending || !open || !restoreFocus.current) return;
-    const element = restoreFocus.current === "project" ? picker.current : actionButton.current;
+    const element = restoreFocus.current === "matter" ? picker.current : actionButton.current;
     restoreFocus.current = undefined;
     element?.focus();
   }, [open, pending]);
@@ -97,7 +98,7 @@ export function TimeWorkspaceStopwatch({ stopwatch }: { stopwatch: ReturnType<ty
     try {
       const current = await stopwatch.change(action);
       if (action.type === "assign") {
-        restoreFocus.current = "project";
+        restoreFocus.current = "matter";
         return;
       }
       startRetry.current = undefined;
@@ -106,19 +107,20 @@ export function TimeWorkspaceStopwatch({ stopwatch }: { stopwatch: ReturnType<ty
       setOpen(false);
     } catch {
       setFailure(true);
-      restoreFocus.current = action.type === "assign" ? "project" : "action";
+      restoreFocus.current = action.type === "assign" ? "matter" : "action";
     } finally {
       working.current = false;
       setPending(false);
     }
   }
 
+  if (stopwatch.data?.enabled === false && !active) return null;
   return (
     <Popover open={open} onOpenChange={next => {
       setOpen(next);
       if (next) {
         restoreFocus.current = undefined;
-        setProject("");
+        setMatter("");
         setNotice("");
         setFailure(false);
         void stopwatch.refetch();
@@ -140,28 +142,27 @@ export function TimeWorkspaceStopwatch({ stopwatch }: { stopwatch: ReturnType<ty
           event.preventDefault();
           if (working.current || stopwatch.isPending) return;
           if (!available) { void stopwatch.refetch(); return; }
-          if (active) { void change({ type: "stop", id: active.id }); return; }
-          const projectId = project || undefined;
-          if (!startRetry.current || startRetry.current.projectId !== projectId) {
-            startRetry.current = { type: "start", id: crypto.randomUUID(), ...(projectId && { projectId }) };
+          if (active) { if (active.matterId) void change({ type: "stop", id: active.id }); return; }
+          const matterId = matter;
+          if (!matters.some(item => item.id === matterId)) return;
+          if (!startRetry.current || startRetry.current.matterId !== matterId) {
+            startRetry.current = { type: "start", id: crypto.randomUUID(), matterId };
           }
           void change(startRetry.current);
         }}>
-          {available && <label>{t("timeWorkspace.stopwatchProject")}
-            <select ref={picker} value={active ? active.projectId ?? "" : project} disabled={pending}
-              onChange={event => {
-                const chosen = event.currentTarget.value;
-                if (!active) { setProject(chosen); return; }
-                if (chosen !== (active.projectId ?? "")) void change({
-                  type: "assign", id: active.id, ...(chosen && { projectId: chosen }),
-                });
-              }}>
-              <option value="">{t("projects.no_project")}</option>
-              {stopwatch.data?.projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </label>}
+          {available && <div className="grid gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{t("timesheets.workday.matter")}</span>
+            <TimeSelect label={t("timesheets.workday.matter")} triggerRef={picker} value={active ? active.matterId ?? "" : matter}
+              placeholder={t("timesheets.workday.choose")} disabled={pending || !matters.length || (stopwatch.data?.enabled === false && Boolean(active?.matterId))}
+              options={matters.map(({ id, name, reference }) => ({ id, name: reference ? name + " · " + reference : name }))}
+              onChange={chosen => {
+                if (!active) { setMatter(chosen); return; }
+                if (chosen !== active.matterId) void change({ type: "assign", id: active.id, matterId: chosen });
+              }} />
+            {!matters.length && <p className="text-xs text-muted-foreground">{t("timeWorkspace.noStopwatchMatters")}</p>}
+          </div>}
           {failure && <p role="alert">{t("timeWorkspace.stopwatchFailed")}</p>}
-          <Button ref={actionButton} type="submit" size="sm" disabled={pending || stopwatch.isPending}>
+          <Button ref={actionButton} type="submit" size="sm" disabled={pending || stopwatch.isPending || (available && !(active ? active.matterId : matters.some(item => item.id === matter)))}>
             {t(!available ? "timesheets.retry" : active ? "timeWorkspace.stopwatchStop" : "timeWorkspace.stopwatchStart")}
           </Button>
         </form>

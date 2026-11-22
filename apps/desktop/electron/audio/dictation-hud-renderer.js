@@ -24,18 +24,18 @@ const stopwatchFeedback = document.getElementById("stopwatch-feedback");
 let stopwatch = null;
 let stopwatchLabels;
 const stopwatchPanel = document.getElementById("stopwatch-panel");
-const stopwatchProjects = document.getElementById("stopwatch-projects");
+const stopwatchMatters = document.getElementById("stopwatch-matters");
 const stopwatchConfirm = document.getElementById("stopwatch-confirm");
-let selectedStopwatchProject = null;
+let selectedStopwatchMatter = null;
 let pendingStopwatchAction = null;
-let awaitingProjectContext = false;
-let projectListSignature = "";
+let awaitingMatterContext = false;
+let matterListSignature = "";
 let idleNotice = "";
 let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
-    stopwatchTitle: "Stopwatch", stopwatchProject: "Project", noProject: "No project",
+    stopwatchTitle: "Stopwatch", stopwatchMatter: "Matter", noMatters: "No matters available",
     stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
     stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Time tracking",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
@@ -48,7 +48,7 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
-    stopwatchTitle: "Stoppuhr", stopwatchProject: "Projekt", noProject: "Kein Projekt",
+    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat", noMatters: "Keine Mandate verfügbar",
     stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
     stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit in der Zeiterfassung gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
@@ -111,25 +111,24 @@ function closeStopwatchPanel() {
 }
 function renderStopwatchPanel() {
   if (!stopwatch || !stopwatchLabels) return;
-  const projects = stopwatch.projects ?? [];
-  stopwatchProjects.setAttribute("aria-label", stopwatchLabels.stopwatchProject);
-  if (selectedStopwatchProject && !projects.some(project => project.id === selectedStopwatchProject)) selectedStopwatchProject = null;
+  const matters = stopwatch.matters ?? [];
+  stopwatchMatters.setAttribute("aria-label", stopwatchLabels.stopwatchMatter);
+  if (selectedStopwatchMatter && !matters.some(matter => matter.id === selectedStopwatchMatter)) selectedStopwatchMatter = null;
   document.getElementById("stopwatch-heading").textContent = stopwatchLabels.stopwatchTitle;
   document.getElementById("stopwatch-close").setAttribute("aria-label", stopwatchLabels.dismiss);
-  const signature = JSON.stringify([projects, selectedStopwatchProject, stopwatchLabels.noProject, stopwatch.busy, stopwatch.unavailable]);
-  if (signature !== projectListSignature) {
-    projectListSignature = signature;
-    const choices = [{ id: null, name: stopwatchLabels.noProject }, ...projects];
-    stopwatchProjects.replaceChildren(...choices.map(project => {
+  const signature = JSON.stringify([matters, selectedStopwatchMatter, stopwatchLabels.noMatters, stopwatch.busy, stopwatch.unavailable, stopwatch.enabled]);
+  if (signature !== matterListSignature) {
+    matterListSignature = signature;
+    stopwatchMatters.replaceChildren(...matters.map(matter => {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = project.name;
-      button.disabled = stopwatch.busy || stopwatch.unavailable;
-      button.setAttribute("aria-pressed", String(project.id === selectedStopwatchProject));
+      button.textContent = matter.name;
+      button.disabled = stopwatch.busy || stopwatch.unavailable || (!stopwatch.enabled && Boolean(stopwatch.matterId));
+      button.setAttribute("aria-pressed", String(matter.id === selectedStopwatchMatter));
       button.addEventListener("click", () => {
-        awaitingProjectContext = false;
-        selectedStopwatchProject = project.id;
-        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, project.id ?? undefined);
+        awaitingMatterContext = false;
+        selectedStopwatchMatter = matter.id;
+        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, matter.id);
         renderStopwatchPanel();
       });
       return button;
@@ -137,22 +136,22 @@ function renderStopwatchPanel() {
   }
   document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
     ? stopwatchLabels.stopwatchFailed
-    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : "";
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : !matters.length ? stopwatchLabels.noMatters : "";
   stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
     : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
-  stopwatchConfirm.disabled = stopwatch.busy;
+  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.unavailable && !(stopwatch.startedAt ? stopwatch.matterId : selectedStopwatchMatter));
 }
 document.getElementById("stopwatch-close").addEventListener("click", closeStopwatchPanel);
 stopwatchConfirm.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   pendingStopwatchAction = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
-  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchProject ?? undefined : undefined);
+  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchMatter ?? undefined : undefined);
 });
 stopwatchButton.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   if (!stopwatchPanel.hidden) return closeStopwatchPanel();
-  awaitingProjectContext = true;
-  selectedStopwatchProject = (stopwatch.startedAt ? stopwatch.projectId : stopwatch.suggestedProjectId) ?? null;
+  awaitingMatterContext = true;
+  selectedStopwatchMatter = stopwatch.matterId ?? null;
   stopwatchPanel.hidden = false;
   renderStopwatchPanel();
   bridge.action("stopwatch-prepare", stopwatch.version);
@@ -180,9 +179,9 @@ bridge.onState((value) => {
   const labels = translations[value.locale] || translations.en;
   const previousStopwatch = stopwatch;
   stopwatch = value.stopwatch;
-  if (stopwatch && (awaitingProjectContext || previousStopwatch?.version !== stopwatch.version)) {
-    selectedStopwatchProject = (stopwatch.startedAt ? stopwatch.projectId : stopwatch.suggestedProjectId) ?? null;
-    awaitingProjectContext = false;
+  if (stopwatch && (awaitingMatterContext || previousStopwatch?.version !== stopwatch.version)) {
+    selectedStopwatchMatter = stopwatch.matterId ?? null;
+    awaitingMatterContext = false;
   }
   if (!stopwatch) closeStopwatchPanel();
   if (pendingStopwatchAction && previousStopwatch?.busy && !stopwatch?.busy) {

@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 const channel = "legalwork:dictation-hud";
 
 contextBridge.exposeInMainWorld("dictationHud", {
-  action: (action, version, projectId) => ipcRenderer.send(`${channel}:action`, action, version, projectId),
+  action: (action, version, matterId) => ipcRenderer.send(`${channel}:action`, action, version, matterId),
   pointer: (interactive) => ipcRenderer.send(`${channel}:pointer`, interactive),
   drag: (phase, anchor) => ipcRenderer.send(`${channel}:drag`, phase, anchor),
   onCursor: (callback) => ipcRenderer.on(`${channel}:cursor`, (_event, value) => callback(value)),

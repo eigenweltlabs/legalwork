@@ -32,18 +32,23 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
   const assistant = useChatModelPreferences(Boolean(props.assistantDate), providers.data);
   const selection = props.assistantDate
     ? { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant }
-    : stored ?? { model: props.selectedModel, variant: props.modelVariant };
+    : stored ?? { model: props.timekeeping?.model ?? props.selectedModel, variant: props.modelVariant };
   useEffect(() => {
-    if (!props.assistantDate && props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
-  }, [key, props.assistantDate, props.selectedModel, props.modelVariant]);
+    const model = props.timekeeping?.model ?? props.selectedModel;
+    if (!props.assistantDate && model.providerID && model.modelID) useSessionModelStore.getState().initialize(key, { model, variant: props.modelVariant });
+  }, [key, props.assistantDate, props.selectedModel, props.timekeeping?.model, props.modelVariant]);
   const picker = useModelPicker({ client, baseUrl: props.opencodeBaseUrl, workspaceRoot: props.workspaceRoot, listenForDefaults: false });
   const unavailable = Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
+  useEffect(() => {
+    if (props.active && props.timekeeping && providers.data && !unavailable && selection.model.providerID && selection.model.modelID)
+      props.timekeeping.modelChanged(selection.model);
+  }, [props.active, props.timekeeping, providers.data, unavailable, selection.model]);
   const select = (model: ModelRef) => {
     if (props.assistantDate) assistant.onModelChange(model);
     else {
       useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
-      props.onModelChange(model);
+      if (!props.timekeeping) props.onModelChange(model);
     }
     picker.setCompactOpen(false); picker.setOpen(false);
   };
@@ -67,7 +72,7 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
       assistantHeader={props.renderAssistantHeader?.(modelSettings) ?? props.assistantHeader}
       modelLabel={resolveModelDisplayName(selection.model.modelID)} modelUnavailable={unavailable}
       onModelClick={() => picker.setOpen(true)} onChangeModel={select}
-      onSendDraft={(draft, id, options) => props.onSendDraft(draft, id, { ...options, modelSelection: { model: selection.model, variant: behavior.modelVariantValue } })}
+      onSendDraft={(draft, id, options) => props.onSendDraft(props.timekeeping ? { ...draft, modelContext: [draft.modelContext, props.timekeeping.context].filter(Boolean).join("\n\n") } : draft, id, { ...options, modelSelection: { model: selection.model, variant: behavior.modelVariantValue } })}
     />
     <ModelPickerModal open={picker.open} options={picker.options} query={picker.query} setQuery={picker.setQuery}
       target="session" current={selection.model} onSelect={select} onBehaviorChange={selectBehavior}

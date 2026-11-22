@@ -13,12 +13,12 @@ const state = TimesheetStateSchema.parse({ userId: "worker", scope: "local", can
 test("stopwatch rows preserve measured minutes separately from the rounded charge", () => {
   for (const [seconds, up, nearest] of [[601, 20, 10], [899, 20, 10], [900, 20, 20], [10, 10, 0]]) {
     const proposal = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: "2026-11-18", source: "stopwatch",
-      projectId: "project", activity: "RES", narrative: "Private source", workedMinutes: Math.round(seconds / 60) || null,
+      projectId: null, matterId: "matter", activity: "RES", narrative: "Private source", workedMinutes: Math.round(seconds / 60) || null,
       startAt: "2026-11-18T10:00:00.000Z", endAt: new Date(Date.parse("2026-11-18T10:00:00Z") + seconds * 1000).toISOString(), dismissed: false });
     const original = structuredClone(proposal);
     const actual = Math.round(seconds / 60);
     expect(proposalValues(proposal, state)).toMatchObject({ recordedMinutes: actual, billableMinutes: up });
-    const nearestState = { ...state, policies: [{ scope: "project", targetId: "project", effectiveFrom: "2026-11-01", revision: 1, stopwatchRoundUp: false }] } satisfies typeof state;
+    const nearestState = { ...state, policies: [{ scope: "matter", targetId: "matter", effectiveFrom: "2026-11-01", revision: 1, stopwatchRoundUp: false }] } satisfies typeof state;
     expect(proposalValues(proposal, nearestState)).toMatchObject({ recordedMinutes: actual, billableMinutes: nearest });
     expect(proposalValues(proposal, { ...nearestState, policies: nearestState.policies.map(policy => ({ ...policy, incrementMinutes: 6 })) }).billableMinutes).toBe(Math.round(seconds / 360) * 6);
     expect(proposalValues({ ...proposal, chargeMinutes: 30 }, nearestState)).toMatchObject({ recordedMinutes: actual, billableMinutes: 30 });
@@ -58,7 +58,7 @@ test("record sheet edits preserve genuine clocks when the selected service date 
   const serviceDate = "2026-11-18";
   const startedAt = "2026-11-19T00:00:00.000Z", endedAt = "2026-11-19T00:10:00.000Z";
   const proposal = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: serviceDate,
-    source: "stopwatch", projectId: "project", activity: "RES", narrative: "Private source", workedMinutes: 10, startAt: startedAt, endAt: endedAt, dismissed: false });
+    source: "stopwatch", projectId: null, matterId: "matter", activity: "RES", narrative: "Private source", workedMinutes: 10, startAt: startedAt, endAt: endedAt, dismissed: false });
   const values = proposalValues(proposal, state), clientForMatter = () => null;
   expect(values).toMatchObject({ startedAt, endedAt, serviceDate });
   expect(timeCellChanges(values, { startedAt: serviceDate }, serviceDate, undefined, clientForMatter)).toEqual({});

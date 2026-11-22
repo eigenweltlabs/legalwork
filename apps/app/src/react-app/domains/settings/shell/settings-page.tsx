@@ -16,6 +16,7 @@ import {
   Languages,
   Layout,
   Mic,
+  Timer,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -108,6 +109,8 @@ function getSettingsTabIcon(tab: SettingsTab) {
       return ShieldCheck;
     case "office-addins":
       return FileStack;
+    case "time-tracking":
+      return Timer;
     case "recorder":
       return Mic;
     case "debug":
@@ -175,6 +178,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("settings.tab_recovery");
     case "office-addins":
       return t("office_addins.tab_label");
+    case "time-tracking":
+      return t("timesheets.workspace_title");
     case "recorder":
       return t("recorder.settings_tab_label");
     case "debug":
@@ -234,6 +239,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("settings.tab_description_recovery");
     case "office-addins":
       return t("office_addins.tab_description");
+    case "time-tracking":
+      return t("timeWorkspace.settingsDescription");
     case "recorder":
       return t("recorder.settings_tab_description");
     case "debug":
@@ -257,7 +264,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "assistant", "notifications", "tabular-review", "time-tracking", "extensions", "personalisation", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Keep Account, AI Providers and Assistant first.
   if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");

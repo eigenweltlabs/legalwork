@@ -18,7 +18,7 @@ export function timeRecordDate(value: BackOfficeValue | undefined, serviceDate?:
 }
 
 export function proposalAssignment(proposal: CaptureProposal, state: TimesheetState) {
-  const project = state.projects.find(project => project.id === proposal.projectId);
+  const project = proposal.source === "stopwatch" ? undefined : state.projects.find(project => project.id === proposal.projectId);
   const matter = state.matters.find(matter => matter.id === proposal.matterId)
     ?? (project?.matterIds.length === 1 ? state.matters.find(matter => matter.id === project.matterIds[0]) : undefined);
   const clientId = matter?.clientIds.length === 1 ? matter.clientIds[0] : "";

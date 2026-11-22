@@ -1,4 +1,4 @@
-import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
+import { RecordSearchFilters, RecordFilterChips } from "./record-search-filters";
 import { BackOfficeFilesSchema, backOfficeMajorAmount, backOfficeViewFilters, compareBackOfficeMoney, compileBackOfficeFilters, sumBackOfficeMoney } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
 import { toast } from "@/components/ui/sonner";
@@ -36,7 +36,6 @@ import {
 } from "lucide-react";
 import { Button, Checkbox, Input } from "twenty-ui/primitives/input";
 import { Dropdown } from "twenty-ui/components/navigation";
-import { SearchInput } from "twenty-ui/components/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import type {
   BackOfficeField,
@@ -132,6 +131,8 @@ export function RecordGrid({
     trailing?: (record: BackOfficeRecord) => ReactNode;
     blankId: string;
     appendedRowCount?: number;
+    toolbarAction?: ReactNode;
+    sumFields?: readonly string[];
     afterRows?: (render: (record: BackOfficeRecord, index: number) => ReactNode) => ReactNode;
     leading?: (record: BackOfficeRecord) => ReactNode;
     details?: (record: BackOfficeRecord, columns: readonly string[]) => ReactNode;
@@ -167,9 +168,8 @@ export function RecordGrid({
   );
   const viewAnchor = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState(initialView?.query ?? "");
-  const searchInput = useRef<HTMLInputElement>(null);
   const [sort, setSort] = useState({
-    field: initialView?.sortField ?? "name",
+    field: initialView?.sortField ?? (sheet?.columns[0] ?? "name"),
     direction: initialView?.sortDirection ?? "asc",
   });
   const [columns, setColumns] = useState(
@@ -183,7 +183,6 @@ export function RecordGrid({
   );
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
-  const [filterOpen, setFilterOpen] = useState(false);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const editingRef = useRef<EditingCell | null>(null);
   const editCell = useCallback((next: EditingCell | null, expected?: EditingCell) => {
@@ -271,7 +270,7 @@ export function RecordGrid({
   const recordById = useMemo(() => new Map(records.map(record => [record.id, record])), [records]);
   const fieldById = useMemo(() => new Map(object.fields.map(field => [field.id, field])), [object]);
   const display = useCallback((record: BackOfficeRecord, id: string) => {
-    const value = record.values[id],
+    const value = sheet?.fieldValue ? sheet.fieldValue(record, id) : record.values[id],
       field = fieldById.get(id);
     if (field?.type === "file") {
       const files = BackOfficeFilesSchema.safeParse(value);
@@ -286,26 +285,31 @@ export function RecordGrid({
     return typeof value === "object" && value !== null && !Array.isArray(value)
       ? backOfficeMajorAmount(value)
       : String(value ?? "");
-  }, [fieldById, recordById]);
+  }, [fieldById, recordById, sheet]);
   const searchRows = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
     if (!term) return own;
     return own.filter(record => record.id === sheet?.blankId || object.fields.some(field =>
       String(display(record, field.id)).toLocaleLowerCase().includes(term)));
   }, [own, query, object, display, sheet?.blankId]);
+  const fieldValue = sheet?.fieldValue;
+  const filterRecord = useMemo(() => fieldValue ? (record: BackOfficeRecord) => ({
+    ...record, values: Object.fromEntries(object.fields.map(({ id }) => [id, fieldValue(record, id) ?? null])),
+  }) : undefined, [fieldValue, object]);
   const collator = useMemo(() => new Intl.Collator(undefined, { numeric: true }), []);
-  const rows = useMemo(() => searchRows.filter(record => record.id === sheet?.blankId || compileBackOfficeFilters(object, filters)(record)).sort((a, b) => {
-    if (sheet) {
-      if (a.id === sheet.blankId) return 1;
-      if (b.id === sheet.blankId) return -1;
-      return records.indexOf(a) - records.indexOf(b);
-    }
-    const left = display(a, sort.field), right = display(b, sort.field);
-    const leftValue = a.values[sort.field], rightValue = b.values[sort.field];
-    const order = leftValue && typeof leftValue === "object" && !Array.isArray(leftValue) && rightValue && typeof rightValue === "object" && !Array.isArray(rightValue)
-      ? compareBackOfficeMoney(leftValue, rightValue) : collator.compare(String(left), String(right));
-    return sort.direction === "asc" ? order : -order;
-  }), [searchRows, object, filters, sort, collator, display, sheet, records]);
+  const rows = useMemo(() => {
+    const matches = compileBackOfficeFilters(object, filters);
+    return searchRows.filter(record => record.id === sheet?.blankId || !filters.conditions.length
+      || matches(filterRecord ? filterRecord(record) : record)).sort((a, b) => {
+      if (a.id === sheet?.blankId) return 1;
+      if (b.id === sheet?.blankId) return -1;
+      const left = display(a, sort.field), right = display(b, sort.field);
+      const leftValue = a.values[sort.field], rightValue = b.values[sort.field];
+      const order = leftValue && typeof leftValue === "object" && !Array.isArray(leftValue) && rightValue && typeof rightValue === "object" && !Array.isArray(rightValue)
+        ? compareBackOfficeMoney(leftValue, rightValue) : collator.compare(String(left), String(right));
+      return sort.direction === "asc" ? order : -order;
+    });
+  }, [searchRows, object, filters, sort, collator, display, sheet, filterRecord]);
   const selectedIds = useMemo(() => new Set(selected), [selected]);
   const selectable = useMemo(() => rows.filter(record => record.revision > 0), [rows]);
   const selectedCount = useMemo(() => selectable.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [selectable, selectedIds]);
@@ -392,7 +396,7 @@ export function RecordGrid({
     setWidths(view?.widths ?? { ...defaultWidths, ...sheet?.widths });
     setQuery(view?.query ?? "");
     setSort({
-      field: view?.sortField ?? "name",
+      field: view?.sortField ?? sheet?.columns[0] ?? "name",
       direction: view?.sortDirection ?? "asc",
     });
     setFilters(backOfficeViewFilters(view));
@@ -503,7 +507,11 @@ export function RecordGrid({
     ];
     return (
       <div key={field.id}>
-        {field.id === "name" ? (
+        {sheet?.sumFields?.includes(field.id) ? (
+          <span data-total-field={field.id} aria-label={field.label}>
+            {rows.reduce((sum, row) => sum + (row.revision > 0 ? Number(row.values[field.id] ?? 0) : 0), 0)} min
+          </span>
+        ) : field.id === "name" ? (
           <span className="bo-muted">{t("back_office.records_count", { count: rows.length })}</span>
         ) : field.type === "currency" && currencies.length === 1 ? (
           new Intl.NumberFormat(locale, {
@@ -513,7 +521,7 @@ export function RecordGrid({
         ) : null}
       </div>
     );
-  }), [layout, rows, visibleFields, locale]);
+  }), [layout, rows, visibleFields, locale, sheet?.sumFields]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
@@ -611,26 +619,13 @@ export function RecordGrid({
             </>
           )}
         </DirectoryMenu>
+        {sheet?.toolbarAction}
         <div className="bo-view-actions">
-          <div className="bo-search">
-            <SearchInput
-              ref={searchInput}
-              size="sm"
-              aria-label={t("back_office.search_records")}
-              placeholder={t("back_office.search_records")}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              actions={query ? <Button size="sm" type="button" variant="ghost" color="neutral" aria-label={t("integrations.clear_search")} startIcon={<X size={12} />} onClick={() => { setQuery(""); searchInput.current?.focus({ preventScroll: true }); }} /> : undefined}
-            />
-          </div>
-          <DirectoryMenu type="panel" className="bo-record-filter-popup" open={filterOpen} onOpenChange={setFilterOpen} trigger={
-            <Button size="sm" variant="ghost" color="neutral">{t("back_office.filters.button")}{filters.conditions.length > 0 && <span className="bo-filter-count">{filters.conditions.length}</span>}</Button>
-          }>
-            <RecordFilterEditor key={String(filterOpen)} object={object} records={records} rows={searchRows} finance={finance} value={filters} onCancel={() => setFilterOpen(false)} onApply={next => { setFilters(next); setFilterOpen(false); }} />
-          </DirectoryMenu>
+          <RecordSearchFilters query={query} onQuery={setQuery} object={object} records={records} rows={searchRows.filter(row => row.id !== sheet?.blankId)} filterRecord={filterRecord}
+            finance={finance} filters={filters} onFilters={setFilters} />
           <DirectoryMenu
             trigger={
-              <Button size="sm" variant="ghost" disabled={Boolean(sheet)}>
+              <Button size="sm" variant="ghost">
                 {t("back_office.sort")}
               </Button>
             }
@@ -754,14 +749,7 @@ export function RecordGrid({
           </Button>
         </div>
       )}
-      {filters.conditions.length > 0 && <div className="bo-filter-chips" aria-label={t("back_office.filters.active")}>
-        {filters.conditions.length > 1 && <span className="bo-muted">{t(filters.mode === "all" ? "projects.reference.all_rules" : "projects.reference.any_rule")}</span>}
-        {filters.conditions.map((condition, index) => {
-          const field = object.fields.find(field => field.id === condition.fieldId);
-          const label = `${field?.label ?? condition.fieldId} ${recordFilterOperatorLabel(condition.operator, field)} ${recordFilterValueLabel(condition, object, records)}`.trim();
-          return <Button key={index} type="button" size="sm" variant="outline" color="neutral" title={label} aria-label={t("back_office.filters.remove", { name: label })} endIcon={<X size={12} />} onClick={() => setFilters(current => ({ ...current, conditions: current.conditions.filter((_, i) => i !== index) }))}><span>{label}</span></Button>;
-        })}
-      </div>}
+      <RecordFilterChips object={object} records={records} filters={filters} onFilters={setFilters} />
       {layout === "kanban" && kanbanField ? (
         <RecordKanban {...viewProps} field={kanbanField} />
       ) : layout === "calendar" ? (
@@ -832,7 +820,6 @@ export function RecordGrid({
                 }}
               >
                 <button
-                  disabled={Boolean(sheet)}
                   onClick={() =>
                     setSort((current) => ({
                       field: field.id,
@@ -846,7 +833,7 @@ export function RecordGrid({
                 >
                   <FieldIcon field={field} />
                   <span>{field.label}</span>
-                  {!sheet && sort.field === field.id && (
+                  {sort.field === field.id && (
                     <ArrowDown
                       size={11}
                       style={{

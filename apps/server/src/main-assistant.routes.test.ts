@@ -13,6 +13,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
     const { writeEigenweltConnection } = await import(${JSON.stringify(new URL("./eigenwelt-connection-store.ts", import.meta.url).href)});
+    const { ensureWikiAgentToken, grantWikiAgentSession } = await import(${JSON.stringify(new URL("./wiki/agent-access.ts", import.meta.url).href)});
+    const { activeCaptureProfile, isTimekeepingProject } = await import(${JSON.stringify(new URL("./time-capture/profile.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "matter");
     await mkdir(folder);
     const sessions = new Map(); const deliveries = []; const finished = new Set(); const notices = new Map();
@@ -463,6 +465,58 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
         assert.equal((await call("/assistant/access/" + assistant.workspace.id)).status, 200);
       }
       assert.equal((await hostCall("/assistant/settings", "PATCH", settings)).status, 200);
+      // The first request comes from the owner's Assistant. The private chat tab has never opened.
+      assert.equal(config.workspaces.some(isTimekeepingProject), false);
+      const profile = await activeCaptureProfile(config);
+      const nativeToken = await ensureWikiAgentToken(config);
+      const nativePost = (workspace, sessionId, path, body) => fetch(base + path, { method: "POST", headers: {
+        "content-type": "application/json", "x-legalwork-wiki-agent-token": nativeToken,
+        "x-legalwork-wiki-agent-session": sessionId, "x-legalwork-wiki-agent-directory": encodeURIComponent(workspace.path),
+      }, body: JSON.stringify(body) });
+      const assistantTool = (path, body = {}) => nativePost(assistant.workspace, assistant.day.sessionId, path, { ...body, sourceSessionId: assistant.day.sessionId });
+      await grantWikiAgentSession(config, { workspaceId: assistant.workspace.id, directory: assistant.workspace.path, sessionId: assistant.day.sessionId, scope: "owner" });
+      assert.equal((await call("/assistant/timekeeping-chat", "POST", {})).status, 403);
+      await hostCall("/assistant/settings", "PATCH", { ...settings, projectAccess: { mode: "none", projectIds: [] } });
+      assert.equal((await assistantTool("/assistant/timekeeping-chat")).status, 403);
+      assert.equal(config.workspaces.some(isTimekeepingProject), false);
+      await hostCall("/assistant/settings", "PATCH", settings);
+      const results = await Promise.all([assistantTool("/assistant/timekeeping-chat"), assistantTool("/assistant/timekeeping-chat")]);
+      for (const response of results) assert.equal(response.status, 200, await response.clone().text());
+      const today = await results[0].json();
+      assert.deepEqual(await results[1].json(), today);
+      const destination = config.workspaces.find(isTimekeepingProject);
+      assert.equal(today.workspaceId, destination.id);
+      assert.equal(destination.path, await realpath(join(config.projectsDirectory, today.workspaceId)));
+      assert.equal(destination.contentPath, join(destination.path, "files"));
+      const send = await assistantTool("/assistant/session-control", { ...today, action: "send", prompt: "Draft the billing description for today's recorded time." });
+      assert.equal(send.status, 200, await send.clone().text());
+      assert.ok(deliveries.some(item => item.sessionId === today.sessionId && item.parts.some(part => part.text?.includes("Draft the billing description"))));
+      const chatPath = "/private-timesheet/conversation?profileId=" + profile.profileId;
+      const opened = await (await hostCall(chatPath, "POST", {})).json();
+      assert.equal(opened.workspace.id, today.workspaceId);
+      assert.equal(opened.day.sessionId, today.sessionId);
+      const toolPath = "/workspace/" + today.workspaceId + "/timekeeping/workday";
+      const readDay = { date: today.date, action: "read" };
+      assert.equal((await call(toolPath, "POST", readDay)).status, 404);
+      assert.equal((await hostCall(toolPath, "POST", readDay)).status, 403);
+      assert.equal((await nativePost(assistant.workspace, assistant.day.sessionId, toolPath, readDay)).status, 403);
+      const nativeDay = await nativePost(destination, today.sessionId, toolPath, readDay);
+      assert.equal(nativeDay.status, 200, await nativeDay.clone().text());
+      const workdayPath = "/private-timesheet/workday?" + new URLSearchParams({ profileId: profile.profileId, scope: profile.scope, principal: profile.principal, user: profile.user, date: today.date });
+      const toggle = value => hostCall(workdayPath, "POST", { type: "settings-patch", change: { field: "enabled", value } });
+      const disabled = await toggle(false);
+      assert.equal(disabled.status, 200, await disabled.clone().text());
+      assert.equal((await assistantTool("/assistant/timekeeping-chat")).status, 403);
+      assert.equal((await hostCall(chatPath, "POST", {})).status, 403);
+      assert.equal((await hostCall("/workspace/" + destination.id + "/project/setup")).status, 404);
+      assert.ok(!(await (await hostCall("/workspaces")).json()).items.some(item => item.id === today.workspaceId));
+      assert.equal((await toggle(true)).status, 200);
+      assert.equal((await (await hostCall(chatPath, "POST", {})).json()).day.sessionId, today.sessionId);
+      await writeEigenweltConnection(config, { account });
+      assert.equal((await hostCall("/workspace/" + destination.id + "/project/setup")).status, 404);
+      assert.equal((await hostCall(chatPath, "POST", {})).status, 409);
+      assert.ok(!(await (await hostCall("/workspaces")).json()).items.some(item => item.id === today.workspaceId));
+      await writeEigenweltConnection(config, { account: null });
       config.readOnly = true; assert.equal((await call("/assistant/recordings/rec-2", "DELETE")).status, 403); assert.equal((await call("/assistant/current", "POST", {})).status, 403);
       console.log("assistant HTTP checks passed");
     } finally { await server.stop(); engine.stop(true); }

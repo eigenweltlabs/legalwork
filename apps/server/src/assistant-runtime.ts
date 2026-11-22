@@ -17,6 +17,7 @@ import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { migrateMorningBriefing } from "./assistant-briefing.js";
+import { registerTimeChatRoutes } from "./time-capture/chat-project.js";
 import { registerAssistantProactivityRoutes } from "./routes/assistant-proactivity.js";
 import { startAssistantProactivity } from "./assistant-proactivity.js";
 import { assistantLanguageContext } from "./assistant-language-context.js";
@@ -123,6 +124,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     const assistantRoutes: Parameters<typeof registerMainAssistantRoutes>[0] = { ...helpers, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
       preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), resolveWorkspace,
       client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } };
+    registerTimeChatRoutes(config, routes, mainAssistant, assistantRoutes.changed);
     registerMainAssistantRoutes(assistantRoutes);
     registerAssistantProactivityRoutes(assistantRoutes, scheduledTasks);
     registerPushRoutes(routes, push, readJsonBodyLimited);

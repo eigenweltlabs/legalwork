@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HudStopwatch, requestHudStopwatch, stopwatchProjectFromUrl } from "./audio/hud-stopwatch.mjs";
+import { HudStopwatch, requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
 
 test("restores authoritative time, reconciles lost replies and ignores superseded controls", async () => {
-  let state = { profileId: "first", active: null, lastStopped: null };
+  let state = { profileId: "first", active: null, lastStopped: null, matters: [{id: "m", name: "Matter"}] };
   let loseReply = false;
   let failStart = true;
   const writes = [];
@@ -13,7 +13,7 @@ test("restores authoritative time, reconciles lost replies and ignores supersede
     writes.push(action);
     if (failStart) throw Error("offline");
     if (action.type === "start")
-      state.active = { id: action.id, startedAt: "2026-11-14T10:00:00Z" };
+      state.active = { id: action.id, matterId: action.matterId, startedAt: "2026-11-14T10:00:00Z" };
     else {
       assert.equal(action.id, state.active.id);
       state.lastStopped = { id: action.id, date: "2026-11-14", stoppedAt: "2026-11-14T11:00:00Z" };
@@ -25,11 +25,11 @@ test("restores authoritative time, reconciles lost replies and ignores supersede
   const observed = [];
   const watch = new HudStopwatch(request, (value) => observed.push(value));
   await watch.refresh();
-  await watch.act("start", watch.version);
+  await watch.act("start", watch.version, "m");
   assert.ok(observed.at(-1).failed);
   failStart = false;
   loseReply = true;
-  await watch.act("start", watch.version);
+  await watch.act("start", watch.version, "m");
   assert.equal(writes[1].id, writes[0].id);
   assert.equal(observed.at(-1).startedAt, "2026-11-14T10:00:00Z");
   const restored = new HudStopwatch(request, (value) => observed.push(value));
@@ -54,20 +54,11 @@ test("private stopwatch refuses remote or non-host connections before transport"
 });
 
 
-test("project context follows the actual window route and only registered projects", () => {
-  const projects = [{ id: "one", name: "Test project" }];
-  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/one/project", projects), "one");
-  assert.equal(stopwatchProjectFromUrl("http://localhost/workspace/one/session/test", projects), "one");
-  assert.equal(stopwatchProjectFromUrl("http://localhost/#/time", projects), null);
-  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/missing/project", projects), null);
-  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/%xx/project", projects), null);
-});
-
-test("project reassignment reconciles a lost reply and prevents a stale stop", async () => {
+test("matter reassignment reconciles a lost reply and prevents a stale stop", async () => {
   const state = {
     profileId: "fixture",
-    projects: [{ id: "one", name: "First" }, { id: "two", name: "Second" }],
-    active: { id: "run", projectId: "one", startedAt: "2026-11-17T10:00:00Z" },
+    matters: [{ id: "one", name: "First" }, { id: "two", name: "Second" }],
+    active: { id: "run", matterId: "one", startedAt: "2026-11-17T10:00:00Z" },
     lastStopped: null,
   };
   const writes = [];
@@ -75,7 +66,7 @@ test("project reassignment reconciles a lost reply and prevents a stale stop", a
   const watch = new HudStopwatch(async action => {
     if (action) {
       writes.push(action);
-      state.active.projectId = action.projectId ?? null;
+      state.active.matterId = action.matterId ?? null;
       throw Error("Lost reply after committed assignment");
     }
     return structuredClone(state);
@@ -85,11 +76,28 @@ test("project reassignment reconciles a lost reply and prevents a stale stop", a
   await watch.act("assign", oldVersion, "unknown");
   assert.equal(writes.length, 0);
   await watch.act("assign", oldVersion, "two");
-  assert.equal(observed.at(-1).projectId, "two");
+  assert.equal(observed.at(-1).matterId, "two");
   assert.equal(observed.at(-1).failed, false);
   await watch.act("stop", oldVersion);
   assert.equal(writes.length, 1);
   await watch.act("assign", watch.version);
-  assert.equal(observed.at(-1).projectId, null);
+  assert.equal(observed.at(-1).matterId, "two");
   assert.equal(observed.at(-1).failed, false);
+});
+
+test("turning time tracking off hides the idle control and lets a running timer finish", async () => {
+  const active = { id: "run", matterId: "m", startedAt: "2026-11-17T10:00:00Z" };
+  const state = { profileId: "profile", enabled: false, active, matters: [{ id: "m", name: "Matter" }] };
+  const writes = [], observed = [];
+  const hud = new HudStopwatch(async action => {
+    if (action) { writes.push(action); state.active = null; }
+    return structuredClone(state);
+  }, value => observed.push(value));
+  await hud.refresh();
+  assert.equal(observed.at(-1).enabled, false);
+  await hud.act("assign", hud.version, "m");
+  await hud.act("stop", hud.version);
+  assert.equal(observed.at(-1), null);
+  await hud.act("start", hud.version, "m");
+  assert.deepEqual(writes, [{ type: "stop", id: active.id }]);
 });

@@ -44,14 +44,14 @@ app.whenReady().then(async () => {
   const testingStopwatch = process.argv.includes("--stopwatch");
   const timerState = {
     profileId: "fixture", active: null, lastStopped: null,
-    projects: [{ id: "test-project", name: "Project review · Demo" }, { id: "other-project", name: "Due diligence · Demo" }],
-    suggestedProjectId: "test-project",
+    matters: [{ id: "test-matter", name: "Matter review · Demo" }, { id: "other-matter", name: "Due diligence · Demo" }],
+
   };
   const stopwatchRequest = async (action, profile) => {
     if (action) {
       assert.equal(profile, "fixture");
-      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), projectId: action.projectId ?? null };
-      else if (action.type === "assign") timerState.active.projectId = action.projectId ?? null;
+      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), matterId: action.matterId ?? null };
+      else if (action.type === "assign") timerState.active.matterId = action.matterId ?? null;
       else {
         assert.equal(action.id, timerState.active.id);
         timerState.active = null;
@@ -158,12 +158,14 @@ app.whenReady().then(async () => {
           return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("stopwatch-label")).opacity];
         })()`), [["start", "meeting-start", "stopwatch"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 94, "1"]);
         await click(previous);
-        assert.equal(await read('document.querySelector("#stopwatch-projects button[aria-pressed=true]").textContent'), "Project review · Demo");
-        assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " project panel stays on screen");
-        if (output) await writeFile(path.join(output, "stopwatch-project-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
+        assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
+        await read('document.querySelector("#stopwatch-matters button").click()');
+        assert.equal(await read('document.querySelector("#stopwatch-matters button[aria-pressed=true]").textContent'), "Matter review · Demo");
+        assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " matter panel stays on screen");
+        if (output) await writeFile(path.join(output, "stopwatch-matter-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
         await click(await center("stopwatch-confirm"));
-        assert.equal(timerState.active?.projectId, "test-project", "start retains the suggested project");
-        await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "starting closes the project panel");
+        assert.equal(timerState.active?.matterId, "test-matter", "start retains the selected matter");
+        await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "starting closes the matter panel");
         assert.ok(timerState.active, dock + " starts the timer");
         move({ x: 220, y: 8 });
         await delay(1100);
@@ -196,32 +198,29 @@ app.whenReady().then(async () => {
             const r = document.getElementById(id).getBoundingClientRect();
             return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
           });
-        })()`), dock + " expanded project list keeps its heading and start/stop action inside the overlay");
+        })()`), dock + " expanded matter list keeps its heading and start/stop action inside the overlay");
         const alternate = await read(`(() => {
-          const option = [...document.querySelectorAll("#stopwatch-projects button")].find(button => button.textContent === "Due diligence · Demo");
+          const option = [...document.querySelectorAll("#stopwatch-matters button")].find(button => button.textContent === "Due diligence · Demo");
           option.scrollIntoView({ block: "nearest" });
           const r = option.getBoundingClientRect();
           return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};
         })()`);
         await click(alternate);
-        assert.equal(timerState.active?.projectId, "other-project", "a running interval can be assigned to another project");
+        assert.equal(timerState.active?.matterId, "other-matter", "a running interval can be assigned to another matter");
         await click(await center("stopwatch-confirm"));
         assert.equal(timerState.active, null);
         assert.equal(hud.meeting.state, "recording");
         assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /Time tracking|Zeiterfassung/);
         await hud.setMeeting(idleMeeting);
       }
-      timerState.suggestedProjectId = null;
       await hud.setState("idle");
       move(await center("start"));
       await delay(400);
       await click(await center("stopwatch"));
-      await waitFor(() => read('!document.querySelector("#stopwatch-projects").hidden'), "missing context opens the project chooser");
-      assert.equal(await read('document.querySelector("#stopwatch-projects button:first-child").getAttribute("aria-pressed")'), "true");
-      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
-      await click(await center("stopwatch-confirm"));
-      assert.ok(timerState.active);
-      assert.equal(timerState.active.projectId, null);
+      await waitFor(() => read('!document.querySelector("#stopwatch-matters").hidden'), "missing context opens the matter chooser");
+      assert.equal(await read('document.querySelector("#stopwatch-matters button:first-child").getAttribute("aria-pressed")'), "false");
+      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
+      assert.equal(timerState.active, null);
       assert.deepEqual(actions, [], "operating the timer never triggers dictation or meeting actions");
       console.log("PASS: the anchored mini bar reveals Dictate, Record meeting and Stopwatch on all three docks; timing survives collapse and stops independently during a meeting");
       return;

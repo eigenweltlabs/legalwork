@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { BriefcaseBusiness, Timer, Settings } from "lucide-react";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { useQuery } from "@tanstack/react-query";
+import { timeTrackingProfile } from "../../back-office/time-tracking-profile";
 import { timePage } from "../../back-office/time-routes";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
@@ -27,7 +30,8 @@ export type MainRailActions = Record<ShellWindowNavKey, MainRailAction> & {
   navAssistant?: MainRailAction & { profile?: AssistantProfile; unread?: boolean };
 };
 
-export function MainActionRail({ actions, onOpenWindow, onOpenSettings, settingsActive = false, unreadTasks = 0, children }: {
+export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, settingsActive = false, unreadTasks = 0, children }: {
+  client: LegalworkServerClient | null;
   actions: MainRailActions;
   onOpenWindow?: (key: ShellWindowNavKey) => void;
   onOpenSettings?: () => void;
@@ -36,6 +40,7 @@ export function MainActionRail({ actions, onOpenWindow, onOpenSettings, settings
   children: ReactNode;
 }) {
   const { config } = useShellConfig();
+  const tracking = useQuery(timeTrackingProfile(client));
   const navigate = useNavigate();
   const location = useLocation();
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -80,7 +85,7 @@ export function MainActionRail({ actions, onOpenWindow, onOpenSettings, settings
         );
       })}
       {[{ path: "/back-office/matters", label: "Back Office", Icon: BriefcaseBusiness, active: location.pathname.startsWith("/back-office") && !timePage(location.pathname) },
-        { path: "/time", label: t("timesheets.workspace_title"), Icon: Timer, active: Boolean(timePage(location.pathname)) }].map(({ path, label, Icon, active }) => (
+        { path: "/time", label: t("timesheets.workspace_title"), Icon: Timer, active: Boolean(timePage(location.pathname)) }].filter(item => item.path !== "/time" || tracking.data?.enabled !== false).map(({ path, label, Icon, active }) => (
         <Tooltip key={path}>
           <TooltipTrigger render={<Button variant="ghost" size="icon" className={cn(RAIL_BUTTON_CLASS, active && RAIL_BUTTON_ACTIVE_CLASS)}
             aria-label={label} aria-current={active ? "page" : undefined} onClick={() => navigate(path)} />}>

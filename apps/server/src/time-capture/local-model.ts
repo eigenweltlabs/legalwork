@@ -1,3 +1,6 @@
+import type { WorkspaceInfo } from "../types.js";
+import { skillPathForScope } from "../skills.js";
+import { readProjectDetails } from "../project-store.js";
 import { execFile } from "node:child_process";
 import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -26,9 +29,18 @@ export async function localModel() {
   return null;
 }
 
-export async function workdaySkill() {
+export async function workdaySkill(workspace?: WorkspaceInfo) {
   await ensureBundledWorkflows();
-  return readFile(join(globalSkillsDir(), "workflow-suggest-timesheet", "SKILL.md"), "utf8");
+  const name = "workflow-suggest-timesheet";
+  const projectSkill = workspace && await skillPathForScope(workspace, "project", name);
+  let skill: string | undefined;
+  if (projectSkill) {
+    try { skill = await readFile(projectSkill, "utf8"); }
+    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+  }
+  skill ??= await readFile(join(globalSkillsDir(), name, "SKILL.md"), "utf8");
+  const instructions = workspace && (await readProjectDetails(workspace.path)).personalizationPrompt;
+  return instructions ? skill + "\n\nTimekeeping project instructions:\n" + instructions : skill;
 }
 
 export async function generateLocalTimeText(runtime: NonNullable<Awaited<ReturnType<typeof localModel>>>, prompt: string, signal: AbortSignal) {

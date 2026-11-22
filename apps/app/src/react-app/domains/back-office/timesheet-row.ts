@@ -287,11 +287,11 @@ export function changeAmounts(
 }
 type ParsedRow = { entry: TimeDraft; workerIds: string[] };
 type RowError = { field: RowColumn; error: string };
-export function parseRow(values: RowValues, state: LedgerDirectory): ParsedRow | RowError {
+export function parseRow(values: RowValues, state: LedgerDirectory, options = matterOptions(state)): ParsedRow | RowError {
   const validDate =
     /^\d{4}-\d{2}-\d{2}$/.test(values.date) && localDate(new Date(values.date + "T12:00:00")) === values.date;
   if (!validDate) return { field: "date", error: t("timesheets.ledger.valid_date") };
-  const matter = matchMatter(matterOptions(state), values.matter);
+  const matter = matchMatter(options, values.matter);
   if (!matter) return { field: "matter", error: t("timesheets.ledger.choose_matter") };
   const people = workerOptions(state);
   // An exact match takes precedence over the separator in a person's name.

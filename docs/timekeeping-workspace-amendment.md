@@ -1,5 +1,7 @@
 # Änderungs-PRD · Timekeeping-Workspace und Rechnungsfreigabe
 
+**Stand der Überarbeitung vom 22. November 2026.** Der folgende Plan dokumentiert den Stand vom 20. November. Die überarbeiteten Abläufe für Chat, Skills, Zeitplanung, Stoppuhr, Tabellen und Guidelines stehen im [Review](reviews/timekeeping-workspace.md) und im [aktuellen Benutzerhandbuch](user-guide/time-tracking.md).
+
 **Akzeptierter Produktplan vom 20. November 2026.** Für diesen PR gelten die hier beschriebenen Produktentscheidungen aus dem neuen Auftrag. Sämtliche früheren PRDs, Addenda und abweichenden PR-Beschreibungen sind als Anforderung abgelöst. Der Code bei `2d923e1b` ist der technische Ausgangspunkt. Der [Integrationsvertrag](timekeeping-server-integration.md) beschreibt vorhandene Schnittstellen und Arbeit für den Kanzleidienst.
 
 ## Was mit dem heutigen Kanzlei-Backend funktioniert

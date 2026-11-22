@@ -1,29 +1,30 @@
-import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ItemDetailLabel, ItemDialogContent } from "@/react-app/design-system/item-detail";
+import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { sourceKeys } from "./timesheet-labels";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Settings, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Settings, Plus, Loader2, ChevronLeft, ChevronRight, CalendarClock } from "lucide-react";
+import { WorkdayCoverage } from "./workday-coverage";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  captureAccountEnabled, localWorkdayModel,
-  type CaptureAction, type CaptureState, type PrivateDraftPatch, type WorkdayModelOption, type CaptureProposal,
+  type CaptureAction, type CaptureState, type PrivateDraftPatch, type CaptureProposal,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 import { isLoopbackLegalworkServerUrl, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { calendarDay } from "../calendar/calendar-format";
 import { calendarClientScope } from "../calendar/calendar-cache";
-import { LayoutStack } from "../settings/settings-layout";
 import type { BackOfficeState } from "./api";
 import type { TimeCaptureSheet } from "./time-record-sheet";
-import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
+import { TimeSelect } from "./time-settings-controls";
 import { TimeWorkspacePanels } from "./time-workspace-panels";
 import { TimeWorkspaceChat } from "./time-workspace-chat";
-import { TimeWorkspaceGuidelines } from "./time-workspace-guidelines";
 import { TimeWorkspaceStopwatch, useTimeWorkspaceStopwatch } from "./time-workspace-stopwatch";
+import { PeriodControlsTarget, TimeHeaderContent } from "./time-workspace-header";
 import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
-import { sourceKeys } from "./timesheet-labels";
 import { overlappingWorkdayRanges, workdayProposalDisplay, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import { DirectProposalDecisionContext, type DirectProposalDecision, type ProposalDecision } from "./time-proposal-actions";
 import "./timesheet-workday.css";
@@ -43,11 +44,10 @@ function CommitProposalFocus({ apply }: { apply: () => void }) {
 
 export function TimesheetWorkday({
   client, directory, state, dateLocked = false, visible = true,
-  initialDate, models = [], onDateChange, children,
+  initialDate, onDateChange, children,
 }: {
   children: (capture: TimeCaptureSheet, workspace: RenderTimeWorkspace) => ReactNode;
   initialDate?: string;
-  models?: WorkdayModelOption[];
   onDateChange: (value: string) => void;
   client: LegalworkServerClient;
   directory: BackOfficeState;
@@ -67,6 +67,7 @@ export function TimesheetWorkday({
   const editorId = useId();
   const editor = useRef<HTMLDivElement>(null);
   const editorForm = useRef<HTMLDivElement>(null);
+  const focusInsideEditor = useRef(false);
   const editorTitle = useRef<HTMLHeadingElement>(null);
   const timelineBody = useRef<HTMLDivElement>(null);
   const focusRequest = useRef<{ target: "editor" | "timeline"; removed?: HTMLElement }>(undefined);
@@ -77,8 +78,11 @@ export function TimesheetWorkday({
   const dates = periodDates(date, period);
   useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
   const bindEditor = useCallback((element: HTMLDivElement | null) => {
-    if (!element && editor.current?.contains(document.activeElement))
+    if (!element && editor.current && (editor.current.contains(document.activeElement) ||
+        (focusInsideEditor.current && document.activeElement === document.body))) {
       focusRequest.current = { target: "timeline", removed: editor.current };
+      focusInsideEditor.current = false;
+    }
     editor.current = element;
   }, []);
   const bindEditorForm = useCallback((element: HTMLDivElement | null) => {
@@ -131,7 +135,6 @@ export function TimesheetWorkday({
   });
   const stopwatch = useTimeWorkspaceStopwatch(client, profileId, local && visible);
   const lastStopped = stopwatch.data?.lastStopped;
-  const stoppedId = lastStopped?.date === date ? lastStopped.id : undefined;
   const lastStoppedId = lastStopped?.id;
   const refetchWorkday = workday.refetch;
   useEffect(() => {
@@ -141,23 +144,13 @@ export function TimesheetWorkday({
   const data = workday.data;
   const settings = data?.settings;
   const drafts = { ...overview.data, ...data?.drafts };
-  const modelKey = (item: { providerID: string; modelID: string }) => JSON.stringify([item.providerID, item.modelID]);
-  const preferred = settings?.model;
-  const modelOptions = [
-    ...models.filter(item => modelKey(item) !== modelKey(localWorkdayModel)),
-    ...(data?.modelReady ? [{ ...localWorkdayModel, label: t("timeWorkspace.localModel") }] : []),
-  ];
-  const automatic = ["sonnet", "haiku", "luna"].map(name => modelOptions.find(item => item.providerID === "eigenwelt" &&
-    (item.label + " " + item.modelID).toLowerCase().includes(name))).find(Boolean) ?? modelOptions[0];
-  const selectedModel = preferred ? modelOptions.find(item => modelKey(item) === modelKey(preferred)) : automatic;
-  const model = selectedModel && { workspaceId: selectedModel.workspaceId, providerID: selectedModel.providerID, modelID: selectedModel.modelID };
-  const modelSelection = JSON.stringify([preferred, model]);
+  const modelSelection = JSON.stringify(settings?.model);
   useEffect(() => {
     return () => { modelRequest.current?.abort(); };
   }, [date, modelSelection, visible]);
 
   async function act(action: CaptureAction, signal?: AbortSignal) {
-    const foreground = action.type !== "draft" && action.type !== "refresh";
+    const foreground = action.type !== "draft";
     const settingsMutation = action.type === "settings" || action.type === "settings-patch";
     if (foreground && inFlight.current) return false;
     if (foreground) {
@@ -220,29 +213,18 @@ export function TimesheetWorkday({
     return updated ?? null;
   }
 
-  const refreshKey = visible && local && settings
-    ? JSON.stringify([date, settings, model, data?.modelReady, stoppedId])
-    : null;
-  const prepareView = useEffectEvent(async (signal: AbortSignal) => {
-    setRefreshing(true);
-    try { await act({ type: "refresh", model }, signal); }
-    finally { if (!signal.aborted) setRefreshing(false); }
-  });
-  useEffect(() => {
-    setRefreshing(false);
-    if (!refreshKey) return;
-    const controller = new AbortController();
-    queueMicrotask(() => { if (!controller.signal.aborted) void prepareView(controller.signal); });
-    return () => controller.abort();
-  }, [refreshKey]);
-
-  async function requestModel(action: Extract<CaptureAction, { type: "chat" | "instruction" }> | { type: "suggest" }) {
-    if (action.type === "instruction") return act(action);
-    if (inFlight.current) return false;
+  async function addSuggestions() {
+    if (modelRequest.current || inFlight.current || !settings || settings.enabled === false) return;
     const controller = new AbortController();
     modelRequest.current = controller;
-    try { return await act({ ...action, model }, controller.signal); }
-    finally { if (modelRequest.current === controller) modelRequest.current = undefined; }
+    setRefreshing(true);
+    try { await act({ type: "suggest" }, controller.signal); }
+    finally {
+      if (modelRequest.current === controller) {
+        modelRequest.current = undefined;
+        setRefreshing(false);
+      }
+    }
   }
   const shown = data?.proposals.filter(p =>
     p.date === date && !p.dismissed &&
@@ -252,6 +234,13 @@ export function TimesheetWorkday({
       (e.proposalDigest && p.versions?.includes(e.proposalDigest))
     )),
   ) ?? [];
+  const selectionUnavailable = Boolean(selection && data && !shown.some(item => item.key === selection));
+  useEffect(() => {
+    if (selectionUnavailable) {
+      setSelection(undefined);
+      setCorrection(undefined);
+    }
+  }, [selectionUnavailable]);
   function rememberProposal(key: string, trigger?: HTMLButtonElement) {
     const buttons = [...(timelineBody.current?.querySelectorAll<HTMLButtonElement>("[data-proposal-id]") ?? [])];
     const index = trigger ? buttons.indexOf(trigger) : buttons.findIndex(button => button.dataset.proposalId === key);
@@ -343,25 +332,28 @@ export function TimesheetWorkday({
     if (deciding && deciding.key !== selected?.key) editors.push(deciding);
     return <TimeWorkspacePanels visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       entries={entries}
-      chat={<TimeWorkspaceChat key={date} draftKey={["timekeeping-chat-draft", ...scopeKey, date]} data={data} state={state} proposals={proposals}
-        pending={running} onAction={requestModel} />}
+      chat={shown => <TimeWorkspaceChat client={client} identity={identity} date={date} visible={shown && visible} data={data} />}
       timeline={(view, choose) => (
         <>
           <div className="time-workspace-private-toolbar shrink-0">
-            {refreshing && <Loader2 className="size-3.5 animate-spin text-muted-foreground" role="status" aria-label={t("timesheets.preparing")} />}
+            {local && settings && settings.enabled !== false && <>
+              <WorkdayCoverage date={date} checkedThrough={data?.checkedThrough} />
+              <Button size="sm" variant="outline" disabled={running || refreshing || date > calendarDay(new Date())}
+                onClick={() => void addSuggestions()}>{refreshing ? <Loader2 className="animate-spin" /> : <Plus />}
+                {t("timeWorkspace.addSuggestions")}</Button>
+            </>}
             {local && <TimeSelect label={t("timeWorkspace.timelineView")} value={view} options={[
               { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
             ]} onChange={value => {
               if (value === "combined" || value === "matters") choose(value);
             }} />}
           </div>
-          {!refreshing && status && status.type !== "ready" && <p className="time-workspace-note" role="alert">
+          {settings?.enabled !== false && !refreshing && status && status.type !== "ready" && <p className="time-workspace-note" role="alert">
             {t(status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
-            <Button variant="ghost" size="xs" disabled={running} onClick={() => void requestModel({ type: "suggest" })}>{t("timesheets.retry")}</Button>
           </p>}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
-            <div ref={timelineBody} className="min-h-0 flex-1">
+            <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline date={date} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
@@ -371,42 +363,51 @@ export function TimesheetWorkday({
                     rememberProposal(proposal.key);
                     focusRequest.current ??= { target: "timeline", removed: element };
                   },
-                }} preamble={<DirectProposalDecisionContext.Provider value={directDecision}>
-                  {editors.map(proposal => {
-                    const active = proposal.key === selected?.key;
-                    const edit = active ? correcting : undefined;
-                    return <div key={proposal.key} hidden={!active} ref={active ? bindEditor : undefined}
-                      id={active ? editorId : undefined} className="time-workspace-editor"
-                      role="region" aria-labelledby={editorId + "-title"}
-                      onKeyDown={event => {
-                        if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing ||
-                            !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        closeEditor();
-                      }}>
-                      <header>
-                        <h3 ref={active ? editorTitle : undefined} id={active ? editorId + "-title" : undefined} tabIndex={-1}>
-                          {workdayProposalDisplay(proposal, state, drafts[proposal.key]).title}
-                        </h3>
-                        <Button type="button" size="icon-xs" variant="ghost" aria-label={t("timeWorkspace.closeSuggestion")}
-                          onClick={closeEditor}><X size={14} /></Button>
-                      </header>
-                      <p className="time-workspace-note">{t(sourceKeys[proposal.source])}
-                        {proposal.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
-                        {proposal.observation === "passive" && " · " + t("timeWorkspace.passive")}
-                      </p>
-                      <div key={proposal.digest} ref={active ? bindEditorForm : undefined}>
+                }} />
+              <DirectProposalDecisionContext.Provider value={directDecision}>
+                {editors.map(proposal => {
+                  const active = proposal.key === selected?.key;
+                  const edit = active ? correcting : undefined;
+                  const title = workdayProposalDisplay(proposal, state, drafts[proposal.key]).title;
+                  const source = t(sourceKeys[proposal.source]);
+                  return <Dialog key={proposal.key} open={active} modal={false} onOpenChange={(open, details) => {
+                    if (open || !active || details.reason === "focus-out") return;
+                    // Escape in a picker belongs to that picker, and interactions in the other pane stay independent.
+                    if ((details.reason === "escape-key" || details.reason === "outside-press") &&
+                        (details.event.defaultPrevented || !(details.event.target instanceof Node) ||
+                         !timelineBody.current?.contains(details.event.target))) return;
+                    closeEditor();
+                  }}>
+                    <ItemDialogContent container={timelineBody} keepMounted portalClassName={active ? undefined : "hidden"}
+                      ref={active ? bindEditor : undefined} id={active ? editorId : undefined}
+                      className="time-workspace-editor max-h-[calc(100%-1rem)] w-[calc(100%-1rem)] sm:max-w-lg"
+                      onFocusCapture={() => { focusInsideEditor.current = true; }}
+                      onBlurCapture={event => {
+                        if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) focusInsideEditor.current = false;
+                      }}
+                      initialFocus={active ? editorTitle : false} finalFocus={false}>
+                      <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4 pe-14">
+                        <DialogTitle render={<h3 />} ref={active ? editorTitle : undefined} tabIndex={-1}>
+                          <ItemDetailLabel icon={<CalendarClock />}>{title}</ItemDetailLabel>
+                        </DialogTitle>
+                        <DialogDescription className={source === title && !proposal.observation ? "sr-only" : "text-xs"}>
+                          {source}
+                          {proposal.observation === "foreground" && " · " + t("timeWorkspace.foreground")}
+                          {proposal.observation === "passive" && " · " + t("timeWorkspace.passive")}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div key={proposal.digest} ref={active ? bindEditorForm : undefined} className="min-h-0 overflow-y-auto px-5 py-4">
                         <div hidden={Boolean(edit)}>{renderProposal(proposal)}</div>
                         {edit && <WorkdayCorrectionForm proposal={edit.proposal} draftRevision={edit.draftRevision} state={state}
-                            pending={running} save={act} close={() => {
-                              if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
-                              setCorrection(undefined);
-                            }} />}
+                          pending={running} save={act} close={() => {
+                            if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
+                            setCorrection(undefined);
+                          }} />}
                       </div>
-                    </div>;
-                  })}
-                </DirectProposalDecisionContext.Provider>} />
+                    </ItemDialogContent>
+                  </Dialog>;
+                })}
+              </DirectProposalDecisionContext.Provider>
             </div>
           )}
           <CommitProposalFocus apply={applyFocusRequest} />
@@ -417,12 +418,12 @@ export function TimesheetWorkday({
   const status = data?.status;
   return (
     <section className="bo-workday time-unified">
-      <div className="bo-workday-controls">
+      {visible && <TimeHeaderContent slot={PeriodControlsTarget}><div className="bo-workday-controls">
         <div className="time-sheet-period">
           <Button size="icon-sm" variant="ghost" aria-label={t(period === "month" ? "calendar.previous" : period === "week" ? "calendar.previous_week" : "calendar.previous_day")}
             onClick={() => selectDate(adjacentPeriod(date, period, -1))}><ChevronLeft size={16} /></Button>
           <label>
-            <input
+            <Input className="h-7 w-[8.5rem] text-xs"
               type="date"
               aria-label={t("timesheets.date")}
               value={date}
@@ -435,97 +436,10 @@ export function TimesheetWorkday({
         <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
         <TimesheetPeriodSwitch period={period} onChange={setPeriod} />
         <span className="bo-workday-toolbar-space" />
-        {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} />}
-        <Popover>
-          <PopoverTrigger render={<Button type="button" size="icon-sm" variant="ghost" disabled={!settings} aria-label={t("timesheets.ai_settings")} />}>
-            <Settings size={16} />
-          </PopoverTrigger>
-          {settings && <PopoverContent align="end" className="w-[min(26rem,92vw)] max-h-[75vh] overflow-y-auto">
-            <LayoutStack>
-              <TimeSettingsGroup title={t("timesheets.ai_settings")}>
-                <TimeSetting title={t("timesheets.ai_model")}
-                  description={!selectedModel && !data?.modelReady ? t("timesheets.no_model") : undefined}>
-                  <TimeSelect label={t("timesheets.ai_model")} value={preferred ? modelKey(preferred) : "auto"}
-                    disabled={running} options={[
-                      { id: "auto", name: [t("timesheets.ai_automatic"), automatic?.label].filter(Boolean).join(" · ") },
-                      ...(preferred && !selectedModel ? [{ id: modelKey(preferred), name: preferred.modelID }] : []),
-                      ...modelOptions.map(item => ({ id: modelKey(item), name: item.label })),
-                    ]} onChange={value => {
-                      const choice = modelOptions.find(item => modelKey(item) === value);
-                      void act({ type: "settings-patch", change: { field: "model",
-                        value: choice ? { workspaceId: choice.workspaceId, providerID: choice.providerID, modelID: choice.modelID } : null } });
-                    }} />
-                </TimeSetting>
-              </TimeSettingsGroup>
-              <TimeSettingsGroup title={t("timesheets.sources")}>
-                {(["calendar", "tasks", "documents", "workspaceActivity"] as const).map((source) => {
-                  const label = t(source === "workspaceActivity" ? "timeWorkspace.workspaceActivity" : sourceKeys[source]);
-                  return (
-                    <TimeSwitch
-                      key={source}
-                      label={label}
-                      checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
-                      disabled={running}
-                      onChange={(checked) =>
-                        void act({ type: "settings-patch", change: { field: source, value: checked } })
-                      }
-                    />
-                  );
-                })}
-                <TimeSetting title={t("timesheets.source.stopwatch")}>
-                  <TimeSelect label={t("timesheets.source.stopwatch")} disabled={running} value={settings.stopwatchMode ?? "always"}
-                    options={[
-                      { id: "always", name: t("timeWorkspace.timerAlways") },
-                      { id: "evidence", name: t("timeWorkspace.timerEvidence") },
-                    ]}
-                    onChange={value => {
-                      if (value === "always" || value === "evidence")
-                        void act({ type: "settings-patch", change: { field: "stopwatchMode", value } });
-                    }} />
-                </TimeSetting>
-                {data?.connections.map((account) => {
-                  const enabled = captureAccountEnabled(settings, account);
-                  return (
-                    <TimeSwitch
-                      key={account.provider + account.account}
-                      label={t(sourceKeys[account.provider])}
-                      disabled={running}
-                      checked={enabled}
-                      onChange={(checked) => void act({ type: "settings-patch", change: { field: "account", account, value: checked } })}
-                    />
-                  );
-                })}
-                <TimeSetting title={<label htmlFor="time-source-schedule">{t("timesheets.schedule")}</label>}>
-                  <TimeSelect
-                    id="time-source-schedule"
-                    label={t("timesheets.schedule")}
-                    disabled={running || (!data?.modelReady && !selectedModel)}
-                    value={String(settings.intervalMinutes)}
-                    options={[
-                      { id: "0", name: t("timesheets.on_demand") },
-                      ...[15, 30, 60].map((n) => ({ id: String(n), name: n + " min" })),
-                    ]}
-                    onChange={(value) => {
-                      const interval = Number(value);
-                      if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
-                        void act({ type: "settings-patch", change: { field: "intervalMinutes", value: interval } });
-                    }}
-                  />
-                </TimeSetting>
-              </TimeSettingsGroup>
-            </LayoutStack>
-          {data?.guidelines && <TimeWorkspaceGuidelines key={date} date={date} guidelines={data.guidelines}
-            state={state} pending={running} save={act}
-            extractRules={(text, signal) => client.privateGuidelineRules({ ...identity, date }, text, model, signal)}
-            readPdf={(file, signal) => client.privateGuidelineText({ ...identity, date }, file, signal)} />}
-          <p className="time-workspace-note">{t("timesheets.sources_hint")}</p>
-          <div className="bo-workday-links">
-            <Link to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
-            <Link to="/workflows">{t("timesheets.workflow_settings")}</Link>
-          </div>
-          </PopoverContent>}
-        </Popover>
-      </div>
+        {local && profileId && <TimeWorkspaceStopwatch key={profileId} stopwatch={stopwatch} matters={state.matters} />}
+        {local && <Button size="icon-sm" variant="ghost" nativeButton={false} render={<Link to="/settings/time-tracking" />}
+          aria-label={t("timesheets.ai_settings")}><Settings size={16} /></Button>}
+      </div></TimeHeaderContent>}
       {(error || workday.error || overview.error) && <p className="time-workspace-status" role="alert">
         {error || workday.error?.message || overview.error?.message}
         {workday.error && <Button variant="ghost" size="xs" onClick={() => void workday.refetch()}>{t("timesheets.retry")}</Button>}

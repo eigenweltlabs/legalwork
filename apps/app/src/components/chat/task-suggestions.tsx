@@ -12,7 +12,11 @@ import { cn } from "@/lib/utils"
 import { t } from "@/i18n";
 
 // Built per render, not once at import: `t()` reads the current language.
-const suggestions = (wiki: boolean): { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] => wiki ? [
+const suggestions = (workspace: "project" | "wiki" | "timekeeping"): { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] => workspace === "timekeeping" ? [
+  { title: t("timeChat.review"), description: t("timeChat.reviewDetail"), prompt: t("timeChat.reviewPrompt"), kind: "grid" },
+  { title: t("timeChat.draft"), description: t("timeChat.draftDetail"), prompt: t("timeChat.draftPrompt"), kind: "redline" },
+  { title: t("timeChat.remember"), description: t("timeChat.rememberDetail"), prompt: t("timeChat.rememberPrompt"), kind: "summary" },
+] : workspace === "wiki" ? [
   { title: t("task_suggestions.wiki_explore_title"), description: t("task_suggestions.wiki_explore_desc"), kind: "summary", prompt: t("task_suggestions.wiki_explore_prompt") },
   { title: t("task_suggestions.wiki_update_title"), description: t("task_suggestions.wiki_update_desc"), kind: "redline", prompt: t("task_suggestions.wiki_update_prompt") },
   { title: t("task_suggestions.wiki_dashboard_title"), description: t("task_suggestions.wiki_dashboard_desc"), kind: "grid", prompt: t("task_suggestions.wiki_dashboard_prompt") },
@@ -48,7 +52,7 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
   onConnect: () => void
   onSelect: (prompt: string) => void
 }) {
-  const wiki = useContext(ChatWorkspaceContext) === "wiki"
+  const workspace = useContext(ChatWorkspaceContext)
   return (
     <div className={cn("lw-task-suggestions @container", className)}>
       {providerConnectedCount === 0 ? (
@@ -69,7 +73,7 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
       ) : null}
       <motion.p variants={entrance} className="lw-task-suggestions-label">{t("task_suggestions.label")}</motion.p>
       <div className="grid min-w-0 grid-cols-1 gap-3 @xl:grid-cols-3">
-        {suggestions(wiki).map((suggestion) => (
+        {suggestions(workspace).map((suggestion) => (
           <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
             <Button variant="ghost" className="lw-task-card" data-task-kind={suggestion.kind} onClick={() => onSelect(suggestion.prompt)}>
               <span className="lw-task-card-art">

@@ -6,14 +6,12 @@ import { backOfficeAccess } from "../back-office/access.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { captureStateSchema, TimesheetStateSchema, type CaptureAction } from "../back-office/timesheet-schema.js";
 import { startServer } from "../server.js";
-import { acceptPrivateProposal, captureProfile, rememberAcceptedDocumentEdit } from "./routes.js";
+import { acceptPrivateProposal, captureProfile } from "./routes.js";
 import { digest } from "./private-workday.js";
 import { randomUUID } from "node:crypto";
 import type { CaptureProposal, WorkdayCorrection } from "@legalwork/types/time-capture";
 import type { DraftStore } from "./private-edits.js";
 import { modelEvidence } from "./workday-context.js";
-import { privateInstructionSchema } from "./document-terminology.js";
-import { z } from "zod";
 import { correctWorkday } from "./correct-workday.js";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
 
@@ -143,7 +141,8 @@ test("range changes with a negative, incomplete, cross-day, or mismatched durati
 test("a sub-minute stopwatch correction keeps the recorded clocks and null rounded minutes", () => {
   const { saved, parent, edit } = sample(true);
   parent.source = "stopwatch";
-  correctWorkday(saved, parent.date, { ...edit, endAt: "2026-11-12T09:00:14Z", workedMinutes: null }, "UTC");
+  expect(() => correctWorkday(saved, parent.date, { ...edit, matterId: null }, "UTC")).toThrow("Choose a matter");
+  correctWorkday(saved, parent.date, { ...edit, matterId: "m1", projectId: null, endAt: "2026-11-12T09:00:14Z", workedMinutes: null }, "UTC");
   expect(saved.days[parent.date][0].proposal).toMatchObject({
     startAt: "2026-11-12T09:00:00Z", endAt: "2026-11-12T09:00:14Z", workedMinutes: null,
   });
@@ -187,7 +186,7 @@ test("a private activity correction retains, replaces, or clears the code throug
     await server.stop();
     server = await startServer(config);
     expect((await request()).proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
-    const refreshed = await request({ type: "refresh", model: { workspaceId: "empty", providerID: "fixture", modelID: "fixture" } });
+    const refreshed = await request({ type: "suggest", model: { workspaceId: "empty", providerID: "fixture", modelID: "fixture" } });
     expect(refreshed.status?.type).toBe("ready");
     expect(refreshed.proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
     await expect(acceptPrivateProposal(config, owner, proposal.key, replaced.digest, async () => true)).rejects.toMatchObject({ status: 409 });
@@ -320,82 +319,4 @@ test("workflow draft amount and work-product fields rebase with source changes",
   correctWorkday(store, parent.date, { ...edit, digest: current.digest, draftRevision: 2, matterId: "m2",
     startAt: current.startAt, workedMinutes: 25 }, "UTC", () => 25);
   expect(store.drafts[parent.key].values).toEqual({ workflow: true });
-});
-
-test("confirmed human wording teaches a stable document across a rename and a later edit", async () => {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-private-document-wording-"));
-  try {
-    const config = backOfficeTestConfig(root);
-    const access = await backOfficeAccess(config);
-    const owner = await captureProfile(config, access);
-    const documentId = randomUUID(), matterId = "matter", otherMatter = "other";
-    const { parent } = sample(false);
-    const proposal = { ...parent, source: "documents" as const, documentId, matterId, narrative: "Bearbeiten Revision" };
-    proposal.digest = proposalCommitment(proposal);
-    const other = { ...proposal, key: randomUUID(), documentId: randomUUID() };
-    other.digest = proposalCommitment(other);
-    await mkdir(dirname(owner.path), { recursive: true });
-    await writeFile(owner.path, JSON.stringify({
-      lastRun: 0, settings: { calendar: false, tasks: false, documents: true, intervalMinutes: 0 },
-      days: { [proposal.date]: [{ eventKey: "first", proposal, sourceDocumentTitle: "Revision", generated: true },
-        { eventKey: "other", proposal: other, sourceDocumentTitle: "Appeal", generated: true }] },
-      originals: { [proposal.digest]: proposal, [other.digest]: other },
-      drafts: { [proposal.key]: { date: proposal.date, proposalDigest: proposal.digest, revision: 1, values: {
-        billingNarrative: "Bearbeiten Rekurs",
-      } } },
-      draftClocks: { [proposal.key]: { date: proposal.date, proposalDigest: proposal.digest, fields: { billingNarrative: 1 }, guarded: true } },
-    }));
-    const book = (p: CaptureProposal, narrative: string, revision?: number) =>
-      acceptPrivateProposal(config, owner, p.key, p.digest, async () => ({
-        record: { id: p.key, objectId: "timeEntries", values: { matter: matterId, billingNarrative: narrative } },
-      }), "record", revision === undefined ? undefined : { revision });
-    await book(proposal, "Bearbeiten Rekurs", 1);
-    await book(other, "Bearbeiten Modellvermutung");
-    const readExamples = async () => Object.values(z.record(z.string(), privateInstructionSchema)
-      .parse(JSON.parse(await readFile(owner.path, "utf8")).instructions));
-    expect(await readExamples()).toMatchObject([{ documentId, matterId, kind: "wording-example",
-      text: "Bearbeiten Rekurs", replacement: { from: "Revision", to: "Rekurs" } }]);
-    const state = TimesheetStateSchema.parse({
-      scope: "local", userId: "local", canManage: true, canReview: true, clients: [],
-      matters: [{ id: matterId, name: "Matter", reference: "", clientIds: [] },
-        { id: otherMatter, name: "Other", reference: "", clientIds: [] }],
-      people: [], entries: [], products: [], invoices: [], policies: [], projects: [],
-    });
-    const renamed = { ...proposal, projectId: null, narrative: "Renamed.docx" };
-    const modelContext = async () => modelEvidence([
-      { eventKey: "same-document", proposal: renamed },
-      { eventKey: "different-document", proposal: { ...renamed, documentId: other.documentId } },
-      { eventKey: "different-matter", proposal: { ...renamed, matterId: otherMatter } },
-    ], state, [], await readExamples(), proposal.date);
-    expect((await modelContext()).map(ref => ref.documentTitle)).toEqual(["Rekurs", "Renamed", "Renamed"]);
-    await rememberAcceptedDocumentEdit(config, access, { key: other.key, matterId,
-      before: "Drafting Appeal", after: "Reviewing Appeal" });
-    expect((await modelContext())[1]).toMatchObject({ documentTitle: "Renamed", confirmedWording: ["Reviewing Appeal"], terminology: [] });
-    await rememberAcceptedDocumentEdit(config, access, { key: proposal.key, matterId,
-      before: "Bearbeiten Rekurs", after: "Bearbeiten Berufung" });
-    expect((await modelContext()).map(ref => ref.documentTitle)).toEqual(["Berufung", "Renamed", "Renamed"]);
-    await rememberAcceptedDocumentEdit(config, access, { key: proposal.key, matterId,
-      before: "Bearbeiten Berufung", after: "Prüfen Berufung" });
-    expect((await modelContext())[0]).toMatchObject({ documentTitle: "Berufung", confirmedWording: ["Prüfen Berufung"] });
-    await rememberAcceptedDocumentEdit(config, access, { key: proposal.key, matterId,
-      before: "Bearbeiten Berufung", after: "Entwurf des außerordentlichen Revisionsrekurses überarbeiten" });
-    expect((await modelContext()).map(ref => ref.confirmedWording)).toEqual([
-      ["Entwurf des außerordentlichen Revisionsrekurses überarbeiten"], ["Reviewing Appeal"], undefined,
-    ]);
-    const actualRecord = randomUUID();
-    const linked = JSON.parse(await readFile(owner.path, "utf8"));
-    linked.reconciled = { [other.key]: actualRecord };
-    await writeFile(owner.path, JSON.stringify(linked));
-    await rememberAcceptedDocumentEdit(config, access, { key: actualRecord, matterId, reconciledOnly: true,
-      before: "Reviewing Appeal", after: "Reviewing Motion" });
-    expect((await modelContext())[1]).toMatchObject({ documentTitle: "Motion", confirmedWording: ["Reviewing Motion"] });
-    const ambiguous = JSON.parse(await readFile(owner.path, "utf8"));
-    ambiguous.reconciled[proposal.key] = actualRecord;
-    await writeFile(owner.path, JSON.stringify(ambiguous));
-    await rememberAcceptedDocumentEdit(config, access, { key: actualRecord, matterId, reconciledOnly: true,
-      before: "Reviewing Motion", after: "Reviewing Brief" });
-    expect((await modelContext())[1]).toMatchObject({ documentTitle: "Motion", confirmedWording: ["Reviewing Motion"] });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
 });

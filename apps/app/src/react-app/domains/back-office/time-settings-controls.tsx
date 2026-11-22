@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { Surface } from "../../design-system/surface";
@@ -69,6 +69,8 @@ export function TimeSwitch({
 
 export function TimeSelect({
   id,
+  triggerRef,
+  placeholder,
   label,
   value,
   options,
@@ -76,6 +78,8 @@ export function TimeSelect({
   onChange,
 }: {
   id?: string;
+  triggerRef?: Ref<HTMLButtonElement>;
+  placeholder?: string;
   label: string;
   value: string;
   options: { id: string; name: string }[];
@@ -86,14 +90,14 @@ export function TimeSelect({
   return (
     <Select
       items={choices}
-      value={value}
+      value={value || (placeholder ? null : value)}
       disabled={disabled}
       onValueChange={(next) => {
         if (next !== null) onChange(next);
       }}
     >
-      <SelectTrigger id={id} aria-label={label} className="max-w-full">
-        <SelectValue className="min-w-0 truncate" />
+      <SelectTrigger ref={triggerRef} id={id} aria-label={label} className="max-w-full">
+        <SelectValue placeholder={placeholder} className="min-w-0 truncate" />
       </SelectTrigger>
       <SelectContent>
         {choices.map((choice) => (

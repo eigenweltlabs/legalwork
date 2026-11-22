@@ -2,6 +2,7 @@ import { mkdir, realpath } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { ApiError } from "./errors.js";
+import { isTimekeepingProject, requireTimekeepingOwner } from "./time-capture/profile.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { Actor, ServerConfig } from "./types.js";
 import { authenticateWikiAgentRequest, currentWikiAgentSession, grantWikiAgentSession, observeWikiAgentSessions, SessionAuthoritySchema, type SessionAuthority } from "./wiki/agent-access.js";
@@ -55,7 +56,13 @@ export class AssistantSessionAccess {
     this.db.run("INSERT INTO assistant_session_access VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET data = excluded.data", [sessionId, JSON.stringify(record)]);
   }
   async checkDirectory(directory: string, authority: SessionAuthority) {
-    assertWikiWorkspaceAccess({ type: "remote", scope: authority.scope }, wikiForDirectory(await new WikiStore(this.config).list(), await realpath(directory), this.config.workspaces));
+    const canonical = await realpath(directory);
+    const project = this.config.workspaces.find(item => isTimekeepingProject(item) && item.path === canonical);
+    if (project) {
+      if (authority.scope !== "owner") throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+      await requireTimekeepingOwner(this.config, project);
+    }
+    assertWikiWorkspaceAccess({ type: "remote", scope: authority.scope }, wikiForDirectory(await new WikiStore(this.config).list(), canonical, this.config.workspaces));
   }
   /** Scoped tools keep the actual verified ancestor, never flatten inherited access. */
   async captureSource(sessionId: string, directory: string, authority: SessionAuthority): Promise<SessionAuthority> {

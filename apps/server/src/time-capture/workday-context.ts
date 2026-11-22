@@ -1,3 +1,4 @@
+import { visibleTimekeepingProjects } from "./profile.js";
 import {
   appliedTimePolicies,
   resolveTimePolicy,
@@ -27,12 +28,11 @@ import type { ServerConfig } from "../types.js";
 import type { WorkdayEvidence } from "./private-workday.js";
 import type { DraftRules, ModelEvidence } from "./reconstruct-workday.js";
 import { extname } from "node:path";
-import { replaceDocumentTerm, type PrivateInstruction } from "./document-terminology.js";
 
 export async function workdayWorkspaces(config: ServerConfig) {
   const links = await projectSyncStore(config);
   const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
-  return config.workspaces.filter((workspace) => {
+  return (await visibleTimekeepingProjects(config)).filter((workspace) => {
     const link = links.linkByWorkspace(workspace.id);
     return !link || (link.orgId === orgId && link.state === "active");
   });
@@ -216,6 +216,7 @@ export function captureMatter(
   proposal: CaptureProposal,
   state: TimesheetState,
 ) {
+  if (proposal.source === "stopwatch") return state.matters.find(matter => matter.id === proposal.matterId);
   const linked = proposal.projectId
     ? state.projects.find((project) => project.id === proposal.projectId)
         ?.matterIds
@@ -281,19 +282,10 @@ export function acceptedFileProduct(result: unknown, key: string, hash: string, 
   if (entry?.workProductId) return { matterId: entry.matterId, workProductId: entry.workProductId };
 }
 
-function titleCorrection(text: string) {
-  const match =
-    /^(?:künftig\s+|from now on\s+)?["„“]?([\p{L}\p{N} ._-]{1,120}?)["”]?\s*(?:→|->)\s*["„“]?([\p{L}\p{N} ._-]{1,120}?)["”]?$/iu.exec(
-      text.trim(),
-    );
-  if (match) return { from: match[1].trim(), to: match[2].trim() };
-}
-
 export function modelEvidence(
   evidence: WorkdayEvidence[],
   state: TimesheetState,
   guidelines: WorkdayGuideline[],
-  instructions: PrivateInstruction[],
   date: string,
   fileProducts: FileProducts = {},
 ): ModelEvidence[] {
@@ -301,7 +293,7 @@ export function modelEvidence(
     const p = item.proposal;
     const matter = captureMatter(p, state);
     // An explicit matter on an observation may have become inaccessible since capture.
-    if (p.matterId && !matter) return [];
+    if ((p.matterId || p.source === "stopwatch") && !matter) return [];
     const client = matter && visibleSingleClient(matter, state);
     const bound =
       p.documentId && matter
@@ -339,47 +331,20 @@ export function modelEvidence(
             .slice(0, 4)
             .map((entry) => entry.narrative)
         : [];
-    const relevant = instructions.filter(
-      (rule) => rule.kind !== "wording-example" && (
-        rule.scope === "personal" ||
-        (rule.scope === "matter" && !!matter && rule.matterId === matter.id) ||
-        (rule.scope === "document" &&
-          !!p.documentId &&
-          rule.documentId === p.documentId &&
-          (!rule.matterId || rule.matterId === matter?.id))),
-    );
     const title =
       product?.name ??
       (p.source === "documents"
         ? p.narrative.slice(0, p.narrative.length - extname(p.narrative).length)
         : undefined);
-    const terminology = relevant.flatMap((rule) => {
-      const replacement =
-        rule.scope === "document" && titleCorrection(rule.text);
-      return replacement && replacement.from && replacement.to
-        ? [replacement]
-        : [];
-    });
-    const examples = p.documentId && matter ? instructions.filter(rule => rule.kind === "wording-example" &&
-      rule.scope === "document" && rule.documentId === p.documentId && rule.matterId === matter.id) : [];
-    const learned = examples.filter(rule => rule.replacement).at(-1)?.replacement;
-    const correctedTitle = title && learned ? replaceDocumentTerm(title, learned.from, learned.to) : title;
-    const learnedTitle = learned && correctedTitle &&
-      replaceDocumentTerm(correctedTitle, learned.to, "") === correctedTitle ? learned.to : correctedTitle;
-    const documentTitle = terminology.at(-1)?.to ?? learnedTitle;
-    if (learned && !terminology.some(rule => rule.from.toLowerCase() === learned.from.toLowerCase()))
-      terminology.unshift(learned);
     return [
       {
         item: product
           ? { ...item, proposal: { ...p, workProductId: product.id } }
           : item,
         matter: matter ? { id: matter.id, name: matter.name } : undefined,
-        documentTitle,
+        documentTitle: title,
         sourceDocumentTitle: title,
-        terminology,
         history: history.length ? history : undefined,
-        confirmedWording: examples.length ? examples.map(example => example.text) : undefined,
         rules: matter
           ? draftRules(
               state,
@@ -389,7 +354,7 @@ export function modelEvidence(
               p.projectId ?? undefined,
             )
           : undefined,
-        instructions: relevant.map((rule) => rule.text),
+
       },
     ];
   });

@@ -1,8 +1,10 @@
+import { activeCaptureProfile as profile, captureProfile, timekeepingPreset } from "./profile.js";
+export { captureProfile } from "./profile.js";
 import { timeActivities } from "../back-office/timesheet-schema.js";
+import { createEngineClient, workspaceEngineLocation } from "../engine-client.js";
 import { generateConnectedTimeText } from "./connected-model.js";
 import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
 import { localWorkdayModel, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
-  workdayChatSchema, workdayChatActionSchema, workdayInstructionActionSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
@@ -13,7 +15,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
 import { randomUUID } from "node:crypto";
-import { dirname, extname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
   stopwatchActionSchema,
@@ -21,15 +23,15 @@ import {
   workdayCorrectionSchema,
   captureProposalSchema,
   captureSettingsSchema,
+  workdaySchedule,
   captureSettingsPatchSchema,
   privateDraftPatchSchema,
   reconcileCaptureSchema,
 } from "../back-office/timesheet-schema.js";
 import { backOfficeAccess, backOfficeDirectoryIdentity } from "../back-office/access.js";
-import { addDays, dayInZone } from "../calendar/dates.js";
+import { nextOccurrence, wallTime } from "../scheduled-tasks/schedule.js";
+import { addDays, dayInZone, zonedInstant } from "../calendar/dates.js";
 import { globalCalendarOccurrences } from "../calendar/service.js";
-import { backOfficePrincipalKey } from "../back-office/principal.js";
-import { readEigenweltConnection, runtimeDbPath } from "../eigenwelt-connection-store.js";
 import { ApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { addRoute, type Route } from "../routes/registry.js";
@@ -39,7 +41,6 @@ import { claimsFor, claimsOverlap, digest, intervalsOverlap, workdayEvidence, wo
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
 import { generateLocalTimeText, localModel, workdaySkill } from "./local-model.js";
 import { modelInput, proposedWorkdayCharge, remainingEvidence } from "./reconstruct-workday.js";
-import { privateInstructionSchema, rememberDocumentWording } from "./document-terminology.js";
 import { acceptedDocumentEntry, captureMatter, draftRules, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
@@ -52,6 +53,8 @@ const savedSchema = z.object({
   settings: captureSettingsSchema,
   settingsPatched: z.boolean().default(false),
   lastRun: z.number(),
+  lastScheduledSlot: z.number().default(0),
+  checkedThrough: z.record(z.iso.date(), z.iso.datetime()).default({}),
   days: z.record(z.iso.date(), z.array(workdayEvidenceSchema)),
   reconstruction: z.record(z.iso.date(), z.object({ key: z.string(), status: workdayStatusSchema })).default({}),
   reconstructionCache: z.record(z.iso.date(), z.record(z.string(), z.object({
@@ -59,8 +62,6 @@ const savedSchema = z.object({
   }))).default({}),
   proposalKeys: z.record(z.iso.date(), z.record(z.string(), z.uuid())).default({}),
   lastModel: workdayModelSchema.optional(),
-  chat: z.record(z.iso.date(), z.array(workdayChatSchema)).default({}),
-  instructions: z.record(z.uuid(), privateInstructionSchema).default({}),
   guidelines: z.record(z.uuid(), z.array(workdayGuidelineSchema)).default({}),
   fileProducts: z.record(z.string(), z.record(z.string(), z.string())).default({}),
   pendingBookings: z.record(z.uuid(), z.boolean()).default({}),
@@ -77,15 +78,15 @@ const savedSchema = z.object({
 type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
   stopwatch: emptyStopwatch(),
-  settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true, stopwatchMode: "always", intervalMinutes: 0 },
+  settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true, stopwatchMode: "always" },
   settingsPatched: false,
   lastRun: 0,
+  lastScheduledSlot: 0,
+  checkedThrough: {},
   days: {},
   reconstruction: {},
   reconstructionCache: {},
   proposalKeys: {},
-  chat: {},
-  instructions: {},
   guidelines: {},
   fileProducts: {},
   pendingBookings: {},
@@ -99,32 +100,6 @@ const defaults = (): Saved => ({
   documentSaves: {},
   documentEpoch: 0,
 });
-export async function captureProfile(
-  config: ServerConfig,
-  { actor, scope }: Pick<Awaited<ReturnType<typeof backOfficeAccess>>, "actor" | "scope">,
-) {
-  const connection = scope === "local" ? await readEigenweltConnection(config) : undefined;
-  // The local directory uses one finance identity even when different firm
-  // users sign in. Private opt-ins and document names belong to the actual account.
-  const account = connection?.account;
-  const identity = account
-    ? connection.platformURL
-      ? backOfficePrincipalKey(connection.platformURL, account.orgId, account.userId)
-      : digest(["account", account.orgId, account.userId])
-    : (actor.principalKey ?? actor.userId);
-  const owner = digest([scope, identity]);
-  return {
-    profileId: owner,
-    captureUser: account?.userId ?? actor.userId,
-    user: actor.userId,
-    principal: actor.principalKey ?? "",
-    scope,
-    path: join(dirname(runtimeDbPath(config)), "private-timesheets", owner + ".json"),
-  };
-}
-async function profile(config: ServerConfig) {
-  return captureProfile(config, await backOfficeAccess(config));
-}
 async function load(path: string): Promise<Saved> {
   try {
     return savedSchema.parse(JSON.parse(await readFile(path, "utf8")));
@@ -178,13 +153,13 @@ export async function beginDocumentCapture(
     const owner = await profile(config);
     const { path } = owner;
     const snapshot = await load(path);
-    if (!snapshot.settings.documents) return;
+    if (snapshot.settings.enabled === false || !snapshot.settings.documents) return;
     return async (before: CaptureFileIdentity | null, after: CaptureFileIdentity) => {
       try {
         await withFileWriteLock(path, async () => {
           if ((await profile(config)).path !== path) return;
           const current = await load(path);
-          if (!current.settings.documents || current.documentEpoch !== snapshot.documentEpoch) return;
+          if (current.settings.enabled === false || !current.settings.documents || current.documentEpoch !== snapshot.documentEpoch) return;
           const documentId = await localCaptureDocumentId(config, owner, projectId, before, after);
           if (!documentId || (await profile(config)).path !== path) return;
           const evidence = documentEvidence(projectId, reference, !before, new Date(), documentId);
@@ -302,25 +277,6 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
       saved.fileProducts[documentId]?.[entry.matterId] !== entry.workProductId;
     if (documentId && entry?.workProductId && newBinding)
       (saved.fileProducts[documentId] ??= {})[entry.matterId] = entry.workProductId;
-    if (saved.pendingBookings[key] && documentId && entry?.narrative) {
-      const title = verifiedDocumentTitle(saved, candidate);
-      const clock = saved.draftClocks[key];
-      const field = target === "record" ? "billingNarrative" : "narrative";
-      const manuallyEdited = clock?.guarded && clock.fields[field] &&
-        saved.drafts[key]?.values[field] === entry.narrative;
-      let before = candidate.proposal;
-      while (before.parentDigest) {
-        const previous = saved.originals[before.parentDigest];
-        if (!previous || previous.documentId !== documentId || previous.key !== key) break;
-        if (previous.narrative !== before.narrative) {
-          before = previous;
-          break;
-        }
-        before = previous;
-      }
-      if (manuallyEdited || (entry.narrative === candidate.proposal.narrative && before.narrative !== entry.narrative))
-        rememberDocumentWording(saved.instructions, key, documentId, entry.matterId, before.narrative, entry.narrative, title);
-    }
     if (saved.pendingBookings[key] || newBinding) {
       delete saved.pendingBookings[key];
       delete saved.drafts[key];
@@ -328,51 +284,6 @@ export async function acceptPrivateProposal<T>(config: ServerConfig, identity: B
     }
     return result;
   });
-}
-
-function verifiedDocumentTitle(saved: Saved, item: WorkdayEvidence) {
-  if (item.sourceDocumentTitle) return item.sourceDocumentTitle;
-  const proposal = item.proposal;
-  const savedDocument = Object.values(saved.documentSaves[proposal.date] ?? {})
-    .find(source => source.documentId === proposal.documentId);
-  const name = savedDocument?.narrative ?? (!item.generated && !proposal.parentDigest && proposal.source === "documents"
-    ? proposal.narrative
-    : undefined);
-  return name?.slice(0, name.length - extname(name).length);
-}
-
-export async function rememberAcceptedDocumentEdit(config: ServerConfig,
-  access: Pick<Awaited<ReturnType<typeof backOfficeAccess>>, "actor" | "scope">,
-  edit: { key: string; digest?: string; matterId: string; before: string; after: string; revision?: number; reconciledOnly?: boolean }) {
-  if (!loopback(config) || edit.before === edit.after) return;
-  // The billing edit has already committed. Local memory cannot turn it into a failed save.
-  try {
-    const owner = await captureProfile(config, access);
-    await withFileWriteLock(owner.path, async () => {
-      const saved = await load(owner.path);
-      const target = edit.digest ? "workflow" : "record";
-      const matches = target === "record"
-        ? Object.keys(saved.reconciled).filter(key => saved.reconciled[key] === edit.key)
-        : [];
-      const direct = !edit.reconciledOnly && saved.accepted[edit.key] &&
-        (saved.bookingTargets[edit.key] ?? "workflow") === target;
-      const candidates = [...new Set(direct ? [edit.key, ...matches] : matches)];
-      if (candidates.length > 1) return;
-      const key = candidates[0];
-      if (!key) return;
-      const hash = saved.accepted[key];
-      if (saved.pendingBookings[key] || (edit.digest && edit.digest !== hash) ||
-          (saved.bookingTargets[key] ?? "workflow") !== target) return;
-      const origin = hash ? saved.originals[hash] : undefined;
-      if (!origin?.documentId || (await profile(config)).path !== owner.path) return;
-      const item = saved.days[origin.date]?.find(item => item.proposal.key === key);
-      if (rememberDocumentWording(saved.instructions, key, origin.documentId, edit.matterId, edit.before, edit.after,
-        item && verifiedDocumentTitle(saved, item), edit.revision))
-        await save(owner.path, saved);
-    });
-  } catch {
-    console.warn("Could not update the private workday's document wording.");
-  }
 }
 
 export async function bookPrivateManualDraft<T>(config: ServerConfig, identity: BookingIdentity,
@@ -436,10 +347,11 @@ type PreparationOptions = {
   signal?: AbortSignal;
   resolveWorkspace?: ResolveWorkspace;
   now?: () => number;
+  scheduledSlot?: number;
   readConnected?: typeof readConnectedWorkday;
 };
 const workdaysRunning = new Map<string, Map<string, { controller: AbortController; done: Promise<void> }>>();
-type Preparation = { type: "refresh" | "suggest" | "run" | "calendar"; model?: WorkdayModel } | z.infer<typeof workdayChatActionSchema>;
+type Preparation = { type: "suggest" | "calendar"; model?: WorkdayModel; revisionRequest?: string };
 
 function protectedProposal(s: Saved, item: WorkdayEvidence) {
   const p = item.proposal;
@@ -478,19 +390,33 @@ function rawProposals(evidence: WorkdayEvidence[]) {
   return [...group.values()];
 }
 
-function modelChoice(config: ServerConfig, profile: Pick<Saved, "settings" | "lastModel">, requested?: WorkdayModel): WorkdayModel {
+async function modelChoice(config: ServerConfig, owner: Profile, profile: Pick<Saved, "settings" | "lastModel">,
+  workspaces: WorkspaceInfo[], signal: AbortSignal, requested?: WorkdayModel): Promise<WorkdayModel> {
   const { settings, lastModel } = profile;
-  // A stale window cannot override an explicitly saved provider choice.
-  if (!settings.model) return requested ?? lastModel ?? localWorkdayModel;
-  const { workspaceId, providerID, modelID } = settings.model;
-  return { workspaceId: workspaceId ?? config.workspaces[0]?.id ?? "local", providerID, modelID };
+  // A stale window cannot override an explicitly saved composer selection.
+  if (settings.model) {
+    const { workspaceId, providerID, modelID } = settings.model;
+    return { workspaceId: workspaceId ?? workspaces[0]?.id ?? "local", providerID, modelID };
+  }
+  if (requested) return requested;
+  if (lastModel) return lastModel;
+  const workspace = workspaces.find(item => item.preset === timekeepingPreset(owner.profileId))
+    ?? workspaces.find(item => item.preset === "main-assistant");
+  if (workspace) {
+    try {
+      const selected = await createEngineClient(config, workspace).model.default({ location: workspaceEngineLocation(workspace) }, { signal });
+      if (selected.data && selected.data.enabled !== false)
+        return { workspaceId: workspace.id, providerID: selected.data.providerID, modelID: selected.data.id };
+    } catch { signal.throwIfAborted(); }
+  }
+  return localWorkdayModel;
 }
 function localChoice(choice: WorkdayModel) {
   return choice.providerID === localWorkdayModel.providerID && choice.modelID === localWorkdayModel.modelID;
 }
 
 async function prepare(config: ServerConfig, owner: Profile, date: string, action: Preparation,
-  { signal: requestSignal, resolveWorkspace, now = Date.now, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
+  { signal: requestSignal, resolveWorkspace, now = Date.now, scheduledSlot, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
   const { path } = owner;
   let days = workdaysRunning.get(path);
   if (!days) { days = new Map(); workdaysRunning.set(path, days); }
@@ -512,48 +438,22 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
   };
   try {
+    const started = now();
+    const initial = await load(path);
+    if (initial.settings.enabled === false) {
+      if (scheduledSlot !== undefined) return;
+      throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
+    }
+    if (scheduledSlot !== undefined && initial.lastScheduledSlot >= scheduledSlot) return;
     const workspaces = await workdayWorkspaces(config);
     const access = await backOfficeAccess(config);
     if ((await captureProfile(config, access)).path !== path) return;
     let state: Awaited<ReturnType<typeof workdayContext>> | undefined;
     const context = async () => state ??= await workdayContext(config, access, workspaces);
-    if (action.type === "chat") {
-      const usage = action.instruction;
-      const directory = usage && usage.scope !== "personal" ? await context() : undefined;
-      const alreadyAnswered = await withFileWriteLock(path, async () => {
-        const current = await load(path);
-        const transcript = current.chat[date] ?? [];
-        const message = transcript.find(turn => turn.id === action.id);
-        if (message) {
-          if (message.role !== "user" || message.text !== action.text || Boolean(message.permanent) !== Boolean(usage))
-            throw new ApiError(409, "private_workday_changed", "This message changed. Send it as a new correction.");
-          return transcript.some(turn => turn.replyTo === action.id);
-        }
-        const prior = Object.values(current.chat).some(day => day.some(turn => turn.id === action.id));
-        if (prior) throw new ApiError(409, "private_workday_changed", "This message belongs to another workday.");
-        if (usage) {
-          if (usage.scope !== "personal" && usage.matterId &&
-              !directory?.matters.some(matter => matter.id === usage.matterId))
-            throw new ApiError(403, "private_workday_scope", "Choose an available matter for this instruction.");
-          if (usage.scope === "document" &&
-              !(current.days[date] ?? []).some(({ proposal }) => proposal.documentId === usage.documentId &&
-                (!usage.matterId || captureMatter(proposal, directory!)?.id === usage.matterId) &&
-                (!proposal.projectId || workspaces.some(workspace => workspace.id === proposal.projectId))))
-            throw new ApiError(403, "private_workday_scope", "Choose a document from this day's suggestions.");
-          current.instructions[action.id] = { ...usage, id: action.id, text: action.text };
-        }
-        current.chat[date] = [...transcript, { id: action.id, role: "user", text: action.text, permanent: Boolean(usage) }];
-        await verifyProfile();
-        await save(path, current);
-        return false;
-      });
-      if (alreadyAnswered) return;
-    }
-    const initial = await load(path);
     const settings = initial.settings;
     const withModel = action.type !== "calendar";
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const choice = modelChoice(config, initial, "model" in action ? action.model : undefined);
+    const choice = withModel ? await modelChoice(config, owner, initial, workspaces, signal, "model" in action ? action.model : undefined) : localWorkdayModel;
     const runtime = withModel && localChoice(choice) ? await localModel() : null;
     const workspacesById = new Set(workspaces.map(workspace => workspace.id));
     const events = settings.calendar
@@ -582,7 +482,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         if (!item.generated && item.proposal.source === "stopwatch" && !protectedProposal(initial, item) &&
             (!item.proposal.projectId || workspacesById.has(item.proposal.projectId))) byEvidence.set(item.eventKey, item);
     const evidence = [...byEvidence.values()].sort((a, b) => a.eventKey.localeCompare(b.eventKey));
-    const inputs = (s: Saved) => digest([s.settings, s.chat[date]?.filter(turn => turn.role === "user"), s.instructions, s.guidelines, s.fileProducts]);
+    const inputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts]);
     const revision = inputs(initial);
     let key = "";
     const verify = async () => {
@@ -599,6 +499,9 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         if (inputs(current) !== revision) return;
         if (proposals) applyProposals(current, date, proposals);
         current.lastRun = now();
+        if (scheduledSlot !== undefined) current.lastScheduledSlot = scheduledSlot;
+        if (status.type === "ready" && withModel)
+          current.checkedThrough[date] = new Date(started).toISOString();
         current.reconstruction[date] = { key, status };
         if (key && withModel) {
           const { [key]: previous, ...cache } = current.reconstructionCache[date] ?? {};
@@ -607,9 +510,6 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
           ]);
           if (status.type === "ready") current.lastModel = choice;
         }
-        if (action.type === "chat" && !current.chat[date]?.some(turn => turn.replyTo === action.id))
-          (current.chat[date] ??= []).push({ id: randomUUID(), role: "assistant",
-            text: action.instruction ? "Saved this private instruction." : status.message, replyTo: action.id });
         await save(path, current);
       });
     };
@@ -623,15 +523,14 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       return;
     }
     try {
-      const skill = await workdaySkill();
+      const skill = await workdaySkill(workspaces.find(item => item.preset === timekeepingPreset(owner.profileId)));
       const all = modelEvidence(evidence, await context(), Object.values(initial.guidelines).flat(),
-        Object.values(initial.instructions), date, initial.fileProducts);
-      const transcript = (initial.chat[date] ?? []).filter(turn => turn.role === "user" && !turn.permanent)
-        .slice(-30).map(turn => turn.text);
+        date, initial.fileProducts);
+      const transcript = action.revisionRequest ? [action.revisionRequest] : [];
       key = digest(["workday-reconstruction-v3", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
-      if (cached && (cached.status.type === "ready" || action.type === "refresh")) {
+      if (cached?.status.type === "ready") {
         // Identical sources reuse proposals, but the schedule still completed a source check.
         await commit(cached.status, initial.reconstruction[date]?.key === key ? undefined : cached.proposals);
         return;
@@ -642,7 +541,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       }
       const excluded = (initial.days[date] ?? []).filter(item => protectedProposal(initial, item));
       const remaining = remainingEvidence(all, excluded);
-      const currentDraft = action.type === "chat" ? (initial.days[date] ?? []).flatMap(item => {
+      const currentDraft = action.revisionRequest ? (initial.days[date] ?? []).flatMap(item => {
         if (protectedProposal(initial, item)) return [];
         const evidenceIds = remaining.filter(ref => overlapsEvidence(ref.item, item)).map(ref => ref.item.eventKey);
         if (!evidenceIds.length) return [];
@@ -686,36 +585,51 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
 }
 
 export async function checkScheduledWorkday(config: ServerConfig, options: Omit<PreparationOptions, "resolveWorkspace">) {
-  if (options.signal?.aborted) return;
+  if (options.signal?.aborted || config.readOnly || !loopback(config)) return;
   const owner = await profile(config);
-  const { settings, lastRun } = await load(owner.path);
+  const { settings, lastScheduledSlot } = await load(owner.path);
+  if (settings.enabled === false) return;
   const now = (options.now ?? Date.now)();
-  if (settings.intervalMinutes && now - lastRun >= settings.intervalMinutes * 60_000) {
-    const date = dayInZone(new Date(now).toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
-    await prepare(config, owner, date, { type: "refresh" }, options);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const local = wallTime(new Date(now).toISOString(), timeZone);
+  const date = local.slice(0, 10);
+  const schedule = workdaySchedule(settings);
+  let slot: number;
+  if (schedule.frequency === "hourly") {
+    slot = now - Number(local.slice(14, 16)) * 60_000 - now % 60_000;
+  } else {
+    const startAt = zonedInstant(date, timeZone);
+    const after = Date.parse(startAt) - 1;
+    // Use Scheduled Tasks' wall-clock recurrence, including its DST gap/fold rules.
+    const slots = schedule.times.map(time => nextOccurrence({
+      kind: "rrule", startAt, timeZone,
+      rrule: `FREQ=DAILY;BYHOUR=${Number(time.slice(0, 2))};BYMINUTE=${Number(time.slice(3))}`,
+    }, after)).flatMap(instant => instant ? [Date.parse(instant)] : []).filter(slot => slot <= now);
+    if (!slots.length) return;
+    slot = Math.max(...slots);
   }
+  if (slot > lastScheduledSlot)
+    await prepare(config, owner, date, { type: "suggest" }, { ...options, scheduledSlot: slot });
 }
 
-export function startWorkdaySchedule(config: ServerConfig) {
-  if (config.readOnly || !loopback(config)) return () => {};
-  let busy = false;
-  const controller = new AbortController();
-  const timer = setInterval(async () => {
-    if (busy || controller.signal.aborted) return;
-    busy = true;
-    try {
-      await checkScheduledWorkday(config, { signal: controller.signal });
-    } catch {
-      // Model inputs, source errors and results stay in the private workday.
-    } finally {
-      busy = false;
-    }
-  }, 60_000);
-  timer.unref();
-  return () => {
-    controller.abort();
-    clearInterval(timer);
-  };
+async function visibleProposals(config: ServerConfig, s: Saved, date: string, connections: CaptureState["connections"], sourcePreview: boolean) {
+  const status = s.reconstruction[date]?.status;
+  const generatedReady = Boolean(s.reconstruction[date]?.key) && status?.type === "ready";
+  const day = s.days[date] ?? [];
+  const workspaceIds = day.some(item => item.proposal.projectId)
+    ? new Set((await workdayWorkspaces(config)).map(workspace => workspace.id)) : undefined;
+  return day.filter(item => {
+    const p = item.proposal;
+    if (s.settings.enabled === false && (p.source !== "stopwatch" || item.generated)) return false;
+    if (p.projectId && !workspaceIds?.has(p.projectId)) return false;
+    if ((s.accepted[p.key] && !s.pendingBookings[p.key]) || p.dismissed || !eligibleSource(item, connections, s.settings)) return false;
+    if (p.source !== "stopwatch") return item.generated || sourcePreview || protectedProposal(s, item);
+    if (item.generated) return s.settings.stopwatchMode === "evidence" || protectedProposal(s, item);
+    const covered = day.some(other => other.generated && other !== item && overlapsEvidence(item, other) &&
+      (protectedProposal(s, other) || (s.settings.stopwatchMode === "evidence" && generatedReady)));
+    return !covered && (protectedProposal(s, item) ||
+      !(s.settings.stopwatchMode === "evidence" && generatedReady));
+  });
 }
 
 export function registerWorkdayRoutes(options: {
@@ -728,35 +642,77 @@ export function registerWorkdayRoutes(options: {
 }) {
   const { routes, config } = options;
   const readStopwatch = createStopwatchReader();
+  addRoute(routes, "POST", "/workspace/:id/timekeeping/workday", "client", async ctx => {
+    const owner = await profile(config);
+    const workspace = config.workspaces.find(item => item.id === ctx.params.id);
+    if (!loopback(config) || !workspace || workspace.preset !== timekeepingPreset(owner.profileId)
+      || !ctx.agentAccess || ctx.agentAccess.workspace?.id !== workspace.id || ctx.actor?.scope !== "owner")
+      throw new ApiError(403, "private_workday", "Use this tool from your local Timekeeping project chat.");
+    const input = z.discriminatedUnion("action", [
+      z.strictObject({ action: z.literal("read"), date: z.iso.date() }),
+      z.strictObject({ action: z.literal("suggest"), date: z.iso.date(), revisionRequest: z.string().trim().min(1).max(2000).optional() }),
+    ]).parse(await options.readJsonBodyLimited(ctx.request, 10_000));
+    if ((await readCaptureSettings(owner.path)).enabled === false)
+      throw new ApiError(403, "timekeeping_disabled", "Turn on time tracking in Settings.");
+    if (input.action === "suggest") {
+      options.ensureWritable(config);
+      await prepare(config, owner, input.date, { type: "suggest", revisionRequest: input.revisionRequest },
+        { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
+    }
+    const saved = await load(owner.path);
+    const connections = await connectedWorkdayAccounts(config);
+    const rows = await visibleProposals(config, saved, input.date, connections.map(({ provider, account }) => ({ provider, account })), false);
+    if ((await profile(config)).path !== owner.path || saved.settings.enabled === false)
+      throw new ApiError(409, "private_workday_changed", "The active timekeeping profile changed.");
+    return options.jsonResponse({ date: input.date, status: saved.reconstruction[input.date]?.status, suggestions: rows.map(({ proposal }) => ({
+      key: proposal.key, matterId: proposal.matterId, narrative: proposal.narrative, activity: proposal.activity,
+      startAt: proposal.startAt, endAt: proposal.endAt, recordedMinutes: proposal.workedMinutes, billableMinutes: proposal.chargeMinutes,
+    })) });
+  });
   for (const method of ["GET", "POST"])
     addRoute(routes, method, "/private-timesheet/stopwatch", "host-token", async (ctx) => {
       if (!loopback(config) || ctx.agentAccess)
         throw new ApiError(403, "private_workday", "Open the stopwatch on your local LegalWork server.");
-      const { path, profileId } = await profile(config);
+      const access = await backOfficeAccess(config);
+      const { path, profileId } = await captureProfile(config, access);
       const expected = ctx.url.searchParams.get("profileId");
       if ((method === "POST" || expected !== null) && expected !== profileId)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
-      let timer: Pick<Saved["stopwatch"], "active" | "lastStopped">;
-      if (method === "POST") {
+      const command = method === "POST" ? stopwatchActionSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 1024)) : undefined;
+      if (command && !command.success)
+        throw new ApiError(400, "stopwatch_action", "Start or reassign the stopwatch with a matter, or stop the current timer.");
+      const action = command?.data;
+      const snapshot = await readStopwatch(path);
+      const requireEnabled = (enabled: boolean, active: typeof snapshot.active) => {
+        if (!enabled && (action?.type === "start" || (action?.type === "assign" && active?.matterId)))
+          throw new ApiError(409, "time_tracking_disabled", "Time tracking is turned off.");
+      };
+      requireEnabled(snapshot.enabled, snapshot.active);
+      // Polling the clock must not repeatedly fetch the firm's directory.
+      const listMatters = ctx.url.searchParams.get("includeMatters") === "1";
+      const matters = (listMatters && (snapshot.enabled || snapshot.active)) || (action && action.type !== "stop")
+        ? (await workdayContext(config, access, [])).matters.map(({ id, name, reference }) => ({
+            id, name: reference ? name + " · " + reference : name,
+          }))
+        : undefined;
+      let timer = snapshot;
+      if (action) {
         options.ensureWritable(config);
-        const action = stopwatchActionSchema.parse(await options.readJsonBodyLimited(ctx.request, 1024));
-        if (action.type !== "stop" && action.projectId && !config.workspaces.some((project) => project.id === action.projectId))
-          throw new ApiError(404, "stopwatch_project", "Choose an available project.");
+        if (action.type !== "stop" && !matters?.some(matter => matter.id === action.matterId))
+          throw new ApiError(404, "stopwatch_matter", "Choose an available matter.");
         timer = await withFileWriteLock(path, async () => {
           const saved = await load(path);
           if ((await profile(config)).path !== path)
             throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+          requireEnabled(saved.settings.enabled !== false, saved.stopwatch.active);
           changeStopwatch(saved, action, new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone);
           await save(path, saved);
-          return saved.stopwatch;
+          return { ...saved.stopwatch, enabled: saved.settings.enabled !== false };
         });
-      } else timer = await readStopwatch(path);
+      }
       if ((await profile(config)).path !== path)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
-      const projects = config.workspaces.map((project) => ({
-        id: project.id, name: project.displayName || project.name,
-      }));
-      const response = options.jsonResponse(stopwatchStateSchema.parse({ ...timer, profileId, projects }));
+      const response = options.jsonResponse(stopwatchStateSchema.parse({ ...timer, profileId, matters: listMatters ? matters : undefined }));
       response.headers.set("Cache-Control", "no-store");
       return response;
     });
@@ -802,6 +758,8 @@ export function registerWorkdayRoutes(options: {
       if (method === "POST") {
         options.ensureWritable(config);
         if (ctx.url.searchParams.get("preview") === "guideline-pdf") {
+          if ((await readCaptureSettings(path)).enabled === false)
+            throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
           const preview = await guidePdfText(ctx.request);
           if ((await profile(config)).path !== path)
             throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
@@ -813,16 +771,18 @@ export function registerWorkdayRoutes(options: {
           const input = z.strictObject({ text: z.string().trim().min(1).max(20_000), model: workdayModelSchema.optional() })
             .parse(await options.readJsonBodyLimited(ctx.request, 100_000));
           const initial = await load(path);
-          const choice = modelChoice(config, initial, input.model);
-          const runtime = localChoice(choice) ? await localModel() : null;
+          if (initial.settings.enabled === false) throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
+          const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
           const workspaces = await workdayWorkspaces(config);
+          const choice = await modelChoice(config, owner, initial, workspaces, signal, input.model);
+          const runtime = localChoice(choice) ? await localModel() : null;
           const workspace = workspaces.find(item => item.id === choice.workspaceId);
           if ((localChoice(choice) && !runtime) || (!localChoice(choice) && !workspace))
-            throw new ApiError(409, "timesheet_model_unavailable", "Choose an available model in timekeeping settings to extract billing rules.");
-          const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(150_000)]);
+            throw new ApiError(409, "timesheet_model_unavailable", "Choose an available model in the timekeeping chat composer to extract billing rules.");
           const verify = async () => {
             signal.throwIfAborted();
-            if ((await profile(config)).path !== path || digest([(await load(path)).settings.model]) !== digest([initial.settings.model]))
+            const settings = await readCaptureSettings(path);
+            if (settings.enabled === false || (await profile(config)).path !== path || digest([settings.model]) !== digest([initial.settings.model]))
               throw new ApiError(409, "private_workday_changed", "The active account or model changed. Retry with the current settings.");
           };
           await verify();
@@ -840,27 +800,26 @@ export function registerWorkdayRoutes(options: {
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             captureSettingsPatchSchema,
-            z.strictObject({ type: z.enum(["run", "calendar"]) }),
-            z.strictObject({ type: z.enum(["suggest", "refresh"]), model: workdayModelSchema.optional() }),
+            z.strictObject({ type: z.literal("calendar") }),
+            z.strictObject({ type: z.literal("suggest"), model: workdayModelSchema.optional() }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid(), digest: z.string().length(64).optional() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
             privateDraftPatchSchema,
             reconcileCaptureSchema,
             workdayCorrectionSchema,
-            workdayChatActionSchema,
-            workdayInstructionActionSchema,
             workdayGuidelineActionSchema,
           ])
           .safeParse(await options.readJsonBodyLimited(ctx.request, 100_000));
         if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
         const action = parsed.data;
         sourcePreview = action.type === "calendar";
-        if (action.type === "suggest" || action.type === "refresh" || action.type === "run" ||
-            action.type === "calendar" || action.type === "chat")
+        if (action.type === "suggest" || action.type === "calendar")
           await prepare(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
         else
           await withFileWriteLock(path, async () => {
             const s = await load(path);
+            if (action.type !== "settings" && action.type !== "settings-patch" && s.settings.enabled === false)
+              throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
             let beforeCommit: (() => Promise<() => void>) | undefined;
             async function verifyProfile() {
               if ((await profile(config)).path !== path)
@@ -872,20 +831,14 @@ export function registerWorkdayRoutes(options: {
                 throw new ApiError(409, "private_workday_changed", "Reopen the settings before changing activity sources.");
               if (digest(s.settings) !== digest(next))
                 for (const job of workdaysRunning.get(path)?.values() ?? []) job.controller.abort();
-              if (Boolean(s.settings.documents) !== Boolean(next.documents))
+              const evidenceSettings = ({ schedule, enabled, intervalMinutes, ...sources }: Saved["settings"]) => digest(sources);
+              if (evidenceSettings(next) !== evidenceSettings(s.settings)) s.checkedThrough = {};
+              if (Boolean(s.settings.documents) !== Boolean(next.documents) || s.settings.enabled !== next.enabled)
                 s.documentEpoch++;
               if (digest([s.settings.model]) !== digest([next.model])) s.reconstruction = {};
               if (s.settings.model && !next.model) delete s.lastModel;
               s.settings = next;
               if (action.type === "settings-patch") s.settingsPatched = true;
-            } else if (action.type === "instruction") {
-              const rule = s.instructions[action.id];
-              if (!rule) throw new ApiError(404, "private_workday_scope", "This saved instruction is unavailable.");
-              if (action.text === null) delete s.instructions[action.id];
-              else {
-                rule.text = action.text;
-                delete rule.replacement;
-              }
             } else if (action.type === "guideline") {
               const g = action.guideline;
               const access = await backOfficeAccess(config);
@@ -993,30 +946,15 @@ export function registerWorkdayRoutes(options: {
         account,
       }));
       const status = s.reconstruction[date]?.status;
-      const generatedReady = Boolean(s.reconstruction[date]?.key) && status?.type === "ready";
-      const day = s.days[date] ?? [];
-      const workspaceIds = day.some(item => item.proposal.projectId)
-        ? new Set((await workdayWorkspaces(config)).map(workspace => workspace.id)) : undefined;
-      const proposals = day.filter(item => {
-        const p = item.proposal;
-        if (p.projectId && !workspaceIds?.has(p.projectId)) return false;
-        if ((s.accepted[p.key] && !s.pendingBookings[p.key]) || p.dismissed || !eligibleSource(item, connections, s.settings)) return false;
-        if (p.source !== "stopwatch") return item.generated || sourcePreview || protectedProposal(s, item);
-        if (item.generated) return s.settings.stopwatchMode === "evidence" || protectedProposal(s, item);
-        const covered = day.some(other => other.generated && other !== item && overlapsEvidence(item, other) &&
-          (protectedProposal(s, other) || (s.settings.stopwatchMode === "evidence" && generatedReady)));
-        return !covered && (protectedProposal(s, item) ||
-          !(s.settings.stopwatchMode === "evidence" && generatedReady));
-      });
+      const proposals = await visibleProposals(config, s, date, connections, sourcePreview);
       const result = options.jsonResponse({
         settings: s.settings,
         drafts: Object.fromEntries(Object.entries(s.drafts).filter(([, draft]) => draft.date === date)),
         connections,
         modelReady: Boolean(await localModel()),
-        chat: s.chat[date] ?? [],
-        instructions: Object.values(s.instructions).map(({ entryKey, entryRevision, replacement, ...instruction }) => instruction),
         guidelines: Object.values(s.guidelines).flatMap(versions => versions.slice(-1)),
         status,
+        checkedThrough: s.checkedThrough[date],
         proposals: proposals.map(({ proposal, generated }) => ({
           ...proposal,
           suggested: generated || undefined,

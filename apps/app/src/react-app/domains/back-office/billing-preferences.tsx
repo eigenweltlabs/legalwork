@@ -109,10 +109,12 @@ function PolicyForm({
       incrementException: receipt,
       incrementExceptionReason: _oldReason,
       agreementClientId: _agreement,
+      stopwatchRoundUp,
       ...editable
     } = base ?? {};
     const draft = {
       ...editable,
+      ...(scope === "matter" && stopwatchRoundUp !== undefined && { stopwatchRoundUp }),
       scope,
       targetId,
       effectiveFrom: date,
@@ -269,7 +271,7 @@ function PolicyForm({
                 }
               />
             </Rule>
-            {scope === "project" && (
+            {scope === "matter" && (
               <TimeSwitch
                 label={t("back_office.billing.stopwatch_round_up")}
                 description={t("back_office.billing.stopwatch_round_hint")}

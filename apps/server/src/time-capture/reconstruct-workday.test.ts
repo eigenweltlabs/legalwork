@@ -20,7 +20,6 @@ function evidence(
   fields: Partial<CaptureProposal> = {},
 ): ModelEvidence {
   return {
-    instructions: [],
     matter,
     item: {
       eventKey: id,
@@ -131,6 +130,13 @@ test("whole-day reconstruction groups adjoining evidence, omits unrelated source
   ).toThrow(/invalid/);
 });
 
+test("a timer keeps the selected matter when the model combines it with a project event", () => {
+  const timer = evidence("timer", { source: "stopwatch", matterId: matter.id, projectId: null });
+  const meeting = evidence("meeting");
+  const result = reconstructWorkday({ proposals: [proposal(["timer", "meeting"], { matterId: null })] }, [timer, meeting], date, "UTC");
+  expect(result[0].proposal).toMatchObject({ source: "stopwatch", projectId: null, matterId: matter.id });
+});
+
 test("model times need human evidence and may not cross gaps, dates, accounts or authorized matter boundaries", () => {
   const first = evidence("first");
   const passive = evidence("passive", {
@@ -185,7 +191,7 @@ test("model times need human evidence and may not cross gaps, dates, accounts or
   });
 });
 
-test("guidelines and definite document terminology apply by scope and service date, retaining actual time", () => {
+test("guidelines apply by scope and service date, retaining actual time", () => {
   const client = { id: "client", name: "Synthetic client" };
   const state = TimesheetStateSchema.parse({
     scope: "local",
@@ -244,19 +250,10 @@ test("guidelines and definite document terminology apply by scope and service da
         },
       },
     ],
-    [
-      {
-        id: randomUUID(),
-        scope: "document",
-        matterId: matter.id,
-        documentId: "file-id",
-        text: "Revision → Rekurs",
-      },
-    ],
     date,
   );
   expect(deduped.map((item) => item.documentTitle)).toEqual([
-    "Rekurs",
+    "Moved",
     "Revision",
     undefined,
   ]);
@@ -277,7 +274,7 @@ test("guidelines and definite document terminology apply by scope and service da
     "UTC",
   );
   expect(result[0].proposal).toMatchObject({
-    narrative: "Amending Rekurs after discussion",
+    narrative: "Amending Revision after discussion",
     workedMinutes: 11,
     chargeMinutes: 15,
     documentId: "file-id",
@@ -400,7 +397,6 @@ test("the model receives descriptions for the authorized matter, client and exac
     ],
     state,
     [],
-    [],
     date,
     fileProducts,
   );
@@ -419,7 +415,6 @@ test("the model receives descriptions for the authorized matter, client and exac
     modelEvidence(
       [item("revoked-document", { documentId })],
       { ...state, products: [] },
-      [],
       [],
       date,
       fileProducts,
@@ -469,7 +464,7 @@ test("a file-only save keeps model wording without creating duration or applying
   expect(corrected.proposal.narrative).toBe("Amending Appeal");
   const [learned] = reconstructWorkday(
     { proposals: [{ ...row, documentTitle: "Extraordinary Appeal" }] },
-    [{ ...document, confirmedWording: ["Reviewing the Extraordinary Appeal for admissibility"] }],
+    [{ ...document, history: ["Reviewing the Extraordinary Appeal for admissibility"] }],
     date,
     "UTC",
   );
@@ -530,7 +525,6 @@ test("a whole-day plan is followed by separate wording requests that isolate eac
         rules: { instructions: "Second client private guidance" },
       },
     ],
-    [],
     date,
   ).map((item, index) => ({
     ...item,

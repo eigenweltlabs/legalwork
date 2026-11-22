@@ -1,3 +1,5 @@
+import { openTimekeepingProject, timekeepingProjectId } from "../time-capture/chat-project.js";
+import { activeCaptureProfile, timekeepingEnabled, isTimekeepingProject, visibleTimekeepingProjects } from "../time-capture/profile.js";
 import { workspaceContentPath } from "../project-storage.js";
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
 import { projectBackOfficeReferences, projectReferenceDirectory } from "../back-office/project-references.js";
@@ -100,7 +102,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ projectIds: config.workspaces.filter(project => assistant.canAccessProject(project.id)).map(project => project.id) });
+    return jsonResponse({ projectIds: (await visibleTimekeepingProjects(config, ctx.actor)).filter(project => assistant.canAccessProject(project.id)).map(project => project.id) });
   });
   addRoute(routes, "GET", "/assistant/access/:id", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -203,7 +205,7 @@ export function registerMainAssistantRoutes(options: {
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
     let referenceDirectory: ReturnType<typeof projectReferenceDirectory> | undefined;
     let backOfficeUnavailable = false;
-    const local = config.workspaces.filter(entry => assistant.canAccessProject(entry.id));
+    const local = (await visibleTimekeepingProjects(config, ctx.actor)).filter(entry => assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
       const batch = await Promise.all(local.slice(offset, offset + 16).map(async entry => {
@@ -268,6 +270,25 @@ export function registerMainAssistantRoutes(options: {
     options.changed();
     return jsonResponse({ project: summary(workspace), details: await readProjectDetails(workspace.path) }, 201);
   });
+  addRoute(routes, "POST", "/assistant/timekeeping-chat", "client", async ctx => {
+    write(ctx);
+    const authority = await assistantRequestAuthority(config, ctx.request, ctx.actor);
+    if (authority.scope !== "owner" || !ctx.agentAccess || !["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host))
+      throw new ApiError(403, "timekeeping_private", "Use the local owner's Assistant to delegate timekeeping.");
+    const source = config.workspaces.find(isMainAssistant);
+    if (!source || resolve(source.path) !== resolve(ctx.agentAccess.directory))
+      throw new ApiError(403, "assistant_only", "Open this chat from the main Assistant.");
+    const owner = await activeCaptureProfile(config);
+    if (!await timekeepingEnabled(owner.path)) throw new ApiError(403, "timekeeping_disabled", "Turn on time tracking in Settings.");
+    const id = timekeepingProjectId(owner.profileId);
+    assistant.assertProjectAccess(id);
+    assertAssistantDispatchAuthority(authority, id);
+    const workspace = await openTimekeepingProject(config, owner.profileId, options.changed);
+    await accessible(workspace.id);
+    const { day } = await assistant.projectDay(workspace);
+    await accessible(workspace.id);
+    return jsonResponse({ workspaceId: workspace.id, sessionId: day.sessionId, date: day.date });
+  });
   addRoute(routes, "POST", "/assistant/delegate", "client", async ctx => {
     write(ctx);
     let authority = await assistantRequestAuthority(config, ctx.request, ctx.actor);
@@ -293,6 +314,16 @@ export function registerMainAssistantRoutes(options: {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write",
       target: join(workspaceContentPath(workspace), file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
     });
+    if (isTimekeepingProject(workspace)) {
+      const { day } = await assistant.projectDay(workspace);
+      await options.sessionAccess.authorize(day.sessionId, workspace.path, authority);
+      const delegation = { workspaceId: workspace.id, sessionId: day.sessionId, sourceWorkspaceId: source.id, sourceSessionId: input.sourceSessionId, title: input.title, projectName: workspace.name, scope: input.scope, conversationLanguage: input.conversationLanguage, model: model ?? null, authority };
+      const handoff = assistantHandoffParts({ ...input, files, setupContext: "", sender: assistant.profile() });
+      options.delegations.track(delegation);
+      const receipt = await options.sessionQueue.submit({ workspaceId: workspace.id, sessionId: day.sessionId }, handoff.map(part => part.text).join("\n\n"), authority);
+      options.changed();
+      return jsonResponse({ ok: true, delegation: { workspaceId: workspace.id, sessionId: day.sessionId, projectName: workspace.name, title: input.title, status: receipt.state }, files, resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
+    }
     // Metadata capture must not depend on the coordinator remembering a setup flag.
     const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. For Back Office fields, use legalwork_back_office_discover to inspect the current model, reuse matching accessible records or create only missing evidence-backed items, use legalwork_project_reference_options, and save {directoryId,recordIds}. Never copy record names into reference values or create projectLinks records. Verify links with legalwork_project_back_office_context. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
     const client = options.client(workspace);

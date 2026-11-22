@@ -11,19 +11,15 @@ import { startServer } from "../server.js";
 import { recordCompletedTask } from "./activity-workday.js";
 import { beginDocumentCapture, captureProfile } from "./routes.js";
 
-test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups sources, retries, and saves private corrections", async () => {
+test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and respects the selected model", async () => {
   const narrative = "Drafting Example";
   const prompts: string[] = [];
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
-  let hold = false;
   let invalidResponse = true;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const body = z.object({ model: z.literal("fixture"), messages: z.array(z.object({ role: z.string(), content: z.string() })) }).parse(await request.json());
     const prompt = body.messages.find(item => item.role === "user")?.content;
     if (!prompt) throw Error("Missing private generation request");
     prompts.push(prompt);
-    if (hold) { entered.resolve(); await release.promise; }
     const input = z.discriminatedUnion("stage", [
       z.object({ stage: z.literal("grouping"), evidence: z.array(z.object({ id: z.string(), documentId: z.string().nullable(), projectId: z.string() })) }),
       z.object({ stage: z.literal("wording"), entries: z.array(z.object({ index: z.number() })) }),
@@ -73,7 +69,7 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
       return captureStateSchema.parse(data);
     };
     const settings: CaptureAction = { type: "settings", settings: {
-      documents: true, calendar: false, tasks: true, intervalMinutes: 0, aiSuggestions: false,
+      documents: true, calendar: false, tasks: true, schedule: { frequency: "daily", times: ["08:00"] },
     } };
     await request(settings);
     const capture = await beginDocumentCapture(config, { actor: { type: "host" } }, "example", "Folder/Example.docx");
@@ -84,16 +80,16 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     await recordCompletedTask(config, profile, {
       id: "synthetic-task", title: "File the draft", projectId: "example", updatedAt: new Date().toISOString(),
     });
-    const refresh: CaptureAction = { type: "refresh", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
+    const suggest: CaptureAction = { type: "suggest", model: { workspaceId: "example", providerID: "example", modelID: "fixture" } };
     expect((await request({ type: "calendar" })).proposals).toHaveLength(2);
     expect((await request()).proposals).toEqual([]);
     expect(prompts).toHaveLength(0);
-    expect((await request(refresh)).status?.type).toBe("failed");
+    expect((await request(suggest)).status?.type).toBe("failed");
     expect(prompts).toHaveLength(2);
     invalidResponse = false;
-    expect((await request(refresh)).status?.type).toBe("failed");
+    expect((await request()).status?.type).toBe("failed");
     expect(prompts).toHaveLength(2);
-    const result = await request({ ...refresh, type: "suggest" });
+    const result = await request(suggest);
     expect(result.status?.type).toBe("ready");
     expect(result.proposals).toHaveLength(1);
     const proposal = result.proposals[0];
@@ -103,64 +99,29 @@ test.skipIf(!nativeMcpBinary)("opening a legacy disabled workday still groups so
     expect(prompts[0]).not.toContain("Folder/");
     expect(proposal.narrative).toBe(narrative);
     expect(proposal.suggested).toBe(true);
-    const [reopened, secondWindow] = await Promise.all([request(refresh), request({ ...refresh, type: "suggest" })]);
+    const [reopened, secondWindow] = await Promise.all([request(suggest), request(suggest)]);
     expect(reopened.proposals[0]).toEqual(proposal);
     expect(secondWindow.proposals[0]).toEqual(proposal);
     expect((await request()).proposals[0]).toEqual(proposal);
     expect(prompts).toHaveLength(4);
     expect(await readFile(profile.path, "utf8")).toContain(narrative);
 
-    const correction: CaptureAction = { type: "chat", id: randomUUID(), text: "Example → Rekurs",
-      model: refresh.model, instruction: { scope: "document", documentId: proposal.documentId! } };
-    const changed = await request(correction);
-    expect(changed.proposals[0].narrative).toBe("Drafting Rekurs");
-    expect(changed.proposals[0].key).toBe(proposal.key);
-    expect(changed.proposals[0].digest).not.toBe(proposal.digest);
-    expect(changed.chat.map(turn => turn.role)).toEqual(["user", "assistant"]);
-    expect(changed.instructions[0]).toMatchObject({ text: correction.text, documentId: proposal.documentId });
-    expect((await request(correction)).chat).toEqual(changed.chat);
-    expect(prompts).toHaveLength(6);
     expect((await engine.client().session.list({ directory: engine.directory })).data).toHaveLength(0);
     for (const file of ["engine.db", "engine.db-wal"]) {
       const bytes = file === "engine.db" ? await readFile(join(engine.root, file))
         : await readFile(join(engine.root, file)).catch(() => Buffer.alloc(0));
       expect(bytes.includes("Example.docx")).toBe(false);
       expect(bytes.includes(narrative)).toBe(false);
-      expect(bytes.includes(correction.text)).toBe(false);
     }
-    hold = true;
-    const interrupted = request({ type: "chat", id: randomUUID(), text: "Shorten the description", model: refresh.model });
-    await entered.promise;
-    try {
-      await request({ type: "settings", settings: { ...settings.settings,
-        model: { workspaceId: "example", providerID: "example", modelID: "unavailable" } } });
-    } finally {
-      release.resolve();
-    }
-    const cancelled = await interrupted;
-    expect(cancelled.proposals[0].digest).toBe(changed.proposals[0].digest);
-    expect(cancelled.settings.model?.modelID).toBe("unavailable");
     const priorCalls = prompts.length;
-    const permanent = { type: "chat", id: randomUUID(), text: "Use active voice", instruction: { scope: "personal" } } satisfies CaptureAction;
-    const stored = await request(permanent);
-    expect(stored.instructions.some(rule => rule.id === permanent.id && rule.text === permanent.text)).toBe(true);
-    expect(stored.chat.at(-1)).toMatchObject({ role: "assistant", replyTo: permanent.id, text: "Saved this private instruction." });
-    expect(stored.status?.type).toBe("unavailable");
-    expect((await request(permanent)).chat).toEqual(stored.chat);
-    expect(prompts).toHaveLength(priorCalls);
-
     // A request from a stale second window must respect the newer saved provider.
     const selected = { workspaceId: "local", providerID: "local", modelID: "llama.cpp" };
     await request({ type: "settings-patch", change: { field: "model", value: selected } });
-    const staleRefresh = await request(refresh);
-    expect(staleRefresh.settings.model).toEqual(selected);
-    expect(staleRefresh.status?.type).toBe("unavailable");
-    const staleChat = await request({ type: "chat", id: randomUUID(), text: "Shorten the description", model: refresh.model });
-    expect(staleChat.settings.model).toEqual(selected);
-    expect(staleChat.status?.type).toBe("unavailable");
+    const staleRequest = await request(suggest);
+    expect(staleRequest.settings.model).toEqual(selected);
+    expect(staleRequest.status?.type).toBe("unavailable");
     expect(prompts).toHaveLength(priorCalls);
   } finally {
-    release.resolve();
     await server.stop();
     await engine.close();
     provider.stop(true);

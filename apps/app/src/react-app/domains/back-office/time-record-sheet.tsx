@@ -1,3 +1,5 @@
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Info, CopyPlus, History } from "lucide-react";
@@ -10,6 +12,8 @@ import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/lega
 import { t } from "@/i18n";
 import { applySavedRecord, writeBackOfficeRecord, type BackOfficeState } from "./api";
 import { displayBackOfficeObject } from "./labels";
+import { TimeHeaderContent, TimekeeperControlTarget } from "./time-workspace-header";
+import { TimeSelect } from "./time-settings-controls";
 import { RecordGrid } from "./record-grid";
 import { ValueDisplay } from "./record-values";
 import type { RenderTimeWorkspace } from "./timesheet-workday";
@@ -72,9 +76,9 @@ function RecordProposalField({ record, revision, field, disabled, onCommit }: {
     }
   }
   return field === "billingNarrative"
-    ? <textarea value={typed ?? saved} maxLength={2000} rows={3} disabled={disabled}
+    ? <Textarea value={typed ?? saved} maxLength={2000} rows={3} disabled={disabled}
         onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />
-    : <input type="number" data-field={field} min="0" max="1440" value={typed ?? saved} disabled={disabled}
+    : <Input type="number" data-field={field} min="0" max="1440" value={typed ?? saved} disabled={disabled}
         onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />;
 }
 
@@ -178,7 +182,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
   const visible = stored.filter(record => capture.dates.includes(serviceDate(record.values)) && matchesPerson(record));
   const receiptBookings = bookings.filter(item => {
     const record = known.get(item.id);
-    return record && !record.archivedAt && matchesPerson(record);
+    return record && !record.archivedAt && matchesPerson(record) && !capture.dates.includes(serviceDate(record.values));
   });
   currentAccess.current = { editable, rosterIds, contacts };
   function canWrite(record: BackOfficeRecord, patch: TimeRecordValues = {}) {
@@ -632,7 +636,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     }).then(() => true, () => false);
   }
 
-  const { totals: sums, byDate } = periodTimeTotals(visible.map(record => ({
+  const { byDate } = periodTimeTotals(visible.map(record => ({
     date: serviceDate(record.values),
     workedMinutes: Number(record.values.recordedMinutes || 0),
     billableMinutes: Number(record.values.billableMinutes || 0),
@@ -651,14 +655,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
     } catch { /* Ordinary text remains available to the focused editor. */ }
   }}>
     <TimesheetWeekTotals dates={capture.dates} date={capture.date} totalsByDate={byDate} onDateChange={day => capture.selectDate(day, true)} />
-    <div className="time-sheet-summary">
-      {members.length > 1 ? <select aria-label={t("timesheets.ledger.workers")} value={person} onChange={event => { setPerson(event.target.value); setComposerId(undefined); }}>
-        <option value="">{t("timesheets.sheet.all_people")}</option>
-        {choices.map(member => <option key={member.id} value={member.id}>{String(member.values.name)}</option>)}
-      </select> : <span title={t("timesheets.self_only")}>{t("timesheets.ledger.me")}</span>}
-      <span>{t("timesheets.sheet.worked", { minutes: sums.worked })}</span><span>{t("timesheets.sheet.charge", { minutes: sums.charge })}</span>
-      <span className="time-sheet-sync" role="status" title={t(unsaved ? "timesheets.sheet.edit_unsaved_hint" : directory.scope === "local" ? "timesheets.sheet.local" : "timesheets.sheet.sharing")}><Info size={12} />{edits.saving.size ? t("projects.saving") : unsaved ? t("timesheets.sheet.edit_unsaved") : directory.sync.error ? t("timesheets.sheet.sync_error") : directory.sync.pending ? t("timesheets.sheet.pending") : t("timesheets.sheet.synced")}</span>
-    </div>
+    {members.length > 1 && capture.visible !== false && <TimeHeaderContent slot={TimekeeperControlTarget}>
+      <TimeSelect label={t("timesheets.ledger.workers")} value={person}
+        options={[{ id: "", name: t("timesheets.sheet.all_people") }, ...choices.map(member => ({ id: member.id, name: String(member.values.name) }))]}
+        onChange={id => { setPerson(id); setComposerId(undefined); }} />
+    </TimeHeaderContent>}
     {roster.error && <p className="bo-error" role="alert">{t("timesheets.sheet.members_error")} <Button size="xs" variant="outline" onClick={() => void roster.refetch()}>{t("timesheets.retry")}</Button></p>}
     <RecordGrid object={object} records={records} views={directory.views} editable={editable} finance={directory.permissions.finance}
       userId={directory.permissions.userId} archived={false} onArchivedChange={() => {}} lockedSchema
@@ -669,9 +670,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       }}
       readOnlyFields={members.length <= 1 ? ["timekeeper"] : undefined}
       sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
+        toolbarAction: editable && <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => {
+          setComposerId(blankId);
+          grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
+        }}><Plus size={14} />{t("timesheets.ledger.new")}</Button>,
+        sumFields: ["recordedMinutes", "billableMinutes"],
         afterRows: render => <>
-          {editable && !showBlank &&
-            <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => setComposerId(blankId)}><Plus size={14} />{t("timesheets.ledger.new")}</Button>}
           {receipt((item, index) => {
             const record = entries.get(item.id) ?? known.get(item.id);
             return record ? render(record, index) : undefined;
@@ -731,6 +735,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
           </div>;
         },
       }} />
+    {(edits.saving.size > 0 || unsaved || directory.sync.error || directory.sync.pending > 0) && <span className="time-sheet-sync" role="status">
+      <Info size={12} />{edits.saving.size ? t("projects.saving") : unsaved ? t("timesheets.sheet.edit_unsaved") : directory.sync.error ? t("timesheets.sheet.sync_error") : t("timesheets.sheet.pending")}
+    </span>}
   </div>;
   return workspace(ledger, proposal => {
     if (!proposalMap.has(proposal.key)) return null;
@@ -756,23 +763,20 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
       <div key={proposal.digest} className="time-workspace-form">
         <ProposalDecisionReceiver proposal={proposal} accept={() => accept(record, proposal)} dismiss={dismiss} />
         <label>{t("timesheets.workday.matter")}
-          <select value={typeof values.matter === "string" ? values.matter : ""} disabled={!editable || busy}
-            onChange={event => {
-              const matterId = event.currentTarget.value;
+          <TimeSelect label={t("timesheets.workday.matter")} value={typeof values.matter === "string" ? values.matter : ""}
+            disabled={!editable || busy} placeholder={t("timesheets.workday.choose")}
+            options={proposal.source === "stopwatch" ? state.matters : [{ id: "", name: t("timesheets.workday.unassigned") }, ...state.matters]}
+            onChange={matterId => {
               const before = proposalValues({ ...proposal, matterId: typeof values.matter === "string" ? values.matter : undefined }, state);
               const charge = proposalValues({ ...proposal, matterId, projectId: null, chargeMinutes: undefined }, state).billableMinutes;
               patch({ matter: matterId || null, ...(values.billableMinutes === before.billableMinutes ? { billableMinutes: charge } : {}) });
-            }}>
-            <option value="">{t("timesheets.workday.choose")}</option>
-            {state.matters.map(matter => <option key={matter.id} value={matter.id}>{matter.name}</option>)}
-          </select>
+            }} />
         </label>
         {eligibleClients.length > 0 && <label>{t("timesheets.sheet.bill_to")}
-          <select value={typeof values.client === "string" ? values.client : ""} disabled={!editable || busy}
-            onChange={event => patch({ client: event.currentTarget.value || null })}>
-            <option value="">{t("timesheets.sheet.choose_bill_to")}</option>
-            {eligibleClients.map(id => <option key={id} value={id}>{state.clients.find(client => client.id === id)?.name ?? id}</option>)}
-          </select>
+          <TimeSelect label={t("timesheets.sheet.bill_to")} value={typeof values.client === "string" ? values.client : ""}
+            disabled={!editable || busy} placeholder={t("timesheets.sheet.choose_bill_to")}
+            options={[{ id: "", name: t("timesheets.sheet.choose_bill_to") }, ...eligibleClients.map(id => ({ id, name: state.clients.find(client => client.id === id)?.name ?? id }))]}
+            onChange={id => patch({ client: id || null })} />
         </label>}
         <label>{t("timesheets.workday.description")}
           <RecordProposalField record={record} revision={revision} field="billingNarrative" disabled={!editable || busy} onCommit={patch} />
@@ -789,16 +793,13 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
         {clientError && <p>{t(clientError)}</p>}
         {draftError(proposal.key)}
         {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
-          <select value="" disabled={!editable} aria-disabled={busy || undefined} onChange={event => {
-            if (busy) return;
-            const match = matches.find(entry => entry.id === event.currentTarget.value);
-            if (match) finishProposal(proposal, { type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
-          }}>
-            <option value="">{t("timeWorkspace.chooseRecorded")}</option>
-            {matches.map(match => <option key={match.id} value={match.id}>
-              {String(match.values.billingNarrative || match.values.name)} · {String(match.values.recordedMinutes)} min
-            </option>)}
-          </select>
+          <TimeSelect label={t("timesheets.sheet.reconcile")} value="" disabled={!editable || busy}
+            placeholder={t("timeWorkspace.chooseRecorded")} options={matches.map(entry => ({ id: entry.id,
+              name: String(entry.values.billingNarrative || entry.values.name) + " · " + String(entry.values.recordedMinutes) + " min",
+            }))} onChange={id => {
+              const match = matches.find(entry => entry.id === id);
+              if (match) finishProposal(proposal, { type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });
+            }} />
         </label>}
         <div className="time-workspace-actions">
           <TimeProposalActions busy={busy} canAccept={editable && !conflict} onAccept={() => void accept(record, proposal)}
@@ -820,7 +821,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, edi
                 narrative: String(reviewed.billingNarrative || proposal.narrative),
               }, local?.proposal?.digest === proposal.digest && local.privateRevision !== undefined
                 ? local.privateRevision : draft ? draft.revision ?? 0 : undefined);
-            }).catch(() => {})}>{t("timeWorkspace.editTimes")}</Button>
+            }).catch(() => {})}>{t("common.edit")}</Button>
         </div>
       </div>
     );

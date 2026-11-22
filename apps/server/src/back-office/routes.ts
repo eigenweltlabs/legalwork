@@ -1,6 +1,6 @@
 import { timeMemberContactId } from "./time-member-identity.js";
 import { ownTimeMember, timeMembers, timeMemberContact } from "./time-members.js";
-import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile, rememberAcceptedDocumentEdit, type BookingAuthority } from "../time-capture/routes.js";
+import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile, type BookingAuthority } from "../time-capture/routes.js";
 import { privateBookingRevisionSchema } from "./timesheet-schema.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
@@ -434,17 +434,6 @@ export function registerBackOfficeRoutes(options: {
       values: z.record(z.string(), BackOfficeValueSchema), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(), archived: z.boolean().optional(),
     }).parse(body));
     const record = save(body);
-    if (existing && ctx.actor?.type === "host" && !ctx.agentAccess && !actor.agentId &&
-        existing.ownerId === actor.userId && record.objectId === "timeEntries" &&
-        record.revision === existing.revision + 1 &&
-        record.values.matter === existing.values.matter && typeof record.values.matter === "string") {
-      const before = existing.values.billingNarrative || existing.values.name;
-      const after = record.values.billingNarrative || record.values.name;
-      if (typeof before === "string" && typeof after === "string")
-        await rememberAcceptedDocumentEdit(options.config, { scope, actor }, {
-          key: record.id, matterId: record.values.matter, before, after, revision: record.revision,
-        });
-    }
     return { record };
   });
   route("POST", "/records/batch", async (ctx, store, { scope, actor }) => {

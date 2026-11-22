@@ -21,6 +21,7 @@ export function useSessionHistory(input: {
   client: LegalworkServerClient; workspaceId: string; sessionId: string;
   snapshot: LegalworkSessionSnapshot | null; live: UIMessage[]; containerRef: RefObject<HTMLDivElement | null>;
   assistantDate?: string;
+  dailyHistory?: LegalworkServerClient["mainAssistantHistory"];
 }) {
   const scope = `${input.client.baseUrl}:${input.workspaceId}:${input.sessionId}`;
   const [state, setState] = useState<{ scope: string; batches: HistoryBatch[] } | null>(null);
@@ -99,19 +100,22 @@ export function useSessionHistory(input: {
         const key = `${sessionId}:${order}:${cursor ?? ""}`;
         if (seen.has(key)) throw new Error("Repeated history cursor");
         seen.add(key);
-        const result = (await input.client.getSessionSnapshot(input.workspaceId, sessionId, {
-          page: true, cursor, pageOrder: order, limit: HISTORY_BATCH_SIZE, fileReferences: true, signal: controller.signal,
-        })).item;
-        if (controller.signal.aborted || scope !== current.current.scope) return;
-        const page = batchOf(result, date);
-        if (page.count > 0) {
-          if (page.messages.length > 0) { replace(nearbyHistoryBatches(existing, page, direction)); return; }
-          cursor = direction === "older" ? page.olderCursor : page.newerCursor;
-          if (cursor) continue;
+        // With no cursor the current day is exhausted. An adjacent day
+        // starts at its first page and therefore has no cursor yet either.
+        if (cursor || sessionId !== (edge.sessionId ?? input.sessionId)) {
+          const result = (await input.client.getSessionSnapshot(input.workspaceId, sessionId, {
+            page: true, cursor, pageOrder: order, limit: HISTORY_BATCH_SIZE, fileReferences: true, signal: controller.signal,
+          })).item;
+          if (controller.signal.aborted || scope !== current.current.scope) return;
+          const page = batchOf(result, date);
+          if (page.count > 0) {
+            if (page.messages.length > 0) { replace(nearbyHistoryBatches(existing, page, direction)); return; }
+            cursor = direction === "older" ? page.olderCursor : page.newerCursor;
+            if (cursor) continue;
+          }
         }
-        // The Assistant's daily engine contexts are one bounded, continuous timeline.
         if (input.assistantDate && date) {
-          const days = await input.client.mainAssistantHistory(direction === "older" ? date : undefined, 1, direction === "newer" ? date : undefined);
+          const days = await (input.dailyHistory ?? input.client.mainAssistantHistory)(direction === "older" ? date : undefined, 1, direction === "newer" ? date : undefined);
           if (controller.signal.aborted || scope !== current.current.scope) return;
           const day = days.days[0];
           if (day && day.date <= input.assistantDate) {

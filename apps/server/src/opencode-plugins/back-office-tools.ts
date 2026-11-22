@@ -2,7 +2,7 @@ import { BackOfficeQueryPageSchema } from "../views/schema.js";
 import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
-import { serverToken, serverUrl } from "./office-plugin-shared.js";
+import { serverToken, serverUrl, resolveWorkspaceId, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
 
 export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. For fees, time, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
@@ -38,6 +38,22 @@ async function call(path: string, method = "GET", body?: unknown, timeoutMs = 30
 }
 export function backOfficeTools(ctx: Plugin.Context) {
   return [
+    nativeTool(ctx, {
+      name: "legalwork_timekeeping_workday",
+      description: "In the private Timekeeping project, read a day's visible time suggestions or prepare suggestions from enabled sources. Use suggest with revisionRequest only when the user asks to revise draft suggestions. This never books an entry or creates a standing instruction.",
+      schema: z.discriminatedUnion("action", [
+        z.strictObject({ action: z.literal("read"), date: z.iso.date() }),
+        z.strictObject({ action: z.literal("suggest"), date: z.iso.date(), revisionRequest: z.string().trim().min(1).max(2000).optional() }),
+      ]),
+      execute: async (input, context) => {
+        const id = await resolveWorkspaceId(context, { requireDirectory: true });
+        const response = await fetch(serverUrl() + "/workspace/" + encodeURIComponent(id) + "/timekeeping/workday", {
+          method: "POST", body: JSON.stringify(input), headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" }, signal: nativeToolSignal(180_000),
+        });
+        if (!response.ok) throw new Error(z.object({ message: z.string() }).parse(await response.json()).message);
+        return response.text();
+      },
+    }),
     nativeTool(ctx, {
       name: "legalwork_back_office_discover",
       description:

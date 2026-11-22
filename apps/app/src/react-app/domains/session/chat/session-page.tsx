@@ -1,7 +1,9 @@
+import { EmbeddedWorkspaceChat } from "./embedded-workspace-chat";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
 import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
+import { WorkspaceHeaderTarget } from "../../back-office/time-workspace-header";
 import { timePage } from "../../back-office/time-routes";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
@@ -207,6 +209,7 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  selectEmbeddedWorkspace?: (workspace: WorkspaceInfo | null) => void;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -602,6 +605,7 @@ export function SessionPage(props: SessionPageProps) {
   const [viewerHeaderWidth, setViewerHeaderWidth] = useState(browserPanelWidth);
   const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
   const page = timePage(location.pathname);
+  const [workspaceHeaderTarget, setWorkspaceHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
@@ -1079,6 +1083,27 @@ export function SessionPage(props: SessionPageProps) {
     ...group, sessions: group.sessions.filter(session => isSessionListed(session.id)),
   })), [props.sidebar.workspaceSessionGroups, sessionListRevision]);
 
+  const renderChat = (sessionId: string, active: boolean, timekeeping?: SessionSurfaceProps["timekeeping"]) => props.surface && props.legalworkServerClient && props.runtimeWorkspaceId && reactSessionBaseUrl && reactSessionToken ? <WorkspaceChat
+              {...props.surface!}
+              timekeeping={timekeeping}
+              assistantDate={!timekeeping && isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
+              assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
+              assistantName={isAssistantChat(sessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
+              renderAssistantHeader={isAssistantChat(sessionId) ? settings => <AssistantIdentity client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? settings : undefined} /> : undefined}
+              active={active}
+              client={props.legalworkServerClient!}
+              environmentClient={props.environmentClient}
+              workspaceId={props.runtimeWorkspaceId!}
+              sessionId={sessionId}
+              opencodeBaseUrl={reactSessionBaseUrl}
+              legalworkToken={reactSessionToken}
+              legalworkHostToken={props.legalworkServerHostToken}
+              onOpenInteractionSession={id => openSessionTab(props.selectedWorkspaceId, id)}
+              onOpenTarget={(target, options) => openTarget(target, options, sessionId)}
+              realtimeVoiceSupported={active && realtimeVoiceSupported}
+              realtimeVoiceActive={active && voiceSidePanelOpen}
+              onRealtimeVoiceActiveChange={active => active ? setCurrentSidePanel("voice") : closeVoicePanel()}
+            /> : <DisconnectedChat workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId} sessionId={sessionId} />;
   const mainView = props.projectsPage ? <ProjectsPage
     client={props.environmentClient ?? null}
     groups={listedSessionGroups}
@@ -1094,7 +1119,7 @@ export function SessionPage(props: SessionPageProps) {
     onReveal={props.sidebar.onRevealWorkspace}
     onForget={props.sidebar.onForgetWorkspace}
     newChatDisabled={props.sidebar.newChatDisabled}
-  /> : props.mainView;
+  /> : <WorkspaceHeaderTarget.Provider value={workspaceHeaderTarget}><EmbeddedWorkspaceChat.Provider value={props.selectEmbeddedWorkspace ? { workspaceId: props.runtimeWorkspaceId ?? "", selectWorkspace: props.selectEmbeddedWorkspace, render: renderChat } : null}>{props.mainView}</EmbeddedWorkspaceChat.Provider></WorkspaceHeaderTarget.Provider>;
   const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
   const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "dashboards" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
@@ -1229,7 +1254,8 @@ export function SessionPage(props: SessionPageProps) {
               <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <h1 className="truncate text-[13px] font-medium tracking-[-0.01em]">{windowTitle}</h1>
+              <h1 className={page ? "sr-only" : "truncate text-[13px] font-medium tracking-[-0.01em]"}>{windowTitle}</h1>
+              {page && <div ref={setWorkspaceHeaderTarget} className="titlebar-no-drag flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]" />}
               {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
               {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
             </div>
@@ -1628,26 +1654,7 @@ export function SessionPage(props: SessionPageProps) {
             onCloseChat={(id, nextId) => {
               if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
             }}
-            renderChat={(sessionId, active) => props.surface && props.legalworkServerClient && props.runtimeWorkspaceId && reactSessionBaseUrl && reactSessionToken ? <WorkspaceChat
-              {...props.surface!}
-              assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
-              assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
-              assistantName={isAssistantChat(sessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : undefined}
-              renderAssistantHeader={isAssistantChat(sessionId) ? settings => <AssistantIdentity client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId!} sessionId={sessionId} profile={props.sidebar.assistantProfile} onSave={props.sidebar.onSaveAssistantProfile} modelSettings={active ? settings : undefined} /> : undefined}
-              active={active}
-              client={props.legalworkServerClient!}
-              environmentClient={props.environmentClient}
-              workspaceId={props.runtimeWorkspaceId!}
-              sessionId={sessionId}
-              opencodeBaseUrl={reactSessionBaseUrl}
-              legalworkToken={reactSessionToken}
-              legalworkHostToken={props.legalworkServerHostToken}
-              onOpenInteractionSession={id => openSessionTab(props.selectedWorkspaceId, id)}
-              onOpenTarget={(target, options) => openTarget(target, options, sessionId)}
-              realtimeVoiceSupported={active && realtimeVoiceSupported}
-              realtimeVoiceActive={active && voiceSidePanelOpen}
-              onRealtimeVoiceActiveChange={active => active ? setCurrentSidePanel("voice") : closeVoicePanel()}
-            /> : <DisconnectedChat workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId} sessionId={sessionId} />}
+            renderChat={renderChat}
           />
         </ControlActionScope>
       </DocumentPane>}
