@@ -202,7 +202,7 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
-            <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigate(`/time/settings?project=${encodeURIComponent(workspaceId)}`)}>
+            <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigate(`/settings/billing?project=${encodeURIComponent(workspaceId)}`)}>
               {t("back_office.billing.settings")}
             </Button>
             <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}>

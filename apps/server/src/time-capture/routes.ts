@@ -3,7 +3,7 @@ export { captureProfile } from "./profile.js";
 import { timeActivities } from "../back-office/timesheet-schema.js";
 import { connectedWorkdayModel, generateConnectedTimeText } from "./connected-model.js";
 import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
-import { desktopActivitySampleSchema, captureAccountEnabled, localWorkdayModel, type CaptureAccount, type WorkdayModel, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
+import { desktopActivitySampleSchema, captureAccountEnabled, localWorkdayModel, type CaptureAccount, type WorkdayModel, type WorkdayGenerationProgress, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
@@ -383,29 +383,46 @@ type PreparationOptions = {
   scheduledSlot?: number;
   readConnected?: typeof readConnectedWorkday;
 };
-const workdaysRunning = new Map<string, Map<string, { controller: AbortController; done: Promise<void> }>>();
-type Preparation = { type: "suggest" | "calendar"; model?: WorkdayModel; revisionRequest?: string };
+type RunningWorkday = {
+  controller: AbortController; signal: AbortSignal; done: Promise<void>;
+  progress?: Omit<WorkdayGenerationProgress, "proposals">;
+  completedRows: WorkdayEvidence[];
+  current?: (saved: Saved) => boolean;
+};
+const workdaysRunning = new Map<string, Map<string, RunningWorkday>>();
+type Preparation = { type: "suggest" | "calendar"; model?: WorkdayModel; revisionRequest?: string; runId?: string };
 
 function protectedProposal(s: Saved, item: WorkdayEvidence) {
   const p = item.proposal;
   return p.dismissed || Boolean(p.parentDigest || s.drafts[p.key] || s.accepted[p.key] || s.reconciled[p.key]);
 }
+/** Project the same keys and commitments for a read-only live preview and its eventual atomic save. */
+function matchProposals(saved: Saved, date: string, proposed: WorkdayEvidence[]) {
+  const old = saved.days[date] ?? [];
+  const locked = old.filter(item => protectedProposal(saved, item));
+  const byKey = new Map(old.map(item => [item.eventKey, item.proposal]));
+  const stable = saved.proposalKeys[date] ?? {};
+  return proposed.flatMap(item => {
+    if (locked.some(other => overlapsEvidence(item, other))) return [];
+    const proposal = { ...item.proposal, key: byKey.get(item.eventKey)?.key ?? stable[item.eventKey] ?? item.proposal.key };
+    proposal.digest = proposalCommitment(proposal);
+    return [{ ...item, proposal }];
+  });
+}
+
 function applyProposals(saved: Saved, date: string, proposed: WorkdayEvidence[]) {
   const old = saved.days[date] ?? [];
   const locked = old.filter(item => protectedProposal(saved, item));
   const timers = old.filter(item => !item.generated && item.proposal.source === "stopwatch" && !protectedProposal(saved, item));
-  const byKey = new Map(old.map(item => [item.eventKey, item]));
+  const next = matchProposals(saved, date, proposed);
   const stable = saved.proposalKeys[date] ??= {};
-  const next = proposed.flatMap(item => {
-    if (locked.some(other => overlapsEvidence(item, other))) return [];
-    const original = byKey.get(item.eventKey)?.proposal;
-    const proposal = { ...item.proposal, key: original?.key ?? stable[item.eventKey] ?? item.proposal.key };
-    stable[item.eventKey] = proposal.key;
-    proposal.digest = proposalCommitment(proposal);
+  const byKey = new Map(old.map(item => [item.eventKey, item.proposal]));
+  for (const { eventKey, proposal } of next) {
+    stable[eventKey] = proposal.key;
+    const original = byKey.get(eventKey);
     if (original) saved.originals[original.digest] = original;
     saved.originals[proposal.digest] = proposal;
-    return [{ ...item, proposal }];
-  });
+  }
   saved.days[date] = [...next, ...locked, ...timers];
 }
 
@@ -492,7 +509,9 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
   let previous;
   while ((previous = days.get(date))) {
     if (requestSignal?.aborted) return;
+    const same = action.runId && action.runId === previous.progress?.runId;
     await previous.done;
+    if (same) return;
   }
   if (requestSignal?.aborted) return;
   // The previous call can remove an empty map while another window waits.
@@ -501,7 +520,9 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
   const timeout = AbortSignal.timeout(150_000);
   const signal = AbortSignal.any([controller.signal, timeout, ...(requestSignal ? [requestSignal] : [])]);
   const { promise, resolve } = Promise.withResolvers<void>();
-  days.set(date, { controller, done: promise });
+  const job: RunningWorkday = { controller, signal, done: promise, completedRows: [],
+    progress: action.runId ? { runId: action.runId, date, phase: "collecting", completed: 0, total: null } : undefined };
+  days.set(date, job);
   const verifyProfile = async () => {
     if ((await profile(config)).path !== path)
       throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
@@ -563,6 +584,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       .sort((a, b) => from(a).localeCompare(from(b)) || a.eventKey.localeCompare(b.eventKey));
     const inputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts, s.fileHistoryRevision[date], s.settings.recordings ? Object.keys(s.recordings[date] ?? {}) : []]);
     const revision = inputs(initial);
+    job.current = saved => inputs(saved) === revision;
     let key = "";
     let usedModel = false;
     const verify = async () => {
@@ -574,22 +596,18 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
     const commit = async (status: NonNullable<CaptureState["status"]>, proposals?: WorkdayEvidence[]) => {
       await withFileWriteLock(path, async () => {
         if (requestSignal?.aborted || controller.signal.aborted) return;
+        if (status.type === "ready") timeout.throwIfAborted();
+        if (job.progress && status.type === "ready") job.progress.phase = "saving";
         const current = await load(path);
         await verifyProfile();
         if (inputs(current) !== revision) return;
         Object.assign(current.connectionNames, names);
         if (failedAccounts.length) {
-          if (proposals) {
-            const currentProposals = proposals;
-            // Keep pending drafts from unavailable feeds until those feeds can confirm replacement or removal.
-            const retained = (current.days[date] ?? []).filter(row => !protectedProposal(current, row) &&
-              claimsFor(row).some(claim => failedAccounts.some(account => account.provider === claim.source && account.account === claim.account)) &&
-              !currentProposals.some(next => overlapsEvidence(next, row)));
-            proposals = [...proposals, ...retained];
-          }
+          // The journal keeps successful observations. Previously reviewed drafts stay authoritative until a complete run.
+          proposals = undefined;
           const failedSources = failedAccounts.map(({ provider, account }) => ({ provider, account, name: current.connectionNames[account] }));
           const labels = failedSources.map(item => item.provider + (item.name ? " (" + item.name + ")" : ""));
-          const failedModel = status.type !== "ready" ? " " + status.message : "";
+          const failedModel = status.type !== "ready" && status.message ? " " + status.message : "";
           status = { type: "failed", reason: status.type === "ready" ? "sources_failed" : status.reason, failedSources,
             message: "Could not check " + labels.join(", ") + ". Retry to complete this day." + failedModel };
         }
@@ -606,7 +624,14 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
           ]);
           if (status.type === "ready" && usedModel) current.lastModel = choice;
         }
-        await save(path, current);
+        await save(path, current, async () => {
+          await verifyProfile();
+          return () => {
+            requestSignal?.throwIfAborted();
+            controller.signal.throwIfAborted();
+            if (status.type === "ready") timeout.throwIfAborted();
+          };
+        });
       });
     };
     if (sourceFailure) {
@@ -624,6 +649,10 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       await verify();
       return saveWorkdayLog(path, date, zone, new Date(started).toISOString(), eligible, failedAccounts, scannedAccounts);
     });
+    if (failedAccounts.length) {
+      await commit({ type: "failed", reason: "sources_failed", message: "" });
+      return;
+    }
     try {
       choice = await modelChoice(config, owner, initial, workspaces, signal, "model" in action ? action.model : undefined);
       const runtime = localChoice(choice) ? await localModel() : null;
@@ -637,7 +666,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       const all = modelEvidence(actionable, await context(), Object.values(initial.guidelines).flat(),
         date, initial.fileProducts);
       const transcript = action.revisionRequest ? [action.revisionRequest] : [];
-      key = digest(["workday-reconstruction-v6", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
+      key = digest(["workday-reconstruction-v7", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
       if (!failedAccounts.length && cached?.status.type === "ready") {
@@ -663,7 +692,13 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
         : undefined;
       if (remaining.length && !runtime && (!workspace || !workspacesById.has(workspace.id)))
         throw new ApiError(409, "timesheet_model_unavailable", "Choose a model from an available workspace.");
+      if (job.progress) job.progress.phase = "grouping";
       const proposals = await generateStructuredWorkday({ skill, evidence: remaining, date, zone, transcript, currentDraft,
+        onWording: job.progress ? async (total, batch) => {
+          await verify();
+          job.completedRows.push(...batch);
+          Object.assign(job.progress!, { phase: "wording", completed: job.completedRows.length, total });
+        } : undefined,
         generate: async prompt => {
           await verify();
           usedModel = true;
@@ -736,6 +771,28 @@ async function visibleProposals(config: ServerConfig, s: Saved, date: string, co
     return !covered && (protectedProposal(s, item) ||
       !(s.settings.stopwatchMode === "evidence" && generatedReady));
   });
+}
+
+async function readWorkdayProgress(config: ServerConfig, owner: Profile, date: string, runId: string): Promise<WorkdayGenerationProgress | null> {
+  const running = () => workdaysRunning.get(owner.path)?.get(date);
+  const job = running();
+  if (!job?.progress || job.progress.runId !== runId || job.signal.aborted) return null;
+  const saved = await load(owner.path);
+  if (saved.settings.enabled === false || (job.current && !job.current(saved))) return null;
+  const snapshot = { ...job.progress };
+  const batch = [...job.completedRows];
+  let proposals: WorkdayGenerationProgress["proposals"] = [];
+  if (batch.length) {
+    const accounts = await connectedWorkdayAccounts(config);
+    const workspaces = new Set((await workdayWorkspaces(config)).map(workspace => workspace.id));
+    const existing = await visibleProposals(config, saved, date, accounts, false);
+    proposals = matchProposals(saved, date, batch).filter(item =>
+      (!item.proposal.projectId || workspaces.has(item.proposal.projectId)) && eligibleSource(item, accounts, saved.settings) &&
+      !existing.some(prior => prior.proposal.key !== item.proposal.key && overlapsEvidence(prior, item)))
+      .map(({ proposal }) => ({ ...proposal, suggested: true }));
+  }
+  if ((await profile(config)).path !== owner.path || job.signal.aborted || running() !== job) return null;
+  return { ...snapshot, proposals };
 }
 
 export function registerWorkdayRoutes(options: {
@@ -922,6 +979,13 @@ export function registerWorkdayRoutes(options: {
       )
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
+      if (method === "GET" && ctx.url.searchParams.has("progress")) {
+        const runId = z.uuid().parse(ctx.url.searchParams.get("progress"));
+        const progress = await readWorkdayProgress(config, owner, date, runId);
+        const result = options.jsonResponse(progress);
+        result.headers.set("Cache-Control", "no-store");
+        return result;
+      }
       let sourcePreview = false;
       if (method === "POST") {
         options.ensureWritable(config);
@@ -969,7 +1033,7 @@ export function registerWorkdayRoutes(options: {
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             captureSettingsPatchSchema,
             z.strictObject({ type: z.literal("calendar") }),
-            z.strictObject({ type: z.literal("suggest"), model: workdayModelSchema.optional() }),
+            z.strictObject({ type: z.literal("suggest"), model: workdayModelSchema.optional(), runId: z.uuid().optional() }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid(), digest: z.string().length(64).optional() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
             privateDraftPatchSchema,

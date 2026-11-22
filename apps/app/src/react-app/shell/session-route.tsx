@@ -43,7 +43,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -2884,7 +2884,8 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        timeSection && timeProfile.isLoading ? <PageLoading><PageLoadingSpinner /></PageLoading>
+        timeSection === "billing-settings" ? <Navigate replace to={"/settings/billing" + location.search + location.hash} />
+        : timeSection && timeProfile.isLoading ? <PageLoading><PageLoadingSpinner /></PageLoading>
         : timeSection && timeProfile.data?.enabled === false ? (
           <div className="m-auto grid justify-items-center gap-3 p-6 text-sm">
             <p>{t("timeWorkspace.trackingOff")}</p>

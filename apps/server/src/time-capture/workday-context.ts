@@ -29,6 +29,7 @@ import type { ServerConfig } from "../types.js";
 import type { WorkdayEvidence } from "./private-workday.js";
 import type { DraftRules, ModelEvidence } from "./reconstruct-workday.js";
 import { extname } from "node:path";
+import { matterTitleMatcher } from "./matter-title-match.js";
 
 export async function workdayWorkspaces(config: ServerConfig) {
   const links = await projectSyncStore(config);
@@ -290,11 +291,14 @@ export function modelEvidence(
   date: string,
   fileProducts: FileProducts = {},
 ): ModelEvidence[] {
+  const fromTitle = matterTitleMatcher(state);
   return evidence.flatMap((item) => {
     const p = item.proposal;
-    const matter = captureMatter(p, state);
+    const linked = captureMatter(p, state);
     // An explicit matter on an observation may have become inaccessible since capture.
-    if ((p.matterId || p.source === "stopwatch") && !matter) return [];
+    if ((p.matterId || p.source === "stopwatch") && !linked) return [];
+    const candidate = !linked ? fromTitle(p) : undefined;
+    const matter = linked ?? candidate?.matter;
     const client = matter && visibleSingleClient(matter, state);
     const bound =
       p.documentId && matter
@@ -343,6 +347,7 @@ export function modelEvidence(
           ? { ...item, proposal: { ...p, workProductId: product.id } }
           : item,
         matter: matter ? { id: matter.id, name: matter.name } : undefined,
+        matterMatch: candidate?.basis,
         documentTitle: title,
         sourceDocumentTitle: title,
         history: history.length ? history : undefined,

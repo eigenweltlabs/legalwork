@@ -626,7 +626,7 @@ export function BillingInvoiceDraft({
                                 {entry.status === "confirmed" && (
                                   <small>
                                     {entry.workerId === state.userId ? (
-                                      <Link to={timeRoutes.timesheets + "?date=" + entry.date}>
+                                      <Link state={{ timeWorkspaceTab: "entries" }} to={timeRoutes.timesheets + "?date=" + entry.date}>
                                         {t("invoiceReview.submit_open")}
                                       </Link>
                                     ) : (

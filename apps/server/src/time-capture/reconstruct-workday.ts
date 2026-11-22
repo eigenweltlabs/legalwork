@@ -42,6 +42,7 @@ export type DraftRules = Pick<
 export type ModelEvidence = {
   item: WorkdayEvidence;
   matter?: { id: string; name: string };
+  matterMatch?: "reference" | "title";
   sourceDocumentTitle?: string;
   documentTitle?: string;
   history?: string[];
@@ -180,6 +181,7 @@ export function modelInput(evidence: ModelEvidence[]) {
     ({
       item: { eventKey, proposal },
       matter,
+      matterMatch,
       documentTitle,
       history,
       rules,
@@ -189,6 +191,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       status: proposal.observation,
       projectId: proposal.projectId,
       matter: matter ?? null,
+      matterMatch,
       documentId: proposal.documentId,
       documentTitle,
       priorDescriptions: history,
@@ -265,9 +268,8 @@ export function validateWorkdayGroups(
       projects.size > 1 ||
       matters.size > 1 ||
       (row.projectId && !projects.has(row.projectId)) ||
-      (row.matterId &&
-        (!matters.has(row.matterId) ||
-          refs.some((ref) => ref.item.proposal.projectId && !ref.matter))) ||
+      (row.matterId && !matters.has(row.matterId)) ||
+      (matterId && refs.some(({ item, matter }) => !matter && (item.proposal.projectId || item.proposal.source === "desktop"))) ||
       (row.documentId &&
         (documents.size !== 1 || !documents.has(row.documentId)))
     )

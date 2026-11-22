@@ -228,14 +228,6 @@
   color: var(--t-color-blue11);
 }
 
-.time-section-header, .time-section-header nav {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 4px;
-  white-space: nowrap;
-}
-.time-section-header { min-width: max-content; padding-inline: 4px; }
 .bo-time-toolbar {
   padding: 10px 16px 4px;
   gap: 5px;

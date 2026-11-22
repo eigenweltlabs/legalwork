@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, List, ListChecks, Settings2 } from "lucide-react";
-import { TimeHeaderContent, TimekeeperControlTarget, WorkspaceHeaderTarget } from "./time-workspace-header";
+import { ArrowUpRight } from "lucide-react";
+import { calendarDay } from "../calendar/calendar-format";
+import type { TimePeriod } from "./timesheet-row";
 import { Button as AppButton } from "@/components/ui/button";
 
 import {
@@ -50,9 +51,7 @@ export function TimesheetWorkspace({
 }) {
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
-  const [invoiceEditing, setInvoiceEditing] = useState(false);
-  const [timekeeperTarget, setTimekeeperTarget] = useState<HTMLDivElement | null>(null);
-  const billingReviewPage = page === "billing-review";
+  const location = useLocation();
   const { userId, principalKey, replicaId } = directory.permissions;
   const team = directory.scope !== "local";
   const key = [
@@ -70,16 +69,18 @@ export function TimesheetWorkspace({
     directory.permissions.finance,
   ];
   const initialDate = CalendarDaySchema.safeParse(params.get("date")).data;
-  function selectDate(date: string) {
-    if (date === initialDate) return;
-    setParams(
-      (previous) => {
-        const next = new URLSearchParams(previous);
-        next.set("date", date);
-        return next;
-      },
-      { replace: true },
-    );
+  const date = initialDate ?? calendarDay(new Date());
+  const requestedPeriod = params.get("range");
+  const period = requestedPeriod === "month" || requestedPeriod === "week" ? requestedPeriod : "day";
+  function selectPeriod(nextDate: string, nextPeriod: TimePeriod = period) {
+    if (nextDate === date && nextPeriod === period) return;
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set("date", nextDate);
+      if (nextPeriod === "day") next.delete("range");
+      else next.set("range", nextPeriod);
+      return next;
+    });
   }
   async function request(command?: TimesheetCommand, draft?: PrivateBookingRevision) {
     const identity = new URLSearchParams({ expectedUserId: userId });
@@ -111,7 +112,7 @@ export function TimesheetWorkspace({
     retry: false,
     refetchInterval: 30000,
   });
-  const [{ dirty: ledgerDirty, dateLocked }, setLedgerEditing] = useState({ dirty: false, dateLocked: false });
+  const [dateLocked, setDateLocked] = useState(false);
   const outcome = query.data;
   const blocked = outcome && "loadError" in outcome ? outcome.loadError : undefined;
   const state = outcome && "entries" in outcome ? outcome : undefined;
@@ -142,36 +143,20 @@ export function TimesheetWorkspace({
   }
   const workdayScope = JSON.stringify([...calendarClientScope(client), directory.directoryId,
     directory.scope, principalKey, userId, directory.captureProfileId]);
-  const timekeepingPage = page === "timesheets" || page === "timesheet-workday";
-  const tabs = [
-    { id: "timesheets", label: t(recordsOnly ? "back_office.timeEntries.plural" : "timesheets.mine"), Icon: List },
-    { id: "billing-review", label: t(recordsOnly ? "back_office.invoices.plural" : "timesheets.review"), Icon: ListChecks },
-    { id: "billing-settings", label: t("timesheets.settings"), Icon: Settings2 },
-  ] as const;
+  const timekeepingPage = page !== "billing-settings";
+  const canOpenInvoices = state && (recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
+  const invoices = canOpenInvoices && state ? (
+    recordsOnly ? <>
+      <p className="mx-4 my-2 text-sm text-muted-foreground">{t("timesheets.invoice_records_hint")}</p>
+      {renderRecords("invoices")}
+    </> : <BackOfficeSurface>
+      <BillingReview canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
+        initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
+        workdayModels={workdayModels} client={client} state={state} onCommand={send} />
+    </BackOfficeSurface>
+  ) : undefined;
   return (
     <>
-      <TimeHeaderContent slot={WorkspaceHeaderTarget}>
-        <div className="time-section-header">
-          <nav aria-label={t("timesheets.workspace_title")}>
-            {tabs
-              .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage || (recordsOnly && directory.permissions.finance))
-              .map(({ id, label, Icon }) => (
-                <AppButton
-                  key={id}
-                  size="sm"
-                  variant={page === id || (page === "timesheet-workday" && id === "timesheets") ? "secondary" : "ghost"}
-                  nativeButton={false}
-                  role="link"
-                  render={<Link to={timeRoutes[id] + (initialDate ? "?date=" + initialDate : "")} />}
-                  aria-current={page === id || (page === "timesheet-workday" && id === "timesheets") ? "page" : undefined}
-                >
-                  <Icon size={15} />{label}
-                </AppButton>
-              ))}
-          </nav>
-          {timekeepingPage && <div ref={setTimekeeperTarget} />}
-        </div>
-      </TimeHeaderContent>
       {loadError && (
         <div className={state ? "mx-4 my-2 flex shrink-0 flex-wrap items-center gap-2 text-sm" : "bo-empty"} role="alert">
           {loadError.message}{" "}
@@ -197,11 +182,11 @@ export function TimesheetWorkspace({
           </ul>
         </details>
       )}
-      {state && (timekeepingPage || ledgerDirty) && (
-        <div className="time-ledger-pane" hidden={!timekeepingPage}>
-          <TimekeeperControlTarget.Provider value={timekeeperTarget}>
+      {state && timekeepingPage && (
+        <div className="time-ledger-pane">
           <TimesheetWorkday key={workdayScope} visible={timekeepingPage} dateLocked={dateLocked}
-            client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate}>
+            client={client} directory={directory} state={state} initialDate={date} initialPeriod={period} onDateChange={selectPeriod}
+            invoices={invoices} requestedTab={page === "billing-review" && canOpenInvoices ? "invoices" : location.state?.timeWorkspaceTab === "entries" ? "entries" : undefined}>
             {(capture, workspace) => recordsOnly
               ? <TimeRecordSheet onSaveView={onSaveView} client={client} directory={directory} state={state} capture={capture} workspace={workspace} />
               : workspace(
@@ -212,19 +197,13 @@ export function TimesheetWorkspace({
                       ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
                     }) : undefined}
                   canEdit={directory.permissions.edit} state={state} onCommand={send} columnScope={workdayScope}
-                  onEditingChange={(dirty, dateLocked) => setLedgerEditing(previous =>
-                    previous.dirty === dirty && previous.dateLocked === dateLocked ? previous : { dirty, dateLocked })} initialDate={initialDate} onDateChange={selectDate} />,
+                  onEditingChange={(_, locked) => setDateLocked(locked)} initialDate={date} onDateChange={selectPeriod} />,
                 proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state}
                   capture={capture} onCommand={send} canEdit={directory.permissions.edit} />,
               )}
           </TimesheetWorkday>
-          </TimekeeperControlTarget.Provider>
         </div>
       )}
-      {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
-        <p className="mx-4 my-2 text-sm text-muted-foreground">{t("timesheets.invoice_records_hint")}</p>
-        {renderRecords("invoices")}
-      </>}
       {page === "billing-settings" && isLoopbackLegalworkServerUrl(client.baseUrl) && (
         <div className="px-4 py-2">
           <AppButton size="sm" variant="outline" nativeButton={false} render={<Link to={"/settings/time-tracking" + (params.size ? "?" + params : "")} />}>
@@ -247,22 +226,6 @@ export function TimesheetWorkspace({
             </TimeSettingsGroup>
           </LayoutStack>
         </section>
-      )}
-      {state && !recordsOnly && (state.canReview || state.canManage) && (billingReviewPage || invoiceEditing) && (
-        <div hidden={!billingReviewPage}>
-          <BackOfficeSurface>
-            <BillingReview
-              canEdit={directory.permissions.edit}
-              initialDate={initialDate}
-              initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
-              workdayModels={workdayModels}
-              client={client}
-              state={state}
-              onCommand={send}
-              onInvoiceEditingChange={setInvoiceEditing}
-            />
-          </BackOfficeSurface>
-        </div>
       )}
       {state && !recordsOnly && page === "billing-settings" && (
         <BackOfficeSurface>

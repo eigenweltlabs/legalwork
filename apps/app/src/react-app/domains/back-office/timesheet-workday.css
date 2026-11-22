@@ -18,12 +18,12 @@
 }
 
 .bo-workday-controls {
-  flex: none;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  flex-wrap: nowrap;
+  min-width: max-content;
+  padding: 0 4px;
 }
-.bo-workday-toolbar-space { flex: 1; }
+.time-workspace-timekeeper:empty { display: none; }
+.bo-workday-controls .time-sheet-period { align-items: center; }
 .time-workspace-field select {
   min-width: 0;
   max-width: 100%;
@@ -85,12 +85,15 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  border-block: 1px dashed color-mix(in srgb, var(--primary) 35%, transparent);
-  background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--primary) 6%, transparent) 7px 8px);
+  --coverage-ink: var(--blue-11, #3767aa);
+  border-block: 1px dashed color-mix(in srgb, var(--coverage-ink) 65%, transparent);
+  border-inline-start: 3px solid var(--coverage-ink);
+  background: repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--coverage-ink) 18%, transparent) 8px 9px);
+  background-color: color-mix(in srgb, var(--coverage-ink) 7%, transparent);
   text-align: start;
   cursor: pointer;
 }
-.time-coverage-overlay:hover, .time-coverage-overlay:focus-visible { background-color: color-mix(in srgb, var(--primary) 7%, transparent); }
+.time-coverage-overlay:hover, .time-coverage-overlay:focus-visible { background-color: color-mix(in srgb, var(--coverage-ink) 15%, transparent); }
 .time-coverage-label {
   position: sticky;
   top: 3.25rem;
@@ -114,5 +117,23 @@
   text-overflow: ellipsis;
 }
 @container unchecked-time (max-width: 11rem) {
-  .time-coverage-label { display: none; }
+  .time-coverage-label > span { display: none; }
 }
+
+.time-suggestion-feedback {
+  flex: none;
+  margin-block-end: .5rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: var(--background);
+  padding: .55rem .75rem;
+  font-size: .8rem;
+}
+.time-suggestion-progress {
+  display: block;
+  width: 100%;
+  height: .4rem;
+  margin-block-start: .35rem;
+  accent-color: var(--primary);
+}
+.time-workspace-timeline [data-suggestion-preview] { border-style: dashed; cursor: progress; }

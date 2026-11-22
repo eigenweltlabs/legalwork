@@ -24,11 +24,17 @@ mock.module("../../src/react-app/domains/session/sidebar/assistant-avatar-assets
 }));
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { MemoryRouter } = await import("react-router-dom");
+const { MemoryRouter, useNavigate } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
+const { WorkspaceHeaderTarget } = await import("../../src/react-app/domains/back-office/time-workspace-header");
+const header = document.body.appendChild(document.createElement("header"));
 const root = createRoot(document.getElementById("root")!);
+function WindowHistory() {
+  const navigate = useNavigate();
+  return <><button onClick={() => navigate(-1)}>Window back</button><button onClick={() => navigate(1)}>Window forward</button></>;
+}
 const entry: TimeEntry = {
   id: "entry", date: "2026-11-17", status: "approved", revision: 1, workerId: "ben", authorId: "ben",
   matterId: "matter", clientId: "client", narrative: "Approved work", activity: "MOD", billable: true, workedMinutes: 45,
@@ -85,6 +91,7 @@ const reviewDirectory: BackOfficeState = {
   records: [], views: [], sync: { enabled: false, cursor: 0, pending: 0, error: null },
 };
 let officeFailure = 0, timesheetFailure = 0, activeTimesheetUser = "anna";
+let recordsMode = false, finance = true;
 const realFetch = globalThis.fetch;
 const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(resource instanceof Request ? resource.url : resource.toString());
@@ -93,16 +100,18 @@ const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: Requ
   if (url.pathname === "/back-office/timesheet") {
     if (timesheetFailure === 408) throw new TypeError("Fixture connection timed out");
     if (timesheetFailure) return Response.json({ message: "Fixture timesheet access denied" }, { status: timesheetFailure });
-    return Response.json({ ...reviewState, userId: activeTimesheetUser });
+    return Response.json({ ...reviewState, userId: activeTimesheetUser, ...(recordsMode ? { service: "records" } : {}) });
   }
   assert.equal(url.pathname, "/back-office");
   if (officeFailure) return new Response("Fixture directory temporarily unavailable", { status: officeFailure });
-  return Response.json(reviewDirectory);
+  return Response.json({ ...reviewDirectory, permissions: { ...reviewDirectory.permissions, finance } });
 }, realFetch);
 globalThis.fetch = fetchReview;
 try {
   await act(async () => root.render(<QueryClientProvider client={reviewCache}>
-    <MemoryRouter initialEntries={["/time/review?date=2026-11-19"]}><BackOfficePage client={reviewClient} /></MemoryRouter>
+    <MemoryRouter initialEntries={["/time/review?date=2026-11-19"]}><WindowHistory />
+      <WorkspaceHeaderTarget.Provider value={header}><BackOfficePage client={reviewClient} /></WorkspaceHeaderTarget.Provider>
+    </MemoryRouter>
   </QueryClientProvider>));
   const invoiceEditor = () => document.querySelector(".bo-invoice-draft");
   const invoiceWording = () => invoiceEditor()?.querySelector<HTMLTextAreaElement>("textarea");
@@ -111,7 +120,34 @@ try {
     await reviewCache.invalidateQueries({ queryKey: ["back-office", reviewOrigin], predicate: query =>
       source === "directory" ? query.queryKey[2] === "auto" : query.queryKey[3] === "timesheet" });
   });
+  const invoiceTab = () => document.querySelector<HTMLButtonElement>('[data-panel-tab-id="timekeeping:invoices"] button[aria-pressed]');
+  await until(invoiceTab);
+  const invoicePane = invoiceTab()?.closest("[data-document-pane]");
+  assert.ok(invoicePane?.querySelector('[data-panel-tab-id="timekeeping:entries"]'));
+  assert.equal(invoiceTab()?.getAttribute("aria-pressed"), "true", "the old billing review URL opens Invoices");
+  const headerDate = () => header.querySelector<HTMLInputElement>('input[type="date"]')?.value;
+  const period = () => header.querySelector('.bo-time-period [aria-pressed="true"]')?.textContent;
+  const previousDay = header.querySelector<HTMLButtonElement>('button[aria-label="Previous day"]');
+  assert.ok(previousDay, "date navigation renders in the window header");
+  await act(async () => previousDay.click());
+  assert.equal(headerDate(), "2026-11-18");
+  await press("Week");
+  assert.equal(period(), "Week");
+  await press("Window back");
+  assert.equal(period(), "Day");
+  assert.equal(headerDate(), "2026-11-18");
+  await press("Window back");
+  assert.equal(headerDate(), "2026-11-19");
+  await press("Window forward");
+  assert.equal(headerDate(), "2026-11-18");
+  await press("Window forward");
+  assert.equal(period(), "Week");
+  assert.equal(invoiceTab()?.closest("[data-document-pane]"), invoicePane);
+  await press("Window back");
+  await press("Window back");
   const openInvoice = async () => {
+    await until(invoiceTab);
+    if (invoiceTab()?.getAttribute("aria-pressed") !== "true") await act(async () => invoiceTab()?.click());
     await press("Create Invoice");
     const matter = invoiceEditor()?.querySelector("select");
     assert.ok(matter);
@@ -134,11 +170,11 @@ try {
   assert.ok(openTimesheet);
   await act(async () => openTimesheet.click());
   await until(() => document.querySelector(".time-ledger-pane:not([hidden])")?.textContent?.includes(ownHistorical.narrative));
-  assert.ok(invoiceEditor()?.closest("[hidden]"));
-  const reviewLink = document.querySelector<HTMLAnchorElement>('nav a[href="/time/review?date=2026-11-18"]');
+  assert.equal(invoiceEditor(), null, "switching away detaches the draft from the visible pane");
+  const reviewLink = invoiceTab();
   assert.ok(reviewLink);
   await act(async () => reviewLink.click());
-  assert.ok(!invoiceEditor()?.closest("[hidden]"));
+  await until(invoiceEditor);
   assert.equal(invoiceWording(), wording);
   assert.equal(wording.value, "Unsaved invoice narrative");
   assert.equal(amount(), fixedPrice);
@@ -190,6 +226,34 @@ try {
   await refreshReview("timesheet");
   await until(() => !invoiceEditor());
   assert.equal(findButton("Create Invoice"), undefined, "a snapshot for another account is never presented");
+
+  await act(async () => root.render(null));
+  reviewCache.clear();
+  recordsMode = true;
+  activeTimesheetUser = "anna";
+  const { usePanelTabStore } = await import("../../src/react-app/domains/session/panel/panel-tab-store");
+  const store = usePanelTabStore.getState();
+  const scope = Object.keys(store.sessions).find(id => id.startsWith("timekeeping:"));
+  assert.ok(scope);
+  store.closeTab(scope, "timekeeping:invoices");
+  store.setPaneSizes(scope, "workday", { main: 55, side: 45 });
+  localStorage.removeItem(scope + ":invoice-tab-added");
+  const mountRecords = () => act(async () => root.render(<QueryClientProvider client={reviewCache}>
+    <MemoryRouter initialEntries={["/time"]}><BackOfficePage client={reviewClient} /></MemoryRouter>
+  </QueryClientProvider>));
+  await mountRecords();
+  await until(invoiceTab);
+  const migrated = usePanelTabStore.getState().sessions[scope];
+  assert.deepEqual(migrated.panes.find(pane => pane.id === "main")?.tabIds, ["timekeeping:entries", "timekeeping:invoices"]);
+  assert.equal(migrated.sizes.workday.main, 55, "introducing Invoices keeps a saved split");
+  await act(async () => invoiceTab()?.click());
+  await until(() => document.querySelector('[data-workspace-tab="invoices"]')?.textContent?.includes("attach the invoice PDF"));
+  assert.equal(document.querySelector(".bo-invoice-draft"), null, "the records service does not open the approval workflow");
+  finance = false;
+  await refreshReview("directory");
+  await until(() => !invoiceTab());
+  assert.equal(document.querySelector('[data-workspace-tab="invoices"]'), null);
+
 } finally {
   await act(async () => root.render(null));
   reviewCache.clear();

@@ -65,10 +65,11 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, drafts, state, view, selected, editorId, preamble, renderTimeOverlay, onOpen, decisions,
+  date, proposals, previews = [], drafts, state, view, selected, editorId, preamble, renderTimeOverlay, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
+  previews?: CaptureProposal[];
   drafts?: CaptureState["drafts"];
   state: TimelineDirectory;
   view: TimelineView;
@@ -93,7 +94,8 @@ export function WorkdayTimeline({
   ]);
   const items: CalendarDisplayOccurrence[] = [];
   const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
-  for (const proposal of proposals) {
+  const previewKeys = new Set(previews.map(proposal => proposal.key));
+  for (const proposal of [...proposals, ...previews]) {
     if (proposal.date !== date) continue;
     const { matter, title } = workdayProposalDisplay(proposal, state, drafts?.[proposal.key], choices);
     const matterId = matter?.id ?? null;
@@ -123,6 +125,10 @@ export function WorkdayTimeline({
     entryAppearance={item => {
       const source = privateById.get(item.id);
       if (!source) return;
+      if (previewKeys.has(item.id)) return {
+        colorKey: source.matterId, secondaryLabel: t("timeWorkspace.preview"),
+        buttonAttributes: { "aria-disabled": true, "data-suggestion-preview": true },
+      };
       return {
         colorKey: source.matterId,
         secondaryLabel: item.allDay ? [
@@ -142,7 +148,7 @@ export function WorkdayTimeline({
     }}
     onOpen={(item, trigger) => {
       const source = privateById.get(item.id);
-      if (source) onOpen(source.proposal, trigger);
+      if (source && !previewKeys.has(item.id)) onOpen(source.proposal, trigger);
     }} />;
 }
 

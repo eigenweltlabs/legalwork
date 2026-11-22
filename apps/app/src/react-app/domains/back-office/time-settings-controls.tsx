@@ -70,6 +70,7 @@ export function TimeSwitch({
 export function TimeSelect({
   id,
   triggerRef,
+  modal,
   placeholder,
   label,
   value,
@@ -79,6 +80,7 @@ export function TimeSelect({
 }: {
   id?: string;
   triggerRef?: Ref<HTMLButtonElement>;
+  modal?: boolean;
   placeholder?: string;
   label: string;
   value: string;
@@ -89,6 +91,7 @@ export function TimeSelect({
   const choices = options.map(({ id, name }) => ({ value: id, label: name }));
   return (
     <Select
+      modal={modal}
       items={choices}
       value={value || (placeholder ? null : value)}
       disabled={disabled}

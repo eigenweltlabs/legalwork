@@ -62,7 +62,7 @@ const settingGuides = {
   safety: "settings-privacy.md", shell: "settings-privacy.md",
   environment: "settings-privacy.md", preferences: "settings-privacy.md",
   updates: "troubleshooting.md", "office-addins": "office-addins.md",
-  "time-tracking": "time-tracking.md", recorder: "recorder-settings.md", debug: "troubleshooting.md",
+  "time-tracking": "time-tracking.md", billing: "time-tracking.md", recorder: "recorder-settings.md", debug: "troubleshooting.md",
 };
 
 function walk(node, visit) {

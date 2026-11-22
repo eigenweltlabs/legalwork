@@ -77,23 +77,24 @@ const pendingChangesSchema = z.object({
   })),
 });
 
-export function BackOfficePage({ client, embeddedObject, workdayModels }: {
+export function BackOfficePage({ client, embeddedObject, workdayModels, billingSettings }: {
   client: LegalworkServerClient;
   workdayModels?: WorkdayModelOption[];
   embeddedObject?: "timeEntries" | "invoices";
+  billingSettings?: boolean;
 }) {
   const locale = useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
-  const timesheet = embeddedObject ? undefined : timePage(location.pathname);
+  const timesheet = billingSettings ? "billing-settings" : embeddedObject ? undefined : timePage(location.pathname);
   const DirectoryTheme = timesheet ? Fragment : BackOfficeTheme;
   const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
-  const [detailId, setDetailId] = useState<string | null>(
-      new URLSearchParams(location.search).get("record"),
-    ),
+  const recordParam = new URLSearchParams(location.search).get("record");
+  const archivedParam = new URLSearchParams(location.search).get("archived") === "true";
+  const [detailId, setDetailId] = useState<string | null>(recordParam),
     [error, setError] = useState("");
   const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
@@ -110,7 +111,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
   const [discardChange, setDiscardChange] = useState<string | null>(null);
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
-    [archived, setArchived] = useState(() => new URLSearchParams(location.search).get("archived") === "true");
+    [archived, setArchived] = useState(archivedParam);
   const directoryView = timesheet ? "timesheets" : selected;
   const protectedDirectory = Boolean(timesheet || embeddedObject);
   const credential = protectedDirectory ? calendarClientScope(client)[1] : undefined;
@@ -161,10 +162,10 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
   useEffect(() => {
     setDraft(null);
     setFocusNameId(null);
-    setDetailId(new URLSearchParams(location.search).get("record"));
-    setArchived(new URLSearchParams(location.search).get("archived") === "true");
+    setDetailId(recordParam);
+    setArchived(archivedParam);
     setError("");
-  }, [selected, team, location.search]);
+  }, [selected, team, recordParam, archivedParam]);
   const rawObject = data?.model.objects.find(
     (object) =>
       object.id === selected &&
@@ -191,7 +192,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
         !isInternalBackOfficeObject(object.id),
     );
   const billingTarget = detail?.objectId === "matters" ? "matter" : detail?.objectId === "clients" ? "client" : undefined;
-  const timeTracking = useQuery(timeTrackingProfile(billingTarget ? client : null));
+  const timeTracking = useQuery(timeTrackingProfile(billingTarget || billingSettings ? client : null));
   const request = (path: string, body: unknown, method = "POST") =>
     client.backOffice(path, { method, body, team });
   const refresh = async () => {
@@ -372,6 +373,11 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
   const directoryStyle: CSSProperties & { "--bo-detail-width": string } = {
     "--bo-detail-width": `${detailWidth}px`,
   };
+  if (billingSettings && timeTracking.isLoading) return <p role="status">{t("timesheets.loading")}</p>;
+  if (billingSettings && timeTracking.data?.enabled === false) return <div className="space-y-3 p-4 text-sm">
+    <p>{t("timeWorkspace.trackingOff")}</p>
+    <Link className="underline" to="/settings/time-tracking">{t("timesheets.ai_settings")}</Link>
+  </div>;
   return (
     <DirectoryTheme>
       <RecordCreationProvider client={client} state={data}>
@@ -382,7 +388,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
         projects={projects.data?.projects ?? []}
       >
         <div
-          className={timesheet ? "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : `bo ${detail ? "bo-has-detail" : ""}`}
+          className={billingSettings ? "flex min-w-0 flex-col" : timesheet ? "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : `bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
           {!timesheet && !embeddedObject && <nav className="bo-tabs" aria-label="Back Office">
@@ -614,7 +620,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels }: {
             >
               {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
                 {timeTracking.data?.enabled !== false && billingTarget && data.directoryId && (
-                  <><Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+                  <><Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({
                     [billingTarget]: detail.id,
                     directory: data.directoryId,
                   })}>{t("timesheets.review_rules")}</Link>

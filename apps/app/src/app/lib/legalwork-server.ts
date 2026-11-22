@@ -38,7 +38,7 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
-import type { DesktopActivitySample, CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
+import type { DesktopActivitySample, CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayGenerationProgress, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -1896,6 +1896,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction, signal?: AbortSignal) =>
       requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
         token, hostToken, method: action ? "POST" : "GET", body: action, signal, timeoutMs: 180_000,
+      }),
+    privateWorkdayProgress: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, runId: string, signal?: AbortSignal) =>
+      requestJson<WorkdayGenerationProgress | null>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams({ ...context, progress: runId }), {
+        token, hostToken, signal,
       }),
     privateGuidelineText: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, file: Blob, signal: AbortSignal) =>
       requestJson<{ text: string; textlessPages: number[] }>(baseUrl,

@@ -1,7 +1,7 @@
 import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { formatInvoiceMinor } from "@legalwork/types/invoice-template";
 import { Link } from "react-router-dom";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
@@ -105,17 +105,17 @@ export function BillingReview({
   initialDate,
   initialMatterId = "",
   workdayModels,
-  onInvoiceEditingChange,
+  initialMode = "submitted",
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
   initialMatterId?: string;
   workdayModels?: WorkdayModelOption[];
-  onInvoiceEditingChange?: (editing: boolean) => void;
+  initialMode?: "submitted" | "invoices";
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
-  const [mode, setMode] = useState<Mode>("submitted");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [dates, setDates] = useState(() =>
     reviewPeriod(initialDate ? new Date(initialDate + "T12:00:00") : new Date()),
   );
@@ -249,10 +249,6 @@ export function BillingReview({
   const canCreate = state.canReview && canEdit && state.supportsInvoiceDrafts === true;
   const invoiceEditing = invoiceScreen !== "closed" && canCreate;
   const invoiceVisible = invoiceScreen === "invoice" && canCreate;
-  useEffect(() => {
-    onInvoiceEditingChange?.(invoiceEditing);
-    return () => onInvoiceEditingChange?.(false);
-  }, [invoiceEditing, onInvoiceEditingChange]);
   return (
     <>
       {invoiceEditing && (
@@ -354,7 +350,7 @@ export function BillingReview({
           />
         </select>
         {(matter || billTo) && (
-          <Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+          <Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({
             ...(matter ? { matter } : { client: billTo }),
             date: dates.from || reviewPeriod().to,
           })}>{t("timesheets.review_rules")}</Link>

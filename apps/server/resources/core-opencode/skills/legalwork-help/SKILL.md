@@ -21,7 +21,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter/client links, field names/types/content, More and Customize fields, templates, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
-| Time tracking, hourly or daily suggestions, enabled mail and calendar sources, unchecked intervals, table options, timekeeping project and private chat, matter stopwatch, saved client or matter billing guidelines, hours, approvals and invoice records or Word/PDF | [time-tracking.md](references/time-tracking.md) |
+| Time tracking, hourly or daily suggestions, enabled mail and calendar sources, unchecked intervals, live suggestions, date and range history, table options, timekeeping project and private chat, matter stopwatch, saved client or matter billing guidelines, billing settings, approvals and the Invoices tab for invoice records or Word/PDF | [time-tracking.md](references/time-tracking.md) |
 | Back Office, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
 | Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |

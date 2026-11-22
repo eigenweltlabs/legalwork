@@ -19,10 +19,11 @@ export function WorkdayCoverage({ date, checkedThrough, now, busy, onCheck }: {
   const format = (value: number) => value === 1440 ? "24:00" :
     new Date(2000, 0, 1, 0, value).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
   const label = t("timeWorkspace.coverageGap", { start: format(start), end: format(end) });
+  const action = t("timeWorkspace.checkForSuggestions");
   return <button type="button" disabled={busy} data-workday-unchecked
-    aria-label={label + ". " + t("timeWorkspace.addSuggestions")} title={label + ". " + t("timeWorkspace.addSuggestions")}
+    aria-label={label + ". " + action} title={label + ". " + action}
     onClick={onCheck} className="time-coverage-overlay"
     style={{ top: start / 1440 * 100 + "%", height: minutes / 1440 * 100 + "%" }}>
-    {fitsLabel && <span className="time-coverage-label"><Sparkles size={12} /><span>{label}</span></span>}
+    {fitsLabel && <span className="time-coverage-label"><Sparkles size={12} /><span>{label} · {action}</span></span>}
   </button>;
 }

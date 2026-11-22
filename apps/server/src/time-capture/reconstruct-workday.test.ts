@@ -60,8 +60,9 @@ function proposal(
 }
 
 // Synthetic model responses cite the observation IDs supplied in this run.
-function citeTitles<T extends { evidenceIds: string[] }>(row: T, observations: { title: string; id: string }[]) {
-  return { ...row, evidenceIds: row.evidenceIds.map(title => {
+function citeTitles<T extends { evidenceIds: string[]; matterId?: string | null }>(row: T, observations: { title: string; id: string; matterId: string | null }[]) {
+  const match = observations.find(observation => row.evidenceIds.includes(observation.title) && observation.matterId);
+  return { ...row, matterId: row.matterId ? match?.matterId : null, evidenceIds: row.evidenceIds.map(title => {
     const match = observations.find(observation => observation.title === title);
     if (!match) throw Error("Missing fixture observation " + title);
     return match.id;
@@ -147,6 +148,29 @@ test("distinct matters retain independently evidenced overlapping clock ranges",
     } });
   expect(result.map(item => [item.proposal.matterId, item.proposal.workedMinutes])).toEqual([[matter.id, 60], [other.id, 15]]);
   expect(remainingEvidence([meeting, drafting, file], [result[0]]).map(ref => ref.item.eventKey)).toEqual(["foreground", "save"]);
+});
+
+test("the wording pass distinguishes a foreground filename and file-open history from a saved edit", async () => {
+  const name = "Indemnity markup.docx";
+  const focused = evidence("focused", { source: "desktop", observation: "foreground", narrative: "Word · " + name,
+    desktopContext: { application: "Word", documentName: name, platform: "darwin" } });
+  const opened = evidence("opened", { source: "desktop", fileUseSource: "spotlight-last-used", narrative: name,
+    startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:05") });
+  const saved = evidence("saved", { source: "documents", documentId: "memo", changeSummary: "Revised indemnity clause",
+    startAt: null, endAt: null, workedMinutes: null, observedAt: at("09:25") });
+  for (const savedEdit of [false, true]) {
+    const observations = savedEdit ? [focused, opened, saved] : [focused, opened];
+    await generateStructuredWorkday({ date, zone: "UTC", skill: "", transcript: [], evidence: observations, async generate(prompt) {
+      const input = JSON.parse(prompt.split("\n").at(-1)!);
+      if (input.stage === "grouping") return JSON.stringify({ proposals: [{ evidenceIds: input.evidence.map((item: { id: string }) => item.id),
+        matterId: input.evidence[0].matterId, projectId: "project", documentId: savedEdit ? "memo" : null, activity: null,
+        startAt: at("09:00"), endAt: at("10:00"), workedMinutes: 60 }] });
+      expect(input.entries[0].desktopUseOnly).toBe(!savedEdit);
+      expect(prompt).toContain("Used [filename] in [application].");
+      expect(prompt).toContain("a more specific action needs separate evidence");
+      return JSON.stringify({ wording: [{ index: 0, narrative: savedEdit ? "Revised indemnity clause." : "Used Indemnity markup.docx in Word." }] });
+    } });
+  }
 });
 
 test("whole-day reconstruction groups adjoining evidence, omits unrelated sources, and splits one interval without reuse", () => {
@@ -762,10 +786,45 @@ test("raw or unknown evidence references, duplicate handles and double claims re
       const handle = payload.evidence[0].id;
       const ids = scenario === "unknown" ? ["e999"] : scenario === "raw" ? [meeting.item.eventKey] :
         scenario === "repeated" ? [handle, handle] : [handle];
-      const { narrative: _, ...row } = proposal(ids);
+      const { narrative: _, ...row } = proposal(ids, { matterId: payload.evidence[0].matterId });
       return JSON.stringify({ proposals: scenario === "double claim" ? [row, row] : [row] });
     } });
     await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
     expect(attempts).toBe(2);
+  }
+});
+
+test("live wording reports full verified batches and never publishes a row from a malformed batch", async () => {
+  const rows = ["First meeting", "Second meeting", "Third meeting"].map((title, index) => {
+    const startAt = at("0" + (index + 6) + ":00"), endAt = at("0" + (index + 7) + ":00");
+    const source = evidence(title, { startAt, endAt });
+    const { narrative: _, ...group } = proposal([title], { startAt, endAt });
+    return { source, group };
+  });
+  for (const fail of [false, true]) {
+    const progress: string[][] = [];
+    const run = generateStructuredWorkday({ date, zone: "UTC", skill: "", transcript: [], evidence: rows.map(row => row.source),
+      async onWording(total, batch) {
+        expect(total).toBe(3);
+        progress.push(batch.map(row => row.proposal.narrative));
+      },
+      async generate(prompt) {
+        const input = JSON.parse(prompt.split("\n\n").at(-1)!);
+        if (input.stage === "grouping") {
+          expect(progress).toEqual([]);
+          return JSON.stringify({ proposals: rows.map(({ group }) => citeTitles(group, input.evidence)) });
+        }
+        const wording = input.entries.map(({ index }: { index: number }) => ({ index, narrative: "Reviewed row " + index }));
+        if (fail && wording.length > 1) wording.pop();
+        return JSON.stringify({ wording });
+      },
+    });
+    if (fail) {
+      await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
+      expect(progress).toEqual([[], ["Reviewed row 0"]]);
+    } else {
+      expect(await run).toHaveLength(3);
+      expect(progress).toEqual([[], ["Reviewed row 0"], ["Reviewed row 1", "Reviewed row 2"]]);
+    }
   }
 });

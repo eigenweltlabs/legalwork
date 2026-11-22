@@ -308,6 +308,12 @@
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {
+      "id": "billing",
+      "scope": "global",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
       "id": "debug",
       "scope": "global",
       "guide": "troubleshooting.md",
