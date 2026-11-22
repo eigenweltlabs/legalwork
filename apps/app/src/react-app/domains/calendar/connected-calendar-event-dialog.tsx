@@ -12,27 +12,36 @@ import { CalendarEventDescription, CalendarEventLink } from "./calendar-event-de
 import { calendarRecurrence } from "./calendar-recurrence";
 import { safeCalendarUrl, type CalendarDisplayOccurrence } from "./connected-calendars";
 
-export function ConnectedCalendarEventDialog({ item, onClose }: { item: CalendarDisplayOccurrence; onClose: () => void }) {
+export function ConnectedCalendarEventDialog({ item, onClose, pane }: {
+  item: CalendarDisplayOccurrence;
+  onClose: () => void;
+  pane?: { container: HTMLElement; trigger: HTMLButtonElement };
+}) {
   const [showAllAttendees, setShowAllAttendees] = useState(false);
   const details = item.connectedEvent;
-  if (!details) return null;
   const day = occurrenceDay(item);
   const endDay = item.end ? item.allDay ? calendarDay(shiftDay(new Date(`${item.end.slice(0, 10)}T12:00:00`), -1)) : occurrenceDay({ ...item, start: item.end }) : day;
   const date = formatCalendarDay(day, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  const color = calendarDisplayColor(details.calendar.key, details.calendar.color);
-  const joinUrl = safeCalendarUrl(details.conference?.url ?? null);
-  const attendees = showAllAttendees ? details.attendees : details.attendees.slice(0, 4);
-  const hasMain = Boolean(details.description || details.attendees.length);
-  const hasOrganizer = Boolean(details.organizer?.displayName || details.organizer?.email);
-  const hasSidebar = Boolean(details.location || hasOrganizer || item.recurring || details.reminders || details.attachments.length || details.hasAttachments || details.source?.url);
+  const color = calendarDisplayColor(details?.calendar.key ?? item.projectId, details?.calendar.color);
+  const joinUrl = safeCalendarUrl(details?.conference?.url ?? null);
+  const attendees = showAllAttendees ? details?.attendees ?? [] : details?.attendees.slice(0, 4) ?? [];
+  const hasMain = Boolean(details?.description || details?.attendees.length);
+  const hasOrganizer = Boolean(details?.organizer?.displayName || details?.organizer?.email);
+  const hasSidebar = Boolean(details && (details.location || hasOrganizer || item.recurring || details.reminders || details.attachments.length || details.hasAttachments || details.source?.url));
   const hasContent = hasMain || hasSidebar;
-  const hasActions = Boolean(joinUrl || details.webUrl);
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent className={cn("flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0", hasMain && hasSidebar ? "sm:max-w-[820px]" : hasMain ? "sm:max-w-[600px]" : "sm:max-w-[480px]")}>
+  const hasActions = Boolean(joinUrl || details?.webUrl);
+  return <Dialog open modal={!pane} onOpenChange={(open, reason) => {
+    if (open) return;
+    if (pane && (reason.reason === "focus-out" || ((reason.reason === "escape-key" || reason.reason === "outside-press") &&
+        (!(reason.event.target instanceof Node) || !pane.container.contains(reason.event.target))))) return;
+    onClose();
+  }}>
+    <DialogContent container={pane?.container} finalFocus={pane && (() => pane.trigger)}
+      className={cn("flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0", pane && "max-h-[calc(100%-1rem)]", hasMain && hasSidebar ? "sm:max-w-[820px]" : hasMain ? "sm:max-w-[600px]" : "sm:max-w-[480px]")}>
       <DialogHeader className={cn("shrink-0 gap-3 px-6 pb-5 pt-6 sm:px-7", hasContent && "border-b border-border/60")}>
         <DialogDescription className="flex flex-wrap items-center gap-2 pr-8 text-xs">
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-muted/70 px-2 py-1 font-medium text-foreground"><span aria-hidden style={color.style} className={cn("size-1.5 rounded-full bg-current", color.marker)} />{details.calendar.name}</span>
-          <span>{details.calendar.providerName}</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-muted/70 px-2 py-1 font-medium text-foreground"><span aria-hidden style={color.style} className={cn("size-1.5 rounded-full bg-current", color.marker)} />{details?.calendar.name ?? item.projectName}</span>
+          <span>{details?.calendar.providerName ?? t("calendar.title")}</span>
           {item.status === "cancelled" && <Badge variant="destructive">{t("calendar.cancelled")}</Badge>}
         </DialogDescription>
         <DialogTitle className="pr-8 text-xl font-semibold leading-snug tracking-tight sm:text-2xl">{item.title || t("calendar.event")}</DialogTitle>
@@ -41,10 +50,10 @@ export function ConnectedCalendarEventDialog({ item, onClose }: { item: Calendar
             <p className="flex items-center gap-2"><CalendarDays aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />{date}{endDay > day && <> → {formatCalendarDay(endDay, { dateStyle: "long" })}</>}</p>
             <p className="flex items-center gap-2"><Clock3 aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />{occurrenceTimeRange(item)}</p>
           </div>
-          <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground"><Globe2 aria-hidden className="size-3" />{item.timeZone}{details.timeZone && details.timeZone !== item.timeZone && <span>· {t("calendar.original_timezone")}: {details.timeZone}</span>}</p>
+          <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground"><Globe2 aria-hidden className="size-3" />{item.timeZone}{details?.timeZone && details.timeZone !== item.timeZone && <span>· {t("calendar.original_timezone")}: {details.timeZone}</span>}</p>
         </div>
       </DialogHeader>
-      {hasContent && <div className="max-h-[65vh] min-h-0 min-w-0 overflow-y-auto px-6 py-6 sm:px-7">
+      {details && hasContent && <div className="max-h-[65vh] min-h-0 min-w-0 overflow-y-auto px-6 py-6 sm:px-7">
         <div className={cn("grid gap-7", hasMain && hasSidebar && "sm:grid-cols-[minmax(0,1fr)_220px] sm:gap-8")}>
           {hasMain && <div className="min-w-0 space-y-7">
             {details.description && <DetailSection icon={FileText} title={t("calendar.event_description")}><div className="text-sm leading-relaxed text-foreground/85"><CalendarEventDescription text={details.description} html={details.descriptionType?.toLowerCase() === "html"} /></div></DetailSection>}
@@ -67,7 +76,7 @@ export function ConnectedCalendarEventDialog({ item, onClose }: { item: Calendar
           </div>}
         </div>
       </div>}
-      {hasActions && <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap gap-2 border-t border-border/60 bg-muted/15 px-6 py-4 sm:px-7">
+      {details && hasActions && <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap gap-2 border-t border-border/60 bg-muted/15 px-6 py-4 sm:px-7">
         <Button variant="ghost" className="sm:mr-auto" onClick={onClose}>{t("common.close")}</Button>
         {details.webUrl && <Button variant="outline" onClick={() => { if (details.webUrl) void openDesktopUrl(details.webUrl); }}><ExternalLink />{t("calendar.open_in_provider", { provider: details.calendar.providerName })}</Button>}
         {joinUrl && <Button onClick={() => { void openDesktopUrl(joinUrl); }}><Video />{t("calendar.join_meeting")}</Button>}

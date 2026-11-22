@@ -41,11 +41,14 @@ import { claimsFor, claimsOverlap, digest, elapsedEvidence, workdayEvidence, wor
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
 import { generateLocalTimeText, localModel, workdaySkill } from "./local-model.js";
 import { modelInput, proposedWorkdayCharge, remainingEvidence } from "./reconstruct-workday.js";
-import { acceptedDocumentEntry, captureMatter, draftRules, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
+import { acceptedDocumentEntry, captureMatter, draftRules, effectiveWorkdayGuidelines, modelEvidence, visibleGuideline, workdayContext, workdayWorkspaces } from "./workday-context.js";
 import { readFileHistory, fileHistoryInput, importFileHistory } from "./desktop-file-history.js";
 import { recordingEvidence, recordingInput } from "./meeting-recording.js";
 import { readDesktopEvidence, recordDesktopSample, resetDesktopSampling, resolveDesktopForeground } from "./desktop-activity.js";
-import { saveWorkdayLog } from "./day-log.js";
+import { announceSyncChange } from "../app-sync-events.js";
+import { chatSuggestions, workdayChatInstructions } from "./chat-workday.js";
+import { chatWorkdayAction } from "./chat-workday-schema.js";
+import { readWorkdayLog, saveWorkdayLog } from "./day-log.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
 import { extractGuidelineRules } from "./guideline-rules.js";
@@ -376,11 +379,13 @@ function requireUnbooked(saved: Saved, item: WorkdayEvidence) {
 
 type Profile = Awaited<ReturnType<typeof profile>>;
 type ResolveWorkspace = (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+type StartChat = (profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">) => Promise<void>;
 type PreparationOptions = {
   signal?: AbortSignal;
   resolveWorkspace?: ResolveWorkspace;
   now?: () => number;
   scheduledSlot?: number;
+  startChat?: StartChat;
   readConnected?: typeof readConnectedWorkday;
 };
 type RunningWorkday = {
@@ -501,6 +506,48 @@ export function workdayModelFailure(error: unknown, deadlineExpired: boolean): N
   return { type: "failed", message: "The workday could not be prepared. Retry the suggestion run." };
 }
 
+async function collectDay(config: ServerConfig, owner: Profile, date: string, zone: string, initial: Saved,
+  workspaces: WorkspaceInfo[], signal: AbortSignal, withModel: boolean, readConnected = readConnectedWorkday) {
+  const settings = initial.settings;
+  const workspacesById = new Set(workspaces.map(workspace => workspace.id));
+  const account = settings.calendar ? (await readEigenweltConnection(config)).account : null;
+  const events = settings.calendar
+    ? await globalCalendarOccurrences(config, addDays(date, -1), addDays(date, 2), workspaces, { calendar: true, tasks: false,
+      worker: { userId: owner.captureUser, email: account?.userId === owner.captureUser ? account.userEmail : null } })
+    : [];
+  let sourceFailure = false;
+  const failedAccounts: (CaptureAccount & { reason: string })[] = [];
+  const names: Record<string, string> = {};
+  const scannedAccounts: CaptureAccount[] = [];
+  const imported = await readConnected(config, settings, date, signal, {
+    onFailed: ({ provider, account }, reason) => { failedAccounts.push({ provider, account, reason }); },
+    onName: ({ account }, name) => { names[account] = name; },
+    onRead: ({ provider, account }) => { scannedAccounts.push({ provider, account }); },
+  }).catch(error => {
+    if (!withModel || signal.aborted) throw error;
+    sourceFailure = true;
+    return [];
+  });
+  const evidence = [...imported, ...workdayEvidence(events, date, settings, owner.captureUser, zone),
+    ...await readActivityEvidence(config, owner, date, zone),
+    ...(settings.desktopActivity ? await readDesktopEvidence(owner, date, zone) : []),
+    ...(settings.desktopActivity ? await readFileHistory(owner.path, date) : [])];
+  if (settings.recordings) evidence.push(...Object.values(initial.recordings[date] ?? {}));
+  if (settings.documents)
+    for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {})) evidence.push({ eventKey, proposal });
+  if (withModel) {
+    for (const item of initial.days[date] ?? []) {
+      if (item.generated || item.proposal.source !== "stopwatch") continue;
+      const proposal = originalCaptureProposal(item.proposal, item.proposal.digest, initial.originals);
+      evidence.push({ eventKey: item.eventKey, proposal });
+    }
+  }
+  const from = (item: WorkdayEvidence) => item.proposal.startAt ?? item.proposal.observedAt ?? "";
+  const eligible = evidence.filter(item => !item.proposal.projectId || workspacesById.has(item.proposal.projectId))
+    .sort((a, b) => from(a).localeCompare(from(b)) || a.eventKey.localeCompare(b.eventKey));
+  return { eligible, sourceFailure, failedAccounts, scannedAccounts, names };
+}
+
 async function prepare(config: ServerConfig, owner: Profile, date: string, action: Preparation,
   { signal: requestSignal, resolveWorkspace, now = Date.now, scheduledSlot, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
   const { path } = owner;
@@ -547,41 +594,8 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
     if (withModel && date > dayInZone(new Date(started).toISOString(), zone))
       throw new ApiError(400, "future_workday", "Choose today or an earlier date to generate suggestions.");
     const workspacesById = new Set(workspaces.map(workspace => workspace.id));
-    const account = settings.calendar ? (await readEigenweltConnection(config)).account : null;
-    const events = settings.calendar
-      ? await globalCalendarOccurrences(config, addDays(date, -1), addDays(date, 2), workspaces, { calendar: true, tasks: false,
-        worker: { userId: owner.captureUser, email: account?.userId === owner.captureUser ? account.userEmail : null } })
-      : [];
-    let sourceFailure = false;
-    const failedAccounts: (CaptureAccount & { reason: string })[] = [];
-    const names: Record<string, string> = {};
-    const scannedAccounts: CaptureAccount[] = [];
-    const imported = await readConnected(config, settings, date, signal, {
-      onFailed: ({ provider, account }, reason) => { failedAccounts.push({ provider, account, reason }); },
-      onName: ({ account }, name) => { names[account] = name; },
-      onRead: ({ provider, account }) => { scannedAccounts.push({ provider, account }); },
-    }).catch(error => {
-      if (!withModel || requestSignal?.aborted || controller.signal.aborted) throw error;
-      sourceFailure = true;
-      return [];
-    });
-    const evidence = [...imported, ...workdayEvidence(events, date, settings, owner.captureUser, zone),
-      ...await readActivityEvidence(config, owner, date, zone),
-      ...(settings.desktopActivity ? await readDesktopEvidence(owner, date, zone) : []),
-      ...(settings.desktopActivity ? await readFileHistory(owner.path, date) : [])];
-    if (settings.recordings) evidence.push(...Object.values(initial.recordings[date] ?? {}));
-    if (settings.documents)
-      for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {})) evidence.push({ eventKey, proposal });
-    if (withModel) {
-      for (const item of initial.days[date] ?? []) {
-        if (item.generated || item.proposal.source !== "stopwatch") continue;
-        const proposal = originalCaptureProposal(item.proposal, item.proposal.digest, initial.originals);
-        evidence.push({ eventKey: item.eventKey, proposal });
-      }
-    }
-    const from = (item: WorkdayEvidence) => item.proposal.startAt ?? item.proposal.observedAt ?? "";
-    const eligible = evidence.filter(item => !item.proposal.projectId || workspacesById.has(item.proposal.projectId))
-      .sort((a, b) => from(a).localeCompare(from(b)) || a.eventKey.localeCompare(b.eventKey));
+    const { eligible, sourceFailure, failedAccounts, scannedAccounts, names } = await collectDay(
+      config, owner, date, zone, initial, workspaces, signal, withModel, readConnected);
     const inputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts, s.fileHistoryRevision[date], s.settings.recordings ? Object.keys(s.recordings[date] ?? {}) : []]);
     const revision = inputs(initial);
     job.current = saved => inputs(saved) === revision;
@@ -666,7 +680,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       const all = modelEvidence(actionable, await context(), Object.values(initial.guidelines).flat(),
         date, initial.fileProducts);
       const transcript = action.revisionRequest ? [action.revisionRequest] : [];
-      key = digest(["workday-reconstruction-v7", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
+      key = digest(["workday-reconstruction-v8", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
       if (!failedAccounts.length && cached?.status.type === "ready") {
@@ -749,8 +763,15 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
     if (!slots.length) return;
     slot = Math.max(...slots);
   }
-  if (slot > lastScheduledSlot)
-    await prepare(config, owner, date, { type: "suggest" }, { ...options, scheduledSlot: slot });
+  if (slot <= lastScheduledSlot) return;
+  if (options.startChat) {
+    await options.startChat(owner.profileId, date, "timekeeping-schedule-" + slot, settings.model);
+    await withFileWriteLock(owner.path, async () => {
+      const saved = await load(owner.path);
+      saved.lastScheduledSlot = Math.max(saved.lastScheduledSlot, slot);
+      await save(owner.path, saved);
+    });
+  } else await prepare(config, owner, date, { type: "suggest" }, { ...options, scheduledSlot: slot });
 }
 
 async function visibleProposals(config: ServerConfig, s: Saved, date: string, connections: CaptureState["connections"], sourcePreview: boolean) {
@@ -796,6 +817,7 @@ async function readWorkdayProgress(config: ServerConfig, owner: Profile, date: s
 }
 
 export function registerWorkdayRoutes(options: {
+  startChat?: StartChat;
   routes: Route[];
   config: ServerConfig;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
@@ -873,26 +895,91 @@ export function registerWorkdayRoutes(options: {
     if (!loopback(config) || !workspace || workspace.preset !== timekeepingPreset(owner.profileId)
       || !ctx.agentAccess || ctx.agentAccess.workspace?.id !== workspace.id || ctx.actor?.scope !== "owner")
       throw new ApiError(403, "private_workday", "Use this tool from your local Timekeeping project chat.");
-    const input = z.discriminatedUnion("action", [
-      z.strictObject({ action: z.literal("read"), date: z.iso.date() }),
-      z.strictObject({ action: z.literal("suggest"), date: z.iso.date(), revisionRequest: z.string().trim().min(1).max(2000).optional() }),
-    ]).parse(await options.readJsonBodyLimited(ctx.request, 10_000));
-    if ((await readCaptureSettings(owner.path)).enabled === false)
-      throw new ApiError(403, "timekeeping_disabled", "Turn on time tracking in Settings.");
-    if (input.action === "suggest") {
+    const input = chatWorkdayAction.parse(await options.readJsonBodyLimited(ctx.request, 160_000));
+    const { date } = input;
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = new Date();
+    if (date > dayInZone(now.toISOString(), zone)) throw new ApiError(400, "future_workday", "Choose today or an earlier date.");
+    const initial = await load(owner.path);
+    if (initial.settings.enabled === false) throw new ApiError(403, "timekeeping_disabled", "Turn on time tracking in Settings.");
+    const workspaces = await workdayWorkspaces(config);
+    const workspaceIds = new Set(workspaces.map(item => item.id));
+    const state = await workdayContext(config, await backOfficeAccess(config), workspaces);
+    const accounts = await connectedWorkdayAccounts(config);
+    const visibleInputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts, s.fileHistoryRevision[date],
+      s.documentEpoch, s.desktopHistoryEpoch, s.recordingEpoch, s.personalDriveEpoch]);
+    const collection = input.action === "read" ? await collectDay(config, owner, date, zone, initial, workspaces,
+      ctx.request.signal, true) : undefined;
+    const result = await withFileWriteLock(owner.path, async () => {
+      const saved = await load(owner.path);
+      if ((await profile(config)).path !== owner.path || visibleInputs(saved) !== visibleInputs(initial))
+        throw new ApiError(409, "private_workday_changed", "The account or activity sources changed. Read the day again.");
+      const versions = Object.values(saved.guidelines).flat();
+      const guidance = (matterId: string) => {
+        const matter = state.matters.find(m => m.id === matterId);
+        if (!matter) throw new ApiError(404, "unknown_matter", "Choose an accessible matter.");
+        const clientId = matter.clientIds.length === 1 ? matter.clientIds[0] : "";
+        const guidelines = effectiveWorkdayGuidelines(state, versions, { clientId, matterId, date })
+          .map(({ name, scope, effectiveFrom, revision, rules }) => ({ name, scope, effectiveFrom, revision, rules }));
+        const projects = state.projects.filter(p => p.matterIds.includes(matter.id) && workspaceIds.has(p.id));
+        const rules = draftRules(state, versions, matter, date);
+        const projectRules = projects.map(p => ({ projectId: p.id, rules: draftRules(state, versions, matter, date, p.id) }));
+        return { matter: matter.name, guidelines, rules, projectRules, receipt: digest([owner.profileId, date, matterId, guidelines, rules, projectRules]) };
+      };
+      if (input.action === "guidelines") return guidance(input.matterId);
+      if (collection) {
+        if (collection.sourceFailure) throw new ApiError(503, "sources_failed", "A selected source could not be read. Retry the day.");
+        await saveWorkdayLog(owner.path, date, zone, now.toISOString(), collection.eligible, collection.failedAccounts, collection.scannedAccounts);
+      }
+      const log = await readWorkdayLog(owner.path, date);
+      const sourceRows = resolveDesktopForeground(elapsedEvidence(uniqueOccurrences(log.observations), date, zone, Date.parse(log.collectedAt)));
+      const sent = new Set(sourceRows.filter(row => row.proposal.mailDirection === "sent").map(row => row.proposal.threadKey));
+      const all = modelEvidence(sourceRows.filter(row => eligibleSource(row, accounts, saved.settings) &&
+        (!row.proposal.projectId || workspaceIds.has(row.proposal.projectId)) &&
+        (row.proposal.source !== "stopwatch" || saved.settings.stopwatchMode === "evidence") &&
+        (row.proposal.mailDirection !== "received" || Boolean(row.proposal.threadKey && sent.has(row.proposal.threadKey)))),
+        state, versions, date, saved.fileProducts);
+      const day = saved.days[date] ?? [];
+      const available = remainingEvidence(all, day.filter(i => protectedProposal(saved, i)));
+      const entries = state.entries.filter(e => e.date === date && e.workerId === state.userId).map(e => ({
+        id: e.id, matterId: e.matterId, narrative: e.narrative, recordedMinutes: e.workedMinutes, billableMinutes: e.billableMinutes,
+        startAt: e.startAt, endAt: e.endAt, status: e.status,
+      }));
+      const revision = () => digest([visibleInputs(saved), log.collectedAt, entries, available.map(ref => [ref.item.eventKey, claimsFor(ref.item), ref.matter?.id]),
+        (saved.days[date] ?? []).map(i => [i.eventKey, i.proposal.digest, protectedProposal(saved, i)])]);
+      if (input.action === "read") {
+        const rows = await visibleProposals(config, saved, date, accounts, false);
+        const availableKeys = new Set(available.map(ref => ref.item.eventKey));
+        return { date, zone, revision: revision(), failedSources: log.failedAccounts, instructions: workdayChatInstructions,
+          activityCodes: timeActivities,
+          observations: modelInput(available).map(({rules, priorDescriptions, ...facts}, i) => ({ ...facts, id: "e" + (i + 1) })),
+          claimedObservations: modelInput(all.filter(ref => !availableKeys.has(ref.item.eventKey))).map(ref => ({ source: ref.source, title: ref.title, startAt: ref.startAt, endAt: ref.endAt })),
+          existingEntries: entries, suggestions: rows.map(i => ({ key: i.proposal.key, matterId: i.proposal.matterId, narrative: i.proposal.narrative,
+            startAt: i.proposal.startAt, endAt: i.proposal.endAt, recordedMinutes: i.proposal.workedMinutes, billableMinutes: i.proposal.chargeMinutes,
+            editable: Boolean(i.generated && !protectedProposal(saved, i)), draft: saved.drafts[i.proposal.key]?.values,
+            evidence: available.flatMap((ref,j) => overlapsEvidence(ref.item, i) ? ["e" + (j+1)] : []) })) };
+      }
       options.ensureWritable(config);
-      await prepare(config, owner, input.date, { type: "suggest", revisionRequest: input.revisionRequest },
-        { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
-    }
-    const saved = await load(owner.path);
-    const connections = await connectedWorkdayAccounts(config);
-    const rows = await visibleProposals(config, saved, input.date, connections.map(({ provider, account }) => ({ provider, account })), false);
-    if ((await profile(config)).path !== owner.path || saved.settings.enabled === false)
-      throw new ApiError(409, "private_workday_changed", "The active timekeeping profile changed.");
-    return options.jsonResponse({ date: input.date, status: saved.reconstruction[input.date]?.status, suggestions: rows.map(({ proposal }) => ({
-      key: proposal.key, matterId: proposal.matterId, narrative: proposal.narrative, activity: proposal.activity,
-      startAt: proposal.startAt, endAt: proposal.endAt, recordedMinutes: proposal.workedMinutes, estimatedMinutes: proposal.estimatedMinutes, estimateReason: proposal.estimateReason, billableMinutes: proposal.chargeMinutes,
-    })) });
+      if (input.revision !== revision()) throw new ApiError(409, "private_workday_changed", "The day changed. Read the day again before publishing.");
+      if (log.failedAccounts.length && input.complete) throw new ApiError(409, "sources_failed", "Some selected sources could not be checked. Refresh the day before marking it complete.");
+      const added = chatSuggestions(input.suggestions, available, date, zone);
+      for (const id of new Set(added.flatMap(i => i.proposal.matterId ?? [])))
+        if (!input.guidelineReceipts?.includes(guidance(id).receipt)) throw new ApiError(409, "workday_guidelines", "Read the guidelines for each assigned matter and include its current receipt.");
+      const removable = day.filter(i => i.generated && !protectedProposal(saved, i));
+      const remove = new Set(input.remove ?? []);
+      if ([...remove].some(key => !removable.some(i => i.proposal.key === key)))
+        throw new ApiError(409, "private_workday_changed", "Only unedited suggestions from this day can be replaced.");
+      const keep = removable.filter(old => !remove.has(old.proposal.key) && !added.some(row => overlapsEvidence(row, old)));
+      applyProposals(saved, date, [...keep, ...added]);
+      if (input.complete) {
+        saved.checkedThrough[date] = log.collectedAt;
+        saved.reconstruction[date] = { key: digest(["chat", date, log.collectedAt]), status: { type: "ready", message: "Workday suggestions updated." } };
+      }
+      await save(owner.path, saved);
+      announceSyncChange(config, "backOffice");
+      return { published: added.length, complete: Boolean(input.complete), revision: revision() };
+    });
+    return options.jsonResponse(result);
   });
   for (const method of ["GET", "POST"])
     addRoute(routes, method, "/private-timesheet/stopwatch", "host-token", async (ctx) => {
@@ -903,7 +990,7 @@ export function registerWorkdayRoutes(options: {
       const expected = ctx.url.searchParams.get("profileId");
       if ((method === "POST" || expected !== null) && expected !== profileId)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
-      const command = method === "POST" ? stopwatchActionSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 1024)) : undefined;
+      const command = method === "POST" ? stopwatchActionSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 16_384)) : undefined;
       if (command && !command.success)
         throw new ApiError(400, "stopwatch_action", "Start or reassign the stopwatch with a matter, or stop the current timer.");
       const action = command?.data;
@@ -1045,7 +1132,13 @@ export function registerWorkdayRoutes(options: {
         if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
         const action = parsed.data;
         sourcePreview = action.type === "calendar";
-        if (action.type === "suggest" || action.type === "calendar")
+        if (action.type === "suggest" && options.startChat) {
+          const current = await load(path);
+          if (current.settings.enabled === false) throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
+          if (date > dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone))
+            throw new ApiError(400, "future_workday", "Choose today or an earlier date.");
+          await options.startChat(profileId, date, action.runId ?? randomUUID(), current.settings.model);
+        } else if (action.type === "suggest" || action.type === "calendar")
           await prepare(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
         else
           await withFileWriteLock(path, async () => {

@@ -7,16 +7,16 @@ import { globalSkillsDir } from "./workspace-files.js";
 
 export const BUNDLED_WORKFLOW_NAMES = [...new Set(BUNDLED_WORKFLOW_FILES.map(file => file.path.split("/")[0]!))];
 
-const previousDefaults: Record<string, string> = {
-  "workflow-firm-knowledge": "3fbae9c3646e40877aa2aa3a33d21e51480617571d1e56d30623227bb92dcdaa",
-  "workflow-suggest-timesheet": "1b5a3f1f9053d4a8f39ba4651c856d034c850328cfdbd9e256175a9286b43d12",
+const previousDefaults: Record<string, string[]> = {
+  "workflow-firm-knowledge": ["3fbae9c3646e40877aa2aa3a33d21e51480617571d1e56d30623227bb92dcdaa"],
+  "workflow-suggest-timesheet": ["1b5a3f1f9053d4a8f39ba4651c856d034c850328cfdbd9e256175a9286b43d12", "09f4351d31e01c62846dabe447b76076b2ee6fc3dfa4d86de6649010b673a196"],
 };
 
 /** Install changed defaults without replacing customized workflows. */
 async function upgradeDefault(name: string, destination: string) {
   const path = join(destination, "SKILL.md");
   const content = await readFile(path).catch(() => null);
-  if (!content || createHash("sha256").update(content).digest("hex") !== previousDefaults[name]) return;
+  if (!content || !previousDefaults[name]?.includes(createHash("sha256").update(content).digest("hex"))) return;
   const launcher = BUNDLED_WORKFLOW_FILES.find(file => file.path === name + "/SKILL.md");
   if (launcher) await writeFile(path, Buffer.from(launcher.content, launcher.encoding));
 }

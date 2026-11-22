@@ -17,6 +17,10 @@ const snapshotSchema = z.object({
   })).default([]),
 });
 
+export async function readWorkdayLog(profilePath: string, date: string) {
+  return snapshotSchema.parse(JSON.parse(await readFile(join(profilePath + ".day-log", date + ".json"), "utf8")));
+}
+
 function sourceIdentity(row: WorkdayEvidence) {
   // Two calendar feeds can witness the same meeting. Keep each feed's original in the local log.
   return JSON.stringify([row.eventKey, row.proposal.source, row.proposal.account, row.claims?.[1]?.id, row.proposal.mailDirection]);

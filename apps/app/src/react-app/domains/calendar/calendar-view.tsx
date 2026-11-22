@@ -17,7 +17,7 @@ import { TaskDialog } from "../tasks/task-dialog";
 import { useTaskMembers } from "../tasks/tasks-queries";
 import { taskMemberOptions } from "../tasks/task-format";
 import { calendarDay, calendarError, calendarKindLabel, calendarRange, formatCalendarDay, isActive, isCompleted, moveCalendar, occurrenceDay, occursInRange, shiftDay, type CalendarViewMode } from "./calendar-format";
-import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, useConnectedCalendars, useConnectedCalendarEvents, type CalendarContext, type CalendarSource } from "./calendar-queries";
+import { useCalendarOccurrences, useCalendarRecords, useCalendarRefresh, useVisibleConnectedCalendarEvents, type CalendarContext, type CalendarSource } from "./calendar-queries";
 import { CalendarEntry } from "./calendar-entries";
 import { CalendarGrid } from "./calendar-grid";
 import { CalendarConflict, CalendarTrash } from "./calendar-management";
@@ -51,17 +51,13 @@ export function CalendarView(props: CalendarViewProps) {
   const query = useCalendarOccurrences(props, calendarDay(shiftDay(loadedStart, -2)), calendarDay(shiftDay(loadedEnd, 2))), records = useCalendarRecords(props), refresh = useCalendarRefresh();
   // Personal overlays always use this computer's client, including in remote projects.
   const personalClient = props.personalClient === undefined ? props.client : props.personalClient;
-  const connected = useConnectedCalendars(personalClient);
-  const visibility = useCalendarVisibility();
   const visibilityScope = props.projectId ?? props.workspaceId ?? "global";
-  const hidden = visibility.hidden[visibilityScope] ?? [];
-  const calendars = connected.data?.calendars ?? [];
-  const visibleCalendars = calendars.filter(calendar => !hidden.includes(calendar.key));
-  const eventQueries = useConnectedCalendarEvents(personalClient, visibleCalendars, loadedRange.from, loadedRange.to);
+  const setCalendarVisible = useCalendarVisibility(state => state.setVisible);
+  const { connected, hidden, calendars, eventQueries, unavailable: connectedUnavailable } =
+    useVisibleConnectedCalendarEvents(personalClient, visibilityScope, loadedRange.from, loadedRange.to);
   const local = query.data?.occurrences ?? [];
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const all: CalendarDisplayOccurrence[] = [...new Map([...local, ...eventQueries.flatMap(result => result.data ?? [])].map(item => [item.id, item.allDay ? item : { ...item, timeZone }])).values()].filter(item => occursInRange(item, loadedRange.from, loadedRange.to)).sort((a, b) => a.start.localeCompare(b.start));
-  const connectedUnavailable = [...new Set([...(connected.data?.unavailable ?? []), ...eventQueries.flatMap(result => result.isError ? [result.calendar.name] : [])])];
   const connectedLoading = connected.isFetching || eventQueries.some(result => result.isFetching);
   useEffect(() => {
     if (!connectedEvent?.connectedEvent) return;
@@ -141,7 +137,7 @@ export function CalendarView(props: CalendarViewProps) {
           {!props.workspaceId && <FilterSelect icon={FolderOpen} label={t("calendar.project")} value={project} active={project !== "all"} onChange={setProject} options={projectOptions} />}
           {Boolean(members.data?.length) && <FilterSelect icon={UserRound} label={t("calendar.assignee")} value={assignee} active={assignee !== "all"} onChange={setAssignee} options={[{ value: "all", label: t("calendar.all_assignees") }, { value: "unassigned", label: t("calendar.unassigned") }, ...taskMemberOptions(members.data ?? [])]} />}
           {filtered && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => { setKind("all"); setStatus("active"); setProject("all"); setAssignee("all"); }}><X className="size-3" />{t("calendar.clear_filters")}</Button>}
-          <ConnectedCalendarControls calendars={calendars} hidden={hidden} loading={connectedLoading} disabled={!personalClient} onVisible={(key, visible) => visibility.setVisible(visibilityScope, key, visible)} />
+          <ConnectedCalendarControls calendars={calendars} hidden={hidden} loading={connectedLoading} disabled={!personalClient} onVisible={(key, visible) => setCalendarVisible(visibilityScope, key, visible)} />
           {opening && <Loader2 className="ml-auto size-3.5 animate-spin text-muted-foreground" aria-label={t("calendar.loading")} />}
         </div>
         {props.client && props.workspaceId && records.data?.conflicts.map(remote => {

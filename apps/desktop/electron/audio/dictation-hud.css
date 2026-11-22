@@ -646,3 +646,6 @@ body[data-state=idle] #bar[data-hovered=true] #microphone-menu {
   display:flex; position:absolute; left:6px; bottom:calc(100% - 2px);
   width:24px; height:22px; border:1px solid var(--border); border-radius:6px; background:var(--surface);
 }
+
+#stopwatch-panel input { flex: none; width: 100%; box-sizing: border-box; padding: 5px 8px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; user-select: text; }
+#stopwatch-note-label { font-size: 11px; color: var(--muted); }

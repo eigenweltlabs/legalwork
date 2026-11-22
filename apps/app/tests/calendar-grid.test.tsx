@@ -106,7 +106,8 @@ test("the local current-time marker spans the matter calendar once", () => {
     <WorkdayTimeline date={today} proposals={[{ ...untimed, date: today }]}
       state={state} selected={undefined} view="matters" onOpen={() => {}} />,
   ));
-  expect(document.querySelectorAll("[data-calendar-column]").length).toBe(2);
+  expect(document.querySelectorAll("[data-calendar-column]").length).toBe(1);
+  expect(document.querySelector('[data-calendar-column="unassigned"]')).toBeNull();
   expect(document.querySelectorAll("[data-calendar-now]").length).toBe(1);
   expect(document.querySelector("[data-calendar-now]")?.textContent).toContain("Current time");
 });

@@ -57,12 +57,14 @@ export class DictationHud {
     this.onDisplayChange = () => {
       if (!this.drag && this.window && !this.window.isDestroyed()) { this.followDisplay(); this.positionWindow(); }
     };
-    this.onAction = (event, action, version, matterId) => {
+    this.onAction = (event, action, version, matterId, note) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
       if (!this.status.miniBarEnabled) return;
+      if (action === "stopwatch-close") { this.editingStopwatch = false; this.window.setFocusable(false); this.positionWindow(); return; }
+      if (action === "stopwatch-prepare") { this.editingStopwatch = true; this.positionWindow(); this.window.setFocusable(true); this.window.focus(); }
       if (["stopwatch-start", "stopwatch-stop", "stopwatch-retry", "stopwatch-prepare", "stopwatch-assign"].includes(action))
-        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof matterId === "string" ? matterId : undefined);
+        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof matterId === "string" ? matterId : undefined, typeof note === "string" ? note.slice(0, 2000) : undefined);
       if (action === "meeting-start" && ["idle", "meeting-error"].includes(this.displayState)) this.actions.onMeetingStart?.();
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();
@@ -197,7 +199,7 @@ export class DictationHud {
   positionWindow() {
     const display = this.display();
     this.displayId = display.id;
-    this.window?.setBounds(dockBounds(display.workArea, this.dock));
+    this.window?.setBounds(dockBounds(display.workArea, this.dock, this.editingStopwatch ? { width: 440, height: 330 } : undefined));
     this.sendState();
   }
 

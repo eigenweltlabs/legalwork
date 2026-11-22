@@ -106,6 +106,7 @@ import { ProjectReviews } from "../../reviews/project-reviews";
 export type WorkspacePage = WorkspacePageTab & { icon: React.ReactNode; content: React.ReactNode | ((visible: boolean) => React.ReactNode) };
 type PageCatalog = {
   pages: WorkspacePage[];
+  focusMode?: boolean;
   resetLabel: string;
   onReset: () => void;
 };
@@ -1061,7 +1062,8 @@ function SidePanelContent({
   const generation = layoutGeneration.current;
   // A narrow page workspace shows the focused pane through the same strip.
   // Its saved desktop tree and editor hosts survive the change in width.
-  const displayedTree: DocumentLayoutNode = compact
+  const singlePane = compact || pageCatalog?.focusMode;
+  const displayedTree: DocumentLayoutNode = singlePane
     ? { type: "pane", id: session.focusedPaneId ?? panes[0].id } : tree;
   const topPaneIds = topLayoutLeaves(displayedTree);
   const controlsPane = topPaneIds[topPaneIds.length - 1];
@@ -1211,7 +1213,7 @@ function SidePanelContent({
       <div className="min-h-0 flex-1">{renderLayout(displayedTree)}</div>
       {(pageCatalog?.pages ?? tabs).flatMap((tab: PanelTabEntry) => {
         const page = pageCatalog?.pages.find(page => page.id === tab.id);
-        const pane = panes.find(pane => pane.activeTabId === tab.id && (!compact || pane.id === displayedTree.id));
+        const pane = panes.find(pane => pane.activeTabId === tab.id && (!singlePane || pane.id === displayedTree.id));
         if (!pane && !page && (!unified || !visited.has(tab.id))) return [];
         const visible = workspaceVisible && Boolean(pane);
         const active = visible && tab.id === focusedId;

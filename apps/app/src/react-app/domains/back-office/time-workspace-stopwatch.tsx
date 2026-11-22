@@ -5,7 +5,8 @@ import type { StopwatchAction, StopwatchState } from "@legalwork/types/time-capt
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { TimeSelect } from "./time-settings-controls";
+import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { calendarClientScope } from "../calendar/calendar-cache";
 
@@ -64,12 +65,14 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
   const clockId = useId();
   const [open, setOpen] = useState(false);
   const [matter, setMatter] = useState("");
+  const [query, setQuery] = useState("");
+  const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState(false);
   const [notice, setNotice] = useState("");
   const [now, setNow] = useState(Date.now);
   const trigger = useRef<HTMLButtonElement>(null);
-  const picker = useRef<HTMLButtonElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   const actionButton = useRef<HTMLButtonElement>(null);
   const working = useRef(false);
@@ -122,6 +125,8 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
       if (next) {
         restoreFocus.current = undefined;
         setMatter("");
+        setQuery("");
+        setNote(active?.note ?? "");
         setNotice("");
         setFailure(false);
         void stopwatch.refetch();
@@ -146,23 +151,31 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
           event.preventDefault();
           if (working.current || stopwatch.isPending) return;
           if (!available) { void stopwatch.refetch(); return; }
-          if (active) { if (active.matterId) void change({ type: "stop", id: active.id }); return; }
+          if (active) { if (active.matterId) void change({ type: "stop", id: active.id, ...(note !== (active.note ?? "") ? { note } : {}) }); return; }
           const matterId = matter;
           if (!matters.some(item => item.id === matterId)) return;
-          if (!startRetry.current || startRetry.current.matterId !== matterId) {
-            startRetry.current = { type: "start", id: crypto.randomUUID(), matterId };
+          if (!startRetry.current || startRetry.current.matterId !== matterId || (startRetry.current.note ?? "") !== note) {
+            startRetry.current = { type: "start", id: crypto.randomUUID(), matterId, ...(note ? { note } : {}) };
           }
           void change(startRetry.current);
         }}>
           {available && <div className="grid gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">{t("timesheets.workday.matter")}</span>
-            <TimeSelect label={t("timesheets.workday.matter")} triggerRef={picker} value={active ? active.matterId ?? "" : matter}
-              placeholder={t("timesheets.workday.choose")} disabled={pending || !matters.length || (stopwatch.data?.enabled === false && Boolean(active?.matterId))}
-              options={matters.map(({ id, name, reference }) => ({ id, name: reference ? name + " · " + reference : name }))}
-              onChange={chosen => {
-                if (!active) { setMatter(chosen); return; }
-                if (chosen !== active.matterId) void change({ type: "assign", id: active.id, matterId: chosen });
-              }} />
+            <Command filter={null} value={query} onValueChange={(value, details) => { if (details.reason !== "item-press") { setQuery(value); setMatter(""); } }}>
+              <CommandInput ref={picker} aria-label={t("timesheets.workday.matter")} placeholder={t("timesheets.workday.choose")} disabled={pending} />
+              <CommandList className="max-h-40 overflow-y-auto">
+                {matters.filter(item => (item.name + " " + (item.reference ?? "")).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(item =>
+                  <CommandItem key={item.id} value={item.id} aria-selected={item.id === (active?.matterId ?? matter)}
+                    disabled={pending || (stopwatch.data?.enabled === false && Boolean(active?.matterId))}
+                    onClick={() => {
+                      setMatter(item.id);
+                      setQuery(item.name);
+                      if (active && active.matterId !== item.id) void change({ type: "assign", id: active.id, matterId: item.id });
+                    }}>{item.reference ? item.name + " · " + item.reference : item.name}</CommandItem>)}
+              </CommandList>
+            </Command>
+            {(active?.matterId || matter) && <span className="text-xs">{matters.find(item => item.id === (active?.matterId ?? matter))?.name}</span>}
+            <label>{t("timeWorkspace.quickNote")}<Input value={note} maxLength={2000} onChange={event => setNote(event.target.value)} /></label>
             {!matters.length && <p className="text-xs text-muted-foreground">{t("timeWorkspace.noStopwatchMatters")}</p>}
           </div>}
           {failure && <p role="alert">{t("timeWorkspace.stopwatchFailed")}</p>}

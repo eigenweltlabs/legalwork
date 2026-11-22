@@ -227,17 +227,18 @@ export const workdayCorrectionSchema = z.strictObject({
 });
 export type WorkdayCorrection = z.infer<typeof workdayCorrectionSchema>;
 
+const quickNote = z.string().trim().max(2000);
 const stopwatchMatterId = z.string().min(1).max(200);
 export const stopwatchActionSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("start"), id: z.uuid(), matterId: stopwatchMatterId }),
+  z.strictObject({ type: z.literal("start"), id: z.uuid(), matterId: stopwatchMatterId, note: quickNote.optional() }),
   z.strictObject({ type: z.literal("assign"), id: z.uuid(), matterId: stopwatchMatterId }),
-  z.strictObject({ type: z.literal("stop"), id: z.uuid() }),
+  z.strictObject({ type: z.literal("stop"), id: z.uuid(), note: quickNote.optional() }),
 ]);
 export const stopwatchStateSchema = z.object({
   enabled: z.boolean().default(true),
   profileId: z.string().length(64),
   // Existing runs without a matter can still be resumed and assigned.
-  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime(), matterId: stopwatchMatterId.nullable().default(null) }).nullable(),
+  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime(), note: quickNote.optional(), matterId: stopwatchMatterId.nullable().default(null) }).nullable(),
   lastStopped: z.object({ id: z.uuid(), stoppedAt: z.iso.datetime(), date: z.iso.date() }).nullable(),
   matters: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });

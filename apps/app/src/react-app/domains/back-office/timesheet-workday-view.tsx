@@ -13,6 +13,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
+import { ConnectedCalendarEventDialog } from "../calendar/connected-calendar-event-dialog";
 import { CalendarGrid } from "../calendar/calendar-grid";
 import type { CalendarDisplayOccurrence } from "../calendar/connected-calendars";
 import type { TimelineView } from "./time-workspace-panels";
@@ -65,11 +66,12 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, previews = [], drafts, state, view, selected, editorId, headerActions, renderTimeOverlay, onOpen, decisions,
+  date, proposals, appointments = [], previews = [], drafts, state, view, selected, editorId, headerActions, renderTimeOverlay, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
   previews?: CaptureProposal[];
+  appointments?: CalendarDisplayOccurrence[];
   drafts?: CaptureState["drafts"];
   state: TimelineDirectory;
   view: TimelineView;
@@ -89,10 +91,10 @@ export function WorkdayTimeline({
   const choices = useMemo(() => state.service === "records" ? undefined : matterOptions(state), [state]);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const unassigned = t("timesheets.workday.unassigned");
-  const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>([
-    [null, { id: "unassigned", title: unassigned, colorKey: null, items: [] }],
-  ]);
-  const items: CalendarDisplayOccurrence[] = [];
+  const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>();
+  const [opened, setOpened] = useState<{ id: string; trigger: HTMLButtonElement; container: HTMLElement }>();
+  const selectedAppointment = opened && appointments.find(item => item.id === opened.id && opened.trigger.isConnected);
+  const items: CalendarDisplayOccurrence[] = [...appointments];
   const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
   const previewKeys = new Set(previews.map(proposal => proposal.key));
   for (const proposal of [...proposals, ...previews]) {
@@ -112,19 +114,24 @@ export function WorkdayTimeline({
     items.push(item);
     privateById.set(item.id, { proposal, matterId });
     if (view === "matters") {
-      const lane = groups.get(matterId) ?? { id: "matter-" + matterId, title: item.projectName, colorKey: matterId, items: [] };
+      const lane = groups.get(matterId) ?? { id: matterId ? "matter-" + matterId : "unassigned", title: item.projectName, colorKey: matterId, items: [] };
       lane.items.push(item);
       groups.set(matterId, lane);
     }
   }
-  return <CalendarGrid view="day" maxVisibleHours={16} anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
-    dayLanes={view === "matters" ? [...groups.values()] : undefined} headerActions={headerActions} renderTimeOverlay={renderTimeOverlay}
+  const lanes = [...groups.values()];
+  if (appointments.length) lanes.unshift({ id: "calendar", title: t("calendar.title"), colorKey: null, items: appointments });
+  return <><CalendarGrid view="day" maxVisibleHours={16} anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
+    dayLanes={view === "matters" ? lanes : undefined} headerActions={headerActions} renderTimeOverlay={renderTimeOverlay}
     minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
-    label={t("timesheets.workday.timeline")} untimedLabel={t("timeWorkspace.untimed")}
+    label={t("timesheets.workday.timeline")} untimedLabel={t(appointments.some(item => item.allDay) ? "timeWorkspace.allDayAndUntimed" : "timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}
     entryAppearance={item => {
       const source = privateById.get(item.id);
-      if (!source) return;
+      if (!source) return {
+        secondaryLabel: t("calendar.title"),
+        buttonAttributes: { "data-workday-appointment": true, "aria-haspopup": "dialog" },
+      };
       if (previewKeys.has(item.id)) return {
         colorKey: source.matterId, secondaryLabel: t("timeWorkspace.preview"),
         buttonAttributes: { "aria-disabled": true, "data-suggestion-preview": true },
@@ -148,8 +155,16 @@ export function WorkdayTimeline({
     }}
     onOpen={(item, trigger) => {
       const source = privateById.get(item.id);
-      if (source && !previewKeys.has(item.id)) onOpen(source.proposal, trigger);
-    }} />;
+      if (source) {
+        if (!previewKeys.has(item.id)) onOpen(source.proposal, trigger);
+        return;
+      }
+      const container = trigger.closest<HTMLElement>('[data-workspace-tab="timeline"]');
+      if (container) setOpened({ id: item.id, trigger, container });
+    }} />
+    {selectedAppointment && opened && <ConnectedCalendarEventDialog key={opened.id} item={selectedAppointment}
+      pane={opened} onClose={() => setOpened(undefined)} />}
+  </>;
 }
 
 function TimelineProposalActions({ proposal, title, canAccept, busyKey, onDecision, onFocusedRemoval }: {

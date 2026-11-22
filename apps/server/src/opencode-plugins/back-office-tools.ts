@@ -1,3 +1,4 @@
+import { chatWorkdayAction } from "../time-capture/chat-workday-schema.js";
 import { BackOfficeQueryPageSchema } from "../views/schema.js";
 import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
@@ -40,11 +41,8 @@ export function backOfficeTools(ctx: Plugin.Context) {
   return [
     nativeTool(ctx, {
       name: "legalwork_timekeeping_workday",
-      description: "In the private Timekeeping project, read a day's visible time suggestions or prepare suggestions from enabled sources. Use suggest with revisionRequest only when the user asks to revise draft suggestions. This never books an entry or creates a standing instruction.",
-      schema: z.discriminatedUnion("action", [
-        z.strictObject({ action: z.literal("read"), date: z.iso.date() }),
-        z.strictObject({ action: z.literal("suggest"), date: z.iso.date(), revisionRequest: z.string().trim().min(1).max(2000).optional() }),
-      ]),
+      description: "In the private Timekeeping chat, read a day's enabled activity log, existing entries and suggestions. Read guidelines for each assigned matter, then publish evidence-backed draft suggestions directly to the timeline using the latest revision and guideline receipts. Only mark complete after reviewing the whole day. Nothing is booked.",
+      schema: chatWorkdayAction,
       execute: async (input, context) => {
         const id = await resolveWorkspaceId(context, { requireDirectory: true });
         const response = await fetch(serverUrl() + "/workspace/" + encodeURIComponent(id) + "/timekeeping/workday", {

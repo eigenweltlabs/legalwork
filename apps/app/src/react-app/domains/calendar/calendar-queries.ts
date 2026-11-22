@@ -1,6 +1,7 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { connectedCalendars, type ConnectedCalendar } from "./connected-calendars";
+import { useCalendarVisibility } from "./calendar-visibility";
 import { calendarCachePolicy, calendarClientScope, calendarEventRanges, connectedEventOptions } from "./calendar-cache";
 
 export type CalendarSource = { id: string; name: string; workspaceId: string; client: LegalworkServerClient };
@@ -58,4 +59,13 @@ export function useConnectedCalendarEvents(client: LegalworkServerClient | null,
   const pages = calendars.flatMap(calendar => calendarEventRanges(from, to).map(range => ({ calendar, ...range })));
   const queries = useQueries({ queries: pages.map(page => connectedEventOptions(client, page.calendar, page.from, page.to, timeZone)) });
   return queries.map((query, index) => ({ ...query, ...pages[index] }));
+}
+
+export function useVisibleConnectedCalendarEvents(client: LegalworkServerClient | null, scope: string, from: string, to: string) {
+  const connected = useConnectedCalendars(client);
+  const hidden = useCalendarVisibility(state => state.hidden[scope]) ?? [];
+  const calendars = connected.data?.calendars ?? [];
+  const eventQueries = useConnectedCalendarEvents(client, calendars.filter(calendar => !hidden.includes(calendar.key)), from, to);
+  const unavailable = [...new Set([...(connected.data?.unavailable ?? []), ...eventQueries.filter(result => result.isError).map(result => result.calendar.name)])];
+  return { connected, hidden, calendars, eventQueries, unavailable };
 }

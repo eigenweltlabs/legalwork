@@ -166,9 +166,9 @@ test("the wording pass distinguishes a foreground filename and file-open history
         matterId: input.evidence[0].matterId, projectId: "project", documentId: savedEdit ? "memo" : null, activity: null,
         startAt: at("09:00"), endAt: at("10:00"), workedMinutes: 60 }] });
       expect(input.entries[0].desktopUseOnly).toBe(!savedEdit);
-      expect(prompt).toContain("Used [filename] in [application].");
-      expect(prompt).toContain("a more specific action needs separate evidence");
-      return JSON.stringify({ wording: [{ index: 0, narrative: savedEdit ? "Revised indemnity clause." : "Used Indemnity markup.docx in Word." }] });
+      expect(prompt).toContain("Write one plain sentence for the client");
+      expect(prompt).toContain("An open file alone cannot establish a revision or outcome");
+      return JSON.stringify({ wording: [{ index: 0, narrative: savedEdit ? "Revised indemnity clause." : "Work on the indemnity provisions." }] });
     } });
   }
 });

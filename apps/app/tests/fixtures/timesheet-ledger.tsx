@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
+import type { LegalworkExtensionActionCall, LegalworkExtensionActionResult } from "../../src/app/lib/legalwork-server";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
 import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState, StopwatchAction, StopwatchState, WorkdayGenerationProgress } from "@legalwork/types/time-capture";
 
@@ -905,7 +906,7 @@ try {
   for (let i = 0; i < 20 && document.activeElement !== stopwatchMatter(); i++) await settle();
   assert.equal(document.activeElement, stopwatchMatter());
   assert.equal(button("Start stopwatch")?.disabled, true);
-  await selectPopup(t("timesheets.workday.matter"), "M · 26/12");
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.includes("26/12"))!.click());
   await press("Start stopwatch");
   for (let i = 0; i < 20 && document.activeElement !== stopwatchTrigger; i++) await settle();
   assert.equal(document.activeElement, stopwatchTrigger);
@@ -914,7 +915,7 @@ try {
   assert.equal(started.matterId, "matter", "app start updates the same profile snapshot read by the HUD");
 
   await press("Stopwatch");
-  assert.match(stopwatchMatter()?.textContent ?? "", /M · 26\/12/);
+  assert.match(document.querySelector('[data-slot="popover-content"]')?.textContent ?? "", /26\/12/);
   responseLost = true;
   await press("Stop stopwatch");
   for (let i = 0; i < 20 && (!block(recordedTimer) || document.activeElement !== stopwatchTrigger); i++) await settle();
@@ -1147,40 +1148,31 @@ try {
   let failSuggestionRequest = false;
   const liveDraft: CaptureProposal = { ...inlineTimer, key: crypto.randomUUID(), digest: "f".repeat(64),
     source: "documents", suggested: true, narrative: "Prepare client briefing from the reviewed activity" };
-  let releaseRun: ReturnType<typeof Promise.withResolvers<void>> | undefined;
-  let activeProgress: WorkdayGenerationProgress | null = null;
-  let generationSignal: AbortSignal | undefined;
-  let postedContext: unknown;
   const guidelines: CaptureState["guidelines"] = [];
   const privateDrafts: CaptureState["drafts"] = {};
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+    calendarOccurrences: async () => ({ occurrences: [] }),
+    connectorSavedStatus: async (provider?: string) => ({ configured: true, requiresSignIn: false, connectors: provider ? [{
+      id: provider, name: provider, configured: true, active: true, connections: [{ id: "me", createdAt: null, needsReconnect: false }],
+    }] : [] }),
+    callExtensionAction: async (call: LegalworkExtensionActionCall): Promise<LegalworkExtensionActionResult> => {
+      const event = { id: "one", title: call.extensionId + " appointment", start: base.date + "T10:00:00Z",
+        end: base.date + "T10:25:00Z", allDay: false, status: "confirmed", webUrl: null };
+      const result = call.action === "list_calendars" ? { calendars: [{ id: "primary", name: "My calendar" }] } :
+        { events: [event, { ...event, id: "gone", status: "cancelled" }, { ...event, id: "later", start: "2031-04-21T10:00:00Z", end: "2031-04-21T10:25:00Z" }] };
+      return { ok: true, extensionId: call.extensionId, action: call.action, result };
+    },
     privateGuidelineRules: async (_context: unknown, text: string) => text.includes("at least ten minutes")
       ? { rules: { minimumMinutes: 10, incrementMinutes: 6, enforceIncrement: true },
           evidence: { minimumMinutes: "at least ten minutes", incrementMinutes: "six-minute units", enforceIncrement: "six-minute units" }, notes: [] }
       : { rules: {}, evidence: {}, notes: [] },
     privateGuidelineText: async (_context: unknown, file: Blob) => file instanceof window.File && file.name === "scan.pdf"
       ? { text: "", textlessPages: [1] } : { text: "Use approved concise descriptions.", textlessPages: [2] },
-    privateWorkdayProgress: async (context: { date: string }, runId: string) => {
-      assert.deepEqual(context, postedContext, "progress belongs to the identity and date of the POST");
-      return activeProgress?.runId === runId ? activeProgress : null;
-    },
     privateWorkday: async (context: { date: string }, action?: CaptureAction, signal?: AbortSignal): Promise<CaptureState> => {
       if (action) workdayActions.push(action);
       if (action?.type === "suggest") {
         assert.match(action.runId ?? "", /^[0-9a-f-]{36}$/i);
-        postedContext = context;
-        if (failSuggestionRequest) throw new Error("Raw internal status from a rejected request");
-        if (releaseRun) {
-          assert.ok(signal);
-          generationSignal = signal;
-          activeProgress = { runId: action.runId!, date: context.date, phase: "wording", total: 2, completed: 1, proposals: [liveDraft] };
-          const gate = releaseRun;
-          const abort = () => gate.reject(signal.reason);
-          signal.addEventListener("abort", abort, { once: true });
-          try { await gate.promise; signal.throwIfAborted(); }
-          finally { signal.removeEventListener("abort", abort); activeProgress = null; }
-          workdayProposals.push(liveDraft);
-        }
+        if (failSuggestionRequest) throw Error("Rejected request");
         modelStatus = "ready";
         modelReason = undefined;
       }
@@ -1247,6 +1239,24 @@ try {
   assert.equal(workdayActions.some(action => action.type === "suggest"), false,
     "opening the workday reads its private state without starting a reconstruction");
   assert.ok(block(inlineTimer), "the default mode keeps the stopped timer visible");
+  const appointments = () => [...document.querySelectorAll<HTMLButtonElement>("[data-workday-appointment]")];
+  await until(() => appointments().length === 2);
+  assert.deepEqual(appointments().map(item => item.textContent).sort(), ["Calendargoogle-calendar appointment", "Calendaroutlook-calendar appointment"]);
+  assert.ok(appointments().every(item => !item.hasAttribute("data-proposal-id")));
+  const expand = document.querySelector<HTMLButtonElement>('[aria-label="Expand day timeline"]')!;
+  const panesBefore = [...document.querySelectorAll("[data-document-pane]")].map(pane => pane.getAttribute("data-document-pane"));
+  await act(async () => expand.click());
+  assert.equal(document.querySelectorAll("[data-document-pane]").length, 1);
+  assert.equal(expand.getAttribute("aria-pressed"), "true");
+  assert.ok(!document.fullscreenElement);
+  await act(async () => appointments()[0].click());
+  const meetingDetails = document.querySelector('[data-workspace-tab="timeline"] [role="dialog"][data-open]');
+  assert.ok(meetingDetails?.textContent?.includes("My calendar"));
+  assert.ok(!meetingDetails?.querySelector("[data-calendar-proposal-actions]"));
+  await act(async () => meetingDetails!.querySelector<HTMLButtonElement>('[data-slot="dialog-close"]')!.click());
+  await act(async () => expand.click());
+  assert.deepEqual([...document.querySelectorAll("[data-document-pane]")].map(pane => pane.getAttribute("data-document-pane")), panesBefore);
+
   assert.match(document.body.textContent ?? "", /Unchecked/);
   const { TimeTrackingSettingsView } = await import("../../src/react-app/domains/settings/pages/time-tracking-view");
   const settingsClient = { ...workdayClient, activityProfile: async () => ({
@@ -1433,7 +1443,6 @@ try {
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => workdayAlert() === t("timeWorkspace.failed"));
   const suggestionCalls = () => workdayActions.filter(action => action.type === "suggest");
-  const livePreview = () => document.querySelector<HTMLButtonElement>("[data-suggestion-preview]");
   const confirmationDialog = () => document.querySelector<HTMLElement>('[role="dialog"][data-suggestion-confirmation]');
   const confirmationButton = (label: string) => [...confirmationDialog()?.querySelectorAll<HTMLButtonElement>("button") ?? []]
     .find(button => button.textContent === label);
@@ -1495,43 +1504,16 @@ try {
   assert.equal(suggestionCalls().length, beforeCheck + 1);
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
   failSuggestionRequest = false;
-  const holdGeneration = async () => {
-    releaseRun = Promise.withResolvers<void>();
-    await press(t("timeWorkspace.addSuggestions"));
-    await confirmSuggestions();
-    await until(livePreview);
-    const preview = livePreview();
-    assert.ok(preview);
-    assert.equal(preview.getAttribute("aria-disabled"), "true");
-    assert.ok(preview.textContent?.includes(liveDraft.narrative));
-    assert.ok(![...document.querySelectorAll("[data-calendar-proposal-actions]")].some(
-      rail => rail.getAttribute("aria-label")?.includes(liveDraft.narrative)), "a live preview has no booking or dismissal actions");
-    assert.equal(block(liveDraft), null, "the preview is not a committed row");
-    const progress = document.querySelector("progress");
-    assert.equal(progress?.getAttribute("value"), "1");
-    assert.equal(progress?.getAttribute("max"), "2");
-    await act(async () => preview.click());
-    assert.equal(proposalForm(liveDraft), null);
-    return releaseRun;
-  };
-  await holdGeneration();
-  const cancelRun = [...document.querySelectorAll<HTMLButtonElement>(".time-suggestion-feedback button")]
-    .find(candidate => candidate.textContent === t("common.cancel"));
-  assert.ok(cancelRun);
-  await act(async () => cancelRun.click());
-  await until(() => livePreview() === null);
-  assert.ok(generationSignal?.aborted);
-  assert.equal(livePreview(), null);
-  assert.equal(block(liveDraft), null);
-  const finishing = await holdGeneration();
-  await act(async () => finishing.resolve());
+  await press(t("timeWorkspace.addSuggestions"));
+  await confirmSuggestions();
+  assert.equal(suggestionCalls().length, beforeCheck + 2);
+  assert.ok(!document.querySelector("progress"));
+  assert.ok(document.querySelector('[data-workspace-tab="chat"]'));
+  await press(t("timesheets.timeline"));
+  workdayProposals.push(liveDraft);
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(liveDraft)));
-  assert.ok(block(liveDraft), "the completed draft becomes reviewable");
-  assert.equal(livePreview(), null);
-  assert.equal(document.querySelectorAll(`[data-proposal-id="${liveDraft.key}"]`).length, 1);
-  assert.equal(new Set(suggestionCalls().map(action => action.runId)).size, beforeCheck + 3);
-  assert.equal(block(inlineTimer), null, "retry uses the recovered model for the same day");
-  releaseRun = undefined;
+  assert.ok(block(liveDraft), "a draft published by the chat appears in the timeline");
 
   await press("Week");
   const weekDays = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")];

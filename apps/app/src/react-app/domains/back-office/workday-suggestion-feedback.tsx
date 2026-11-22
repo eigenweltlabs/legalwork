@@ -3,15 +3,7 @@ import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } fr
 import { ItemDialogContent } from "@/react-app/design-system/item-detail";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import type { WorkdayGenerationProgress } from "@legalwork/types/time-capture";
 import { formatCalendarDay } from "../calendar/calendar-format";
-
-const phases = {
-  collecting: "timeWorkspace.collectingActivity",
-  grouping: "timeWorkspace.groupingActivity",
-  wording: "timeWorkspace.preparingDrafts",
-  saving: "timeWorkspace.savingDrafts",
-} as const;
 
 export function WorkdaySuggestionConfirmation({ date, container, trigger, onStart, onCancel }: {
   date: string; container: HTMLElement; trigger: HTMLButtonElement; onStart: () => void; onCancel: () => void;
@@ -58,25 +50,4 @@ export function WorkdaySuggestionConfirmation({ date, container, trigger, onStar
       </DialogFooter>
     </ItemDialogContent>
   </Dialog>;
-}
-
-export function WorkdaySuggestionFeedback({ running, progress, finished, onCancel }: {
-  running: boolean; progress?: WorkdayGenerationProgress | null; finished?: number; onCancel: () => void;
-}) {
-  if (running) {
-    const phase = t(phases[progress?.phase ?? "collecting"]);
-    const total = progress?.total;
-    return <div className="time-suggestion-feedback">
-      <div className="flex items-center justify-between gap-2">
-        <span role="status">{phase}{typeof total === "number" && total > 0 && " · " + (progress?.completed ?? 0) + " / " + total}</span>
-        <Button data-generation-cancel variant="ghost" size="xs" onClick={onCancel}>{t("common.cancel")}</Button>
-      </div>
-      <progress aria-label={phase} className="time-suggestion-progress" max={total || 1}
-        value={total ? progress?.completed : undefined} />
-    </div>;
-  }
-  if (finished !== undefined) return <p className="time-workspace-note" role="status">
-    {finished ? t("timeWorkspace.finishedGeneration", { count: finished }) : t("timeWorkspace.finishedEmpty")}
-  </p>;
-  return null;
 }

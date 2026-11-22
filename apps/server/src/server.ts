@@ -976,7 +976,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, assistantRuntime.startTimeReview);
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
@@ -1339,7 +1339,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     void scheduleFirmHubSync(config, { force: true });
     wikiSync.start();
     await assistantRuntime.start();
-    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(signal => checkScheduledWorkday(config, { signal })));
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(signal => checkScheduledWorkday(config, { signal, startChat: assistantRuntime.startTimeReview })));
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1945,6 +1945,7 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  startTimeReview: Awaited<ReturnType<typeof createAssistantRuntime>>["startTimeReview"],
 ): Route[] {
   const routes: Route[] = [];
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
@@ -1978,7 +1979,7 @@ function createRoutes(
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
-  registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace});
+  registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace,startChat: startTimeReview});
   for (const method of ["GET","POST"]) addRoute(routes, method, "/private-timesheet/activity", "host-token", async ctx => {
     if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
     if (method === "GET") {

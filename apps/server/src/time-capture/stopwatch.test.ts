@@ -58,6 +58,17 @@ test("an existing project-only timer keeps its clock until the user selects a ma
   expect(saved.days["2026-11-17"][0].proposal).toMatchObject({ startAt: start, matterId: "chosen-matter", projectId: null, workedMinutes: 20 });
 });
 
+test("the stopped timer uses the latest quick note for its matter's description", () => {
+  const date = "2026-11-17";
+  for (const [endNote, expected] of [[undefined, "Reviewed lease"], ["Checked rent schedule", "Checked rent schedule"], ["", "Stopwatch"]] as const) {
+    const saved: Parameters<typeof changeStopwatch>[0] = { stopwatch: emptyStopwatch(), days: {}, originals: {} };
+    const id = randomUUID();
+    changeStopwatch(saved, { type: "start", id, matterId: "matter", note: "Reviewed lease" }, new Date(date + "T09:00:00Z"), "UTC");
+    changeStopwatch(saved, { type: "stop", id, note: endNote }, new Date(date + "T09:20:00Z"), "UTC");
+    expect(saved.days[date][0].proposal).toMatchObject({ matterId: "matter", narrative: expected, workedMinutes: 20 });
+  }
+});
+
 test("stopwatch invoices round the exact interval once, retaining its raw timestamps and worked minutes", () => {
   const policy = resolveTimePolicy([], "", "", "2026-11-17");
   for (const { seconds, worked, up, nearest } of [

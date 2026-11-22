@@ -25,6 +25,8 @@ let stopwatch = null;
 let stopwatchLabels;
 const stopwatchPanel = document.getElementById("stopwatch-panel");
 const stopwatchMatters = document.getElementById("stopwatch-matters");
+const matterSearch = document.getElementById("stopwatch-search");
+const quickNote = document.getElementById("stopwatch-note");
 const stopwatchConfirm = document.getElementById("stopwatch-confirm");
 let selectedStopwatchMatter = null;
 let pendingStopwatchAction = null;
@@ -35,7 +37,7 @@ let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
-    stopwatchTitle: "Stopwatch", stopwatchMatter: "Matter", noMatters: "No matters available",
+    stopwatchTitle: "Stopwatch", stopwatchMatter: "Search matters", quickNote: "Quick note", noMatches: "No matching matters", noMatters: "No matters available",
     stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
     stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Time tracking",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
@@ -48,7 +50,7 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
-    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat", noMatters: "Keine Mandate verfügbar",
+    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat suchen", quickNote: "Kurznotiz", noMatches: "Keine passenden Mandate", noMatters: "Keine Mandate verfügbar",
     stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
     stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit in der Zeiterfassung gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
@@ -106,28 +108,36 @@ function renderStopwatch() {
 }
 
 function closeStopwatchPanel() {
+  if (!stopwatchPanel.hidden) bridge.action("stopwatch-close");
   stopwatchPanel.hidden = true;
   setHover(null);
 }
 function renderStopwatchPanel() {
   if (!stopwatch || !stopwatchLabels) return;
   const matters = stopwatch.matters ?? [];
+  const filtered = matters.filter(matter => matter.name.toLocaleLowerCase().includes(matterSearch.value.trim().toLocaleLowerCase()));
+  matterSearch.placeholder = stopwatchLabels.stopwatchMatter;
+  matterSearch.setAttribute("aria-label", stopwatchLabels.stopwatchMatter);
+  document.getElementById("stopwatch-note-label").textContent = stopwatchLabels.quickNote;
   stopwatchMatters.setAttribute("aria-label", stopwatchLabels.stopwatchMatter);
   if (selectedStopwatchMatter && !matters.some(matter => matter.id === selectedStopwatchMatter)) selectedStopwatchMatter = null;
   document.getElementById("stopwatch-heading").textContent = stopwatchLabels.stopwatchTitle;
   document.getElementById("stopwatch-close").setAttribute("aria-label", stopwatchLabels.dismiss);
-  const signature = JSON.stringify([matters, selectedStopwatchMatter, stopwatchLabels.noMatters, stopwatch.busy, stopwatch.unavailable, stopwatch.enabled]);
+  const signature = JSON.stringify([filtered, selectedStopwatchMatter, stopwatchLabels.noMatters, stopwatch.busy, stopwatch.unavailable, stopwatch.enabled]);
   if (signature !== matterListSignature) {
     matterListSignature = signature;
-    stopwatchMatters.replaceChildren(...matters.map(matter => {
+    stopwatchMatters.replaceChildren(...filtered.map(matter => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = matter.name;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(matter.id === selectedStopwatchMatter));
       button.disabled = stopwatch.busy || stopwatch.unavailable || (!stopwatch.enabled && Boolean(stopwatch.matterId));
       button.setAttribute("aria-pressed", String(matter.id === selectedStopwatchMatter));
       button.addEventListener("click", () => {
         awaitingMatterContext = false;
         selectedStopwatchMatter = matter.id;
+        matterSearch.value = matter.name;
         if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, matter.id);
         renderStopwatchPanel();
       });
@@ -136,23 +146,37 @@ function renderStopwatchPanel() {
   }
   document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
     ? stopwatchLabels.stopwatchFailed
-    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : !matters.length ? stopwatchLabels.noMatters : "";
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : !matters.length ? stopwatchLabels.noMatters : !filtered.length ? stopwatchLabels.noMatches : "";
   stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
     : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
   stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.unavailable && !(stopwatch.startedAt ? stopwatch.matterId : selectedStopwatchMatter));
 }
+matterSearch.addEventListener("input", () => {
+  if (!stopwatch?.startedAt) selectedStopwatchMatter = null;
+  renderStopwatchPanel();
+});
+matterSearch.addEventListener("keydown", event => {
+  const first = stopwatchMatters.querySelector("button:not(:disabled)");
+  if (first && (event.key === "ArrowDown" || event.key === "Enter")) {
+    event.preventDefault();
+    if (event.key === "Enter") first.click(); else first.focus();
+  }
+});
 document.getElementById("stopwatch-close").addEventListener("click", closeStopwatchPanel);
 stopwatchConfirm.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   pendingStopwatchAction = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
-  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchMatter ?? undefined : undefined);
+  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchMatter ?? undefined : undefined, quickNote.value);
 });
 stopwatchButton.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
   if (!stopwatchPanel.hidden) return closeStopwatchPanel();
   awaitingMatterContext = true;
   selectedStopwatchMatter = stopwatch.matterId ?? null;
+  matterSearch.value = "";
+  quickNote.value = stopwatch.note ?? "";
   stopwatchPanel.hidden = false;
+  matterSearch.focus();
   renderStopwatchPanel();
   bridge.action("stopwatch-prepare", stopwatch.version);
 });
@@ -182,6 +206,10 @@ bridge.onState((value) => {
   if (stopwatch && (awaitingMatterContext || previousStopwatch?.version !== stopwatch.version)) {
     selectedStopwatchMatter = stopwatch.matterId ?? null;
     awaitingMatterContext = false;
+  }
+  if (previousStopwatch?.startedAt !== stopwatch?.startedAt || (previousStopwatch && stopwatch && previousStopwatch.version !== stopwatch.version && !stopwatch.startedAt)) {
+    quickNote.value = stopwatch?.note ?? "";
+    matterSearch.value = "";
   }
   if (!stopwatch) closeStopwatchPanel();
   if (pendingStopwatchAction && previousStopwatch?.busy && !stopwatch?.busy) {

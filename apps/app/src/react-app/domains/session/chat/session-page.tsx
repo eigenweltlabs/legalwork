@@ -1255,7 +1255,7 @@ export function SessionPage(props: SessionPageProps) {
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <h1 className={page ? "sr-only" : "truncate text-[13px] font-medium tracking-[-0.01em]"}>{windowTitle}</h1>
-              {page && <div ref={setWorkspaceHeaderTarget} className="flex min-w-0 max-w-full overflow-x-auto [scrollbar-width:none]" />}
+              {page && <div ref={setWorkspaceHeaderTarget} className="flex min-w-0 flex-1 max-w-full overflow-x-auto [scrollbar-width:none]" />}
               {props.developerMode && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
               {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
             </div>

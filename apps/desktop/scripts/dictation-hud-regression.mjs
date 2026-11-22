@@ -50,10 +50,11 @@ app.whenReady().then(async () => {
   const stopwatchRequest = async (action, profile) => {
     if (action) {
       assert.equal(profile, "fixture");
-      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), matterId: action.matterId ?? null };
+      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString(), matterId: action.matterId ?? null, note: action.note };
       else if (action.type === "assign") timerState.active.matterId = action.matterId ?? null;
       else {
         assert.equal(action.id, timerState.active.id);
+        assert.equal(action.note ?? timerState.active.note, "Checked the rent schedule");
         timerState.active = null;
         timerState.lastStopped = { id: action.id, stoppedAt: new Date().toISOString(), date: "2026-11-15" };
       }
@@ -159,11 +160,19 @@ app.whenReady().then(async () => {
         })()`), [["start", "meeting-start", "stopwatch"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 94, "1"]);
         await click(previous);
         assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
+        await read(`(() => {
+          const search = document.getElementById("stopwatch-search");
+          search.value = "review";
+          search.dispatchEvent(new Event("input"));
+          document.getElementById("stopwatch-note").value = "Checked the rent schedule";
+        })()`);
+        assert.equal(await read('document.querySelectorAll("#stopwatch-matters button").length'), 1);
         await read('document.querySelector("#stopwatch-matters button").click()');
         assert.equal(await read('document.querySelector("#stopwatch-matters button[aria-pressed=true]").textContent'), "Matter review · Demo");
         assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " matter panel stays on screen");
         if (output) await writeFile(path.join(output, "stopwatch-matter-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
         await click(await center("stopwatch-confirm"));
+        assert.equal(timerState.active?.note, "Checked the rent schedule");
         assert.equal(timerState.active?.matterId, "test-matter", "start retains the selected matter");
         await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "starting closes the matter panel");
         assert.ok(timerState.active, dock + " starts the timer");

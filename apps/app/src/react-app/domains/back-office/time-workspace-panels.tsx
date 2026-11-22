@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
-import { CalendarDays, List, MessageSquare, ReceiptText } from "lucide-react";
+import { CalendarDays, List, MessageSquare, ReceiptText, Loader2 } from "lucide-react";
 import { BackOfficeSurface } from "./twenty-controls";
 import { z } from "@legalwork/types/back-office";
 import { t } from "@/i18n";
@@ -72,17 +72,31 @@ function InvoicePane({ shown, children }: { shown: boolean; children: ReactNode 
     : null;
 }
 
-export function TimeWorkspacePanels({ scope, entries, timeline, chat, invoices, requestedTab, visible = true }: {
+export function TimeWorkspacePanels({ scope, entries, timeline, chat, chatBusy, invoices, requestedTab, visible = true }: {
   scope: string;
   entries: ReactNode;
   invoices?: ReactNode;
   requestedTab?: "entries" | "invoices";
-  timeline: (view: TimelineView, choose: (view: TimelineView) => void) => ReactNode;
+  timeline: (view: TimelineView, choose: (view: TimelineView) => void, expanded: boolean, toggleExpanded: () => void, openChat: () => void) => ReactNode;
   chat: (visible: boolean) => ReactNode;
+  chatBusy?: boolean;
   visible?: boolean;
 }) {
   const sessionId = "timekeeping:" + scope;
   const locale = useLocale();
+  const [expanded, setExpanded] = useState(false);
+  const timelineId = idFor("timeline");
+  const timelineFocused = usePanelTabStore(state => {
+    const session = state.sessions[sessionId];
+    return Boolean(session?.panes.some(pane => pane.id === session.focusedPaneId && pane.activeTabId === timelineId));
+  });
+  useLayoutEffect(() => {
+    if (!visible || !timelineFocused) setExpanded(false);
+  }, [visible, timelineFocused]);
+  function toggleExpanded() {
+    usePanelTabStore.getState().selectTab(sessionId, timelineId);
+    setExpanded(value => !value);
+  }
   const timelineKey = sessionId + ":timeline";
   const [view, setView] = useState<TimelineView>(() => {
     try {
@@ -110,15 +124,27 @@ export function TimeWorkspacePanels({ scope, entries, timeline, chat, invoices, 
   const contents: Record<View, WorkspacePage["content"]> = {
     entries: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</BackOfficeSurface>,
     invoices: shown => <InvoicePane shown={shown}>{invoices}</InvoicePane>,
-    timeline: <section className="time-workspace-timeline" data-workspace-tab="timeline" tabIndex={-1} aria-label={t(labelKeys.timeline, locale)}>{timeline(view, chooseView)}</section>,
+    timeline: <section className="time-workspace-timeline" data-workspace-tab="timeline" tabIndex={-1} aria-label={t(labelKeys.timeline, locale)}
+      onKeyDown={event => {
+        if (!expanded || event.key !== "Escape" || event.defaultPrevented ||
+            event.currentTarget.querySelector('[role="dialog"][data-open], [aria-haspopup][aria-expanded="true"]')) return;
+        event.stopPropagation();
+        setExpanded(false);
+      }}>{timeline(view, chooseView, expanded, toggleExpanded, () => {
+        const store = usePanelTabStore.getState();
+        const tab = tabFor("chat");
+        const layout = store.sessions[sessionId];
+        if (layout?.tabs.some(item => item.id === tab.id)) store.selectTab(sessionId, tab.id);
+        else store.openTab(sessionId, tab, layout?.panes.find(pane => pane.tabIds.includes(timelineId))?.id);
+      })}</section>,
     chat: shown => <section className="time-workspace-chat" data-workspace-tab="chat">{chat(shown)}</section>,
   };
   const pages = viewSchema.options.filter(id => id !== "invoices" || withInvoices).map((id): WorkspacePage => {
     const Icon = icons[id];
-    return { id: idFor(id), type: "workspace-page", label: t(labelKeys[id], locale), icon: <Icon />, content: contents[id] };
+    return { id: idFor(id), type: "workspace-page", label: t(labelKeys[id], locale), icon: id === "chat" && chatBusy ? <Loader2 className="animate-spin" aria-label={t("session.assistant_thinking")} /> : <Icon />, content: contents[id] };
   });
   return <div className="time-workspace-panels">
     <SidePanel sessionId={sessionId} workspaceId={null} workspaceRoot="" client={null} visible={visible}
-      pageCatalog={{ pages, resetLabel: t("timeWorkspace.reset"), onReset: () => { installLayout(sessionId, withInvoices); chooseView("combined"); } }} />
+      pageCatalog={{ pages, focusMode: expanded && timelineFocused, resetLabel: t("timeWorkspace.reset"), onReset: () => { installLayout(sessionId, withInvoices); chooseView("combined"); } }} />
   </div>;
 }

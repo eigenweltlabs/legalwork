@@ -65,7 +65,7 @@ export function TimeWorkspaceChat({ client, identity, date, data, visible }: {
     {host.render(chat.data.day.sessionId, focused, {
       date: chat.data.day.date, model: saved, modelChanged,
       history: (before, limit, after) => client.privateTimeHistory(profileId, before, limit, after),
-      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read or revise private suggestions when asked. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
+      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read the day log, existing entries and drafts. Read guidelines for each assigned matter, then publish grounded, client-ready drafts as you prepare them. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
     })}
   </ChatWorkspaceContext.Provider>;
 }

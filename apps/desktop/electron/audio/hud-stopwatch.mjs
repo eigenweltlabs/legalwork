@@ -53,6 +53,7 @@ export class HudStopwatch {
       version: this.version,
       startedAt: this.state?.active?.startedAt ?? null,
       matterId: this.state?.active?.matterId ?? null,
+      note: this.state?.active?.note,
       matters: this.state?.matters ?? [],
       unavailable: !this.state,
       busy: this.mutation,
@@ -72,7 +73,7 @@ export class HudStopwatch {
     return this.reading;
   }
 
-  async act(type, version, matterId) {
+  async act(type, version, matterId, note) {
     if (this.reading) await this.reading;
     if (this.mutation || version !== this.version) return;
     if (type === "retry" || type === "prepare" || !this.state) return this.refresh(true);
@@ -82,10 +83,10 @@ export class HudStopwatch {
     if (this.state.enabled === false && (type === "start" || (type === "assign" && this.state.active?.matterId))) return;
     if ((type !== "start") !== Boolean(this.state.active)) return;
     const profileId = this.state.profileId;
-    const action = type === "stop" ? { type, id: this.state.active.id }
+    const action = type === "stop" ? { type, id: this.state.active.id, ...(note !== undefined ? { note } : {}) }
       : type === "assign" ? { type, id: this.state.active.id, matterId }
-      : this.retry?.profileId === profileId && this.retry.action.type === type && this.retry.action.matterId === matterId
-        ? this.retry.action : { type, id: randomUUID(), matterId };
+      : this.retry?.profileId === profileId && this.retry.action.type === type && this.retry.action.matterId === matterId && this.retry.action.note === note
+        ? this.retry.action : { type, id: randomUUID(), matterId, ...(note !== undefined ? { note } : {}) };
     this.retry = { profileId, action };
     this.mutation = true;
     this.savedUntil = 0;

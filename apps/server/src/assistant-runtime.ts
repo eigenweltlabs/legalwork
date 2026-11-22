@@ -1,3 +1,6 @@
+import { registeredMessageQueue } from "./session-message-queue.js";
+import { dispatchQueueAction } from "./session-dispatch.js";
+import { localWorkdayModel, type WorkdayModel } from "./back-office/timesheet-schema.js";
 import { assistantSubscriptionAvailable, requireAssistantSubscription } from "./assistant-subscription.js";
 import { resolve } from "node:path";
 import { ApiError } from "./errors.js";
@@ -17,7 +20,7 @@ import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
 import { migrateMorningBriefing } from "./assistant-briefing.js";
-import { registerTimeChatRoutes } from "./time-capture/chat-project.js";
+import { openTimekeepingProject, registerTimeChatRoutes } from "./time-capture/chat-project.js";
 import { registerAssistantProactivityRoutes } from "./routes/assistant-proactivity.js";
 import { startAssistantProactivity } from "./assistant-proactivity.js";
 import { assistantLanguageContext } from "./assistant-language-context.js";
@@ -151,6 +154,31 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   if (!options.deferStart) await start();
   return {
     register, start,
+    async startTimeReview(profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">) {
+      const workspace = await openTimekeepingProject(config, profileId, options.changed);
+      const { day } = await mainAssistant.projectDay(workspace);
+      const authority = { scope: "owner" as const, scheduledProjects: [workspace.id] };
+      await assistantSessionAccess.authorize(day.sessionId, workspace.path, authority);
+      const prompt = "Review my work on " + date + " and create client-ready time suggestions. Use the timekeeping workday tool to read my activity, booked entries and existing drafts. Read the guidelines for each matter, then publish the suggestions to my timeline as you prepare them." +
+        " Describe the human work in concise invoice language and omit activity you cannot substantiate.";
+      const queue = registeredMessageQueue(config);
+      if (!queue) throw new ApiError(503, "queue_unavailable", "The chat queue is starting. Try again.");
+      const native = createWorkspaceOpencodeClient(config, workspace).native;
+      const session = await native.session.get({ sessionID: day.sessionId });
+      const models = (await native.model.list({ location: session.location })).data;
+      if (model?.providerID === localWorkdayModel.providerID && model.modelID === localWorkdayModel.modelID &&
+          !models.some(item => item.providerID === model.providerID && (item.id === model.modelID || item.modelID === model.modelID)))
+        throw new ApiError(409, "timekeeping_model", "The selected local model is unavailable. Choose a model in the Timekeeping chat.");
+      const agents = (await native.agent.list({ location: session.location })).data.filter(item => !item.hidden && item.mode !== "subagent");
+      const agent = agents.find(item => item.id === session.agent) ?? agents[0];
+      if (!agent) throw new ApiError(409, "timekeeping_chat", "Choose an available agent in the Timekeeping chat.");
+      const action = dispatchQueueAction({ kind: "prompt", id: "msg_time_" + requestId, text: prompt, agent: agent.id,
+        ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}) });
+      const submitted = await queue.act(workspace.id, day.sessionId, action);
+      const receipt = submitted.entries.find(item => item.id === action.id);
+      if (receipt?.status === "failed" || receipt?.status === "uncertain") throw new ApiError(409, "timekeeping_chat", receipt.error ?? "Check the Timekeeping chat.");
+      announceSyncChange(config, "sessions");
+    },
     scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => {
       if (!isMainAssistant(workspace)) return null;
       await requireAssistantSubscription(config);
