@@ -80,6 +80,7 @@ test("persists the complete source day log before inference and preserves it whe
     ] });
     expect(JSON.parse(await readFile(path, "utf8")).checkedThrough[date]).toBeUndefined();
     await check(9, async () => { throw Error("Synthetic provider outage"); });
+    expect(JSON.parse(await readFile(path, "utf8")).reconstruction[date].status.reason).toBe("sources_failed");
     expect(await readFile(logfile, "utf8")).toBe(log);
     await check(10, async () => source.map(item => ({ ...item, proposal: { ...item.proposal, key: crypto.randomUUID() } })));
     const repeated = JSON.parse(await readFile(logfile, "utf8"));

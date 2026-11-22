@@ -133,6 +133,7 @@ export type PrivateBookingRevision = z.infer<typeof privateBookingRevisionSchema
 const wordingSchema = z.object({ narrative: z.string().trim().min(1).max(2000), activity: z.string().trim().min(1).max(100) });
 export const workdayStatusSchema = z.object({
   type: z.enum(["ready", "unavailable", "failed"]), message: z.string(), failedSources: z.array(captureAccountSchema).optional(),
+  reason: z.enum(["timeout", "invalid_output", "model_unavailable", "provider_failed", "sources_failed"]).optional(),
 });
 export const workdayGuidelineSchema = z.strictObject({
   id: z.uuid(), revision: z.number().int().nonnegative(), name: z.string().trim().min(1).max(240),

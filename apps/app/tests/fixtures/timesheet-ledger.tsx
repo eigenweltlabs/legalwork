@@ -1116,6 +1116,9 @@ try {
   let workdayProposals = [exact, partial, inlineTimer, unedited];
   let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 };
   let modelStatus: NonNullable<CaptureState["status"]>["type"] = "ready";
+  let modelReason: NonNullable<CaptureState["status"]>["reason"];
+  let reportFailedSource = true;
+  let failSuggestionRequest = false;
   const guidelines: CaptureState["guidelines"] = [];
   const privateDrafts: CaptureState["drafts"] = {};
   const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
@@ -1127,7 +1130,11 @@ try {
       ? { text: "", textlessPages: [1] } : { text: "Use approved concise descriptions.", textlessPages: [2] },
     privateWorkday: async (context: { date: string }, action?: CaptureAction): Promise<CaptureState> => {
       if (action) workdayActions.push(action);
-      if (action?.type === "suggest") modelStatus = "ready";
+      if (action?.type === "suggest") {
+        if (failSuggestionRequest) throw new Error("Raw internal status from a rejected request");
+        modelStatus = "ready";
+        modelReason = undefined;
+      }
       if (action?.type === "settings") workdaySettings = action.settings;
       if (action?.type === "settings-patch") {
         const { change } = action;
@@ -1151,8 +1158,8 @@ try {
       if (action?.type === "guideline") guidelines.push({ ...action.guideline, revision: action.guideline.revision + 1 });
       return {
         settings: workdaySettings, modelReady: false, connections: [], guidelines: [...guidelines],
-        status: { type: modelStatus, message: "Raw internal status must stay private",
-          failedSources: modelStatus === "failed" ? [{ provider: "gmail", account: "a".repeat(64), name: "review@example.test" }] : undefined },
+        status: { type: modelStatus, reason: modelReason, message: "Raw internal status must stay private",
+          failedSources: modelStatus === "failed" && reportFailedSource ? [{ provider: "gmail", account: "a".repeat(64), name: "review@example.test" }] : undefined },
         drafts: Object.fromEntries(Object.entries(privateDrafts).filter(([, draft]) => draft.date === context.date)),
         proposals: workdayProposals.filter(proposal => proposal.date === context.date
           && (workdaySettings.calendar || proposal.source !== "calendar")
@@ -1355,8 +1362,32 @@ try {
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(inlineTimer)));
   assert.ok(block(inlineTimer), "a failed model leaves the manual timer accessible");
-  assert.ok(document.body.textContent?.includes(t("timeWorkspace.sourcesFailed", { sources: t("timesheets.source.gmail") + " (review@example.test)" })));
+  const namedSourceFailure = t("timeWorkspace.sourcesFailed", { sources: t("timesheets.source.gmail") + " (review@example.test)" });
+  const workdayAlert = () => document.querySelector('.time-workspace-note[role="alert"]')?.textContent ?? "";
+  assert.equal(workdayAlert(), namedSourceFailure, "a saved source-only error without a reason stays readable");
+  for (const [reason, label] of [
+    ["timeout", "timeWorkspace.suggestionsTimedOut"], ["invalid_output", "timeWorkspace.suggestionsInvalid"],
+    ["model_unavailable", "timeWorkspace.unavailable"], ["provider_failed", "timeWorkspace.suggestionsModelFailed"],
+  ] as const) {
+    modelReason = reason;
+    await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+    await until(() => workdayAlert().includes(t(label)));
+    assert.ok(workdayAlert().includes(namedSourceFailure), "the named account failure remains visible with a model error");
+  }
+  modelReason = "sources_failed";
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+  await until(() => workdayAlert() === namedSourceFailure);
+  reportFailedSource = false;
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+  await until(() => workdayAlert() === t("timeWorkspace.suggestionsSourcesFailed"));
+  modelReason = undefined;
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+  await until(() => workdayAlert() === t("timeWorkspace.failed"));
+  failSuggestionRequest = true;
+  await press(t("timeWorkspace.addSuggestions"));
+  await until(() => document.querySelector(".time-workspace-status")?.textContent === t("timeWorkspace.failed"));
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
+  failSuggestionRequest = false;
   await press(t("timeWorkspace.addSuggestions"));
   await until(() => !block(inlineTimer));
   assert.deepEqual(workdayActions.find(action => action.type === "suggest"), { type: "suggest" });

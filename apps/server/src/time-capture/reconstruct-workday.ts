@@ -58,7 +58,7 @@ export const workdayModelOutputSchema = z.strictObject({
         documentId: reference.nullable(),
         documentTitle: z.string().trim().min(1).max(240).optional(),
         projectId: reference.nullable(),
-        activity: z.string().min(1).max(100),
+        activity: z.string().min(1).max(100).nullable(),
         narrative: z.string().trim().min(1).max(2000),
         startAt: z.iso.datetime({ offset: true }).nullable(),
         endAt: z.iso.datetime({ offset: true }).nullable(),
@@ -273,6 +273,7 @@ export function reconstructWorkday(
         (!row.projectId || ref.item.proposal.projectId === row.projectId),
     )?.rules;
     if (
+      row.activity !== null &&
       !Object.hasOwn(timeActivities, row.activity) &&
       !Object.hasOwn(policy?.activityLabels ?? {}, row.activity)
     )
@@ -350,7 +351,6 @@ export function reconstructWorkday(
     if (
       measuredMinutes > 1440 ||
       (row.workedMinutes !== null && row.workedMinutes !== measuredMinutes) ||
-      (clocks && row.workedMinutes !== (measuredMinutes || null)) ||
       (clocks &&
         !measuredMinutes &&
         !sources.some((proposal) => proposal.source === "stopwatch"))
@@ -408,11 +408,11 @@ export function reconstructWorkday(
       workProductId: row.documentId
         ? scopedDocument?.item.proposal.workProductId
         : undefined,
-      activity: row.activity,
+      activity: row.activity ?? "",
       narrative: wording.slice(0, 2000),
       startAt: clocks ? new Date(clocks.from).toISOString() : null,
       endAt: clocks ? new Date(clocks.to).toISOString() : null,
-      workedMinutes: row.workedMinutes,
+      workedMinutes: clocks ? measuredMinutes || null : row.workedMinutes,
       ...(row.estimatedMinutes !== undefined ? { estimatedMinutes: row.estimatedMinutes, estimateReason: row.estimateReason,
         observedAt: origin.item.proposal.observedAt } : {}),
     };

@@ -34,6 +34,28 @@ export type RenderTimeWorkspace = (
   proposals?: CaptureProposal[],
 ) => ReactNode;
 
+const suggestionFailureKeys = {
+  timeout: "timeWorkspace.suggestionsTimedOut",
+  invalid_output: "timeWorkspace.suggestionsInvalid",
+  model_unavailable: "timeWorkspace.unavailable",
+  provider_failed: "timeWorkspace.suggestionsModelFailed",
+  sources_failed: "timeWorkspace.suggestionsSourcesFailed",
+} as const;
+
+function SuggestionFailure({ status }: { status: NonNullable<CaptureState["status"]> }) {
+  if (status.type === "ready") return null;
+  const sources = status.failedSources?.map(item => t(sourceKeys[item.provider]) + (item.name ? " (" + item.name + ")" : "")).join(", ");
+  const fallback = status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed";
+  const reason = status.reason ? suggestionFailureKeys[status.reason] : undefined;
+  // Older runs have no reason code. Preserve named source failures without
+  // guessing what happened from the server's free-text message.
+  const showReason = !sources || (status.reason ? status.reason !== "sources_failed" : status.type === "unavailable");
+  return <div className="time-workspace-note" role="alert">
+    {sources && <p>{t("timeWorkspace.sourcesFailed", { sources })}</p>}
+    {showReason && <p>{t(reason ?? fallback)}</p>}
+  </div>;
+}
+
 function CommitProposalFocus({ apply }: { apply: () => void }) {
   // Records mode can acknowledge a booking and update the panel before the
   // directory query updates the enclosing workday.
@@ -185,7 +207,8 @@ export function TimesheetWorkday({
       }
       return true;
     } catch (e) {
-      if (!signal?.aborted) setError(e instanceof Error ? e.message : t("timesheets.unavailable"));
+      if (!signal?.aborted) setError(action.type === "suggest" ? t("timeWorkspace.failed")
+        : e instanceof Error ? e.message : t("timesheets.unavailable"));
       return false;
     } finally {
       if (foreground) {
@@ -341,11 +364,7 @@ export function TimesheetWorkday({
               if (value === "combined" || value === "matters") choose(value);
             }} />}
           </div>
-          {settings?.enabled !== false && !refreshing && status && status.type !== "ready" && <p className="time-workspace-note" role="alert">
-            {status.failedSources?.length ? t("timeWorkspace.sourcesFailed", { sources: status.failedSources
-              .map(item => t(sourceKeys[item.provider]) + (item.name ? " (" + item.name + ")" : "")).join(", ") })
-              : t(status.type === "unavailable" ? "timeWorkspace.unavailable" : "timeWorkspace.failed")}
-          </p>}
+          {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">

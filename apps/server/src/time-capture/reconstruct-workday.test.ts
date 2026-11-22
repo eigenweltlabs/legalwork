@@ -195,6 +195,21 @@ test("whole-day reconstruction groups adjoining evidence, omits unrelated source
   ).toThrow(/invalid/);
 });
 
+test("unclassified work stays editable and the server calculates validated clock intervals", () => {
+  const timer = evidence("timer", { source: "stopwatch", projectId: null, activity: "", matterId: matter.id,
+    startAt: at("09:00"), endAt: at("09:01"), workedMinutes: 1 });
+  const row = proposal(["timer"], { activity: null, projectId: null, endAt: at("09:01"), workedMinutes: null });
+  const infer = (change = {}) => reconstructWorkday({ proposals: [{ ...row, ...change }] }, [timer], date, "UTC");
+  expect(infer()[0].proposal).toMatchObject({ activity: "", workedMinutes: 1, matterId: matter.id });
+  expect(() => infer({ workedMinutes: 15 })).toThrow(/invalid/);
+  expect(() => infer({ endAt: at("09:02") })).toThrow(/invalid/);
+  expect(() => infer({ activity: "UNKNOWN" })).toThrow(/invalid/);
+  const opening = evidence("opening", { source: "desktop", fileUseSource: "spotlight-last-used", projectId: null, activity: "",
+    observedAt: at("09:00"), startAt: null, endAt: null, workedMinutes: null });
+  expect(reconstructWorkday({ proposals: [proposal(["opening"], { projectId: null, activity: null, startAt: null,
+    endAt: null, workedMinutes: null })] }, [opening], date, "UTC")[0].proposal).toMatchObject({ activity: "", workedMinutes: null });
+});
+
 test("a timer keeps the selected matter when the model combines it with a project event", () => {
   const timer = evidence("timer", { source: "stopwatch", matterId: matter.id, projectId: null });
   const meeting = evidence("meeting");

@@ -9,7 +9,28 @@ import { backOfficeAccess } from "../back-office/access.js";
 import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { startServer } from "../server.js";
 import { recordCompletedTask } from "./activity-workday.js";
-import { beginDocumentCapture, captureProfile, checkScheduledWorkday } from "./routes.js";
+import { beginDocumentCapture, captureProfile, checkScheduledWorkday, workdayModelFailure } from "./routes.js";
+import { ApiError } from "../errors.js";
+
+test("private workday failures expose only stable recovery reasons", () => {
+  const privateText = "Synthetic private prompt or upstream response";
+  const failed = new ApiError(502, "opencode_request_failed", privateText, { status: 503, detail: privateText });
+  const timeout = new ApiError(502, "opencode_request_failed", privateText, { status: 504, detail: privateText });
+  for (const [error, expired, reason] of [
+    [failed, false, "provider_failed"],
+    [new ApiError(503, "timesheet_model_failed", privateText), false, "provider_failed"],
+    [new Error(privateText), false, undefined],
+    [new Error(privateText, { cause: timeout }), false, "timeout"],
+    [new DOMException(privateText, "TimeoutError"), false, "timeout"],
+    [failed, true, "timeout"],
+    [new ApiError(502, "timesheet_model_format", privateText), false, "invalid_output"],
+    [new ApiError(409, "timesheet_model_unavailable", privateText), false, "model_unavailable"],
+  ] as const) {
+    const status = workdayModelFailure(error, expired);
+    expect(status.reason).toBe(reason);
+    expect(JSON.stringify(status)).not.toContain(privateText);
+  }
+});
 
 test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and respects the selected model", async () => {
   const narrative = "Drafting Example";
@@ -95,7 +116,7 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     expect(beforeGeneration.proposals).toEqual([]);
     expect(beforeGeneration.modelReady).toBe(true);
     expect(prompts).toHaveLength(0);
-    expect((await request(suggest)).status?.type).toBe("failed");
+    expect((await request(suggest)).status).toMatchObject({ type: "failed", reason: "invalid_output" });
     expect(prompts).toHaveLength(2);
     const journal = JSON.parse(await readFile(join(profile.path + ".day-log", date + ".json"), "utf8"));
     expect(journal.observations.map((row: { proposal: { source: string } }) => row.proposal.source).sort()).toEqual(["documents", "tasks"]);
@@ -107,7 +128,7 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     // or an endpoint. A stale app hint must not reauthorize that boundary.
     for (const unsafe of [{ ...suggest.model!, workspaceId: "removed-workspace" }, { ...suggest.model!, providerID: "self-hosted" }]) {
       expect((await request({ type: "settings-patch", change: { field: "model", value: unsafe } })).modelReady).toBe(false);
-      expect((await request(suggest)).status?.type).toBe("unavailable");
+      expect((await request(suggest)).status).toMatchObject({ type: "unavailable", reason: "model_unavailable" });
       expect(prompts).toHaveLength(2);
     }
     // A model retirement within the selected provider on the same workspace

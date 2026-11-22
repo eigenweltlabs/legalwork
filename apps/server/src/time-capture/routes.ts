@@ -32,7 +32,7 @@ import { nextOccurrence, wallTime } from "../scheduled-tasks/schedule.js";
 import { addDays, dayInZone, zonedInstant } from "../calendar/dates.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { globalCalendarOccurrences } from "../calendar/service.js";
-import { ApiError } from "../errors.js";
+import { ApiError, findApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { addRoute, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
@@ -467,6 +467,23 @@ function localChoice(choice: Pick<WorkdayModel, "providerID" | "modelID">) {
   return choice.providerID === localWorkdayModel.providerID && choice.modelID === localWorkdayModel.modelID;
 }
 
+/** Store only application-owned reasons. Native/provider errors may contain the original private request. */
+export function workdayModelFailure(error: unknown, deadlineExpired: boolean): NonNullable<CaptureState["status"]> {
+  const api = findApiError(error);
+  const upstream = api?.code === "opencode_request_failed" ? z.object({ status: z.number() }).safeParse(api.details).data?.status : undefined;
+  const status = upstream ?? api?.status;
+  if (deadlineExpired || (error instanceof DOMException && error.name === "TimeoutError") || status === 408 || status === 504) {
+    return { type: "failed", reason: "timeout", message: "Preparing workday suggestions timed out. Retry or choose another model." };
+  }
+  if (api?.code === "timesheet_model_unavailable" || api?.code === "assistant_subscription_required")
+    return { type: "unavailable", reason: "model_unavailable", message: "Choose an available model in the timekeeping chat composer." };
+  if (api?.code === "timesheet_model_format")
+    return { type: "failed", reason: "invalid_output", message: "The model's suggestions did not match the recorded activity or the required format." };
+  if (api && ["timesheet_model_request", "timesheet_model_failed", "opencode_unavailable", "opencode_request_failed"].includes(api.code))
+    return { type: "failed", reason: "provider_failed", message: "The selected model could not complete the request. Check its connection and retry." };
+  return { type: "failed", message: "The workday could not be prepared. Retry the suggestion run." };
+}
+
 async function prepare(config: ServerConfig, owner: Profile, date: string, action: Preparation,
   { signal: requestSignal, resolveWorkspace, now = Date.now, scheduledSlot, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
   const { path } = owner;
@@ -523,7 +540,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       onName: ({ account }, name) => { names[account] = name; },
       onRead: ({ provider, account }) => { scannedAccounts.push({ provider, account }); },
     }).catch(error => {
-      if (!withModel || signal.aborted) throw error;
+      if (!withModel || requestSignal?.aborted || controller.signal.aborted) throw error;
       sourceFailure = true;
       return [];
     });
@@ -573,7 +590,8 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
           const failedSources = failedAccounts.map(({ provider, account }) => ({ provider, account, name: current.connectionNames[account] }));
           const labels = failedSources.map(item => item.provider + (item.name ? " (" + item.name + ")" : ""));
           const failedModel = status.type !== "ready" ? " " + status.message : "";
-          status = { type: "failed", failedSources, message: "Could not check " + labels.join(", ") + ". Retry to complete this day." + failedModel };
+          status = { type: "failed", reason: status.type === "ready" ? "sources_failed" : status.reason, failedSources,
+            message: "Could not check " + labels.join(", ") + ". Retry to complete this day." + failedModel };
         }
         if (proposals) applyProposals(current, date, proposals);
         current.lastRun = now();
@@ -592,7 +610,8 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       });
     };
     if (sourceFailure) {
-      await commit({ type: "failed", message: "A selected activity source could not be read. Check its connection and retry." });
+      await commit(timeout.aborted ? workdayModelFailure(undefined, true)
+        : { type: "failed", reason: "sources_failed", message: "A selected activity source could not be read. Check its connection and retry." });
       return;
     }
     if (!withModel) {
@@ -618,7 +637,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       const all = modelEvidence(actionable, await context(), Object.values(initial.guidelines).flat(),
         date, initial.fileProducts);
       const transcript = action.revisionRequest ? [action.revisionRequest] : [];
-      key = digest(["workday-reconstruction-v5", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
+      key = digest(["workday-reconstruction-v6", date, zone, choice, runtime?.fingerprint, skill, modelInput(all),
         all.map(ref => [claimsFor(ref.item), ref.item.proposal.workProductId]), transcript]);
       const cached = initial.reconstructionCache[date]?.[key];
       if (!failedAccounts.length && cached?.status.type === "ready") {
@@ -629,7 +648,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       const excluded = (initial.days[date] ?? []).filter(item => protectedProposal(initial, item));
       const remaining = remainingEvidence(all, excluded);
       if (remaining.length && localChoice(choice) && !runtime) {
-        await commit({ type: "unavailable", message: "Choose an available model to prepare workday suggestions." });
+        await commit({ type: "unavailable", reason: "model_unavailable", message: "Choose an available model in the timekeeping chat composer." });
         return;
       }
       const currentDraft = action.revisionRequest ? (initial.days[date] ?? []).flatMap(item => {
@@ -659,12 +678,7 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       if (controller.signal.aborted || requestSignal?.aborted) return;
       if (error instanceof ApiError && error.code === "private_workday_changed") throw error;
       if (!key) key = digest(["unavailable-context", date, revision]);
-      const unavailable = error instanceof ApiError && error.code === "timesheet_model_unavailable";
-      await commit(unavailable
-        ? { type: "unavailable", message: "Choose an available model to prepare workday suggestions." }
-        : { type: "failed", message: timeout.aborted
-          ? "Preparing workday suggestions timed out. Retry or choose another model."
-          : "The workday model could not prepare valid suggestions. Retry or choose another model." });
+      await commit(workdayModelFailure(error, timeout.aborted));
     }
   } catch (error) {
     if (controller.signal.aborted || requestSignal?.aborted) return;

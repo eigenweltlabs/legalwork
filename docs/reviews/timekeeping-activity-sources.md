@@ -35,6 +35,8 @@ Mail collection follows provider pages and requests message metadata. Outlook se
 
 The synthetic integration test exercises the actual account registry, credential broker, native authenticated HTTP transport, workday route, scheduler and private journal. It verifies Google and Microsoft accounts together, sent and archived received mail, second pages, owned and shared appointments, decline and canceled filtering, account toggles, a throttled mailbox, and recovery. Those provider responses are fixtures. A separate read-only check on the review Mac retrieved a delivered message through the signed-in Outlook connector and verified its source, direction, observation date and private journal permissions. Two dates without messages produced zero mail observations. The live check kept message contents and account details out of the test reports.
 
+A Mac integration run used the installed Gemma 12B model through the bundled OpenCode engine. An isolated account imported two real Spotlight last-use observations for test documents, saved and amended a project document, created a task and ran a matter stopwatch for 65 seconds. The second import added zero duplicate events. The six original observations yielded two drafts that survived reloading the workday. The document work had no recorded duration. The timer had one recorded minute. Nothing was booked.
+
 ### Overlap and estimates
 
 - A client call from 09:00 to 10:00 and active drafting for a different matter from 09:30 to 09:45 can produce two separate suggestions. The claims for the meeting and drafting are independent. Reviewing and accepting one leaves the other available. Two representations of the same meeting or the same portion of a stopped timer still share a claim and cannot be booked twice.
