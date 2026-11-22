@@ -65,7 +65,7 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, previews = [], drafts, state, view, selected, editorId, preamble, renderTimeOverlay, onOpen, decisions,
+  date, proposals, previews = [], drafts, state, view, selected, editorId, headerActions, renderTimeOverlay, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
@@ -75,8 +75,8 @@ export function WorkdayTimeline({
   view: TimelineView;
   selected: string | undefined;
   editorId?: string;
-  preamble?: ReactNode;
-  renderTimeOverlay?: (now: Date) => ReactNode;
+  headerActions?: ReactNode;
+  renderTimeOverlay?: (now: Date, hourHeight: number) => ReactNode;
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
   decisions?: {
     canAccept: boolean;
@@ -117,8 +117,8 @@ export function WorkdayTimeline({
       groups.set(matterId, lane);
     }
   }
-  return <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
-    dayLanes={view === "matters" ? [...groups.values()] : undefined} preamble={preamble} renderTimeOverlay={renderTimeOverlay}
+  return <CalendarGrid view="day" maxVisibleHours={16} anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
+    dayLanes={view === "matters" ? [...groups.values()] : undefined} headerActions={headerActions} renderTimeOverlay={renderTimeOverlay}
     minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
     label={t("timesheets.workday.timeline")} untimedLabel={t("timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}

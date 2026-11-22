@@ -146,10 +146,7 @@ export function TimesheetWorkspace({
   const timekeepingPage = page !== "billing-settings";
   const canOpenInvoices = state && (recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
-    recordsOnly ? <>
-      <p className="mx-4 my-2 text-sm text-muted-foreground">{t("timesheets.invoice_records_hint")}</p>
-      {renderRecords("invoices")}
-    </> : <BackOfficeSurface>
+    recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
       <BillingReview canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
         workdayModels={workdayModels} client={client} state={state} onCommand={send} />

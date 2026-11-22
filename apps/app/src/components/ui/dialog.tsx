@@ -24,13 +24,15 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
 
 function DialogOverlay({
   className,
+  scoped = false,
   ...props
-}: DialogPrimitive.Backdrop.Props) {
+}: DialogPrimitive.Backdrop.Props & { scoped?: boolean }) {
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "lw-overlay fixed inset-0 isolate z-50 bg-[var(--lw-overlay)] backdrop-blur-[3px] transition-opacity duration-[var(--lw-duration-slow)] ease-[var(--lw-ease-out)] data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none",
+        "inset-0 isolate z-50",
+        scoped ? "absolute" : "lw-overlay fixed bg-[var(--lw-overlay)] backdrop-blur-[3px] transition-opacity duration-[var(--lw-duration-slow)] ease-[var(--lw-ease-out)] data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none",
         className
       )}
       {...props}
@@ -56,7 +58,7 @@ function DialogContent({
 }) {
   return (
     <DialogPortal className={portalClassName} keepMounted={keepMounted} container={container}>
-      <DialogOverlay className={container ? "absolute" : undefined} />
+      <DialogOverlay scoped={Boolean(container)} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

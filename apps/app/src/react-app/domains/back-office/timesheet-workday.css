@@ -9,7 +9,7 @@
 
 .bo-workday-controls,
 .bo-workday-controls label,
-.time-workspace-private-toolbar,
+.time-workspace-calendar-actions,
 .time-workspace-actions {
   display: flex;
   align-items: center;
@@ -36,9 +36,9 @@
 
 .time-workspace-panels { flex: 1; min-height: 0; min-width: 0; }
 .time-workspace-entry-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
-.time-workspace-timeline { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; padding: 12px; }
+.time-workspace-timeline { position: relative; isolation: isolate; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; background: var(--background); }
 .time-workspace-chat { height: 100%; min-height: 0; min-width: 0; }
-.time-workspace-private-toolbar { justify-content: flex-end; padding-bottom: 6px; }
+.time-workspace-calendar-actions { justify-content: flex-end; gap: 4px; min-width: 0; max-width: 100%; }
 .time-workspace-note,
 .time-workspace-status {
   margin: 6px 0;

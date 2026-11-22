@@ -130,6 +130,21 @@ test("short and untimed private blocks each have a separate two-button decision 
   expect(parseFloat(timedCard?.style.height ?? "0")).toBeGreaterThanOrEqual(28);
 });
 
+test("the workday date and actions stay outside the scrolling hours in both day layouts", () => {
+  for (const view of ["combined", "matters"] as const) {
+    const document = documentFor(renderToStaticMarkup(
+      <WorkdayTimeline date={date} proposals={[proposal]} state={state} view={view}
+        selected={undefined} onOpen={() => {}} headerActions={<button>Calendar action</button>} />,
+    ));
+    const header = document.querySelector("[data-calendar-day-header]");
+    const hours = document.querySelector("[data-calendar-time-grid]");
+    expect(header?.textContent).toContain(String(anchor.getDate()));
+    expect(header?.querySelector("button")?.textContent).toBe("Calendar action");
+    expect(header?.nextElementSibling).toBe(hours);
+    expect(hours?.querySelector("[data-calendar-hours]")).not.toBeNull();
+  }
+});
+
 test("ordinary calendars retain navigable day headers and their standard all-day strip", () => {
   const document = documentFor(renderToStaticMarkup(
     <CalendarGrid view="day" anchor={anchor} start={anchor} timeZone={timeZone} showProjects

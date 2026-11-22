@@ -7,10 +7,12 @@ import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState, Sto
 const window = new Window({ url: "http://localhost" });
 let workspaceWidth = 1100;
 const workspaceObservers = new Set<ResizeObserverCallback>();
+const calendarObservers = new WeakMap<Element, ResizeObserverCallback>();
 class WorkspaceResizeObserver extends window.ResizeObserver {
   private workspace = false;
   constructor(private readonly change: ResizeObserverCallback) { super(change); }
   observe(target: Element) {
+    if (target.hasAttribute("data-calendar-time-grid")) calendarObservers.set(target, this.change);
     if (target.hasAttribute("data-document-layout")) {
       this.workspace = true;
       workspaceObservers.add(this.change);
@@ -570,6 +572,30 @@ try {
   );
   const axis = document.querySelector<HTMLElement>("[data-calendar-time-grid]");
   assert.ok(axis);
+  const resizeCalendar = async (height: number, width: number, clamped = false) => {
+    const observer = calendarObservers.get(axis);
+    assert.ok(observer, "timeline measures its scroll viewport");
+    Object.defineProperty(axis, "clientHeight", { configurable: true, value: height });
+    Object.defineProperty(axis, "clientWidth", { configurable: true, value: width });
+    await act(async () => {
+      if (clamped) { axis.scrollTop = 0; axis.dispatchEvent(new window.Event("scroll")); }
+      observer([], {} as ResizeObserver);
+    });
+  };
+  const calendarHeight = () => Number.parseFloat(axis.querySelector<HTMLElement>("[data-calendar-hours]")!.style.height);
+  const timeBlock = () => Number.parseFloat(axis!.querySelector<HTMLElement>("[data-calendar-column] [data-proposal-id]")!.style.top);
+  await resizeCalendar(640, 600);
+  const originalDayHeight = calendarHeight(), originalBlockTop = timeBlock();
+  assert.ok(originalBlockTop > 0 && originalBlockTop < originalDayHeight);
+  await act(async () => { axis.scrollTop = 240; axis.dispatchEvent(new window.Event("scroll")); });
+  await resizeCalendar(1600, 900, true);
+  assert.ok(calendarHeight() > 1600, "a tall external-display window still scrolls vertically");
+  assert.equal(axis.scrollTop / calendarHeight(), 240 / originalDayHeight, "enlarging the window keeps the top hour");
+  assert.equal(timeBlock() / calendarHeight(), originalBlockTop / originalDayHeight, "a timed event stays at its recorded clock time");
+  await resizeCalendar(1600, 620, true);
+  assert.equal(axis.scrollTop / calendarHeight(), 240 / originalDayHeight, "reparenting a pane at the same height keeps its position");
+  await resizeCalendar(640, 600, true);
+  assert.equal(axis.scrollTop, 240);
   assert.equal(axis.querySelectorAll("[data-calendar-column] [data-proposal-id]").length, 1, "recorded work stays in the ledger");
   assert.equal(axis.querySelectorAll("[data-calendar-column]").length, 1);
   assert.equal(axis.querySelector("[data-calendar-now]"), null);
@@ -1378,7 +1404,7 @@ try {
     assert.equal(form()?.querySelector('[role="combobox"][aria-label="Scope"]'), null);
   }
   await renderWorkday();
-  await until(() => document.querySelector(".time-workspace-private-toolbar"));
+  await until(() => document.querySelector("[data-calendar-day-header] [role=combobox]"));
   await until(() => !block(inlineTimer));
   assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
   modelStatus = "failed";
@@ -1408,15 +1434,61 @@ try {
   await until(() => workdayAlert() === t("timeWorkspace.failed"));
   const suggestionCalls = () => workdayActions.filter(action => action.type === "suggest");
   const livePreview = () => document.querySelector<HTMLButtonElement>("[data-suggestion-preview]");
+  const confirmationDialog = () => document.querySelector<HTMLElement>('[role="dialog"][data-suggestion-confirmation]');
+  const confirmationButton = (label: string) => [...confirmationDialog()?.querySelectorAll<HTMLButtonElement>("button") ?? []]
+    .find(button => button.textContent === label);
   async function confirmSuggestions() {
-    assert.ok(document.querySelector(".time-suggestion-feedback")?.textContent?.includes("which drafts to book"));
+    assert.ok(confirmationDialog()?.textContent?.includes("which drafts to book"));
     await press(t("timeWorkspace.createSuggestions"));
   }
   const gapAction = document.querySelector<HTMLButtonElement>("[data-workday-unchecked]");
   assert.ok(gapAction);
   const beforeCheck = suggestionCalls().length;
+  await act(async () => { gapAction.focus(); gapAction.click(); });
+  const modal = confirmationDialog();
+  assert.ok(modal);
+  assert.equal(modal.closest('[data-workspace-tab]')?.getAttribute("data-workspace-tab"), "timeline");
+  const pane = modal.closest<HTMLElement>('[data-workspace-tab="timeline"]')!;
+  const overlay = pane.querySelector('[data-slot="dialog-overlay"]');
+  assert.ok(overlay?.classList.contains("absolute"), "the backdrop is positioned inside only the timeline");
+  assert.ok(!overlay.classList.contains("lw-overlay") && !overlay.className.includes("backdrop-blur"),
+    "tab dialogs preserve the original calendar colors and clarity");
+  assert.ok(gapAction.closest("[inert]"), "keyboard input cannot reach calendar items behind the dialog");
+  assert.equal(modal.closest("[inert]"), null);
+  assert.equal(suggestionCalls().length, beforeCheck, "opening the dialog cannot start a run");
+  const cancelConfirm = confirmationButton(t("common.cancel"));
+  const submitConfirm = confirmationButton(t("timeWorkspace.createSuggestions"));
+  assert.ok(cancelConfirm && submitConfirm);
+  await until(() => document.activeElement === cancelConfirm);
+  assert.equal(document.activeElement, cancelConfirm, "keyboard focus starts on cancel");
+  await act(async () => cancelConfirm.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+  assert.equal(document.activeElement, submitConfirm);
+  await act(async () => submitConfirm.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  assert.equal(document.activeElement, cancelConfirm);
+  const outside = document.querySelector<HTMLInputElement>('[data-workspace-tab="entries"] input:not([type="checkbox"]):not([type="hidden"])');
+  assert.ok(outside && !outside.closest("[inert]"));
+  await act(async () => { outside.focus(); outside.click(); });
+  assert.equal(document.activeElement, outside);
+  assert.ok(confirmationDialog(), "working in Time entries leaves the timeline confirmation available");
+  await act(async () => outside.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  assert.ok(confirmationDialog(), "Escape in another pane belongs to that pane");
+  await act(async () => {
+    cancelConfirm.focus();
+    cancelConfirm.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
+  await until(() => !confirmationDialog() && document.activeElement === gapAction);
+  assert.equal(confirmationDialog(), null);
+  assert.ok(document.activeElement === gapAction, "closing with Escape restores the original calendar interval");
+  assert.equal(suggestionCalls().length, beforeCheck);
+  const openButton = button(t("timeWorkspace.addSuggestions"));
+  assert.ok(openButton);
+  await act(async () => { openButton.focus(); openButton.click(); });
+  await until(() => document.activeElement === confirmationButton(t("common.cancel")));
+  await act(async () => confirmationButton(t("common.cancel"))?.click());
+  await until(() => !confirmationDialog() && document.activeElement === openButton);
+  assert.ok(document.activeElement === openButton, "cancel restores the header button when it opened the confirmation");
+  assert.equal(suggestionCalls().length, beforeCheck);
   await act(async () => gapAction.click());
-  assert.equal(suggestionCalls().length, beforeCheck, "the calendar explains the draft action before it starts");
   failSuggestionRequest = true;
   await confirmSuggestions();
   await until(() => document.querySelector(".time-workspace-status")?.textContent === t("timeWorkspace.failed"));
@@ -1618,8 +1690,8 @@ try {
   // Use a fixed clock to cover rendering and activation of an unchecked interval.
   const { WorkdayCoverage } = await import("../../src/react-app/domains/back-office/workday-coverage");
   let checked = 0;
-  const coverageAt = (through: string, day: string) => act(async () => root.render(
-    <WorkdayCoverage date={day} checkedThrough={through} now={new Date("2026-11-12T10:00:00")} busy={false} onCheck={() => { checked++; }} />,
+  const coverageAt = (through: string, day: string, hourHeight = 48) => act(async () => root.render(
+    <WorkdayCoverage hourHeight={hourHeight} date={day} checkedThrough={through} now={new Date("2026-11-12T10:00:00")} busy={false} onCheck={() => { checked++; }} />,
   ));
   await coverageAt(at(base.date, "08:00"), base.date);
   const gap = document.querySelector<HTMLButtonElement>("[data-workday-unchecked]");
@@ -1629,6 +1701,10 @@ try {
   assert.ok(gap.querySelector(".time-coverage-label"));
   await act(async () => gap.click());
   assert.equal(checked, 1);
+  await coverageAt(at(base.date, "09:40"), base.date);
+  assert.equal(gap.querySelector(".time-coverage-label"), null);
+  await coverageAt(at(base.date, "09:40"), base.date, 96);
+  assert.ok(gap.querySelector(".time-coverage-label"), "an enlarged interval displays its label when it fits");
   await coverageAt(at(base.date, "09:59"), base.date);
   assert.equal(gap.querySelector(".time-coverage-label"), null, "a one-minute gap cannot draw a badge across the adjacent entry");
   assert.equal(gap.getAttribute("aria-label"), gap.title);

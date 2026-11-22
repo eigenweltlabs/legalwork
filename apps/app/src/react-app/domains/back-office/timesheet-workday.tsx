@@ -3,8 +3,8 @@ import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/componen
 import { sourceKeys } from "./timesheet-labels";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, ChevronLeft, ChevronRight, CalendarClock } from "lucide-react";
-import { WorkdaySuggestionFeedback } from "./workday-suggestion-feedback";
+import { Plus, Loader2, ChevronLeft, ChevronRight, CalendarClock, Maximize2, Minimize2 } from "lucide-react";
+import { WorkdaySuggestionConfirmation, WorkdaySuggestionFeedback } from "./workday-suggestion-feedback";
 import { WorkdayCoverage } from "./workday-coverage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,7 +90,7 @@ export function TimesheetWorkday({
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [run, setRun] = useState<{ id: string; date: string }>();
-  const [confirmDay, setConfirmDay] = useState<string>();
+  const [confirmation, setConfirmation] = useState<{ date: string; trigger: HTMLButtonElement; container: HTMLElement }>();
   const [finishedDay, setFinishedDay] = useState<string>();
   const refreshing = run?.date === date;
   const editorId = useId();
@@ -99,6 +99,12 @@ export function TimesheetWorkday({
   const focusInsideEditor = useRef(false);
   const editorTitle = useRef<HTMLHeadingElement>(null);
   const timelineBody = useRef<HTMLDivElement>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement?.contains(timelineBody.current)));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
   const focusRequest = useRef<{ target: "editor" | "timeline"; removed?: HTMLElement }>(undefined);
   const origin = useRef<{ key: string; index: number }>(undefined);
   const modelRequest = useRef<AbortController | undefined>(undefined);
@@ -192,9 +198,9 @@ export function TimesheetWorkday({
     return () => { modelRequest.current?.abort(); };
   }, [client, profileId, identity.scope, identity.user, identity.principal, date, modelSelection, visible, settings?.enabled]);
   useEffect(() => {
-    setConfirmDay(undefined);
+    setConfirmation(undefined);
     setFinishedDay(undefined);
-  }, [date, visible, settings?.enabled]);
+  }, [date, visible, settings?.enabled, profileId, identity.scope, identity.user, identity.principal]);
 
   async function act(action: CaptureAction, signal?: AbortSignal) {
     const foreground = action.type !== "draft";
@@ -261,12 +267,17 @@ export function TimesheetWorkday({
     return updated ?? null;
   }
 
+  function requestSuggestions(trigger: HTMLButtonElement) {
+    const container = trigger.closest<HTMLElement>('[data-workspace-tab="timeline"]');
+    if (container) setConfirmation({ date, trigger, container });
+  }
+
   async function addSuggestions() {
     if (modelRequest.current || inFlight.current || !settings || settings.enabled === false) return;
     const controller = new AbortController();
     modelRequest.current = controller;
     const runId = crypto.randomUUID();
-    setConfirmDay(undefined);
+    setConfirmation(undefined);
     setFinishedDay(undefined);
     setRun({ id: runId, date });
     try {
@@ -384,30 +395,40 @@ export function TimesheetWorkday({
       chat={shown => <TimeWorkspaceChat client={client} identity={identity} date={date} visible={shown && visible} data={data} />}
       timeline={(view, choose) => (
         <>
-          <div className="time-workspace-private-toolbar shrink-0">
-            {local && settings && settings.enabled !== false && <>
-              <Button size="sm" variant="outline" disabled={running || refreshing || date > calendarDay(new Date())}
-                onClick={() => setConfirmDay(date)}>{refreshing ? <Loader2 className="animate-spin" /> : <Plus />}
-                {t("timeWorkspace.addSuggestions")}</Button>
-            </>}
-            {local && <TimeSelect modal={false} label={t("timeWorkspace.timelineView")} value={view} options={[
-              { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
-            ]} onChange={value => {
-              if (value === "combined" || value === "matters") choose(value);
-            }} />}
-          </div>
-          {local && settings && settings.enabled !== false && <WorkdaySuggestionFeedback date={date}
-            confirm={confirmDay === date} running={refreshing} progress={generation}
+          {confirmation?.date === date && local && settings && settings.enabled !== false &&
+            <WorkdaySuggestionConfirmation {...confirmation} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
+          <div className="contents" inert={confirmation?.date === date && Boolean(settings) && settings?.enabled !== false}>
+          {local && settings && settings.enabled !== false && <WorkdaySuggestionFeedback
+            running={refreshing} progress={generation}
             finished={finishedDay === date && data?.status?.type === "ready" ? shown.length : undefined}
-            onStart={() => void addSuggestions()} onCancel={() => { setConfirmDay(undefined); modelRequest.current?.abort(); }} />}
+            onCancel={() => modelRequest.current?.abort()} />}
           {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
           {local && (
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline date={date} proposals={proposals} previews={previews} drafts={drafts} state={state} view={view} selected={selected?.key}
-                renderTimeOverlay={settings && settings.enabled !== false ? now =>
-                  <WorkdayCoverage date={date} checkedThrough={data?.checkedThrough} now={now}
-                    busy={running || refreshing} onCheck={() => setConfirmDay(date)} /> : undefined}
+                headerActions={<div className="time-workspace-calendar-actions">
+                  {settings && settings.enabled !== false && <Button size="sm" variant="outline"
+                    title={t("timeWorkspace.addSuggestions")} disabled={running || refreshing || date > calendarDay(new Date())}
+                    onClick={event => requestSuggestions(event.currentTarget)}>
+                    {refreshing ? <Loader2 className="animate-spin" /> : <Plus />}
+                    <span className="@max-[410px]/calendar-grid:sr-only">{t("timeWorkspace.addSuggestions")}</span>
+                  </Button>}
+                  <TimeSelect modal={false} label={t("timeWorkspace.timelineView")} value={view} options={[
+                    { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
+                  ]} onChange={value => { if (value === "combined" || value === "matters") choose(value); }} />
+                  {document.fullscreenEnabled && <Button size="icon-sm" variant="ghost" aria-pressed={fullscreen}
+                    aria-label={t(fullscreen ? "artifact.exit_fullscreen" : "timeWorkspace.expandTimeline")}
+                    title={t(fullscreen ? "artifact.exit_fullscreen" : "timeWorkspace.expandTimeline")}
+                    onClick={event => {
+                      const pane = event.currentTarget.closest<HTMLElement>('[data-workspace-tab="timeline"]');
+                      const action = fullscreen ? document.exitFullscreen() : pane?.requestFullscreen();
+                      void action?.catch(() => setError(t("timeWorkspace.fullscreenUnavailable")));
+                    }}>{fullscreen ? <Minimize2 /> : <Maximize2 />}</Button>}
+                </div>}
+                renderTimeOverlay={settings && settings.enabled !== false ? (now, hourHeight) =>
+                  <WorkdayCoverage date={date} hourHeight={hourHeight} checkedThrough={data?.checkedThrough} now={now}
+                    busy={running || refreshing} onCheck={requestSuggestions} /> : undefined}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
                   busyKey: deciding?.key ?? correcting?.proposal.key,
@@ -463,6 +484,7 @@ export function TimesheetWorkday({
               </DirectProposalDecisionContext.Provider>
             </div>
           )}
+          </div>
           <CommitProposalFocus apply={applyFocusRequest} />
         </>
       )}

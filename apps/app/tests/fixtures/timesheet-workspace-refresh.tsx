@@ -247,7 +247,8 @@ try {
   assert.deepEqual(migrated.panes.find(pane => pane.id === "main")?.tabIds, ["timekeeping:entries", "timekeeping:invoices"]);
   assert.equal(migrated.sizes.workday.main, 55, "introducing Invoices keeps a saved split");
   await act(async () => invoiceTab()?.click());
-  await until(() => document.querySelector('[data-workspace-tab="invoices"]')?.textContent?.includes("attach the invoice PDF"));
+  await until(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-tab="invoices"] button'))
+    .some(button => button.textContent?.trim() === "Record existing invoice" && !button.disabled));
   assert.equal(document.querySelector(".bo-invoice-draft"), null, "the records service does not open the approval workflow");
   finance = false;
   await refreshReview("directory");

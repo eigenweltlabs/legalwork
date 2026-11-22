@@ -14,17 +14,18 @@ type CalendarDayLane = { id: string; title: string; colorKey: string | null; ite
 type GridProps = {
   view: "day" | "week" | "month"; anchor: Date; start: Date; items: CalendarDisplayOccurrence[];
   projectId?: string; showProjects: boolean; timeZone: string;
-  dayLanes?: CalendarDayLane[]; untimedLabel?: string; preamble?: ReactNode; label?: string;
+  dayLanes?: CalendarDayLane[]; untimedLabel?: string; headerActions?: ReactNode; label?: string;
   nowLabel?: (clock: string) => string;
-  renderTimeOverlay?: (now: Date) => ReactNode;
+  renderTimeOverlay?: (now: Date, hourHeight: number) => ReactNode;
   entryAppearance?: (item: CalendarDisplayOccurrence) => CalendarEntryAppearance | undefined;
   minimumEventSize?: { width: number; height: number };
+  maxVisibleHours?: number;
   onOpen: (item: CalendarDisplayOccurrence, trigger: HTMLButtonElement) => void;
   onDay?: (day: Date) => void; onWeekChange?: (direction: number) => void; onCreate?: (day: string) => void;
 };
 
 export function CalendarGrid(props: GridProps) {
-  return <div className="@container/calendar-grid flex h-full min-h-0 flex-col gap-2">
+  return <div className={cn("@container/calendar-grid flex h-full min-h-0 flex-col", !props.headerActions && "gap-2")}>
     {props.view !== "day" && <p className={cn("flex items-center gap-2 text-xs text-muted-foreground", props.view === "month" && "@min-[700px]/calendar-grid:hidden")}><MoveHorizontal className="size-3.5 shrink-0" />{t(props.view === "week" ? "calendar.scroll_weeks" : "calendar.scroll_days")}</p>}
     {props.view === "month" ? <MonthGrid {...props} /> : <TimeGrid {...props} />}
   </div>;
@@ -32,6 +33,29 @@ export function CalendarGrid(props: GridProps) {
 
 function TimeGrid(props: GridProps) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ height: 0, width: 0 });
+  const viewportHeight = viewport.height;
+  const hourHeight = props.maxVisibleHours ? Math.max(CALENDAR_HOUR_HEIGHT, viewportHeight / props.maxVisibleHours) : CALENDAR_HOUR_HEIGHT;
+  const position = useRef({ viewportHeight: 0, viewportWidth: 0, hourHeight: CALENDAR_HOUR_HEIGHT, top: 8 * CALENDAR_HOUR_HEIGHT - 12 });
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element || !props.maxVisibleHours) return;
+    const measure = () => {
+      const height = element.clientHeight, width = element.clientWidth;
+      setViewport(previous => previous.height === height && previous.width === width ? previous : { height, width });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.maxVisibleHours]);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element?.isConnected || !viewportHeight || element.clientHeight !== viewportHeight || element.clientWidth !== viewport.width || !props.maxVisibleHours) return;
+    const last = position.current;
+    element.scrollTop = last.top * hourHeight / last.hourHeight;
+    position.current = { viewportHeight, viewportWidth: viewport.width, hourHeight, top: element.scrollTop };
+  }, [viewportHeight, viewport.width, hourHeight, props.maxVisibleHours]);
   const pendingScroll = useRef<number | null>(null);
   const measuredWidth = useRef(0);
   const paging = useRef(false);
@@ -41,7 +65,9 @@ function TimeGrid(props: GridProps) {
   const [now, setNow] = useState(() => new Date());
   const today = calendarDay(now);
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 60_000); return () => clearInterval(timer); }, []);
-  useEffect(() => { if (scroller.current) scroller.current.scrollTop = 8 * CALENDAR_HOUR_HEIGHT - 12; }, []);
+  useEffect(() => {
+    if (scroller.current && !props.maxVisibleHours) scroller.current.scrollTop = 8 * CALENDAR_HOUR_HEIGHT - 12;
+  }, [props.maxVisibleHours]);
   useEffect(() => {
     if (!props.untimedLabel || !scroller.current || !props.items.length) return;
     const day = calendarDay(props.start);
@@ -49,8 +75,11 @@ function TimeGrid(props: GridProps) {
     firstUntimedDay.current = day;
     // The workday's untimed entries flow with the hours in the single scroller.
     // Show them on first load without resetting position on later refreshes.
-    scroller.current.scrollTop = props.items.some(item => item.allDay && occursOnDay(item, day)) ? 0 : 8 * CALENDAR_HOUR_HEIGHT - 12;
-  }, [props.items, props.start, props.untimedLabel]);
+    const top = props.items.some(item => item.allDay && occursOnDay(item, day)) ? 0 : 8 * hourHeight - 12;
+    position.current.top = top;
+    position.current.hourHeight = hourHeight;
+    scroller.current.scrollTop = top;
+  }, [props.items, props.start, props.untimedLabel, hourHeight]);
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
@@ -79,7 +108,7 @@ function TimeGrid(props: GridProps) {
     : days.map(day => ({ id: calendarDay(day), title: undefined, colorKey: null, day, items: props.items }));
   const minimumEventSize = props.minimumEventSize;
   const layouts = columns.map(column => layoutCalendarDay(column.items, calendarDay(column.day),
-    minimumEventSize && { minimumMinutes: Math.ceil((minimumEventSize.height + 2) * 60 / CALENDAR_HOUR_HEIGHT), anchorAtActualStart: true }));
+    minimumEventSize && { minimumMinutes: Math.ceil((minimumEventSize.height + 2) * 60 / hourHeight), anchorAtActualStart: true }));
   const minimumLaneWidths = layouts.map(segments => Math.max(lanes?.length ? 116 : 0,
     minimumEventSize ? minimumEventSize.width + 4 : 0,
     ...(minimumEventSize ? segments.map(segment => segment.columns * (minimumEventSize.width + 4)) : [])));
@@ -109,9 +138,23 @@ function TimeGrid(props: GridProps) {
       })}
     </div>
   );
-  return <div ref={scroller} tabIndex={0} role="region" data-calendar-time-grid
+  return <>
+    {props.headerActions && <header data-calendar-day-header className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b bg-background px-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <span title={props.timeZone} className="w-9 text-center text-[9px] text-muted-foreground">{timeZoneLabel}</span>
+        <span className={cn("flex size-8 items-center justify-center rounded-full text-lg font-medium tabular-nums",
+          calendarDay(props.start) === today && "bg-foreground text-background")}>{props.start.getDate()}</span>
+        <span className="text-xs font-medium">{props.start.toLocaleDateString(currentLocale(), { weekday: "long" })}</span>
+      </div>
+      {props.headerActions}
+    </header>}
+    <div ref={scroller} tabIndex={0} role="region" data-calendar-time-grid
     aria-label={props.label ?? t(props.view === "day" ? "calendar.day_view" : "calendar.week")}
     onScroll={event => {
+      // Enlarging the viewport can clamp the previous pixel offset before the
+      // resized hour grid is painted. Remember the last user scroll at its own scale.
+      if (props.maxVisibleHours && event.currentTarget.clientHeight === position.current.viewportHeight && event.currentTarget.clientWidth === position.current.viewportWidth && event.currentTarget.clientHeight > 0)
+        position.current.top = event.currentTarget.scrollTop;
       if (!week || !props.onWeekChange || paging.current) return;
       const element = event.currentTarget, width = (element.scrollWidth - 52) / 3;
       // ResizeObserver recenters after layout. A resize-induced scroll event
@@ -123,12 +166,12 @@ function TimeGrid(props: GridProps) {
       pendingScroll.current = element.scrollLeft - direction * width;
       props.onWeekChange(direction);
     }}
-    className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
-    {props.preamble && <div className="sticky left-0 px-2">{props.preamble}</div>}
+    className={cn("min-h-0 flex-1 overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+      !props.headerActions && "rounded-xl border border-border/70")}>
     <div style={week ? { width: "calc(300% - 104px)", minWidth: 2176 } : minimumWidth ? { minWidth: 52 + minimumWidth } : undefined}>
-      <div className="sticky top-0 z-20 border-b border-border/70 bg-background shadow-[0_1px_0_var(--border)]">
+      {(!props.headerActions || Boolean(lanes?.length)) && <div className="sticky top-0 z-20 border-b border-border/70 bg-background shadow-[0_1px_0_var(--border)]">
         <div className="grid" style={{ gridTemplateColumns: tracks }}>
-          <div className="sticky left-0 z-30 flex items-end justify-center bg-background pb-2 text-[9px] text-muted-foreground" title={props.timeZone}>{timeZoneLabel}</div>
+          <div className="sticky left-0 z-30 flex items-end justify-center bg-background pb-2 text-[9px] text-muted-foreground" title={props.timeZone}>{!props.headerActions && timeZoneLabel}</div>
           {columns.map(column => {
             const { day, title } = column;
             const key = calendarDay(day), isToday = key === today;
@@ -149,36 +192,36 @@ function TimeGrid(props: GridProps) {
           })}
         </div>
         {!props.untimedLabel && allDayRow}
-      </div>
+      </div>}
       {props.untimedLabel && allDayRow}
       <div className="relative grid" style={{ gridTemplateColumns: tracks }}>
-        <div aria-hidden="true" data-calendar-hours className="sticky left-0 z-10 bg-background" style={{ height: 24 * CALENDAR_HOUR_HEIGHT }}>
-          {Array.from({ length: 24 }, (_, hour) => <span key={hour} className="absolute right-2 -translate-y-1/2 text-[9px] leading-none whitespace-nowrap text-muted-foreground tabular-nums" style={{ top: hour * CALENDAR_HOUR_HEIGHT }}>{hourLabel(hour)}</span>)}
+        <div aria-hidden="true" data-calendar-hours className="sticky left-0 z-10 bg-background" style={{ height: 24 * hourHeight }}>
+          {Array.from({ length: 24 }, (_, hour) => <span key={hour} className="absolute right-2 -translate-y-1/2 text-[9px] leading-none whitespace-nowrap text-muted-foreground tabular-nums" style={{ top: hour * hourHeight }}>{hourLabel(hour)}</span>)}
         </div>
         {columns.map((column, index) => {
           const key = calendarDay(column.day);
-          return <div key={column.id} data-calendar-column={column.id} className={cn("relative min-w-0 border-l border-border/60", key === today && "bg-primary/[0.015]", column.day.getDay() % 6 === 0 && "bg-muted/15")} style={{ height: 24 * CALENDAR_HOUR_HEIGHT }}>
-            {Array.from({ length: 48 }, (_, halfHour) => <div aria-hidden="true" key={halfHour} className={cn("pointer-events-none absolute inset-x-0 border-t", halfHour % 2 === 0 ? "border-border/60" : "border-border/25")} style={{ top: halfHour * CALENDAR_HOUR_HEIGHT / 2 }} />)}
+          return <div key={column.id} data-calendar-column={column.id} className={cn("relative min-w-0 border-l border-border/60", key === today && "bg-primary/[0.015]", column.day.getDay() % 6 === 0 && "bg-muted/15")} style={{ height: 24 * hourHeight }}>
+            {Array.from({ length: 48 }, (_, halfHour) => <div aria-hidden="true" key={halfHour} className={cn("pointer-events-none absolute inset-x-0 border-t", halfHour % 2 === 0 ? "border-border/60" : "border-border/25")} style={{ top: halfHour * hourHeight / 2 }} />)}
             {layouts[index].map(segment => <CalendarTimeBlock key={segment.item.id} item={segment.item} projectId={props.projectId}
-              height={(segment.displayEnd - segment.displayStart) * CALENDAR_HOUR_HEIGHT / 60 - 2} appearance={props.entryAppearance?.(segment.item)}
-              style={{ top: segment.displayStart * CALENDAR_HOUR_HEIGHT / 60, left: `calc(${segment.column / segment.columns * 100}% + 2px)`, width: `calc(${segment.span / segment.columns * 100}% - 4px)` }}
+              height={(segment.displayEnd - segment.displayStart) * hourHeight / 60 - 2} appearance={props.entryAppearance?.(segment.item)}
+              style={{ top: segment.displayStart * hourHeight / 60, left: `calc(${segment.column / segment.columns * 100}% + 2px)`, width: `calc(${segment.span / segment.columns * 100}% - 4px)` }}
               onOpen={trigger => props.onOpen(segment.item, trigger)} />)}
-            {week && key === today && <CalendarNow minute={minute} />}
+            {week && key === today && <CalendarNow minute={minute} hourHeight={hourHeight} />}
           </div>;
         })}
         {!week && props.renderTimeOverlay && <div className="pointer-events-none absolute inset-y-0 start-[52px] end-0">
-          {props.renderTimeOverlay(now)}
+          {props.renderTimeOverlay(now, hourHeight)}
         </div>}
-        {!week && calendarDay(props.start) === today && <CalendarNow minute={minute} inset={52}
+        {!week && calendarDay(props.start) === today && <CalendarNow minute={minute} hourHeight={hourHeight} inset={52}
           label={props.nowLabel?.(now.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" }))} />}
       </div>
     </div>
-  </div>;
+  </div></>;
 }
 
-function CalendarNow({ minute, inset, label }: { minute: number; inset?: number; label?: string }) {
+function CalendarNow({ minute, inset, label, hourHeight }: { minute: number; hourHeight: number; inset?: number; label?: string }) {
   return <div data-calendar-now aria-hidden={!label || undefined} className="pointer-events-none absolute inset-x-0 z-10 border-t border-red-9"
-    style={{ left: inset, top: minute * CALENDAR_HOUR_HEIGHT / 60 }}>
+    style={{ left: inset, top: minute * hourHeight / 60 }}>
     <span aria-hidden="true" className="absolute -left-1 -top-1 size-2 rounded-full bg-red-9" />
     {label && <span className="sr-only">{label}</span>}
   </div>;
