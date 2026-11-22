@@ -59,6 +59,15 @@ function proposal(
   };
 }
 
+// Synthetic model responses cite the observation IDs supplied in this run.
+function citeTitles<T extends { evidenceIds: string[] }>(row: T, observations: { title: string; id: string }[]) {
+  return { ...row, evidenceIds: row.evidenceIds.map(title => {
+    const match = observations.find(observation => observation.title === title);
+    if (!match) throw Error("Missing fixture observation " + title);
+    return match.id;
+  }) };
+}
+
 test("document drafting preserves the guideline-based model narrative instead of rebuilding it from the filename", () => {
   const narrative = "Entwerfen der Revision; Ausführungen zur Zulässigkeit und zum Verfahrensmangel.";
   for (const activity of ["DFT", "MOD"]) {
@@ -132,7 +141,7 @@ test("distinct matters retain independently evidenced overlapping clock ranges",
           { ...proposal(["call"]), narrative: undefined },
           { ...proposal(["foreground", "save"], { matterId: other.id, projectId: "other-project", documentId: "memo", activity: "MOD",
             startAt: at("09:30"), endAt: at("09:45"), workedMinutes: 15 }), narrative: undefined },
-        ] });
+        ].map(row => citeTitles(row, input.evidence)) });
       }
       return JSON.stringify({ wording: [{ index: input.entries[0].index, narrative: input.entries[0].activity === "MOD" ? "Amending the memo" : "Meeting with client" }] });
     } });
@@ -634,8 +643,10 @@ test("a whole-day plan is followed by separate wording requests that isolate eac
     transcript: [],
     async generate(prompt) {
       const index = prompts.push(prompt) - 1;
-      if (index === 0)
-        return JSON.stringify({ proposals: [first, second, unassigned] });
+      if (index === 0) {
+        const input = JSON.parse(prompt.split("\n\n").at(-1)!);
+        return JSON.stringify({ proposals: [first, second, unassigned].map(row => citeTitles(row, input.evidence)) });
+      }
       return JSON.stringify({
         wording: [{ index: index - 1, narrative: "Meeting" }],
       });
@@ -675,7 +686,7 @@ test("an unsupported document activity gets one grouping repair before wording, 
         if (payload.stage === "wording") return JSON.stringify({ wording: payload.entries.map(({ index }: { index: number }) =>
           ({ index, narrative: index === 0 ? "Discuss the agreement" : "Draft the agreement" })) });
         return JSON.stringify({ proposals: [clock, repair && prompts.length === 2 ? { ...draft, evidenceIds: ["creation"] }
-          : { ...draft, wordingHint: "Untrusted previous output marker" }] });
+          : { ...draft, wordingHint: "Untrusted previous output marker" }].map(row => citeTitles(row, payload.evidence)) });
       } });
     if (repair) {
       const rows = await run;
@@ -702,9 +713,59 @@ test("format and evidence errors share the two grouping attempts and never reach
   const { narrative: _, ...partialTimer } = proposal(["timer"], { projectId: null, endAt: at("09:10"), workedMinutes: 10 });
   const run = generateStructuredWorkday({ date, zone: "UTC", evidence: [input], skill: "", transcript: [], async generate(prompt) {
     prompts.push(prompt);
-    return prompts.length === 1 ? JSON.stringify({ proposals: [partialTimer] }) : "invalid JSON";
+    const payload = JSON.parse(prompt.split("\n\n").at(-1)!);
+    return prompts.length === 1 ? JSON.stringify({ proposals: [citeTitles(partialTimer, payload.evidence)] }) : "invalid JSON";
   } });
   await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
   expect(prompts).toHaveLength(2);
   expect(prompts[1]).toContain("Use each stopped timer once, with its exact full start and end.");
+});
+
+test("one run-local handle per real source is shared by revision and wording, and durable claims survive reordering", async () => {
+  const id = "b".repeat(64), otherId = "a".repeat(64);
+  const meeting = evidence(id, { narrative: "Client meeting" });
+  const secondCopy = evidence(id, { narrative: "Client meeting" });
+  const other = evidence(otherId, { narrative: "Another source" });
+  const run = (inputs: ModelEvidence[]) => generateStructuredWorkday({ date, zone: "UTC", skill: "", transcript: [], evidence: inputs,
+    currentDraft: [{ ...meeting.item.proposal, evidenceIds: [id, id, "no-longer-available"] }],
+    async generate(prompt) {
+      expect(prompt).not.toContain(id);
+      expect(prompt).not.toContain(otherId);
+      const payload = JSON.parse(prompt.split("\n\n").at(-1)!);
+      const expected = inputs[0] === other ? "e2" : "e1";
+      if (payload.stage === "grouping") {
+        expect(payload.evidence.map((obs: { id: string }) => obs.id)).toEqual(["e1", "e2"]);
+        expect(payload.currentDraft[0].evidenceIds).toEqual([expected]);
+        const { narrative: _, ...row } = proposal(["Client meeting"]);
+        return JSON.stringify({ proposals: [citeTitles(row, payload.evidence)] });
+      }
+      expect(payload.entries[0].evidence.map((obs: { id: string }) => obs.id)).toEqual([expected]);
+      return JSON.stringify({ wording: [{ index: 0, narrative: "Attend the client meeting" }] });
+    } });
+  const [first] = await run([meeting, other, secondCopy]);
+  const [reordered] = await run([other, secondCopy, meeting]);
+  expect(first.claims.map(claim => claim.id)).toEqual([id]);
+  expect(reordered.claims).toEqual(first.claims);
+  expect(reordered.eventKey).toBe(first.eventKey);
+});
+
+test("raw or unknown evidence references, duplicate handles and double claims remain invalid", async () => {
+  const meeting = evidence("b".repeat(64), { narrative: "Client meeting" });
+  const copy = { ...meeting, item: { ...meeting.item } };
+  for (const scenario of ["raw", "unknown", "repeated", "double claim"]) {
+    let attempts = 0;
+    const run = generateStructuredWorkday({ date, zone: "UTC", skill: "", transcript: [], evidence: [meeting, copy], async generate(prompt) {
+      const payload = JSON.parse(prompt.split("\n\n").at(-1)!);
+      expect(payload.stage).toBe("grouping");
+      expect(payload.evidence).toHaveLength(1);
+      attempts++;
+      const handle = payload.evidence[0].id;
+      const ids = scenario === "unknown" ? ["e999"] : scenario === "raw" ? [meeting.item.eventKey] :
+        scenario === "repeated" ? [handle, handle] : [handle];
+      const { narrative: _, ...row } = proposal(ids);
+      return JSON.stringify({ proposals: scenario === "double claim" ? [row, row] : [row] });
+    } });
+    await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
+    expect(attempts).toBe(2);
+  }
 });
