@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ProviderListItem, ProviderListView } from "../src/app/types";
 import { OpenCode } from "@opencode/client";
-import { fetchProviderList, getAvailableDefaultModel, isModelAvailableInConnectedProviders } from "../src/react-app/infra/provider-list-query";
+import { fetchProviderList, getAvailableDefaultModel, getConnectedProviderItems, isModelAvailableInConnectedProviders } from "../src/react-app/infra/provider-list-query";
 import { resolveTimekeepingChatModel } from "../src/react-app/domains/session/chat/session-model-store";
 
 function provider(id: string, modelIds: string[]): ProviderListItem {
@@ -64,6 +64,19 @@ test("only connected providers with available models can initialize the composer
   expect(getAvailableDefaultModel({ ...catalog, all: [provider("azure", [])] }, null)).toBeNull();
   const list = { ...catalog, all: [provider("empty", []), azure], connected: ["empty", "azure"] };
   expect(getAvailableDefaultModel(list, null)).toEqual({ providerID: "azure", modelID: "gpt-test" });
+});
+
+test("a cold native catalog cannot restore the retired provider the migration just cleared", () => {
+  const legacy = provider("opencode", ["flint-40b-free"]);
+  const free = provider("eigenwelt-free", ["legacy"]);
+  const firstRead = { all: [legacy, free], connected: [legacy.id, free.id], default: { [legacy.id]: "flint-40b-free" } };
+  expect(getAvailableDefaultModel(firstRead, null)).toBeNull();
+  expect(getConnectedProviderItems(firstRead)).toEqual([]);
+  expect(isModelAvailableInConnectedProviders(firstRead, { providerID: legacy.id, modelID: "flint-40b-free" })).toBe(false);
+  const connected = { ...firstRead, all: [...firstRead.all, azure], connected: [...firstRead.connected, azure.id] };
+  const selection = getAvailableDefaultModel(connected, null);
+  expect(selection).toEqual({ providerID: "azure", modelID: "other-deployment" });
+  expect(getAvailableDefaultModel(connected, selection)).toBeNull();
 });
 
 test("a provider without a native default can initialize from its first available model", () => {

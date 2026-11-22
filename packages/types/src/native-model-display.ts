@@ -1,3 +1,6 @@
+/** Native discovery can advertise the retired free tiers before runtime configuration has loaded. */
+export const RETIRED_FREE_PROVIDER_IDS: ReadonlySet<string> = new Set(["eigenwelt-free", "opencode"]);
+
 /** Display metadata is never submitted as an executable model setting. */
 export type NativeModelDisplay = { legalwork?: { defaultVariantID: string | null } };
 export type NativeProviderDisplay = { legalwork?: { hasCustomEndpoint: boolean } };

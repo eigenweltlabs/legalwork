@@ -11,6 +11,7 @@ import { startServer } from "../server.js";
 import { recordCompletedTask } from "./activity-workday.js";
 import { beginDocumentCapture, captureProfile, checkScheduledWorkday, workdayModelFailure } from "./routes.js";
 import { ApiError } from "../errors.js";
+import { connectedWorkdayModel, generateConnectedTimeText } from "./connected-model.js";
 
 test("private workday failures expose only stable recovery reasons", () => {
   const privateText = "Synthetic private prompt or upstream response";
@@ -31,6 +32,32 @@ test("private workday failures expose only stable recovery reasons", () => {
     expect(JSON.stringify(status)).not.toContain(privateText);
   }
 });
+
+test.skipIf(!nativeMcpBinary)("retired providers advertised by the native engine cannot receive a private workday prompt", async () => {
+  const definition = { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://127.0.0.1:1/v1", apiKey: "fixture" }, models: { fixture: {} } };
+  const retired = ["eigenwelt-free", "opencode"];
+  const engine = await nativeMcpEngine({ providers: { "eigenwelt-free": definition, opencode: definition, firm: definition } });
+  try {
+    const connection = engine.connection();
+    const config = backOfficeTestConfig(engine.root, {
+      opencodeBaseUrl: connection.url, opencodeUsername: connection.username, opencodePassword: connection.password,
+      workspaces: [{ id: "private", preset: "starter", workspaceType: "local", path: engine.directory, name: "Fixture" }],
+    });
+    const signal = AbortSignal.timeout(10_000);
+    const advertised = (await engine.client().model.list({ location: engine.location })).data;
+    const choice = (providerID: string) => ({ workspaceId: "private", providerID, modelID: "fixture" });
+    for (const id of retired) {
+      expect(advertised.some(model => model.providerID === id && model.id === "fixture")).toBe(true);
+      expect(await connectedWorkdayModel(config, config.workspaces, [choice(id)], signal, false, id)).toBeUndefined();
+      await expect(generateConnectedTimeText(config, config.workspaces[0], choice(id), "Synthetic private activity", async () => {}, signal))
+        .rejects.toMatchObject({ code: "timesheet_model_unavailable" });
+    }
+    expect(await connectedWorkdayModel(config, config.workspaces, [choice("firm")], signal, false, "firm")).toEqual(choice("firm"));
+    const automatic = await connectedWorkdayModel(config, config.workspaces, [], signal, false);
+    expect(automatic).toBeDefined();
+    expect(retired).not.toContain(automatic?.providerID);
+  } finally { await engine.close(); }
+}, 30_000);
 
 test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and respects the selected model", async () => {
   const narrative = "Drafting Example";

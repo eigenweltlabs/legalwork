@@ -3,7 +3,7 @@ import { createEngineClient, workspaceEngineLocation } from "../engine-client.js
 import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
 import { ApiError, findApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
-import { WORKDAY_INTERNAL_SESSION } from "../native-shared-values.js";
+import { RETIRED_FREE_PROVIDER_IDS, WORKDAY_INTERNAL_SESSION } from "../native-shared-values.js";
 
 type Choice = Pick<WorkdayModel, "providerID" | "modelID">;
 type Catalog = { models: Choice[]; defaultModel?: Choice };
@@ -21,7 +21,9 @@ async function readCatalog(config: ServerConfig, workspace: WorkspaceInfo, signa
       return undefined;
     }),
   ]);
-  const connected = new Set(providers.data.filter(item => item.activation !== "disabled").map(item => item.id));
+  const connected = new Set(providers.data
+    .filter(item => item.activation !== "disabled" && !RETIRED_FREE_PROVIDER_IDS.has(item.id.trim().toLowerCase()))
+    .map(item => item.id));
   const models = data.filter(item => item.enabled !== false && connected.has(item.providerID)
     && item.capabilities.input.includes("text") && item.capabilities.output.includes("text"))
     .map(item => ({ providerID: item.providerID, modelID: item.id }));
@@ -81,6 +83,8 @@ export async function connectedWorkdayModel(config: ServerConfig, workspaces: Wo
 export async function generateConnectedTimeText(config: ServerConfig, workspace: WorkspaceInfo, model: WorkdayModel,
   prompt: string, verify: () => Promise<void>, signal: AbortSignal) {
   await requireAssistantWorkspaceSubscription(config, workspace.id);
+  if (RETIRED_FREE_PROVIDER_IDS.has(model.providerID.trim().toLowerCase()))
+    throw new ApiError(409, "timesheet_model_unavailable", "Choose a connected chat model for this project.");
   const client = createEngineClient(config, workspace);
   const location = workspaceEngineLocation(workspace);
   try {

@@ -7,7 +7,7 @@ import { filterProviderList } from "../../app/utils/providers";
 import type { ProviderListView } from "../../app/types";
 import { ensureNativeCatalogReady, invalidateNativeCatalogReady } from "../../app/lib/opencode-catalog-ready";
 import { createCoalescedRefresh } from "../shell/coalesced-refresh";
-import type { NativeProviderDisplay } from "@legalwork/types/native-model-display";
+import { RETIRED_FREE_PROVIDER_IDS, type NativeProviderDisplay } from "@legalwork/types/native-model-display";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
 const PROVIDER_LIST_QUERY_ROOT = ["opencode-provider-list"] as const;
@@ -97,7 +97,8 @@ export function getConnectedProviderItems(value: ProviderListView | null | undef
   return (value?.all ?? []).filter(
     (provider) =>
       connected.has(provider.id) &&
-      (provider.source !== "custom" || provider.id === "opencode" || Object.keys(provider.models ?? {}).length > 0),
+      !RETIRED_FREE_PROVIDER_IDS.has(provider.id.trim().toLowerCase()) &&
+      (provider.source !== "custom" || Object.keys(provider.models ?? {}).length > 0),
   );
 }
 
@@ -155,14 +156,6 @@ export function countConnectedProviders(
   if (!value) return 0;
   return getConnectedProviderItems(filterProviderList(value, disabledProviderIds)).length;
 }
-
-/** The built-in OpenCode Zen provider id. Retired as a fallback: the server
- * always disables it — no unauthenticated free models exist anymore. */
-export const OPENCODE_ZEN_PROVIDER_ID = "opencode";
-
-/** Retired free-tier provider id — kept only so old persisted selections can
- * be recognized and cleared (see the retirement migration in session-route). */
-export const RETIRED_FREE_PROVIDER_IDS = new Set(["eigenwelt-free", OPENCODE_ZEN_PROVIDER_ID]);
 
 export function getConnectedProviderSnapshotChange(input: {
   baseUrl?: string | null;

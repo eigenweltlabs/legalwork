@@ -1,3 +1,4 @@
+import { RETIRED_FREE_PROVIDER_IDS } from "@legalwork/types/native-model-display";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { timePage } from "../domains/back-office/time-routes";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
@@ -262,7 +263,6 @@ import {
   getConnectedProviderItems,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
-  RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
