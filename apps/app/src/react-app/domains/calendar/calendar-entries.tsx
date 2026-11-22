@@ -91,7 +91,7 @@ export function CalendarTimeBlock({ item, projectId = item.projectId, height, st
     {height >= 32 && <span className={cn("mt-0.5 block truncate text-[9px] leading-[11px] tabular-nums", color.accent)}>{occurrenceTimeRange(item)}</span>}
     {height >= 76 && !appearance?.secondaryLabel && <span className="mt-1 block truncate text-[9px] leading-3 text-muted-foreground">{source}</span>}
   </Button>;
-  return appearance?.actions ? <div className="absolute z-[1]" style={{ ...style, height }}>
+  return appearance?.actions ? <div className="absolute z-[1] rounded-[4px] bg-background" style={{ ...style, height }}>
     {button}<CalendarEntryActions>{appearance.actions}</CalendarEntryActions>
   </div> : button;
 }

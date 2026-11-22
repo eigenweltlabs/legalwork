@@ -77,6 +77,8 @@
 }
 
 .time-coverage-overlay {
+  container: unchecked-time / inline-size;
+  overflow: clip;
   pointer-events: auto;
   position: absolute;
   inset-inline: 0;
@@ -95,6 +97,7 @@
   display: inline-flex;
   align-items: center;
   gap: .35rem;
+  max-inline-size: calc(100% - .8rem);
   margin-inline-start: .4rem;
   padding: .15rem .45rem;
   border: 1px solid var(--border);
@@ -104,4 +107,12 @@
   font-size: .7rem;
   line-height: 1rem;
   white-space: nowrap;
+}
+
+.time-coverage-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container unchecked-time (max-width: 11rem) {
+  .time-coverage-label { display: none; }
 }

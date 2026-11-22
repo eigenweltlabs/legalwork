@@ -1558,8 +1558,15 @@ try {
   assert.ok(gap);
   assert.ok(Math.abs(parseFloat(gap.style.top) - 100 / 3) < 0.01);
   assert.ok(Math.abs(parseFloat(gap.style.height) - 100 / 12) < 0.01);
+  assert.ok(gap.querySelector(".time-coverage-label"));
   await act(async () => gap.click());
   assert.equal(checked, 1);
+  await coverageAt(at(base.date, "09:59"), base.date);
+  assert.equal(gap.querySelector(".time-coverage-label"), null, "a one-minute gap cannot draw a badge across the adjacent entry");
+  assert.equal(gap.getAttribute("aria-label"), gap.title);
+  assert.match(gap.title, /9:59.*10:00.*Add suggestions/i);
+  await act(async () => gap.click());
+  assert.equal(checked, 2, "the one-minute gap still checks the day");
   await coverageAt(at(base.date, "10:00"), base.date);
   assert.equal(document.querySelector("[data-workday-unchecked]"), null);
   await coverageAt(at(base.date, "10:00"), "2026-11-13");
