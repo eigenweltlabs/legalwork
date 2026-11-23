@@ -12,6 +12,7 @@ import { matchRoute, type Route } from "../routes/registry.js";
 import { TokenService } from "../tokens.js";
 import { timekeepingPreset } from "./profile.js";
 import { captureProfile, registerWorkdayRoutes } from "./routes.js";
+import { digest } from "./private-workday.js";
 import { changeStopwatch, emptyStopwatch } from "./stopwatch.js";
 
 test("the chat must read each matter's effective guidelines before publishing its draft", async () => {
@@ -32,10 +33,17 @@ test("the chat must read each matter's effective guidelines before publishing it
       changeStopwatch(saved, { type: "start", matterId: matter.id, id, note: "Reviewed agreement" }, new Date(date + "T10:00:00Z"), "UTC");
       changeStopwatch(saved, { type: "stop", id }, new Date(date + "T10:12:00Z"), "UTC");
     }
+    const documentSaves = Object.fromEntries(matters.map(matter => [randomUUID(), {
+      key: randomUUID(), digest: digest([date, matter.id]), date, source: "documents",
+      projectId: null, matterId: matter.id, narrative: "Saved amendments to " + matter.values.name,
+      activity: "", dismissed: false, workedMinutes: null, startAt: null, endAt: null,
+      observedAt: date + "T11:00:00Z",
+    }]));
     const guideline = { id: randomUUID(), name: "Lease wording", revision: 1, scope: "matter", targetId: matters[0].id,
       effectiveFrom: date, rules: { instructions: "Name the lease provision reviewed." } };
     await mkdir(dirname(owner.path), { recursive: true });
-    await writeFile(owner.path, JSON.stringify({ ...saved, lastRun: 0, settings: { calendar: false, tasks: false, stopwatchMode: "evidence" },
+    await writeFile(owner.path, JSON.stringify({ ...saved, lastRun: 0, settings: { calendar: false, tasks: false, documents: true, stopwatchMode: "evidence" },
+      documentSaves: { [date]: documentSaves },
       guidelines: { [guideline.id]: [guideline, { ...guideline, revision: 2, effectiveFrom: "2026-12-01", rules: { instructions: "Future instructions" } }] } }));
     const routes: Route[] = [];
     registerWorkdayRoutes({ config, routes, resolveWorkspace: async () => workspace, jsonResponse: Response.json,
@@ -51,7 +59,7 @@ test("the chat must read each matter's effective guidelines before publishing it
     }
     await expect(call({ action: "read" }, "collaborator")).rejects.toMatchObject({ status: 403 });
     const day = await call({ action: "read" });
-    expect(day.observations).toHaveLength(2);
+    expect(day.observations.map((item: { source: string }) => item.source)).toEqual(["documents", "documents"]);
     const first = await call({ action: "guidelines", matterId: matters[0].id });
     const second = await call({ action: "guidelines", matterId: matters[1].id });
     expect(first.guidelines).toEqual([expect.objectContaining({ revision: 1, rules: guideline.rules })]);
@@ -70,6 +78,9 @@ test("the chat must read each matter's effective guidelines before publishing it
     const persisted = JSON.parse(await readFile(owner.path, "utf8"));
     expect(persisted.days[date].filter((entry: { generated?: boolean }) => entry.generated)).toHaveLength(2);
     expect(Object.keys(persisted.accepted)).toHaveLength(0);
+    const reviewedDay = await call({ action: "read" });
+    expect(reviewedDay.suggestions.filter((item: { narrative: string }) => item.narrative === "Reviewed agreement"))
+      .toEqual([expect.objectContaining({ editable: false }), expect.objectContaining({ editable: false })]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

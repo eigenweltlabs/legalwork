@@ -49,7 +49,7 @@ test("manual and scheduled workday collection uses the actual authorized mail/ca
     const profile = await captureProfile(config, await backOfficeAccess(config));
     await mkdir(dirname(profile.path), { recursive: true });
     await writeFile(profile.path, JSON.stringify({ days: {}, lastRun: 0, settings: { calendar: false, tasks: false, documents: false,
-      workspaceActivity: false, schedule: { frequency: "hourly" }, model: { workspaceId: "local", providerID: "local", modelID: "llama.cpp" } } }));
+      workspaceActivity: false, connections: [], schedule: { frequency: "hourly" }, model: { workspaceId: "local", providerID: "local", modelID: "llama.cpp" } } }));
     globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (url.hostname === "127.0.0.1") return nativeFetch(input, init);
@@ -134,8 +134,7 @@ test("manual and scheduled workday collection uses the actual authorized mail/ca
       for (const row of messages) expect(row).toMatchObject({ observedAt: at, startAt: null, endAt: null, workedMinutes: null });
     }
     expect(JSON.stringify(first)).not.toMatch(/private-gmail-thread|private-graph-thread|someone@other|worker@google/);
-    const gmail = initial.connections.find(row => row.provider === "gmail")!;
-    await run({ type: "settings-patch", change: { field: "account", account: gmail, value: false } });
+    await writeConnectorConnections(config, owner, "gmail", []);
     calls.length = 0;
     googleTitle = "Revised calendar title";
     rateLimited = true;

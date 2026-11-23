@@ -4,7 +4,7 @@ export { captureProfile } from "./profile.js";
 import { timeActivities } from "../back-office/timesheet-schema.js";
 import { connectedWorkdayModel, generateConnectedTimeText } from "./connected-model.js";
 import { localCaptureDocumentId, readActivityEvidence, type CaptureFileIdentity } from "./activity-workday.js";
-import { desktopActivitySampleSchema, captureAccountEnabled, localWorkdayModel, type CaptureAccount, type WorkdayModel, type WorkdayGenerationProgress, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
+import { desktopActivitySampleSchema, localWorkdayModel, type CaptureAccount, type WorkdayModel, type WorkdayGenerationProgress, workdayModelSchema, type CaptureState, privateEntryDraftSchema,
   workdayGuidelineActionSchema, workdayGuidelineSchema, workdayStatusSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema, canonicalBackOfficeAudit } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
@@ -12,7 +12,7 @@ import { timeWorkspaces } from "../back-office/timesheet-data.js";
 import { changeStopwatch, createStopwatchReader, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
 import { renameSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { originalBillingComparison, originalCaptureProposal, proposalCommitment } from "./original.js";
+import { originalBillingComparison, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -93,7 +93,7 @@ const savedSchema = z.object({
 type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
   stopwatch: emptyStopwatch(),
-  settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true, stopwatchMode: "always" },
+  settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true },
   settingsPatched: false,
   lastRun: 0,
   lastScheduledSlot: 0,
@@ -135,7 +135,9 @@ export async function readCaptureSettings(path: string) {
 export async function personalDriveConsent(config: ServerConfig, account: CaptureAccount) {
   const owner = await profile(config);
   const saved = await load(owner.path);
-  if (saved.settings.enabled === false || !captureAccountEnabled(saved.settings, account)) throw new ApiError(409, "private_workday_changed", "The personal drive source changed.");
+  if (saved.settings.enabled === false ||
+      !(await connectedWorkdayAccounts(config)).some(candidate => candidate.provider === account.provider && candidate.account === account.account))
+    throw new ApiError(409, "private_workday_changed", "The personal drive source changed.");
   return { path: owner.path, epoch: saved.personalDriveEpoch };
 }
 export async function readCaptureGuidelines(path: string) {
@@ -537,13 +539,6 @@ async function collectDay(config: ServerConfig, owner: Profile, date: string, zo
   if (settings.recordings) evidence.push(...Object.values(initial.recordings[date] ?? {}));
   if (settings.documents)
     for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {})) evidence.push({ eventKey, proposal });
-  if (withModel) {
-    for (const item of initial.days[date] ?? []) {
-      if (item.generated || item.proposal.source !== "stopwatch") continue;
-      const proposal = originalCaptureProposal(item.proposal, item.proposal.digest, initial.originals);
-      evidence.push({ eventKey: item.eventKey, proposal });
-    }
-  }
   const from = (item: WorkdayEvidence) => item.proposal.startAt ?? item.proposal.observedAt ?? "";
   const eligible = evidence.filter(item => !item.proposal.projectId || workspacesById.has(item.proposal.projectId))
     .sort((a, b) => from(a).localeCompare(from(b)) || a.eventKey.localeCompare(b.eventKey));
@@ -677,7 +672,6 @@ async function prepare(config: ServerConfig, owner: Profile, date: string, actio
       // Delivery alone establishes no human action. Give the model inbound context only for a thread the worker replied to.
       const sentThreads = new Set(elapsed.filter(row => row.proposal.mailDirection === "sent").map(row => row.proposal.threadKey));
       const actionable = elapsed.filter(({ proposal }) =>
-        (proposal.source !== "stopwatch" || settings.stopwatchMode === "evidence") &&
         (proposal.mailDirection !== "received" || !!proposal.threadKey && sentThreads.has(proposal.threadKey)));
       const all = modelEvidence(actionable, await context(), Object.values(initial.guidelines).flat(),
         date, initial.fileProducts);
@@ -777,8 +771,6 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
 }
 
 async function visibleProposals(config: ServerConfig, s: Saved, date: string, connections: CaptureState["connections"], sourcePreview: boolean) {
-  const status = s.reconstruction[date]?.status;
-  const generatedReady = Boolean(s.reconstruction[date]?.key) && status?.type === "ready";
   const day = s.days[date] ?? [];
   const workspaceIds = day.some(item => item.proposal.projectId)
     ? new Set((await workdayWorkspaces(config)).map(workspace => workspace.id)) : undefined;
@@ -787,12 +779,11 @@ async function visibleProposals(config: ServerConfig, s: Saved, date: string, co
     if (s.settings.enabled === false && (p.source !== "stopwatch" || item.generated)) return false;
     if (p.projectId && !workspaceIds?.has(p.projectId)) return false;
     if ((s.accepted[p.key] && !s.pendingBookings[p.key]) || p.dismissed || !eligibleSource(item, connections, s.settings)) return false;
+    // Preserve edits to legacy timer suggestions and suppress their duplicate raw intervals.
+    if (item.generated && (p.source === "stopwatch" || claimsFor(item).some(claim => claim.source === "stopwatch")))
+      return protectedProposal(s, item);
     if (p.source !== "stopwatch") return item.generated || sourcePreview || protectedProposal(s, item);
-    if (item.generated) return s.settings.stopwatchMode === "evidence" || protectedProposal(s, item);
-    const covered = day.some(other => other.generated && other !== item && overlapsEvidence(item, other) &&
-      (protectedProposal(s, other) || (s.settings.stopwatchMode === "evidence" && generatedReady)));
-    return !covered && (protectedProposal(s, item) ||
-      !(s.settings.stopwatchMode === "evidence" && generatedReady));
+    return !day.some(other => other.generated && protectedProposal(s, other) && overlapsEvidence(item, other));
   });
 }
 
@@ -956,7 +947,7 @@ export function registerWorkdayRoutes(options: {
       const sent = new Set(sourceRows.filter(row => row.proposal.mailDirection === "sent").map(row => row.proposal.threadKey));
       const all = modelEvidence(sourceRows.filter(row => eligibleSource(row, accounts, saved.settings) &&
         (!row.proposal.projectId || workspaceIds.has(row.proposal.projectId)) &&
-        (row.proposal.source !== "stopwatch" || saved.settings.stopwatchMode === "evidence") &&
+        row.proposal.source !== "stopwatch" &&
         (row.proposal.mailDirection !== "received" || Boolean(row.proposal.threadKey && sent.has(row.proposal.threadKey)))),
         state, versions, date, saved.fileProducts);
       const day = saved.days[date] ?? [];
@@ -1178,10 +1169,7 @@ export function registerWorkdayRoutes(options: {
               if (next.enabled !== s.settings.enabled || next.desktopActivity !== s.settings.desktopActivity) { resetDesktopSampling(config); s.desktopHistoryEpoch++; }
               const evidenceSettings = ({ schedule, enabled, intervalMinutes, ...sources }: Saved["settings"]) => digest(sources);
               if (evidenceSettings(next) !== evidenceSettings(s.settings)) s.checkedThrough = {};
-              const personalAccounts = (settings: Saved["settings"]) => (settings.connections ?? settings.fileConnections ?? [])
-                .filter(account => account.provider === "onedrive-personal").map(account => account.account).sort();
-              if (s.settings.enabled !== next.enabled || digest(personalAccounts(s.settings)) !== digest(personalAccounts(next)))
-                s.personalDriveEpoch++;
+              if (s.settings.enabled !== next.enabled) s.personalDriveEpoch++;
               if (Boolean(s.settings.documents) !== Boolean(next.documents) || s.settings.enabled !== next.enabled)
                 s.documentEpoch++;
               if (digest([s.settings.model]) !== digest([next.model])) s.reconstruction = {};

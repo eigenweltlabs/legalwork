@@ -25,9 +25,6 @@ export function captureFileSource(source: string) {
   return fileCaptureProviders.some(id => id === source);
 }
 export type CaptureAccount = z.infer<typeof captureAccountSchema>;
-export function sameCaptureAccount(a: CaptureAccount, b: CaptureAccount) {
-  return a.provider === b.provider && a.account === b.account;
-}
 export const workdayModelSchema = z.object({
   workspaceId: z.string().min(1).max(200), providerID: z.string().min(1).max(200), modelID: z.string().min(1).max(300),
 });
@@ -53,12 +50,14 @@ export const captureSettingsSchema = z.strictObject({
   workspaceActivity: z.boolean().optional(),
   desktopActivity: z.boolean().optional(),
   recordings: z.boolean().optional(),
+  /** Accepted for older profiles and clients. Stopped timers are always shown for manual review. */
   stopwatchMode: z.enum(["always", "evidence"]).optional(),
   enabled: z.boolean().optional(),
   schedule: workdayScheduleSchema.optional(),
   /** Read profiles written before scheduling was introduced. */
   aiSuggestions: z.boolean().optional(),
   model: workdayModelSchema.partial({ workspaceId: true }).optional(),
+  /** Legacy source selections. Connected accounts are now selected in Integrations. */
   connections: z.array(captureAccountSchema).max(16).optional(),
   disabledConnections: z.array(captureAccountSchema).optional(),
   fileConnections: z.array(captureAccountSchema).max(16).optional(),
@@ -72,20 +71,13 @@ export const captureSettingsChangeSchema = z.discriminatedUnion("field", [
   z.strictObject({ field: z.literal("account"), account: captureAccountSchema, value: z.boolean() }),
 ]);
 export const captureSettingsPatchSchema = z.strictObject({ type: z.literal("settings-patch"), change: captureSettingsChangeSchema });
-type AccountSelection = Pick<CaptureSettings, "connections" | "disabledConnections" | "fileConnections">;
-export function captureAccountEnabled(settings: AccountSelection, account: CaptureAccount) {
-  if (settings.connections) return settings.connections.some(choice => sameCaptureAccount(choice, account));
-  if (captureFileSource(account.provider)) return Boolean(settings.fileConnections?.some(choice => sameCaptureAccount(choice, account)));
-  return !settings.disabledConnections?.some(choice => sameCaptureAccount(choice, account));
-}
 export function captureEnabled(settings: CaptureSettings, accounts?: CaptureAccount[]) {
   return settings.enabled !== false && (
     settings.calendar ||
     settings.tasks ||
     settings.documents === true ||
     settings.workspaceActivity !== false || settings.desktopActivity === true || settings.recordings === true ||
-    settings.stopwatchMode === "evidence" ||
-    (accounts ? accounts.some(account => captureAccountEnabled(settings, account)) : settings.connections === undefined || settings.connections.length > 0)
+    (accounts === undefined || accounts.length > 0)
   );
 }
 export const captureProposalSchema = z.object({

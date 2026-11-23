@@ -24,7 +24,7 @@ export async function observedPersonalDrive(config: ServerConfig, account: Captu
     let previous: z.infer<typeof saved> | undefined;
     try { previous = saved.parse(JSON.parse(await readFile(file, "utf8"))); }
     catch (error) { if (!missingFile(error)) throw error; }
-    // A fresh opt-in begins at the next scan. Never backfill a disabled interval.
+    // Start a fresh cursor on the first scan after Time tracking is enabled.
     const cursor = previous?.epoch === before.epoch ? previous.cursor : undefined;
     let expired = false;
     const delta = await personalDriveChanges(account, cursor, zone, request, signal, onName).catch(async error => {

@@ -38,13 +38,10 @@ test("two workday windows preserve disjoint settings and draft edits, and detect
   }
   try {
     const [first, second] = await Promise.all([read(), read()]);
-    const accountA = { provider: "gmail" as const, account: "a".repeat(64) };
-    const accountB = { provider: "outlook" as const, account: "b".repeat(64) };
     await read({ type: "settings-patch", change: { field: "calendar", value: false } });
-    await read({ type: "settings-patch", change: { field: "account", account: accountA, value: false } });
-    await read({ type: "settings-patch", change: { field: "account", account: accountB, value: false } });
+    await read({ type: "settings-patch", change: { field: "desktopActivity", value: true } });
     const settings = (await read({ type: "settings-patch", change: { field: "schedule", value: { frequency: "daily", times: ["17:30"] } } })).settings;
-    expect(settings).toMatchObject({ calendar: false, schedule: { frequency: "daily", times: ["17:30"] }, disabledConnections: [accountA, accountB] });
+    expect(settings).toMatchObject({ calendar: false, desktopActivity: true, schedule: { frequency: "daily", times: ["17:30"] } });
     expect((await request({ type: "settings", settings: second.settings })).status).toBe(409);
     expect((await read()).settings).toEqual(settings);
 

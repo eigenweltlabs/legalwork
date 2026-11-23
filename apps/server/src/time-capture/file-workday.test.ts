@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { captureAccountEnabled, type CaptureAccount } from "@legalwork/types/time-capture";
+import type { CaptureAccount } from "@legalwork/types/time-capture";
 import type { ConnectorRequest } from "../connectors/request.js";
 import { fileWorkdayEvidence } from "./file-workday.js";
 import { saveWorkdayLog } from "./day-log.js";
@@ -10,21 +10,13 @@ import { personalDriveChanges } from "./file-workday.js";
 import { observedPersonalDrive } from "./personal-drive-workday.js";
 import { currentActivityProfile } from "./activity-workday.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
-import { patchCaptureSettings } from "./private-edits.js";
+import { digest } from "./private-workday.js";
+import { prepareConnectorStorage, writeConnectorConnections } from "../connectors/store.js";
+import { eigenweltPlatformUrl } from "../eigenwelt-endpoints.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 
 const date = "2026-11-22", zone = "Europe/Berlin", time = "2026-11-22T10:01:03.000Z";
 const account = (provider: CaptureAccount["provider"]) => ({ provider, account: "f".repeat(64) });
-
-test("connected file sources require a per-account opt-in without changing mail and calendar choices", () => {
-  const settings = { calendar: true, tasks: true, connections: undefined };
-  const drive = account("google-drive"), mail = account("gmail");
-  expect(captureAccountEnabled(settings, drive)).toBe(false);
-  const selected = patchCaptureSettings(settings, { field: "account", account: drive, value: true });
-  expect(captureAccountEnabled(selected, drive)).toBe(true);
-  expect(captureAccountEnabled(selected, mail)).toBe(true);
-  expect(captureAccountEnabled(selected, { ...drive, account: "b".repeat(64) })).toBe(false);
-  expect(captureAccountEnabled(patchCaptureSettings(selected, { field: "account", account: drive, value: false }), drive)).toBe(false);
-});
 
 test("Google Drive, OneDrive and SharePoint write attributable point events to the private day log", async () => {
   const root = await mkdtemp(join(tmpdir(), "file-workday-"));
@@ -81,16 +73,22 @@ test("Google Drive, OneDrive and SharePoint write attributable point events to t
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("personal drive starts at opt-in, saves attributed changes across days and skips disabled periods", async () => {
+test("connected personal drive saves attributed changes and starts fresh after Time tracking is disabled", async () => {
   const root = await mkdtemp(join(tmpdir(), "personal-drive-workday-"));
   const config = backOfficeTestConfig(root);
-  const source = account("onedrive-personal"), signal = new AbortController().signal;
+  const provider = "onedrive-personal", id = "fixture-drive", broker = eigenweltPlatformUrl();
+  const source = { provider, account: digest([provider, id]) } satisfies CaptureAccount;
+  const signal = new AbortController().signal;
+  await prepareConnectorStorage(config);
+  await writeEigenweltConnection(config, { platformURL: broker, platformToken: "fixture",
+    account: { userId: "worker", userName: "Worker", userEmail: null, orgId: "firm", orgName: "Firm" } });
+  const owner = JSON.stringify([broker, "firm", "worker"]);
+  await writeConnectorConnections(config, owner, provider, [{ id, nangoConnectionId: "private-drive", createdAt: null, needsReconnect: false }]);
   const profile = await currentActivityProfile(config);
-  const settings = { calendar: false, tasks: false, fileConnections: [source] };
   const writeConsent = async (epoch: number, enabled: boolean) => {
     await mkdir(dirname(profile.path), { recursive: true });
     await writeFile(profile.path, JSON.stringify({ lastRun: 0, days: {}, personalDriveEpoch: epoch,
-      settings: { ...settings, fileConnections: enabled ? [source] : [] } }));
+      settings: { calendar: false, tasks: false, enabled } }));
   };
   const base = "https://graph.microsoft.com/v1.0/drives/d/root/delta?";
   let initialReads = 0, collected = false;
@@ -126,6 +124,8 @@ test("personal drive starts at opt-in, saves attributed changes across days and 
     await writeConsent(3, true);
     await observedPersonalDrive(config, source, date, zone, request, signal);
     expect(initialReads).toBe(2);
+    await writeConnectorConnections(config, owner, provider, []);
+    await expect(observedPersonalDrive(config, source, date, zone, request, signal)).rejects.toMatchObject({ code: "private_workday_changed" });
     const hostile: ConnectorRequest = async path => path.startsWith("/v1.0/me/drive?")
       ? { id: "d", owner: { user: { id: "worker" } } } : { value: [], "@odata.nextLink": "https://example.test/v1.0/drives/d/root/delta?token=x" };
     await expect(personalDriveChanges(source, undefined, zone, hostile, signal)).rejects.toThrow("invalid change cursor");

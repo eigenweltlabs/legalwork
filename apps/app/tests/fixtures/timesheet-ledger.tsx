@@ -1204,13 +1204,12 @@ try {
       }
       if (action?.type === "guideline") guidelines.push({ ...action.guideline, revision: action.guideline.revision + 1 });
       return {
-        settings: workdaySettings, modelReady: false, connections: [], guidelines: [...guidelines],
+        settings: workdaySettings, modelReady: false, connections: [{ provider: "gmail", account: "g".repeat(64), name: "Synthetic mailbox" }], guidelines: [...guidelines],
         status: { type: modelStatus, reason: modelReason, message: "Raw internal status must stay private",
           failedSources: modelStatus === "failed" && reportFailedSource ? [{ provider: "gmail", account: "a".repeat(64), name: "review@example.test" }] : undefined },
         drafts: Object.fromEntries(Object.entries(privateDrafts).filter(([, draft]) => draft.date === context.date)),
         proposals: workdayProposals.filter(proposal => proposal.date === context.date
-          && (workdaySettings.calendar || proposal.source !== "calendar")
-          && (proposal.source !== "stopwatch" || workdaySettings.stopwatchMode !== "evidence" || modelStatus !== "ready")),
+          && (workdaySettings.calendar || proposal.source !== "calendar")),
       };
     },
   };
@@ -1341,8 +1340,9 @@ try {
   assert.equal(guidelines[0]?.rules.incrementMinutes, 6);
   assert.equal(guidelines[0]?.scope, "firm");
   assert.equal(guidelines[0]?.effectiveFrom, new Date().toLocaleDateString("en-CA"));
-  await selectPopup(t("timesheets.source.stopwatch"), "Use as an AI source");
-  assert.equal(workdaySettings.stopwatchMode, "evidence");
+  assert.equal(document.querySelector('[role="combobox"][aria-label="Stopwatch"]'), null);
+  assert.doesNotMatch(document.body.textContent ?? "", /Synthetic mailbox/);
+  assert.equal([...document.querySelectorAll("a")].find(link => link.textContent === t("catalog.manage_integrations"))?.getAttribute("href"), "/settings/extensions");
   {
     const { Routes, Route } = await import("react-router-dom");
     const clientRecord = { ...workdayDirectory.records[0], id: crypto.randomUUID(), objectId: "clients",
@@ -1422,14 +1422,15 @@ try {
   }
   await renderWorkday();
   await until(() => document.querySelector("[data-calendar-day-header] [role=combobox]"));
-  await until(() => !block(inlineTimer));
-  assert.equal(block(inlineTimer), null, "AI mode does not display the raw timer alongside AI suggestions");
+  await until(() => Boolean(block(inlineTimer)));
+  assert.ok(block(inlineTimer), "the stopped timer remains visible after suggestions are ready");
   modelStatus = "failed";
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(inlineTimer)));
   assert.ok(block(inlineTimer), "a failed model leaves the manual timer accessible");
   const namedSourceFailure = t("timeWorkspace.sourcesFailed", { sources: t("timesheets.source.gmail") + " (review@example.test)" });
   const workdayAlert = () => document.querySelector('.time-workspace-note[role="alert"]')?.textContent ?? "";
+  await until(() => workdayAlert() === namedSourceFailure);
   assert.equal(workdayAlert(), namedSourceFailure, "a saved source-only error without a reason stays readable");
   for (const [reason, label] of [
     ["timeout", "timeWorkspace.suggestionsTimedOut"], ["invalid_output", "timeWorkspace.suggestionsInvalid"],
@@ -1674,7 +1675,6 @@ try {
   }
   await remount();
   assert.equal(tabNode("timeline")?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
-  workdaySettings = { ...workdaySettings, stopwatchMode: "always" };
   privateDrafts[inlineTimer.key] = {
     date: inlineTimer.date, proposalDigest: inlineTimer.digest,
     values: { workflow: true, charge: "37" },

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { canonicalBackOfficeAudit } from "../back-office/schema.js";
 import {
-  captureAccountEnabled, captureSettingsSchema, captureFileSource, sameCaptureAccount,
   type CaptureSettings, type CaptureState, type PrivateDraftPatch,
   type captureSettingsChangeSchema,
 } from "../back-office/timesheet-schema.js";
@@ -14,21 +13,9 @@ export function patchCaptureSettings(settings: CaptureSettings, change: z.infer<
     else delete next.model;
     return next;
   }
-  if (change.field !== "account") return { ...settings, [change.field]: change.value };
-  const { account, value } = change;
-  if (captureAccountEnabled(settings, account) === value) return settings;
-  if (settings.connections) {
-    const others = settings.connections.filter(item => !sameCaptureAccount(item, account));
-    const next = captureSettingsSchema.safeParse({ ...settings, connections: value ? [...others, account] : others });
-    if (!next.success) throw new ApiError(400, "private_workday_sources", "Choose up to 16 connected activity sources.");
-    return next.data;
-  }
-  if (captureFileSource(account.provider)) {
-    const others = (settings.fileConnections ?? []).filter(item => !sameCaptureAccount(item, account));
-    return { ...settings, fileConnections: value ? [...others, account] : others };
-  }
-  const others = (settings.disabledConnections ?? []).filter(item => !sameCaptureAccount(item, account));
-  return { ...settings, disabledConnections: value ? others : [...others, account] };
+  // Older clients can still send these patches. Integrations and direct timer review govern the behavior.
+  if (change.field === "account" || change.field === "stopwatchMode") return settings;
+  return { ...settings, [change.field]: change.value };
 }
 
 export const draftClockSchema = z.object({

@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   captureProviders,
-  captureAccountEnabled,
   type CaptureSettings,
   type CaptureAccount,
   type CaptureProposal,
@@ -22,7 +21,7 @@ type Account = CaptureAccount & { id: string; needsReconnect: boolean };
 export async function connectedWorkdayAccounts(config: ServerConfig, includeUnavailable = false) {
   const result: Account[] = [];
   for (const provider of captureProviders) {
-    // Use only the local connection registry while displaying source controls.
+    // Use only the local connection registry when checking available sources.
     const saved = await savedConnectorConnections(config, provider);
     for (const connection of saved) {
       if ((includeUnavailable || !connection.needsReconnect) && (await connectorIsActivated(config, provider, connection.id))) {
@@ -263,10 +262,10 @@ export async function readConnectedWorkday(
   signal: AbortSignal,
   observers?: { onFailed: (account: CaptureAccount, error: string) => void; onName: (account: CaptureAccount, name: string) => void; onRead: (account: CaptureAccount) => void },
 ) {
-  if (settings.connections?.length === 0) return [];
+  if (settings.enabled === false) return [];
   const available = await connectedWorkdayAccounts(config, true),
     output: WorkdayEvidence[] = [];
-  await Promise.all(available.filter(item => captureAccountEnabled(settings, item)).map(async account => {
+  await Promise.all(available.map(async account => {
     try {
       signal.throwIfAborted();
       if (account.needsReconnect) throw new ApiError(409, "connector_reconnect_required", "Reconnect this account in Integrations.");
@@ -299,11 +298,5 @@ export function sourceAvailable(
   if (proposal.source === "documents") return settings.documents === true;
   if (proposal.source === "workspace" || proposal.source === "agent") return settings.workspaceActivity !== false;
   if (proposal.source === "calendar" || proposal.source === "tasks") return settings[proposal.source];
-  const target = { provider: proposal.source, account: proposal.account };
-  return accounts.some(
-    (selected) =>
-      selected.provider === target.provider &&
-      selected.account === target.account &&
-      captureAccountEnabled(settings, selected),
-  );
+  return accounts.some(account => account.provider === proposal.source && account.account === proposal.account);
 }

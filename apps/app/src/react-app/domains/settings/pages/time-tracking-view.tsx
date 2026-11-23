@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, X } from "lucide-react";
-import { captureAccountEnabled, defaultWorkdayRunTime, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
+import { defaultWorkdayRunTime, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
   const error = directory.error || day.error;
   if (error) return <p role="alert">{error.message}</p>;
   if (!day.data || !profile || !identity) return <p role="status">{t("timesheets.loading")}</p>;
-  const { settings, connections, guidelines } = day.data;
+  const { settings, guidelines } = day.data;
   const enabled = settings.enabled !== false;
   const schedule = workdaySchedule(settings);
   const pending = update.isPending;
@@ -112,17 +112,10 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
           disabled={pending} onChange={value => change({ field: source, value })} />)}
         <DesktopActivitySetting profileId={profile.profileId} checked={settings.desktopActivity === true} disabled={pending}
           onChange={value => change({ field: "desktopActivity", value })} />
-        <TimeSetting title={t("timesheets.source.stopwatch")}>
-          <TimeSelect label={t("timesheets.source.stopwatch")} disabled={pending} value={settings.stopwatchMode ?? "always"}
-            options={[{ id: "always", name: t("timeWorkspace.timerAlways") }, { id: "evidence", name: t("timeWorkspace.timerEvidence") }]}
-            onChange={value => { if (value === "always" || value === "evidence") change({ field: "stopwatchMode", value }); }} />
+        <TimeSetting title={t("timesheets.connected_integrations")} description={t("timesheets.connector_context")}>
+          <Link className="text-sm underline" to="/settings/extensions">{t("catalog.manage_integrations")}</Link>
         </TimeSetting>
-        {connections.map(account => <TimeSwitch key={account.provider + account.account}
-          label={[t(sourceKeys[account.provider]), account.name].filter(Boolean).join(" · ")} checked={captureAccountEnabled(settings, account)} disabled={pending}
-          onChange={value => change({ field: "account", account, value })} />)}
       </TimeSettingsGroup>
-      <p className="text-sm text-muted-foreground">{t("timesheets.connector_context")}</p>
-      <Link className="text-sm underline" to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
     </>}
     {enabled && (targets.error ? <p role="alert">{targets.error.message}</p> : targets.data &&
       <TimeWorkspaceGuidelines key={JSON.stringify([identity, initialTarget])} initialTarget={initialTarget}
