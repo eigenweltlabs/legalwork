@@ -167,7 +167,8 @@ import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
 import { backOfficeDirectoryIdentity } from "./back-office/access.js";
 import { backOfficeStore } from "./back-office/store.js";
-import { observationBatch, recordWorkspaceObservations, beginTaskObservation, currentActivityProfile } from "./time-capture/activity-workday.js";
+import { zoneValid } from "./calendar/dates.js";
+import { readActivityEvidence, observationBatch, recordWorkspaceObservations, beginTaskObservation, currentActivityProfile } from "./time-capture/activity-workday.js";
 import { requireTimekeepingOwner, isTimekeepingProject, canOpenTimekeeping, visibleTimekeepingProjects } from "./time-capture/profile.js";
 import { registerWorkdayRoutes, checkScheduledWorkday, readCaptureSettings } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
@@ -1983,7 +1984,25 @@ function createRoutes(
   for (const method of ["GET","POST"]) addRoute(routes, method, "/private-timesheet/activity", "host-token", async ctx => {
     if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
     if (method === "GET") {
-      const { profileId, path, principal, user, scope } = await currentActivityProfile(config);
+      const profile = await currentActivityProfile(config);
+      const { profileId, path, principal, user, scope } = profile;
+      if (ctx.url.searchParams.has("date")) {
+        if (ctx.url.searchParams.get("profileId") !== profileId) throw new ApiError(409, "profile_changed", "The active account changed.");
+        const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
+        const zone = ctx.url.searchParams.get("zone") ?? "UTC";
+        if (!zoneValid(zone)) throw new ApiError(400, "invalid_zone", "Invalid time zone.");
+        const evidence = await readActivityEvidence(config, profile, date, zone, ctx.request.signal);
+        if ((await currentActivityProfile(config)).profileId !== profileId) throw new ApiError(409, "profile_changed", "The active account changed.");
+        const settings = await readCaptureSettings(path);
+        const names = new Map(config.workspaces.map(w => [w.id, w.displayName || w.name]));
+        const rows = settings.enabled === false || settings.workspaceActivity === false ? [] : evidence
+          .filter(row => row.proposal.source === "workspace" || row.proposal.source === "agent")
+          .sort((a, b) => (a.proposal.startAt ?? a.proposal.observedAt ?? "").localeCompare(b.proposal.startAt ?? b.proposal.observedAt ?? ""))
+          .map(({ proposal }) => ({ ...proposal, projectName: proposal.projectId ? names.get(proposal.projectId) : undefined }));
+        const response = jsonResponse(rows);
+        response.headers.set("Cache-Control", "no-store");
+        return response;
+      }
       syncDesktopProfile(config, path);
       const [settings, directoryId] = await Promise.all([
         readCaptureSettings(path), backOfficeStore(config).then(store => backOfficeDirectoryIdentity(config, scope, store)),

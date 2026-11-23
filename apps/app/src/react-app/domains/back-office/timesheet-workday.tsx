@@ -1,3 +1,4 @@
+import { WorkdayAppActivity } from "./workday-app-activity";
 import { ItemDetailLabel, ItemDialogContent } from "@/react-app/design-system/item-detail";
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { sourceKeys } from "./timesheet-labels";
@@ -412,6 +413,8 @@ export function TimesheetWorkday({
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline date={date} appointments={appointments} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
                 headerActions={<div className="time-workspace-calendar-actions">
+                  {profileId && settings && settings.enabled !== false && settings.workspaceActivity !== false &&
+                    <WorkdayAppActivity key={profileId + date} client={client} profileId={profileId} date={date} container={timelineBody} />}
                   {settings && settings.enabled !== false && <Button size="sm" variant="outline"
                     title={t("timeWorkspace.addSuggestions")} disabled={running || refreshing || chatBusy || date > calendarDay(new Date())}
                     onClick={event => requestSuggestions(event.currentTarget)}>

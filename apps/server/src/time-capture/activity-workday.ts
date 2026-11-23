@@ -12,13 +12,20 @@ import { digest, type WorkdayEvidence } from "./private-workday.js";
 import { workdayWorkspaces } from "./workday-context.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { taskStore } from "../task-store.js";
+import { isTimekeepingProject } from "./profile.js";
+import { chatReplyEvidence } from "./chat-activity.js";
 import { ApiError } from "../errors.js";
 
 type Profile = { profileId: string; path: string; captureUser: string };
 const observation = z.object({
-  projectId: z.string().min(1).max(200),
-  kind: z.enum(["foreground", "passive", "agent"]),
-  stream: z.string().min(1).max(200),
+  projectId: z.string().min(1).max(200).nullable(),
+  kind: z.enum(["foreground", "passive", "agent", "window"]),
+  stream: z.string().min(1).max(8192),
+  title: z.string().trim().min(1).max(500).optional(),
+  surface: z.enum(["chat", "document", "view"]).optional(),
+  sessionId: z.string().min(1).max(200).optional(),
+  watching: z.boolean().optional(),
+  agentVisibility: z.enum(["foreground", "background"]).optional(),
   start: z.number().int().positive(),
   end: z.number().int().positive(),
 });
@@ -29,7 +36,9 @@ export const observationBatch = z.object({
 type Observation = z.infer<typeof observation>;
 type Activity = Omit<Observation, "projectId" | "kind"> & {
   projectId: string | null;
-  kind: Observation["kind"] | "tasks";
+  kind: Observation["kind"] | "tasks" | "chat-request";
+  sessionId?: string;
+  messageId?: string;
   title?: string;
   action?: string;
 };
@@ -66,10 +75,14 @@ async function append(
       const streams = new Map<string, Activity[]>();
       for (const event of [...existing, ...incoming].sort((a, b) => a.start - b.start)) {
         // A delayed sample can bridge multiple intervals, including reports from a second window.
-        const key = JSON.stringify([event.projectId, event.kind, event.stream]);
+        const key = JSON.stringify([event.projectId, event.kind, event.stream, event.agentVisibility, event.watching]);
         const stream = streams.get(key);
         const previous = stream?.at(-1);
-        if (previous && previous.end >= event.start) previous.end = Math.max(previous.end, event.end);
+        if (previous && event.kind === "chat-request") continue;
+        if (previous && previous.end >= event.start) {
+          previous.end = Math.max(previous.end, event.end);
+          if (event.title) previous.title = event.title;
+        }
         else if (stream) stream.push(event);
         else streams.set(key, [event]);
       }
@@ -101,23 +114,70 @@ export async function recordWorkspaceObservations(
   if (settings.enabled === false || settings.workspaceActivity === false)
     return;
   const now = Date.now();
-  const allowed = new Set((await workdayWorkspaces(config)).map((w) => w.id));
+  const allowed = new Set((await workdayWorkspaces(config)).filter(w => !isTimekeepingProject(w)).map(w => w.id));
   const valid = batch.observations.filter(
     (row) =>
       row.end > row.start &&
       row.end - row.start <= 90_000 &&
       row.start >= now - 180_000 &&
       row.end <= now + 3_000 &&
-      allowed.has(row.projectId),
+      (row.kind === "window" ? row.projectId === null : row.projectId !== null && allowed.has(row.projectId)),
   );
   await append(
     config,
     profile,
     valid.map((row) => ({
       ...row,
+      sessionId: row.surface === "chat" ? (row.kind === "agent" ? row.stream : row.sessionId) : undefined,
+      watching: row.surface === "chat" && row.kind !== "agent" ? row.watching : undefined,
+      agentVisibility: row.kind === "agent" ? row.agentVisibility : undefined,
       stream: digest([row.kind === "agent" ? "run" : "window", row.stream]),
     })),
   );
+}
+/** Bind an admitted local composer turn to the account that sent it. A queue receipt is a point, never booked time. */
+export async function beginChatObservation(config: ServerConfig, ctx: { actor?: { type: string }; agentAccess?: unknown },
+  workspace: ServerConfig["workspaces"][number], sessionId: string, title: string, text: string) {
+  if (ctx.actor?.type !== "host" || ctx.agentAccess || config.readOnly || isTimekeepingProject(workspace) ||
+      !["localhost", "127.0.0.1", "::1", "[::1]"].includes(config.host)) return;
+  const profile = await currentActivityProfile(config);
+  const settings = await readCaptureSettings(profile.path);
+  if (settings.enabled === false || settings.workspaceActivity === false ||
+      !(await workdayWorkspaces(config)).some(w => w.id === workspace.id)) return;
+  const start = Date.now();
+  return (messageId: string) => append(config, profile, [{
+    projectId: workspace.id, kind: "chat-request", sessionId, messageId, title: title.slice(0, 500) || "Chat",
+    action: text.trim().slice(0, 1000) || undefined,
+    stream: digest(["chat-request", sessionId, messageId]), start, end: start,
+  }]);
+}
+
+/** Several app windows see the same run. Focus in any one wins only for the overlapping interval. */
+export function agentVisibilityIntervals(rows: Activity[]): Activity[] {
+  const runs = new Map<string, Activity[]>();
+  for (const row of rows) {
+    if (row.kind !== "agent" || !row.agentVisibility) continue;
+    const key = JSON.stringify([row.projectId, row.stream]);
+    const group = runs.get(key);
+    if (group) group.push(row);
+    else runs.set(key, [row]);
+  }
+  const result = rows.filter(row => row.kind !== "agent" || !row.agentVisibility);
+  for (const samples of runs.values()) {
+    const bounds = [...new Set(samples.flatMap(row => [row.start, row.end]))].sort((a, b) => a - b);
+    const spans: Activity[] = [];
+    for (let i = 1; i < bounds.length; i++) {
+      const start = bounds[i - 1], end = bounds[i];
+      const covering = samples.filter(row => row.start <= start && row.end >= end);
+      const sample = covering.find(row => row.agentVisibility === "foreground") ?? covering[0];
+      if (!sample) continue;
+      const last = spans.at(-1);
+      if (last && last.end === start && last.agentVisibility === sample.agentVisibility) last.end = end;
+      else spans.push({ ...sample, start, end });
+    }
+    result.push(...spans);
+  }
+  return result;
 }
 type ObservedTask = { id: string; title: string; projectId?: string | null; updatedAt: string };
 type TaskAction = "Created task" | "Updated task" | "Completed task" | "Added note" | "Attached file";
@@ -157,6 +217,7 @@ export async function readActivityEvidence(
   profile: Profile,
   date: string,
   zone: string,
+  signal?: AbortSignal,
 ): Promise<WorkdayEvidence[]> {
   const start = Date.parse(zonedInstant(date, zone)),
     end = Date.parse(zonedInstant(addDays(date, 1), zone));
@@ -180,15 +241,16 @@ export async function readActivityEvidence(
       }
     }
   }
-  const allowed = new Set((await workdayWorkspaces(config)).map((w) => w.id));
-  return exclusiveForeground(
-    records.filter((row) => !row.projectId || allowed.has(row.projectId)),
-  ).flatMap((row): WorkdayEvidence[] => {
+  const allowed = new Set((await workdayWorkspaces(config)).filter(w => !isTimekeepingProject(w)).map(w => w.id));
+  const visible = records.filter(row => !row.projectId || allowed.has(row.projectId));
+  const evidence = exclusiveForeground(agentVisibilityIntervals(visible)).flatMap((row): WorkdayEvidence[] => {
+    if (row.kind === "window") return [];
     const task = row.kind === "tasks";
+    const point = task || row.kind === "chat-request";
     if (
       (task ? !settings.tasks : settings.workspaceActivity === false) ||
       row.start >= end ||
-      (task ? row.start < start : row.end <= start)
+      (point ? row.start < start : row.end <= start)
     )
       return [];
     const eventKey = digest([
@@ -208,19 +270,21 @@ export async function readActivityEvidence(
         : row.kind === "agent"
           ? ("agent" as const)
           : ("workspace" as const),
-      observation: row.kind === "tasks" ? undefined : row.kind,
+      observation: row.kind === "tasks" || row.kind === "chat-request" ? undefined : row.kind,
+      agentVisibility: row.agentVisibility,
       observedAt,
       activity: "",
       ...(row.action ? { changeSummary: row.action } : {}),
       narrative:
-        row.title ??
+        (row.kind === "chat-request" ? "Sent chat request: " + row.title :
+          row.surface && row.title ? (row.kind === "agent" ? "Agent run" : row.surface === "document" ? "Document" : row.surface === "chat" ? "Chat" : "View") + ": " + row.title : row.title) ??
         (row.kind === "agent"
           ? "Agent running in project"
           : row.kind === "passive"
             ? "Project open in background or idle"
             : "Active project window"),
-      startAt: task ? null : new Date(Math.max(start, row.start)).toISOString(),
-      endAt: task ? null : new Date(Math.min(end, row.end)).toISOString(),
+      startAt: point ? null : new Date(Math.max(start, row.start)).toISOString(),
+      endAt: point ? null : new Date(Math.min(end, row.end)).toISOString(),
       workedMinutes: null,
       dismissed: false,
     };
@@ -235,6 +299,10 @@ export async function readActivityEvidence(
       },
     ];
   });
+  if (settings.workspaceActivity !== false) {
+    evidence.push(...await chatReplyEvidence(config, profile.profileId, date, start, end, visible, allowed, signal));
+  }
+  return evidence;
 }
 
 export type CaptureFileIdentity = Pick<Stats, "dev" | "ino" | "birthtimeMs">;

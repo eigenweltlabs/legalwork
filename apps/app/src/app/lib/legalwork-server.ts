@@ -1878,7 +1878,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: boolean }>(baseUrl, "/private-timesheet/desktop-activity?" + new URLSearchParams(context), {
         token, hostToken, method: "POST", body: sample, signal,
       }),
-    observeActivity: (profileId:string, observations: {projectId:string;stream:string;kind:"foreground"|"passive"|"agent";start:number;end:number}[]) =>
+    workdayAppActivity: (profileId: string, date: string, zone: string, signal?: AbortSignal) =>
+      requestJson<(CaptureProposal & { projectName?: string })[]>(baseUrl, "/private-timesheet/activity?" + new URLSearchParams({ profileId, date, zone }), { token, hostToken, signal }),
+    observeActivity: (profileId:string, observations: {projectId:string|null;stream:string;kind:"foreground"|"passive"|"agent"|"window";title?:string;surface?:"chat"|"document"|"view";sessionId?:string;watching?:boolean;agentVisibility?:"foreground"|"background";start:number;end:number}[]) =>
       requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
     privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
       requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId ? "?profileId=" + encodeURIComponent(profileId) : ""), {

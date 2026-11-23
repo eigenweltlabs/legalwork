@@ -529,7 +529,7 @@ async function collectDay(config: ServerConfig, owner: Profile, date: string, zo
     return [];
   });
   const evidence = [...imported, ...workdayEvidence(events, date, settings, owner.captureUser, zone),
-    ...await readActivityEvidence(config, owner, date, zone),
+    ...await readActivityEvidence(config, owner, date, zone, signal),
     ...(settings.desktopActivity ? await readDesktopEvidence(owner, date, zone) : []),
     ...(settings.desktopActivity ? await readFileHistory(owner.path, date) : [])];
   if (settings.recordings) evidence.push(...Object.values(initial.recordings[date] ?? {}));
@@ -953,7 +953,7 @@ export function registerWorkdayRoutes(options: {
         return { date, zone, revision: revision(), failedSources: log.failedAccounts, instructions: workdayChatInstructions,
           activityCodes: timeActivities,
           observations: modelInput(available).map(({rules, priorDescriptions, ...facts}, i) => ({ ...facts, id: "e" + (i + 1) })),
-          claimedObservations: modelInput(all.filter(ref => !availableKeys.has(ref.item.eventKey))).map(ref => ({ source: ref.source, title: ref.title, startAt: ref.startAt, endAt: ref.endAt })),
+          claimedObservations: modelInput(all.filter(ref => !availableKeys.has(ref.item.eventKey))).map(ref => ({ source: ref.source, title: ref.title, status: ref.status, agentVisibility: ref.agentVisibility, startAt: ref.startAt, endAt: ref.endAt })),
           existingEntries: entries, suggestions: rows.map(i => ({ key: i.proposal.key, matterId: i.proposal.matterId, narrative: i.proposal.narrative,
             startAt: i.proposal.startAt, endAt: i.proposal.endAt, recordedMinutes: i.proposal.workedMinutes, billableMinutes: i.proposal.chargeMinutes,
             editable: Boolean(i.generated && !protectedProposal(saved, i)), draft: saved.drafts[i.proposal.key]?.values,

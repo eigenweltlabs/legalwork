@@ -1,8 +1,35 @@
+import { create } from "zustand";
 import { useEffect, useRef } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 
+import { openWorkdaySurfaces, workdaySurfaceChange, type WorkdaySurface } from "./workday-surfaces";
+
 type Sample = Parameters<LegalworkServerClient["observeActivity"]>[1][number];
-type Stream = Pick<Sample, "projectId" | "stream" | "kind">;
+type Stream = Omit<Sample, "start" | "end">;
+
+export type AgentRun = { projectId: string; stream: string; title: string };
+
+export const useWorkdayRoute = create<{ mounted: boolean; workspace: string | null; agents: AgentRun[] }>(() => ({
+  mounted: false, workspace: null, agents: [],
+}));
+
+export function workdayStreams(windowId: string, workspace: string | null, resources: WorkdaySurface[], agents: AgentRun[], focused: boolean, active: boolean): Stream[] {
+  const selected = resources.find(resource => resource.focused);
+  const rows: Stream[] = resources.map(resource => ({
+    projectId: resource.projectId, title: resource.title, surface: resource.type,
+    ...(resource.type === "chat" ? { sessionId: resource.id, watching: resource === selected && focused } : {}),
+    stream: JSON.stringify([windowId, resource.type, resource.id]),
+    kind: resource === selected && active ? "foreground" : "passive",
+  }));
+  if (!selected && workspace) rows.push({ projectId: workspace, stream: windowId, kind: active ? "foreground" : "passive" });
+  for (const run of agents) {
+    const watching = focused && selected?.type === "chat" && selected.id === run.stream && selected.projectId === run.projectId;
+    rows.push({ ...run, surface: "chat", kind: "agent", agentVisibility: watching ? "foreground" : "background" });
+  }
+  // This coverage lets the server recover short background runs between busy notifications.
+  rows.push({ projectId: null, stream: windowId, kind: "window" });
+  return rows;
+}
 
 /** A renderer observes its own focus. Busy sessions are independent of the selected project. */
 export function useWorkdayActivity(
@@ -10,7 +37,7 @@ export function useWorkdayActivity(
   profileId: string | null,
   refreshProfile: () => void,
   workspace: string | null,
-  agents: { projectId: string; stream: string }[],
+  agents: AgentRun[],
 ) {
   const latest = useRef({ workspace, agents });
   const tick = useRef<(() => void) | undefined>(undefined);
@@ -22,7 +49,7 @@ export function useWorkdayActivity(
       prev.agents.every(
         (item, i) =>
           item.projectId === agents[i].projectId &&
-          item.stream === agents[i].stream,
+          item.stream === agents[i].stream && item.title === agents[i].title,
       )
     )
       return;
@@ -34,27 +61,11 @@ export function useWorkdayActivity(
     const windowId = crypto.randomUUID();
     let lastInput = Date.now(), last = Date.now();
     let previous: Stream[] = [];
-    const foreground = () =>
-      document.visibilityState === "visible" &&
-      document.hasFocus() &&
-      Date.now() - lastInput < 90_000;
-    const streams = (): Stream[] => [
-      ...(latest.current.workspace
-        ? [
-            {
-              projectId: latest.current.workspace,
-              stream: windowId,
-              kind: foreground()
-                ? ("foreground" as const)
-                : ("passive" as const),
-            },
-          ]
-        : []),
-      ...latest.current.agents.map((run) => ({
-        ...run,
-        kind: "agent" as const,
-      })),
-    ];
+    const streams = (): Stream[] => {
+      const focused = document.visibilityState === "visible" && document.hasFocus();
+      return workdayStreams(windowId, latest.current.workspace, openWorkdaySurfaces(), latest.current.agents,
+        focused, focused && Date.now() - lastInput < 90_000);
+    };
     const sample = () => {
       const now = Date.now(),
         start = last;
@@ -63,16 +74,17 @@ export function useWorkdayActivity(
       previous = streams();
       // A sleeping host cannot attest elapsed time while suspended.
       if (now <= start || now - start > 90_000 || !observed.length) return;
-      void client
-        .observeActivity(
-          profileId,
-          observed.map((row) => ({ ...row, start, end: now })),
-        )
-        .catch(() => {
-          refreshProfile();
-        });
+      for (let i = 0; i < observed.length; i += 16) {
+        void client.observeActivity(profileId, observed.slice(i, i + 16).map(row => ({ ...row, start, end: now })))
+          .catch(refreshProfile);
+      }
     };
+    // React layouts may replace a pane and its chat together in one commit.
+    const layoutChange = () => queueMicrotask(() => {
+      if (tick.current === sample && JSON.stringify(previous) !== JSON.stringify(streams())) sample();
+    });
     tick.current = sample;
+    window.addEventListener(workdaySurfaceChange, layoutChange);
     const input = () => {
       const wasIdle = Date.now() - lastInput >= 90_000;
       lastInput = Date.now();
@@ -91,6 +103,7 @@ export function useWorkdayActivity(
     for (const name of ["pointerdown", "pointermove", "keydown", "wheel"])
       window.addEventListener(name, input, { passive: true });
     return () => {
+      window.removeEventListener(workdaySurfaceChange, layoutChange);
       previous = [];
       tick.current = undefined;
       clearInterval(timer);

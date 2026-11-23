@@ -96,6 +96,7 @@ export const captureProposalSchema = z.object({
   documentId: z.string().min(1).max(200).optional(),
   workProductId: z.string().min(1).max(200).optional(),
   observation: z.enum(["foreground", "passive", "agent"]).optional(),
+  agentVisibility: z.enum(["foreground", "background"]).optional(),
   observedAt: z.iso.datetime().optional(),
   fileUseSource: z.enum(["spotlight-last-used", "windows-shell-recent"]).optional(),
   desktopContext: z.object({ platform: z.enum(["darwin", "win32"]), application: z.string().max(240), documentName: z.string().max(240).optional() }).optional(),

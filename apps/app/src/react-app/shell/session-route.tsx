@@ -160,7 +160,7 @@ import type { ConnectAiAction } from "@/react-app/domains/session/surface/sessio
 import { isInternalSession } from "@legalwork/types/session-visibility";
 import { Button } from "@/components/ui/button";
 import { timeTrackingProfile } from "../domains/back-office/time-tracking-profile";
-import { useWorkdayActivity } from "./workday-activity";
+import { useWorkdayRoute } from "./workday-activity";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
@@ -855,14 +855,14 @@ export function SessionRoute() {
   const sessionActivityByWorkspaceId = useSessionActivityStore(state => state.statusesByWorkspaceId);
   const observedAgents = useMemo(() => workspaces.flatMap(workspace => {
     const projectId = workspaceServerId(workspace);
-    if (!projectId || workspace.preset === "main-assistant" || hiddenTemplateWorkspaceIds.includes(workspace.id)) return [];
+    if (!projectId || workspace.preset?.startsWith("private-timekeeping:")) return [];
     return (sessionsByWorkspaceId[workspace.id] ?? []).flatMap(session => {
       if (!session.id || isInternalSession(session)) return [];
       const activity = sessionActivityByWorkspaceId[projectId]?.[session.id];
       const running = activity ? ["thinking", "responding", "compacting"].includes(activity) : isActiveSessionStatus(getSessionStatus(session));
-      return running ? [{projectId, stream:session.id}] : [];
+      return running ? [{ projectId, stream: session.id, title: session.title?.slice(0, 500) || t("session.default_title") }] : [];
     });
-  }), [workspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId, hiddenTemplateWorkspaceIds]);
+  }), [workspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId]);
   const sidebarWorkspaces = useMemo(
     () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
@@ -2476,11 +2476,12 @@ export function SessionRoute() {
     routeWorkspaceId,
     chatOwnerId: selectedSessionInfo ? selectedWorkspaceId : undefined,
   });
-  const observedWorkspace = sidebarWorkspaces.find(workspace => workspace.id === visibleWorkdayProject);
+  const observedWorkspace = workspaces.find(workspace => workspace.id === visibleWorkdayProject);
   const timeProfile = useQuery(timeTrackingProfile(hostToken ? client : null));
-  useWorkdayActivity(hostToken ? client : null,
-    timeProfile.data?.enabled && timeProfile.data.workspaceActivity ? timeProfile.data.profileId : null,
-    timeProfile.refetch, workspaceServerId(observedWorkspace) || null, observedAgents);
+  useEffect(() => {
+    useWorkdayRoute.setState({ mounted: true, workspace: workspaceServerId(observedWorkspace) || null, agents: observedAgents });
+  }, [observedWorkspace, observedAgents]);
+  useEffect(() => () => useWorkdayRoute.setState({ mounted: false, workspace: null }), []);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });

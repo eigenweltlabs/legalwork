@@ -1,3 +1,4 @@
+import { useWorkdayRoute, useWorkdayActivity } from "./workday-activity";
 import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createLegalworkServerClient, isLoopbackLegalworkServerUrl, type LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -14,7 +15,7 @@ export const desktopCaptureKey = (profileId: string) => ["timekeeping-desktop-ca
 export function DesktopTimeActivityListener() {
   const native = Boolean(window.__LEGALWORK_ELECTRON__?.system?.sampleWorkdayDesktopActivity);
   const connection = useQuery({
-    queryKey: ["timekeeping-desktop-connection"], queryFn: resolveLegalworkConnection, enabled: native,
+    queryKey: ["timekeeping-desktop-connection"], queryFn: resolveLegalworkConnection,
     staleTime: 30_000, retry: false,
   });
   const refetchConnection = connection.refetch;
@@ -25,11 +26,24 @@ export function DesktopTimeActivityListener() {
     return () => window.removeEventListener("legalwork-server-settings-changed", refresh);
   }, [native, refetchConnection]);
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = connection.data ?? {};
-  const client = useMemo(() => native && normalizedBaseUrl && resolvedHostToken && isLoopbackLegalworkServerUrl(normalizedBaseUrl)
+  const client = useMemo(() => normalizedBaseUrl && resolvedHostToken && isLoopbackLegalworkServerUrl(normalizedBaseUrl)
     ? createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken }) : null,
-    [native, normalizedBaseUrl, resolvedToken, resolvedHostToken]);
+    [normalizedBaseUrl, resolvedToken, resolvedHostToken]);
   const profile = useQuery(timeTrackingProfile(client));
-  useDesktopTimeActivity(client, profile.data);
+  const route = useWorkdayRoute();
+  const profileId = profile.data?.enabled && profile.data.workspaceActivity ? profile.data.profileId : null;
+  const outsideWorkspace = useQuery({
+    queryKey: ["workday-active-chats", client?.baseUrl, profileId], queryFn: ({ signal }) => client!.sessionInbox(signal),
+    enabled: Boolean(profileId && client && !route.mounted), refetchInterval: 10_000, refetchIntervalInBackground: true,
+    staleTime: 0, gcTime: 0,
+  });
+  const runs = route.mounted || !outsideWorkspace.data ? route.agents : outsideWorkspace.data.sessions.flatMap(chat => {
+    if (chat.status !== "busy") return [];
+    const prior = route.agents.find(run => run.projectId === chat.workspaceId && run.stream === chat.sessionId);
+    return [prior ?? { projectId: chat.workspaceId, stream: chat.sessionId, title: chat.sessionId }];
+  });
+  useWorkdayActivity(client, profileId, profile.refetch, route.workspace, runs);
+  useDesktopTimeActivity(native ? client : null, profile.data);
   return null;
 }
 

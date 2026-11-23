@@ -107,7 +107,7 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
       <TimeSettingsGroup title={t("timesheets.sources")}>
         {(["calendar", "tasks", "documents", "workspaceActivity", "recordings"] as const).map(source => <TimeSwitch key={source}
           label={t(source === "workspaceActivity" ? "timeWorkspace.workspaceActivity" : sourceKeys[source])}
-          description={source === "recordings" ? t("timesheets.source.recordingsDescription") : undefined}
+          description={source === "workspaceActivity" ? t("timeWorkspace.workspaceDescription") : source === "recordings" ? t("timesheets.source.recordingsDescription") : undefined}
           checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
           disabled={pending} onChange={value => change({ field: source, value })} />)}
         <DesktopActivitySetting profileId={profile.profileId} checked={settings.desktopActivity === true} disabled={pending}

@@ -1,3 +1,6 @@
+import { setWorkdaySurfaces } from "../../../shell/workday-surfaces";
+import { interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
+import { useQueryClient } from "@tanstack/react-query";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../sync/session-sync";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { createClient } from "@/app/lib/opencode";
@@ -20,6 +23,16 @@ type ModelSettings = Pick<SessionSurfaceProps, "selectedModel" | "modelSelectorL
 export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHeader?: (settings: ModelSettings) => ReactNode }) {
   const client = useMemo(() => createClient(props.opencodeBaseUrl, props.workspaceRoot || undefined,
     { token: props.legalworkToken, hostToken: props.legalworkHostToken, mode: "legalwork" }), [props.opencodeBaseUrl, props.workspaceRoot, props.legalworkToken, props.legalworkHostToken]);
+  const cache = useQueryClient();
+  const surfaceKey = useRef(Symbol("chat"));
+  useEffect(() => {
+    if (props.active === false || props.timekeeping || !props.legalworkHostToken) return;
+    const key = surfaceKey.current;
+    const info = cache.getQueryData<InteractionSessions>(interactionSessionsKey(props.workspaceId))?.[props.sessionId];
+    setWorkdaySurfaces(key, [{ type: "chat", projectId: props.workspaceId, id: props.sessionId,
+      title: info?.title || props.assistantName || t("session.default_title"), focused: true }]);
+    return () => setWorkdaySurfaces(key, []);
+  }, [cache, props.workspaceId, props.sessionId, props.active, props.timekeeping, props.legalworkHostToken, props.assistantName]);
   useEffect(() => {
     const input = { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, legalworkHostToken: props.legalworkHostToken };
     const releaseWorkspace = ensureWorkspaceSessionSync(input);

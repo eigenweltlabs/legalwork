@@ -1,3 +1,4 @@
+import { setWorkdaySurfaces, workdayTab } from "../../../shell/workday-surfaces";
 import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import type { PanelTabDestination } from "./panel-tab-request";
 import { ViewHostProvider } from "../../views/view-host";
@@ -865,6 +866,18 @@ function SidePanelContent({
   React.useEffect(() => {
     if (tabs.some(tab => tab.type === "artifact" && tab.id === focusedId)) setLastDocumentId(focusedId ?? null);
   }, [focusedId, tabs]);
+  const workdayLayout = React.useRef(Symbol("workday layout"));
+  React.useEffect(() => {
+    const resources = workspaceVisible && !isRemoteWorkspace ? tabs.flatMap(tab => {
+      const resource = workdayTab(tab, workspaceId, tab.id === focusedId);
+      return resource && (resource.focused || resource.type === "document") ? [resource] : [];
+    }) : [];
+    setWorkdaySurfaces(workdayLayout.current, resources);
+  }, [workspaceVisible, isRemoteWorkspace, workspaceId, tabs, focusedId]);
+  React.useEffect(() => {
+    const key = workdayLayout.current;
+    return () => setWorkdaySurfaces(key, []);
+  }, []);
   const controlDocumentId = documentControlTarget(tabs.filter(tab => tab.type === "artifact" && panes.some(pane => pane.activeTabId === tab.id)).map(tab => tab.id), focusedId, lastDocumentId);
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId]);
   const openFiles = React.useMemo(() => tabs.flatMap((tab) => {

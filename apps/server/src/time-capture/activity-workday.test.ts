@@ -138,3 +138,49 @@ test("a synchronized firm's task contributes only notes written by this member o
     expect(journal).not.toContain("Different firm");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("two windows observing one run preserve focus transitions and never add human minutes", async () => {
+  const { agentVisibilityIntervals } = await import("./activity-workday.js");
+  const { humanInterval } = await import("./private-workday.js");
+  const base = { projectId: "project", kind: "agent" as const, surface: "chat" as const, title: "Review terms", stream: "id" };
+  const sorted = agentVisibilityIntervals([
+    { ...base, agentVisibility: "background", start: 10, end: 80 },
+    { ...base, agentVisibility: "foreground", start: 20, end: 40 },
+    { ...base, agentVisibility: "foreground", start: 40, end: 50 },
+  ]);
+  expect(sorted.map(({ start, end, agentVisibility }) => [start, end, agentVisibility])).toEqual([
+    [10, 20, "background"], [20, 50, "foreground"], [50, 80, "background"],
+  ]);
+  for (const row of sorted) expect(humanInterval({ source: "agent", observation: "agent", agentVisibility: row.agentVisibility,
+    startAt: new Date(row.start).toISOString(), endAt: new Date(row.end).toISOString() } as Parameters<typeof humanInterval>[0])).toBeUndefined();
+});
+
+test("the local chat request and named open document survive a log read and obey source and account boundaries", async () => {
+  const { beginChatObservation } = await import("./activity-workday.js");
+  const root = await mkdtemp(join(tmpdir(), "in-app-daylog-"));
+  try {
+    const workspace = { id: "assistant", name: "Assistant", path: root, preset: "main-assistant", workspaceType: "local" as const };
+    const config = backOfficeTestConfig(root, { workspaces: [workspace] });
+    const profile = await currentActivityProfile(config);
+    const begin = (type: string, preset: string) => beginChatObservation(config, { actor: { type } },
+      { ...workspace, preset }, "chat-1", "Lease review", "Compare the rent schedules.");
+    expect(await begin("remote", "main-assistant")).toBeUndefined();
+    expect(await begin("host", "private-timekeeping:demo")).toBeUndefined();
+    const observed = await begin("host", "main-assistant");
+    expect(observed).toBeDefined();
+    await observed!("user-1");
+    await observed!("user-1");
+    const now = Date.now(), day = new Date(now).toISOString().slice(0, 10);
+    await recordWorkspaceObservations(config, { profileId: profile.profileId, observations: [
+      { projectId: workspace.id, kind: "foreground", stream: "window-doc-1", surface: "document", title: "Lease.docx", start: now - 1500, end: now },
+    ] });
+    const rows = await readActivityEvidence(config, profile, day, "UTC");
+    expect(rows.filter(row => row.proposal.changeSummary === "Compare the rent schedules.")).toHaveLength(1);
+    expect(rows.find(row => row.proposal.observation === "foreground")?.proposal).toMatchObject({
+      narrative: "Document: Lease.docx", startAt: new Date(now - 1500).toISOString(), endAt: new Date(now).toISOString(),
+    });
+    await writeFile(profile.path, JSON.stringify({ lastRun: 0, days: {}, settings: { calendar: true, tasks: true, documents: true, workspaceActivity: false } }));
+    expect(await begin("host", "main-assistant")).toBeUndefined();
+    expect(await readActivityEvidence(config, profile, day, "UTC")).toEqual([]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

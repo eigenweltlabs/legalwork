@@ -189,6 +189,7 @@ export function modelInput(evidence: ModelEvidence[]) {
       id: eventKey,
       source: proposal.source,
       status: proposal.observation,
+      agentVisibility: proposal.agentVisibility,
       projectId: proposal.projectId,
       matter: matter ?? null,
       matterMatch,
