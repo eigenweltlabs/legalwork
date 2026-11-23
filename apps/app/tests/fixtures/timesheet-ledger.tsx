@@ -1340,6 +1340,26 @@ try {
   assert.equal(guidelines[0]?.rules.incrementMinutes, 6);
   assert.equal(guidelines[0]?.scope, "firm");
   assert.equal(guidelines[0]?.effectiveFrom, new Date().toLocaleDateString("en-CA"));
+  await press(t("timeWorkspace.effectiveRules"));
+  const rulesPanel = document.querySelector<HTMLElement>('.time-workspace-guidelines [data-slot="collapsible-content"]');
+  const matterLookup = rulesPanel?.querySelector<HTMLInputElement>('input[role="combobox"]');
+  const serviceDate = rulesPanel?.querySelector<HTMLInputElement>('input[type="date"]');
+  assert.ok(rulesPanel && matterLookup && serviceDate);
+  assert.equal(rulesPanel.querySelector(`label[for="${matterLookup.id}"]`)?.textContent, "Matter");
+  assert.equal(rulesPanel.querySelector("dl"), null);
+  await act(async () => matterLookup.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await input(matterLookup, "26/12");
+  const foundMatter = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.includes("26/12"));
+  await until(foundMatter);
+  assert.ok(foundMatter());
+  await act(async () => foundMatter()!.click());
+  const values = () => [...rulesPanel.querySelectorAll("dd")].map(item => item.textContent);
+  assert.equal(values().length, 4);
+  assert.equal(values()[0], "12 min");
+  assert.match(rulesPanel.textContent ?? "", /LegalWork defaults/);
+  await input(serviceDate, "2025-01-01");
+  assert.notEqual(values()[0], "12 min", "the displayed rule follows the selected service date");
+
   assert.equal(document.querySelector('[role="combobox"][aria-label="Stopwatch"]'), null);
   assert.doesNotMatch(document.body.textContent ?? "", /Synthetic mailbox/);
   assert.equal([...document.querySelectorAll("a")].find(link => link.textContent === t("catalog.manage_integrations"))?.getAttribute("href"), "/settings/extensions");

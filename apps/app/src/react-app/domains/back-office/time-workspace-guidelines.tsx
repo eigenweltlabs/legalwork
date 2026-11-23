@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { Button } from "@/components/ui/button";
 import { t, currentLocale } from "@/i18n";
-import { ChevronRight, FileText, Link2, Plus, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Link2, Plus, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Surface } from "../../design-system/surface";
+import { formatCalendarDay } from "../calendar/calendar-format";
 import {
   draftRules, effectiveWorkdayGuidelines, visibleSingleClient, workdayRuleSources,
   workdayGuidelineSchema,
@@ -291,6 +293,7 @@ export function TimeWorkspaceGuidelines({
   }
   const targetName = (scope: Scope, id: string) => scope === "firm" ? t(scopeKeys.firm)
     : (scope === "client" ? state.clients : state.matters).find(item => item.id === id)?.name ?? t(scopeKeys[scope]);
+  const lookupMatterInput = useId();
   const [lookupMatter, setLookupMatter] = useState(initialTarget?.scope === "matter" ? initialTarget.targetId : "");
   const [lookupDate, setLookupDate] = useState(date);
   const [lookupProject, setLookupProject] = useState("");
@@ -302,6 +305,13 @@ export function TimeWorkspaceGuidelines({
     clientId: visibleSingleClient(matter, state) ?? "", matterId: matter.id, date: lookupDate,
   }) : [];
   const sources = matter ? workdayRuleSources(state, matter, lookupDate, projectId) : [];
+  const formatMinutes = new Intl.NumberFormat(currentLocale(), { style: "unit", unit: "minute", unitDisplay: "short" });
+  const ruleValues = effectiveRules ? [
+    [t("timeWorkspace.ruleMinimum"), formatMinutes.format(effectiveRules.minimumMinutes)],
+    [t("timeWorkspace.ruleMaximum"), formatMinutes.format(effectiveRules.maxMinutes)],
+    [t("timeWorkspace.ruleIncrement"), formatMinutes.format(effectiveRules.incrementMinutes)],
+    [t("timeWorkspace.rounding"), t(roundingKeys[effectiveRules.rounding])],
+  ] : [];
   const fixedTarget = Boolean(editing || initialTarget);
   return (
     <section className="time-workspace-guidelines grid gap-3" aria-labelledby="billing-guidelines-title">
@@ -312,31 +322,55 @@ export function TimeWorkspaceGuidelines({
         </Button>}
       </div>
       <p className="text-sm text-muted-foreground">{t("timeWorkspace.guidelineHint")}</p>
-      {!formOpen && !initialTarget && <details className="rounded-lg border px-4 py-3 text-sm">
-        <summary className="cursor-pointer font-medium">{t("timeWorkspace.effectiveRules")}</summary>
-        <div className="mt-3 grid gap-3">
-          <TimeRecordPicker label={t("timesheets.workday.matter")} placeholder={t("timesheets.workday.choose")} options={state.matters}
-            value={lookupMatter} onChange={id => { setLookupMatter(id); setLookupProject(""); }} />
-          <label className="grid gap-1">{t("timeWorkspace.ruleDate")}<Input type="date" value={lookupDate} onChange={e => setLookupDate(e.currentTarget.value)} /></label>
-          {projects.length > 0 && <TimeSelect label={t("timeWorkspace.ruleProject")} value={projectId ?? "all"}
-            options={[{ id: "all", name: t("timeWorkspace.matterOnly") }, ...projects]} onChange={setLookupProject} />}
-          {effectiveRules && <div className="grid gap-2" aria-live="polite">
-            <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
-              <dt>{t("timeWorkspace.minimumMinutes")}</dt><dd>{effectiveRules.minimumMinutes}</dd>
-              <dt>{t("timeWorkspace.maxMinutes")}</dt><dd>{effectiveRules.maxMinutes}</dd>
-              <dt>{t("timeWorkspace.incrementMinutes")}</dt><dd>{effectiveRules.incrementMinutes}</dd>
-              <dt>{t("timeWorkspace.rounding")}</dt><dd>{t(roundingKeys[effectiveRules.rounding])}</dd>
-            </dl>
-            <ul className="list-disc space-y-1 ps-5 text-muted-foreground">
-              <li>{t("timeWorkspace.builtInPolicy")}</li>
-              {sources.map((source, i) => <li key={i}>{source.source === "feeAgreement"
-                ? <Link className="underline" to={"/back-office/feeAgreements?record=" + encodeURIComponent(source.recordId!)}>{t("back_office.feeAgreements.singular")}</Link>
-                : <Link className="underline" to="/settings/billing">{t("timesheets.settings")}</Link>} · {t("back_office.billing.scope_" + source.scope)}</li>)}
-              {applied.map(item => <li key={item.id}>{item.name} · {item.effectiveFrom} · v{item.revision}</li>)}
-            </ul>
-          </div>}
-        </div>
-      </details>}
+      {!formOpen && !initialTarget && <Surface className="@container/matter-rules min-w-0 overflow-hidden">
+        <Collapsible>
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-5 py-3.5 text-start text-sm font-medium hover:bg-muted/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
+            {t("timeWorkspace.effectiveRules")}
+            <ChevronDown aria-hidden className="size-4 shrink-0 text-muted-foreground group-aria-expanded:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t border-border/70 px-5 pt-3.5 pb-4">
+            <div className="grid items-end gap-3 @min-[28rem]/matter-rules:grid-cols-[minmax(0,1fr)_10.5rem]">
+              <div className="grid min-w-0 gap-1.5">
+                <label htmlFor={lookupMatterInput} className="text-xs font-medium">{t("timesheets.workday.matter")}</label>
+                <TimeRecordPicker id={lookupMatterInput} label={t("timesheets.workday.matter")}
+                  placeholder={t("timeWorkspace.ruleMatterSearch")} options={state.matters}
+                  value={lookupMatter} onChange={id => { setLookupMatter(id); setLookupProject(""); }} />
+              </div>
+              <label className="grid min-w-0 gap-1.5 text-xs font-medium">
+                {t("timeWorkspace.ruleDate")}
+                <Input type="date" className="min-w-0" value={lookupDate} onChange={e => setLookupDate(e.currentTarget.value)} />
+              </label>
+              {projects.length > 0 && <div className="grid min-w-0 gap-1.5 @min-[28rem]/matter-rules:col-span-2">
+                <span className="text-xs font-medium">{t("timeWorkspace.ruleProject")}</span>
+                <TimeSelect label={t("timeWorkspace.ruleProject")} value={projectId ?? "all"}
+                  options={[{ id: "all", name: t("timeWorkspace.matterOnly") }, ...projects]} onChange={setLookupProject} />
+              </div>}
+            </div>
+            <div aria-live="polite">
+              {effectiveRules && <>
+                <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/70 bg-border/70 @min-[34rem]/matter-rules:grid-cols-4">
+                  {ruleValues.map(([label, value]) => <div key={label} className="min-w-0 bg-background px-3.5 py-2.5">
+                    <dt className="text-xs text-muted-foreground">{label}</dt>
+                    <dd className="mt-1 text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{value}</dd>
+                  </div>)}
+                </dl>
+                <div className="mt-3 grid gap-x-3 gap-y-1 text-xs @min-[28rem]/matter-rules:grid-cols-[auto_minmax(0,1fr)]">
+                  <p className="font-medium">{t("timeWorkspace.ruleSources")}</p>
+                  <ul className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-muted-foreground">
+                    <li>{t("timeWorkspace.builtInPolicy")}</li>
+                    {sources.map((source, i) => <li key={i}>{source.source === "feeAgreement"
+                      ? <Link className="underline underline-offset-2" to={"/back-office/feeAgreements?record=" + encodeURIComponent(source.recordId!)}>{t("back_office.feeAgreements.singular")}</Link>
+                      : <Link className="underline underline-offset-2" to="/settings/billing">{t("timesheets.settings")}</Link>} · {t("back_office.billing.scope_" + source.scope)}</li>)}
+                    {applied.map(item => <li key={item.id} className="[overflow-wrap:anywhere]">
+                      {item.name} · {formatCalendarDay(item.effectiveFrom, { dateStyle: "medium" })} · v{item.revision}
+                    </li>)}
+                  </ul>
+                </div>
+              </>}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </Surface>}
       {!formOpen && <Surface className="divide-y divide-border/70 overflow-hidden">
         {latest.size === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{t("timeWorkspace.guidelinesEmpty")}</p>}
         {Array.from(latest.values()).sort((a, b) => a.name.localeCompare(b.name)).map(item => (
