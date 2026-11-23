@@ -793,38 +793,3 @@ test("raw or unknown evidence references, duplicate handles and double claims re
     expect(attempts).toBe(2);
   }
 });
-
-test("live wording reports full verified batches and never publishes a row from a malformed batch", async () => {
-  const rows = ["First meeting", "Second meeting", "Third meeting"].map((title, index) => {
-    const startAt = at("0" + (index + 6) + ":00"), endAt = at("0" + (index + 7) + ":00");
-    const source = evidence(title, { startAt, endAt });
-    const { narrative: _, ...group } = proposal([title], { startAt, endAt });
-    return { source, group };
-  });
-  for (const fail of [false, true]) {
-    const progress: string[][] = [];
-    const run = generateStructuredWorkday({ date, zone: "UTC", skill: "", transcript: [], evidence: rows.map(row => row.source),
-      async onWording(total, batch) {
-        expect(total).toBe(3);
-        progress.push(batch.map(row => row.proposal.narrative));
-      },
-      async generate(prompt) {
-        const input = JSON.parse(prompt.split("\n\n").at(-1)!);
-        if (input.stage === "grouping") {
-          expect(progress).toEqual([]);
-          return JSON.stringify({ proposals: rows.map(({ group }) => citeTitles(group, input.evidence)) });
-        }
-        const wording = input.entries.map(({ index }: { index: number }) => ({ index, narrative: "Reviewed row " + index }));
-        if (fail && wording.length > 1) wording.pop();
-        return JSON.stringify({ wording });
-      },
-    });
-    if (fail) {
-      await expect(run).rejects.toMatchObject({ code: "timesheet_model_format" });
-      expect(progress).toEqual([[], ["Reviewed row 0"]]);
-    } else {
-      expect(await run).toHaveLength(3);
-      expect(progress).toEqual([[], ["Reviewed row 0"], ["Reviewed row 1", "Reviewed row 2"]]);
-    }
-  }
-});

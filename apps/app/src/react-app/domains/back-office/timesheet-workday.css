@@ -77,5 +77,3 @@
 @media (max-width: 680px) {
   .bo-workday-controls { gap: 4px; padding-inline: 6px; }
 }
-
-.time-workspace-timeline [data-suggestion-preview] { border-style: dashed; cursor: progress; }

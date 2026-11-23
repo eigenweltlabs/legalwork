@@ -107,7 +107,6 @@ export async function generateStructuredWorkday(options: {
   currentDraft?: (Pick<CaptureProposal, "key" | "matterId" | "projectId" | "documentId" | "activity" |
     "startAt" | "endAt" | "workedMinutes" | "estimatedMinutes" | "estimateReason"> & { evidenceIds: string[] })[];
   generate: (prompt: string) => Promise<string>;
-  onWording?: (total: number, completedBatch: WorkdayEvidence[]) => Promise<void>;
 }) {
   const { skill, date, zone, transcript, currentDraft, generate } = options;
   if (!options.evidence.length) return [];
@@ -170,17 +169,7 @@ export async function generateStructuredWorkday(options: {
     indexes.push(index);
     scoped.set(key, indexes);
   }
-  await options.onWording?.(validated.length, []);
-  // Return the first complete narrative promptly even when all entries share one scope.
-  // Keep later requests batched to avoid one model invocation per suggestion.
-  const batches: number[][] = [];
   for (const indexes of scoped.values()) {
-    if (!options.onWording) { batches.push(indexes); continue; }
-    let offset = 0;
-    if (!batches.length) { batches.push(indexes.slice(0, 1)); offset = 1; }
-    for (; offset < indexes.length; offset += 20) batches.push(indexes.slice(offset, offset + 20));
-  }
-  for (const indexes of batches) {
     const entries = indexes.map((index) => {
       const row = grouped[index];
       const phrase = row.wordingHint;
@@ -221,7 +210,6 @@ export async function generateStructuredWorkday(options: {
       completed[item.index] = applyWorkdayWording(validated[item.index], item.narrative, documentTitle);
     }
     if (expected.size) throw invalidModelOutput();
-    await options.onWording?.(validated.length, indexes.map(index => completed[index]));
   }
   return completed;
 }

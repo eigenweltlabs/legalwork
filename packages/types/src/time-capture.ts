@@ -159,11 +159,6 @@ export const captureStateSchema = z.object({
   status: workdayStatusSchema.optional(),
   checkedThrough: z.iso.datetime().optional(),
 });
-export const workdayGenerationProgressSchema = z.object({
-  runId: z.uuid(), date: z.iso.date(), phase: z.enum(["collecting", "grouping", "wording", "saving"]),
-  completed: z.number().int().nonnegative(), total: z.number().int().nonnegative().nullable(), proposals: z.array(captureProposalSchema),
-});
-export type WorkdayGenerationProgress = z.infer<typeof workdayGenerationProgressSchema>;
 export type WorkdayGuideline = z.infer<typeof workdayGuidelineSchema>;
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 /** Keep sub-minute stopwatch evidence when proposing invoice units, avoiding double rounding. */

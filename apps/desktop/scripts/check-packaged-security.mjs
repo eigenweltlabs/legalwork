@@ -31,7 +31,7 @@ const resources = process.platform === "darwin" ? path.join(appPath, "Contents/R
 const archiveFiles = listPackage(path.join(resources, "app.asar")).map(file => file.replaceAll("\\", "/"));
 assert.ok(!archiveFiles.some(file => file.includes("/node_modules/@legalwork/opencode-release/generated/archive-cache")), "Packaged app must not include the engine build download cache");
 console.log("PASS: engine build download cache is absent from the packaged app");
-for (const module of ["workday-desktop-activity.mjs", "workday-windows-foreground.mjs", "workday-file-history.mjs"]) {
+for (const module of ["workday-desktop-activity.mjs", "workday-windows-foreground.mjs"]) {
   assert.ok(archiveFiles.includes("/electron/" + module), "Missing packaged desktop activity module: " + module);
 }
 if (process.platform === "darwin") {

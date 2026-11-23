@@ -67,11 +67,10 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, bookings = [], onCreateEntry, guidelines = [], appointments = [], previews = [], drafts, state, view, selected, editorId, headerActions, onOpen, decisions,
+  date, proposals, bookings = [], onCreateEntry, guidelines = [], appointments = [], drafts, state, view, selected, editorId, headerActions, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
-  previews?: CaptureProposal[];
   appointments?: CalendarDisplayOccurrence[];
   drafts?: CaptureState["drafts"];
   state: TimesheetState;
@@ -130,8 +129,7 @@ export function WorkdayTimeline({
   const conversionKey = conversion?.occurrence === appointmentId ? conversion?.key : undefined;
   const alreadyConverted = conversionKey && bookings.some(booking => booking.key === conversionKey);
   const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
-  const previewKeys = new Set(previews.map(proposal => proposal.key));
-  for (const proposal of [...proposals, ...previews]) {
+  for (const proposal of proposals) {
     if (proposal.date !== date) continue;
     const { matter, title } = workdayProposalDisplay(proposal, state, drafts?.[proposal.key], choices);
     const matterId = matter?.id ?? null;
@@ -168,10 +166,6 @@ export function WorkdayTimeline({
         secondaryLabel: t("calendar.title"),
         buttonAttributes: { "data-workday-appointment": true, "aria-haspopup": "dialog" },
       };
-      if (previewKeys.has(item.id)) return {
-        colorKey: source.matterId, secondaryLabel: t("timeWorkspace.preview"),
-        buttonAttributes: { "aria-disabled": true, "data-suggestion-preview": true },
-      };
       return {
         colorKey: source.matterId,
         secondaryLabel: item.allDay ? [
@@ -192,7 +186,7 @@ export function WorkdayTimeline({
     onOpen={(item, trigger) => {
       const source = privateById.get(item.id);
       if (source) {
-        if (!previewKeys.has(item.id)) onOpen(source.proposal, trigger);
+        onOpen(source.proposal, trigger);
         return;
       }
       const container = trigger.closest<HTMLElement>('[data-workspace-tab="timeline"]');

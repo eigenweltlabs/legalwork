@@ -33,7 +33,6 @@ import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermiss
 import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
-import { importWorkdayFileHistory } from "./workday-file-history.mjs";
 import { requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
@@ -3134,25 +3133,6 @@ ipcMain.handle("legalwork:system:askMicrophoneAccess", async () => {
   const granted = await systemPreferences.askForMediaAccess("microphone");
   const after = systemPreferences.getMediaAccessStatus("microphone");
   return { platform: process.platform, before, after, granted };
-});
-
-ipcMain.handle("legalwork:system:importWorkdayFileHistory", async (event, date, title, profileId) => {
-  requireWorkdayMainFrame(event);
-  try {
-    return await importWorkdayFileHistory({
-      info: await runtimeManager.legalworkServerInfo(), profileId, date,
-      choose: async () => {
-        const result = await dialog.showOpenDialog(activeWindowFromEvent(event), {
-          properties: ["openDirectory"],
-          title: typeof title === "string" ? title.slice(0, 160) : undefined,
-        });
-        return result.canceled ? null : result.filePaths[0];
-      },
-    });
-  } catch {
-    // Native filesystem and process errors can contain the selected directory or filenames.
-    throw Error("Could not check local file-use metadata.");
-  }
 });
 
 // ── Terminal IPC ────────────────────────────────────────────────────────

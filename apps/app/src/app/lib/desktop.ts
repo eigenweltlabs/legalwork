@@ -67,7 +67,6 @@ declare global {
         relaunch?: () => Promise<void>;
       };
       system?: {
-        importWorkdayFileHistory?: (date: string, title: string, profileId: string) => Promise<{ matched: number; imported: number; limited: boolean } | null>;
         workdayDesktopStatus?: () => Promise<Pick<DesktopActivitySample, "platform" | "permission">>;
         requestWorkdayDesktopPermission?: () => Promise<Pick<DesktopActivitySample, "platform" | "permission">>;
         sampleWorkdayDesktopActivity?: () => Promise<DesktopActivitySample>;

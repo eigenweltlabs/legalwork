@@ -3,7 +3,7 @@ import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
 import type { LegalworkExtensionActionCall, LegalworkExtensionActionResult } from "../../src/app/lib/legalwork-server";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
-import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState, StopwatchAction, StopwatchState, WorkdayGenerationProgress } from "@legalwork/types/time-capture";
+import type { CaptureAction, CaptureProposal, CaptureSettings, CaptureState, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 
 const window = new Window({ url: "http://localhost" });
 let workspaceWidth = 1100;
@@ -1746,10 +1746,8 @@ try {
   }
 
   const { DesktopActivitySetting } = await import("../../src/react-app/domains/settings/pages/desktop-activity-setting");
-  let folderOpened = false;
   Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { configurable: true, value: { meta: { platform: "darwin" }, system: {
     workdayDesktopStatus: async () => ({ platform: "darwin", permission: "needed" }),
-    importWorkdayFileHistory: async () => { folderOpened = true; return null; },
   } } });
   try {
     await act(async () => root.render(<QueryClientProvider client={cache}>
@@ -1774,7 +1772,6 @@ try {
     assert.equal(dialog.querySelector('input[type=date]'), null);
     await confirmSuggestions();
     assert.equal(suggestionDates.at(-1), "2025-04-14");
-    assert.equal(folderOpened, false);
   } finally {
     if (oldBridge) Object.defineProperty(window, "__LEGALWORK_ELECTRON__", oldBridge);
     else Reflect.deleteProperty(window, "__LEGALWORK_ELECTRON__");

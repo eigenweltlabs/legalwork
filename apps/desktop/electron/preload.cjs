@@ -97,9 +97,6 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     getMicrophoneStatus() {
       return ipcRenderer.invoke("legalwork:system:microphoneStatus");
     },
-    importWorkdayFileHistory(date, title, profileId) {
-      return ipcRenderer.invoke("legalwork:system:importWorkdayFileHistory", date, title, profileId);
-    },
     askMicrophoneAccess() {
       return ipcRenderer.invoke("legalwork:system:askMicrophoneAccess");
     },
