@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { currentLocale, t } from "@/i18n";
 import { desktopCaptureKey, type DesktopCaptureStatus } from "../../../shell/desktop-time-activity";
-import { DesktopHistorySetting } from "./desktop-history-setting";
 import { TimeSetting, TimeSwitch } from "../../back-office/time-settings-controls";
 
 export function DesktopActivitySetting({ profileId, checked, disabled, onChange }: {
@@ -42,6 +41,5 @@ export function DesktopActivitySetting({ profileId, checked, disabled, onChange 
           state: t("timeWorkspace.desktopState." + last.state),
         })}
     </p>}
-    {checked && fileHistory && <DesktopHistorySetting key={profileId} profileId={profileId} disabled={disabled} />}
   </>;
 }

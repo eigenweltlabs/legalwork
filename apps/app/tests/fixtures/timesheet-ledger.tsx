@@ -1262,7 +1262,7 @@ try {
   assert.deepEqual([...document.querySelectorAll("[data-document-pane]")].map(pane => pane.getAttribute("data-document-pane")), panesBefore);
 
   assert.doesNotMatch(document.body.textContent ?? "", /Unchecked/);
-  assert.ok(button(t("timeWorkspace.createSuggestions")));
+  assert.ok(button(t("timeWorkspace.runSuggestions")));
   const { TimeTrackingSettingsView } = await import("../../src/react-app/domains/settings/pages/time-tracking-view");
   const settingsClient = { ...workdayClient, activityProfile: async () => ({
     profileId: "synthetic", directoryId: workdayDirectory.directoryId!, scope: workdayDirectory.scope, user: weeklyState.userId,
@@ -1457,7 +1457,7 @@ try {
     assert.ok(submit);
     await act(async () => submit.click());
   }
-  const gapAction = button(t("timeWorkspace.createSuggestions"));
+  const gapAction = button(t("timeWorkspace.runSuggestions"));
   assert.equal(document.querySelector("[data-workday-unchecked]"), null);
   assert.ok(gapAction);
   const beforeCheck = suggestionCalls().length;
@@ -1495,9 +1495,9 @@ try {
   });
   await until(() => !confirmationDialog() && document.activeElement === gapAction);
   assert.equal(confirmationDialog(), null);
-  assert.ok(document.activeElement === gapAction, "closing with Escape restores the Create suggestions button");
+  assert.ok(document.activeElement === gapAction, "closing with Escape restores the Run suggestions button");
   assert.equal(suggestionCalls().length, beforeCheck);
-  const openButton = button(t("timeWorkspace.createSuggestions"));
+  const openButton = button(t("timeWorkspace.runSuggestions"));
   assert.ok(openButton);
   await act(async () => { openButton.focus(); openButton.click(); });
   await until(() => document.activeElement === confirmationButton(t("common.cancel")));
@@ -1512,7 +1512,7 @@ try {
   assert.equal(suggestionCalls().length, beforeCheck + 1);
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
   failSuggestionRequest = false;
-  await press(t("timeWorkspace.createSuggestions"));
+  await press(t("timeWorkspace.runSuggestions"));
   await confirmSuggestions();
   assert.equal(suggestionCalls().length, beforeCheck + 2);
   assert.ok(!document.querySelector("progress"));
@@ -1725,34 +1725,55 @@ try {
 
   const { DesktopActivitySetting } = await import("../../src/react-app/domains/settings/pages/desktop-activity-setting");
   const fileChecks: string[][] = [];
-  Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { configurable: true, value: { system: {
-    workdayDesktopStatus: async () => ({ platform: "darwin", permission: "granted" }),
-    importWorkdayFileHistory: async (...args: string[]) => {
+  type ScanResult = { matched: number; imported: number; limited: boolean } | null;
+  let finishScan: (result: ScanResult) => void;
+  Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { configurable: true, value: { meta: { platform: "darwin" }, system: {
+    workdayDesktopStatus: async () => ({ platform: "darwin", permission: "needed" }),
+    importWorkdayFileHistory: (...args: string[]) => {
       fileChecks.push(args);
-      return { matched: 1, imported: fileChecks.length === 1 ? 1 : 0, limited: false };
+      return new Promise<ScanResult>(resolve => { finishScan = resolve; });
     },
   } } });
-  const renderHistorySettings = (checked: boolean) => act(async () => root.render(<QueryClientProvider client={cache}>
-    <DesktopActivitySetting profileId="synthetic" checked={checked} disabled={false} onChange={() => {}} /></QueryClientProvider>));
-  const folderButton = () => Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Choose folder");
+  const folderButton = () => confirmationButton(t("timeWorkspace.historyTitle"));
   try {
-    await renderHistorySettings(false);
-    assert.equal(folderButton(), undefined);
-    await renderHistorySettings(true);
-    await until(folderButton);
-    assert.ok(folderButton());
-    const historyDate = document.querySelector<HTMLInputElement>('input[aria-label="File-use date"]');
-    assert.ok(historyDate);
-    await input(historyDate, "2025-04-14");
-    await act(async () => folderButton()!.click());
-    await until(() => document.body.textContent?.includes("Added 1 to this day"));
-    assert.deepEqual(fileChecks[0], ["2025-04-14", "Choose folder", "synthetic"]);
-    assert.match(document.body.textContent ?? "", /Found one file-use record. Added 1 to this day/);
-    await act(async () => folderButton()!.click());
-    await until(() => document.body.textContent?.includes("Added 0 to this day"));
-    assert.match(document.body.textContent ?? "", /Added 0 to this day/);
-    await renderHistorySettings(false);
-    assert.equal(folderButton(), undefined);
+    await act(async () => root.render(<QueryClientProvider client={cache}>
+      <DesktopActivitySetting profileId="synthetic" checked disabled={false} onChange={() => {}} /></QueryClientProvider>));
+    assert.equal(document.querySelector('input[type=date]'), null);
+    assert.ok(!document.body.textContent?.includes(t("timeWorkspace.historyFolder")));
+
+    workdayDirectory.captureProfileId = "synthetic";
+    await renderWorkday();
+    await newTab("Day timeline");
+    await until(() => button(t("timeWorkspace.runSuggestions")));
+    await press(t("timeWorkspace.runSuggestions"));
+    assert.ok(confirmationDialog());
+    assert.equal(folderButton(), undefined, "desktop activity must be enabled to import file metadata");
+    await act(async () => confirmationButton(t("common.cancel"))!.click());
+    workdaySettings = { ...workdaySettings, desktopActivity: true };
+    await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+
+    const runsBeforeScans = suggestionCalls().length;
+    for (const [index, date] of ["2025-04-14", "2025-04-15"].entries()) {
+      const daySelector = document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]');
+      assert.ok(daySelector);
+      await input(daySelector, date);
+      await until(() => button(t("timeWorkspace.runSuggestions")));
+      await press(t("timeWorkspace.runSuggestions"));
+      await until(folderButton);
+      assert.ok(folderButton());
+      assert.equal(confirmationDialog()?.querySelector('input[type=date]'), null);
+      await act(async () => folderButton()!.click());
+      await until(() => confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled);
+      assert.deepEqual(fileChecks[index], [date, "Choose folder", "synthetic"]);
+      assert.equal(confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled, true);
+      await act(async () => finishScan(index === 0 ? null : { matched: 1, imported: 1, limited: false }));
+      await until(() => confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled === false);
+      if (index === 1) assert.match(confirmationDialog()?.textContent ?? "", /Added 1 to this day/);
+      assert.equal(suggestionCalls().length, runsBeforeScans);
+      if (index === 0) await act(async () => confirmationButton(t("common.cancel"))!.click());
+      else await confirmSuggestions();
+    }
+    assert.equal(suggestionCalls().length, runsBeforeScans + 1);
   } finally {
     if (oldBridge) Object.defineProperty(window, "__LEGALWORK_ELECTRON__", oldBridge);
     else Reflect.deleteProperty(window, "__LEGALWORK_ELECTRON__");

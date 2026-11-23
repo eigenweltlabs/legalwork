@@ -410,7 +410,8 @@ export function TimesheetWorkday({
       timeline={(view, choose, expanded, toggleExpanded) => (
         <>
           {confirmation?.date === date && local && settings && settings.enabled !== false &&
-            <WorkdaySuggestionConfirmation {...confirmation} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
+            <WorkdaySuggestionConfirmation {...confirmation} fileHistoryProfileId={settings.desktopActivity ? profileId : undefined}
+              onFilesAdded={() => void refetchWorkday()} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
           <div className="contents" inert={confirmation?.date === date && Boolean(settings) && settings?.enabled !== false}>
           {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
@@ -426,7 +427,7 @@ export function TimesheetWorkday({
                     title={data?.checkedThrough ? t("timeWorkspace.coverageUntil", { time: new Date(data.checkedThrough).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : t("timeWorkspace.coverageNone")} disabled={running || refreshing || chatBusy || date > calendarDay(new Date())}
                     onClick={event => requestSuggestions(event.currentTarget)}>
                     {refreshing ? <Loader2 className="animate-spin" /> : <Play />}
-                    <span className="@max-[410px]/calendar-grid:sr-only">{t("timeWorkspace.createSuggestions")}</span>
+                    <span className="@max-[410px]/calendar-grid:sr-only">{t("timeWorkspace.runSuggestions")}</span>
                   </Button>}
                   <TimeSelect modal={false} label={t("timeWorkspace.timelineView")} value={view} options={[
                     { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
