@@ -32,7 +32,7 @@ Turn on **Meeting recordings** in **Settings → Time tracking → Activity sour
 
 In the desktop app, open **Settings → Time tracking → Activity sources** and turn on **Desktop activity**. Leave LegalWork running while working in another app. The setting shows when LegalWork last sampled the desktop. Idle time, a locked screen and a sleeping computer leave gaps. Turning off **Desktop activity** stops collection and excludes this source from new suggestion runs.
 
-With **Desktop activity** enabled on macOS or Windows, select the day in **Time tracking** and open **Day timeline → Run suggestions → Check a folder for file activity**. Choose the folder containing your documents. LegalWork checks documents directly in that folder and adds the filenames and last-use times that match the selected day. The dialog shows how many records were added. Choose **Create suggestions** to review the day with that evidence. A last-use timestamp alone cannot tell you how long you worked.
+To review an earlier day, open it in **Day timeline** and choose **Run suggestions**, then **Create suggestions**. The agent uses desktop activity recorded on that day along with your other enabled sources.
 
 On macOS the active app can supply its name. Choose **Grant Accessibility access** to let LegalWork include the filename when an app exposes a local document. On Windows the live source records the foreground application. The private log contains app or document names and observation times. A suggestion run can use those observations with the model selected for timekeeping. Review the suggested matter and duration before booking.
 

@@ -410,8 +410,7 @@ export function TimesheetWorkday({
       timeline={(view, choose, expanded, toggleExpanded) => (
         <>
           {confirmation?.date === date && local && settings && settings.enabled !== false &&
-            <WorkdaySuggestionConfirmation {...confirmation} fileHistoryProfileId={settings.desktopActivity ? profileId : undefined}
-              onFilesAdded={() => void refetchWorkday()} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
+            <WorkdaySuggestionConfirmation {...confirmation} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
           <div className="contents" inert={confirmation?.date === date && Boolean(settings) && settings?.enabled !== false}>
           {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}

@@ -24,11 +24,10 @@ export function DesktopActivitySetting({ profileId, checked, disabled, onChange 
   const platform = status.data?.platform;
   if (platform === "unsupported" && !checked) return null;
   const unavailable = status.isError || status.data?.permission === "unavailable";
-  const fileHistory = Boolean(system.importWorkdayFileHistory && (platform === "darwin" || platform === "win32"));
   return <>
     <TimeSwitch label={t("timeWorkspace.desktopActivity")} checked={checked}
-      disabled={disabled || (!checked && (!platform || (unavailable && !fileHistory)))} onChange={onChange}
-      description={t(unavailable ? (fileHistory ? "timeWorkspace.historyOnly" : "timeWorkspace.desktopUnavailable") : platform === "darwin" ? "timeWorkspace.desktopHelpMac" : "timeWorkspace.desktopHelp")} />
+      disabled={disabled || (!checked && (!platform || unavailable))} onChange={onChange}
+      description={t(unavailable ? "timeWorkspace.desktopUnavailable" : platform === "darwin" ? "timeWorkspace.desktopHelpMac" : "timeWorkspace.desktopHelp")} />
     {checked && platform === "darwin" && status.data?.permission === "needed" && <TimeSetting
       title={t("timeWorkspace.desktopDocuments")} description={t("timeWorkspace.desktopDocumentHelp")}>
       <Button size="sm" variant="outline" disabled={disabled || permission.isPending}

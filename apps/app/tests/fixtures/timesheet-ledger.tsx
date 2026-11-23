@@ -1144,6 +1144,7 @@ try {
   };
   const selectedModel = { workspaceId: "synthetic", providerID: "eigenwelt", modelID: "test-haiku" };
   const workdayActions: CaptureAction[] = [];
+  const suggestionDates: string[] = [];
   let workdayProposals = [exact, partial, inlineTimer, unedited];
   let workdaySettings: CaptureSettings = { calendar: true, tasks: false, aiSuggestions: false, intervalMinutes: 0 };
   let modelStatus: NonNullable<CaptureState["status"]>["type"] = "ready";
@@ -1175,6 +1176,7 @@ try {
     privateWorkday: async (context: { date: string }, action?: CaptureAction, signal?: AbortSignal): Promise<CaptureState> => {
       if (action) workdayActions.push(action);
       if (action?.type === "suggest") {
+        suggestionDates.push(context.date);
         assert.match(action.runId ?? "", /^[0-9a-f-]{36}$/i);
         if (failSuggestionRequest) throw Error("Rejected request");
         modelStatus = "ready";
@@ -1724,56 +1726,35 @@ try {
   }
 
   const { DesktopActivitySetting } = await import("../../src/react-app/domains/settings/pages/desktop-activity-setting");
-  const fileChecks: string[][] = [];
-  type ScanResult = { matched: number; imported: number; limited: boolean } | null;
-  let finishScan: (result: ScanResult) => void;
+  let folderOpened = false;
   Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { configurable: true, value: { meta: { platform: "darwin" }, system: {
     workdayDesktopStatus: async () => ({ platform: "darwin", permission: "needed" }),
-    importWorkdayFileHistory: (...args: string[]) => {
-      fileChecks.push(args);
-      return new Promise<ScanResult>(resolve => { finishScan = resolve; });
-    },
+    importWorkdayFileHistory: async () => { folderOpened = true; return null; },
   } } });
-  const folderButton = () => confirmationButton(t("timeWorkspace.historyTitle"));
   try {
     await act(async () => root.render(<QueryClientProvider client={cache}>
       <DesktopActivitySetting profileId="synthetic" checked disabled={false} onChange={() => {}} /></QueryClientProvider>));
+    await until(() => button(t("timeWorkspace.desktopGrant")));
+    assert.ok(button(t("timeWorkspace.desktopGrant")));
     assert.equal(document.querySelector('input[type=date]'), null);
-    assert.ok(!document.body.textContent?.includes(t("timeWorkspace.historyFolder")));
+    assert.doesNotMatch(document.body.textContent ?? "", /folder/i);
 
     workdayDirectory.captureProfileId = "synthetic";
+    workdaySettings = { ...workdaySettings, desktopActivity: true };
     await renderWorkday();
     await newTab("Day timeline");
+    const daySelector = document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]');
+    assert.ok(daySelector);
+    await input(daySelector, "2025-04-14");
     await until(() => button(t("timeWorkspace.runSuggestions")));
     await press(t("timeWorkspace.runSuggestions"));
-    assert.ok(confirmationDialog());
-    assert.equal(folderButton(), undefined, "desktop activity must be enabled to import file metadata");
-    await act(async () => confirmationButton(t("common.cancel"))!.click());
-    workdaySettings = { ...workdaySettings, desktopActivity: true };
-    await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
-
-    const runsBeforeScans = suggestionCalls().length;
-    for (const [index, date] of ["2025-04-14", "2025-04-15"].entries()) {
-      const daySelector = document.querySelector<HTMLInputElement>('.bo-workday-controls input[type=date]');
-      assert.ok(daySelector);
-      await input(daySelector, date);
-      await until(() => button(t("timeWorkspace.runSuggestions")));
-      await press(t("timeWorkspace.runSuggestions"));
-      await until(folderButton);
-      assert.ok(folderButton());
-      assert.equal(confirmationDialog()?.querySelector('input[type=date]'), null);
-      await act(async () => folderButton()!.click());
-      await until(() => confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled);
-      assert.deepEqual(fileChecks[index], [date, "Choose folder", "synthetic"]);
-      assert.equal(confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled, true);
-      await act(async () => finishScan(index === 0 ? null : { matched: 1, imported: 1, limited: false }));
-      await until(() => confirmationButton(t("timeWorkspace.createSuggestions"))?.disabled === false);
-      if (index === 1) assert.match(confirmationDialog()?.textContent ?? "", /Added 1 to this day/);
-      assert.equal(suggestionCalls().length, runsBeforeScans);
-      if (index === 0) await act(async () => confirmationButton(t("common.cancel"))!.click());
-      else await confirmSuggestions();
-    }
-    assert.equal(suggestionCalls().length, runsBeforeScans + 1);
+    const dialog = confirmationDialog();
+    assert.ok(dialog);
+    assert.doesNotMatch(dialog.textContent ?? "", /folder/i);
+    assert.equal(dialog.querySelector('input[type=date]'), null);
+    await confirmSuggestions();
+    assert.equal(suggestionDates.at(-1), "2025-04-14");
+    assert.equal(folderOpened, false);
   } finally {
     if (oldBridge) Object.defineProperty(window, "__LEGALWORK_ELECTRON__", oldBridge);
     else Reflect.deleteProperty(window, "__LEGALWORK_ELECTRON__");
