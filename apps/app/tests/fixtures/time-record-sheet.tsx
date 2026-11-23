@@ -378,7 +378,10 @@ try {
   assert.deepEqual(writes[7].values, { billableMinutes: 0 });
   // A date edit keeps the draft on its originating day. Only the completed record belongs to the target day.
   let openedDate = "";
-  const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; } });
+  const origin = capture({ privateAvailable: true, selectDate: value => { openedDate = value; },
+    guidelines: [{ id: crypto.randomUUID(), revision: 1, name: "Six-minute billing", scope: "firm", targetId: "firm",
+      effectiveFrom: second, rules: { rounding: "up", incrementMinutes: 6, enforceIncrement: true } }],
+  });
   await render(origin, [workerContact, current]);
   const previousCreations = host.querySelectorAll(".time-created-entry").length;
   const summaryValues = () => [...host.querySelectorAll("[data-total-field]")].map(item => item.textContent);
@@ -411,15 +414,17 @@ try {
   await act(async () => worked.blur());
   assert.equal(writes.length, 9, "the completed manual row needs no clock or separate charge input");
   assert.equal(writes.at(-1)?.values.startedAt, second);
+  assert.equal(writes.at(-1)?.values.recordedMinutes, 10);
+  assert.equal(writes.at(-1)?.values.billableMinutes, 12, "manual entries round the charge using the rule on the service date");
   assert.equal(writes.at(-1)?.values.client, primary, "the only billing client was assigned without user input");
   assert.equal(writes.at(-1)?.timekeeperUserId, directory.permissions.userId);
   assert.ok(row(offDayId).closest(".time-created-entry"), "a saved off-day row stays editable in its receipt");
   assert.equal(host.querySelectorAll(`[data-record-id="${offDayId}"]`).length, 1);
-  const billable = await enter(row(offDayId), 5, "8");
+  const billable = await enter(row(offDayId), 5, "6");
   await act(async () => billable.blur());
   assert.equal(writes.at(-1)?.id, offDayId);
-  assert.deepEqual(writes.at(-1)?.values, { billableMinutes: 8 });
-  assert.match(cell(row(offDayId), 5).textContent ?? "", /8/);
+  assert.deepEqual(writes.at(-1)?.values, { billableMinutes: 6 });
+  assert.match(cell(row(offDayId), 5).textContent ?? "", /6/);
   assert.deepEqual(summaryValues(), originTotals, "off-day receipts stay outside the selected date totals");
   assert.notEqual(blank().dataset.recordId, offDayId);
   assert.equal(host.querySelectorAll(".time-created-entry").length, previousCreations + 1);
@@ -571,6 +576,11 @@ try {
   await render(capture({ proposals: [untimed], privateAvailable: true }));
   const recorded = proposalDetails(untimed.key).querySelector<HTMLInputElement>('input[data-field="recordedMinutes"]');
   assert.ok(recorded && !recorded.readOnly && !recorded.disabled, "an untimed document suggestion accepts recorded minutes directly");
+  await act(async () => button(proposalDetails(untimed.key), t("timesheets.sheet.accept")).click());
+  assert.equal(recorded.getAttribute("aria-invalid"), "true");
+  assert.equal(document.getElementById(recorded.getAttribute("aria-describedby")!)?.textContent, t("timeWorkspace.requireRecorded"));
+  assert.equal(proposalDetails(untimed.key).querySelector("textarea")?.getAttribute("aria-invalid"), null);
+  assert.ok(!proposalDetails(untimed.key).textContent?.includes(t("timesheets.retry")));
   const beforeMinutes = writes.length;
   await editProposal(untimed.key, 'input[data-field="recordedMinutes"]', "25");
   assert.equal(writes.length, beforeMinutes, "entering recorded minutes only updates the private draft");

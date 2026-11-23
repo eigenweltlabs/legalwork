@@ -30,7 +30,7 @@ signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
 and appearance you choose for the Assistant.
 
-Open **Customize navigation** using the gear at the top of the chat sidebar.
+Open **Customize navigation** using the gear at the top of the chat sidebar. Under **Main actions**, you can show, hide or reorder **Back Office** and **Time tracking**.
 Under **Main actions**, toggle **Your assistant** to show or hide it, or drag
 its handle to move it in the rail. Choose **Done** when finished.
 To change its name or avatar, click the assistant at the top of its conversation, or open

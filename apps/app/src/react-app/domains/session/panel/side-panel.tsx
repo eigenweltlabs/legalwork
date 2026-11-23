@@ -104,9 +104,10 @@ import {
 import { DocumentPane } from "./document-pane";
 import { ProjectReviews } from "../../reviews/project-reviews";
 
-export type WorkspacePage = WorkspacePageTab & { icon: React.ReactNode; content: React.ReactNode | ((visible: boolean) => React.ReactNode) };
-type PageCatalog = {
+export type WorkspacePage = WorkspacePageTab & { showInNewTab?: boolean; icon: React.ReactNode; content: React.ReactNode | ((visible: boolean) => React.ReactNode) };
+export type PageCatalog = {
   pages: WorkspacePage[];
+  renderChat?: (sessionId: string, active: boolean) => React.ReactNode;
   focusMode?: boolean;
   resetLabel: string;
   onReset: () => void;
@@ -116,6 +117,7 @@ type SidePanelProps = {
   pageCatalog?: PageCatalog;
   tabDestination?: PanelTabDestination;
   controlSessionIds?: readonly string[];
+  pageControlSessionId?: string;
   headerTarget?: HTMLElement | null;
   projects?: { id: string; name: string }[];
   sessionId: string;
@@ -752,7 +754,11 @@ function BrowserPanelContent({
 }
 
 export function SidePanel(props: SidePanelProps) {
-  return <DocumentControlSessions sessionIds={props.controlSessionIds ?? null}><SidePanelContent {...props} /></DocumentControlSessions>;
+  const { controlSessionIds, pageControlSessionId } = props;
+  const sessions = React.useMemo(() => pageControlSessionId
+    ? [...new Set([...(controlSessionIds ?? []), pageControlSessionId])]
+    : controlSessionIds ?? null, [controlSessionIds, pageControlSessionId]);
+  return <DocumentControlSessions sessionIds={sessions}><SidePanelContent {...props} /></DocumentControlSessions>;
 }
 
 function SidePanelContent({
@@ -890,7 +896,7 @@ function SidePanelContent({
   useControlOpenFiles(openFiles);
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
-  const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId, workspaceVisible && !isPageWorkspace);
+  const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId, workspaceVisible && (!isPageWorkspace || Boolean(workspaceId)));
   const closeDocumentTab = React.useCallback(function closeDocument(tab: PanelTabEntry) {
     const switching = tab.type !== "workflow" && tab.type !== "workflow-resource";
     if (!confirmDiscardSessionDocuments(sessionId, [tab.id], undefined, switching, () => { if (mounted.current) closeDocument(tab); })) return;
@@ -1102,7 +1108,7 @@ function SidePanelContent({
       const current = usePanelTabStore.getState().sessions[sessionId];
       const destination = current?.panes.find(item => item.id === pane.id);
       if (destination) reorderTabs(insertTabBefore(current.tabs.filter(tab => destination.tabIds.includes(tab.id)).map(tab => tab.id), id, beforeId));
-    }} onFileDrop={pageCatalog ? undefined : openFilesInViewer} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
+    }} onFileDrop={client && workspaceId ? openFilesInViewer : undefined} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
       <div data-window-caption-controls={docked && pane.id === controlsPane} className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
@@ -1117,14 +1123,14 @@ function SidePanelContent({
                 const label = pageCatalog?.pages.find(page => page.id === tab.id)?.label ?? tab.label;
                 setTabNotice(t("panel_tabs.tab_position", { tab: label, position: next + 1, total: ids.length }));
               }} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
-              onOpenWindow={onOpenTabWindow} onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onClosePane={closePaneTabs} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
+              onOpenWindow={tab.type === "workspace-page" ? undefined : onOpenTabWindow} onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onClosePane={closePaneTabs} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("side_panel.new_tab")} title={t("side_panel.new_tab")}><Plus /></Button>} />
           <DropdownMenuContent align="end">
             {pageCatalog ? <>
-              {pageCatalog.pages.map(page => <DropdownMenuItem key={page.id} onClick={() => {
+              {pageCatalog.pages.filter(page => page.showInNewTab !== false).map(page => <DropdownMenuItem key={page.id} onClick={() => {
                 const store = usePanelTabStore.getState();
                 if (store.sessions[sessionId]?.tabs.some(tab => tab.id === page.id)) store.selectTab(sessionId, page.id);
                 else store.openTab(sessionId, { id: page.id, type: page.type, label: page.label }, pane.id);
@@ -1137,7 +1143,9 @@ function SidePanelContent({
                   setLiveSizes({});
                   pageCatalog.onReset();
                 }}><RotateCw />{pageCatalog.resetLabel}</DropdownMenuItem>
-            </> : <>
+            </> : null}
+            {(!pageCatalog || (client && workspaceId)) && <>
+              {pageCatalog && <DropdownMenuSeparator />}
               {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
               <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
               {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
@@ -1163,10 +1171,10 @@ function SidePanelContent({
     const sameLoneTab = draggingTab?.pane === pane.id && pane.tabIds.length === 1;
     return <TabDropZone workspaceId={projectId ?? workspaceId} onChatDrop={onDropChat} onProjectViewDrop={renderProjectView ? (view, pane, split) => dropProjectTab(projectViewTab(view, projectViewLabel(view)), pane, split) : undefined} onProjectItemDrop={renderProjectView ? dropProjectTab : undefined} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       shieldFileDrops={tab?.type === "artifact" || tab?.type === "browser" || tab?.type === "wiki"}
-      label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={pageCatalog ? undefined : openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
+      label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={client && workspaceId ? openFilesInViewer : undefined} className="flex min-h-0 flex-1 flex-col">
       {notice}
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
-      {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : pageCatalog ? <PanelEmptyState icon={<PanelsTopLeft />} title={t("side_panel.new_tab")} description={t("workspace.open_tab_hint")} /> : <PanelEmpty
+      {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : pageCatalog && !workspaceId ? <PanelEmptyState icon={<PanelsTopLeft />} title={t("side_panel.new_tab")} description={t("workspace.open_tab_hint")} /> : <PanelEmpty
         onNewChat={onNewChat ? () => onNewChat(pane.id) : undefined}
         onOpenFile={client && workspaceId && !openingFile ? () => setFilePickerPane(pane.id) : undefined}
         onOpenBrowser={isBrowserAvailable ? () => createTab(undefined, pane.id) : undefined}
@@ -1224,7 +1232,7 @@ function SidePanelContent({
       </div>}
       {portaledHeader && <PanelHeaderPortal target={portaledHeader}>{renderHeader(displayedTree)}</PanelHeaderPortal>}
       <div className="min-h-0 flex-1">{renderLayout(displayedTree)}</div>
-      {(pageCatalog?.pages ?? tabs).flatMap((tab: PanelTabEntry) => {
+      {[...(pageCatalog?.pages ?? []), ...tabs.filter(tab => tab.type !== "workspace-page")].flatMap((tab: PanelTabEntry) => {
         const page = pageCatalog?.pages.find(page => page.id === tab.id);
         const pane = panes.find(pane => pane.activeTabId === tab.id && (!singlePane || pane.id === displayedTree.id));
         if (!pane && !page && (!unified || !visited.has(tab.id))) return [];
@@ -1245,7 +1253,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            {page ? body : <PanelTabDestinationProvider destination={tabDestination ?? (unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: tab.type === "chat" ? undefined : pane?.id } : { kind: "evals" })}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>}
+            {page && !workspaceId ? body : <PanelTabDestinationProvider destination={tabDestination ?? (unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: tab.type === "chat" ? undefined : pane?.id } : { kind: "evals" })}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>}
           </div></ControlActionScope>
         </DocumentPane>];
       })}

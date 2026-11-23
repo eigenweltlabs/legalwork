@@ -154,13 +154,14 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   if (!options.deferStart) await start();
   return {
     register, start,
-    async startTimeReview(profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">) {
+    async startTimeReview(profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">, previousDate?: string) {
       const workspace = await openTimekeepingProject(config, profileId, options.changed);
       const { day } = await mainAssistant.projectDay(workspace);
       const authority = { scope: "owner" as const, scheduledProjects: [workspace.id] };
       await assistantSessionAccess.authorize(day.sessionId, workspace.path, authority);
       const prompt = "Review my work on " + date + " and create client-ready time suggestions. Use the timekeeping workday tool to read my activity, booked entries and existing drafts. Read the guidelines for each matter, then publish the suggestions to my timeline as you prepare them." +
-        " Describe the human work in concise invoice language and omit activity you cannot substantiate.";
+        " Describe the human work in concise invoice language and omit activity you cannot substantiate." +
+        (previousDate ? " Also review " + previousDate + " for uncovered work after its last check. Read that date separately, respect existing entries and user edits, and publish any missing suggestions on their original service date." : "");
       const queue = registeredMessageQueue(config);
       if (!queue) throw new ApiError(503, "queue_unavailable", "The chat queue is starting. Try again.");
       const native = createWorkspaceOpencodeClient(config, workspace).native;

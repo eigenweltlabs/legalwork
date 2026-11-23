@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BackOfficeValueSchema, type BackOfficeValue } from "@legalwork/types/back-office";
-import { TimePolicySchema } from "@legalwork/types/timesheet";
+import { TimePolicySchema, appliedTimePolicies, resolveTimePolicy, proposedCharge, proposedStopwatchCharge, type TimesheetState, type TimePolicy } from "@legalwork/types/timesheet";
 
 export const desktopActivitySampleSchema = z.strictObject({
   platform: z.enum(["darwin", "win32", "unsupported"]),
@@ -41,8 +41,10 @@ export const workdayScheduleSchema = z.discriminatedUnion("frequency", [
     .refine(times => new Set(times).size === times.length, "Choose different run times.") }),
 ]);
 export type WorkdaySchedule = z.infer<typeof workdayScheduleSchema>;
+export const defaultWorkdayRunTime = "18:00";
+
 export function workdaySchedule(settings: Pick<CaptureSettings, "schedule" | "intervalMinutes">): WorkdaySchedule {
-  return settings.schedule ?? (Boolean(settings.intervalMinutes) ? { frequency: "hourly" } : { frequency: "daily", times: ["08:00", "20:00"] });
+  return settings.schedule ?? (Boolean(settings.intervalMinutes) ? { frequency: "hourly" } : { frequency: "daily", times: [defaultWorkdayRunTime] });
 }
 export const captureSettingsSchema = z.strictObject({
   calendar: z.boolean(),
@@ -231,8 +233,8 @@ export type WorkdayCorrection = z.infer<typeof workdayCorrectionSchema>;
 const quickNote = z.string().trim().max(2000);
 const stopwatchMatterId = z.string().min(1).max(200);
 export const stopwatchActionSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("start"), id: z.uuid(), matterId: stopwatchMatterId, note: quickNote.optional() }),
-  z.strictObject({ type: z.literal("assign"), id: z.uuid(), matterId: stopwatchMatterId }),
+  z.strictObject({ type: z.literal("start"), id: z.uuid(), matterId: stopwatchMatterId.nullish(), note: quickNote.optional() }),
+  z.strictObject({ type: z.literal("assign"), id: z.uuid(), matterId: stopwatchMatterId.nullable() }),
   z.strictObject({ type: z.literal("stop"), id: z.uuid(), note: quickNote.optional() }),
 ]);
 export const stopwatchStateSchema = z.object({
@@ -245,3 +247,188 @@ export const stopwatchStateSchema = z.object({
 });
 export type StopwatchAction = z.infer<typeof stopwatchActionSchema>;
 export type StopwatchState = z.infer<typeof stopwatchStateSchema>;
+
+export function visibleGuideline(
+  guideline: WorkdayGuideline,
+  state: Pick<TimesheetState, "clients" | "matters">,
+) {
+  if (guideline.scope === "firm") return guideline.targetId === "firm";
+  return (guideline.scope === "client" ? state.clients : state.matters).some(
+    (record) => record.id === guideline.targetId,
+  );
+}
+
+function guidelineVersion(
+  guidelines: WorkdayGuideline[],
+  scope: "firm" | "client" | "matter",
+  target?: string,
+) {
+  return guidelines
+    .filter((item) => item.scope === scope && item.targetId === target)
+    .sort(
+      (a, b) =>
+        b.effectiveFrom.localeCompare(a.effectiveFrom) ||
+        b.revision - a.revision ||
+        a.id.localeCompare(b.id),
+    )[0];
+}
+
+export function draftRules(
+  state: TimesheetState,
+  guidelines: WorkdayGuideline[],
+  matter: TimesheetState["matters"][number],
+  date: string,
+  projectId?: string,
+  clientId = visibleSingleClient(matter, state) ?? "",
+) {
+  const versions = effectiveWorkdayGuidelines(state, guidelines, {
+    clientId,
+    matterId: matter.id,
+    date,
+  });
+  const guidelineInstructions: string[] = [];
+  let policies = [...state.policies];
+  for (const version of versions) {
+    const {
+      scope,
+      targetId,
+      effectiveFrom,
+      revision,
+      rules: { instructions, ...rules },
+    } = version;
+    if (instructions) guidelineInstructions.push(instructions);
+    const published = appliedTimePolicies(state.policies, scope, targetId, date, clientId, projectId)
+      .find(policy => !policy.agreementId && !(policy.revision === 0 && policy.effectiveFrom === "0001-01-01"));
+    const imported: TimePolicy = { scope, targetId, effectiveFrom, revision, ...rules };
+    if (!published) policies.push(imported);
+    else {
+      // Published fields win, while unrelated local drafting instructions and
+      // limits remain available. Contractual agreement layers stay untouched.
+      const merged: TimePolicy = { ...imported,
+        ...Object.fromEntries(Object.entries(published).filter(([, value]) => value !== undefined)),
+        scope: published.scope, targetId: published.targetId, effectiveFrom: published.effectiveFrom, revision: published.revision,
+        actionWords: { ...rules.actionWords, ...published.actionWords },
+        narrativeCorrections: { ...rules.narrativeCorrections, ...published.narrativeCorrections },
+        activityLimits: { ...rules.activityLimits, ...published.activityLimits },
+      };
+      policies = policies.map(policy => policy === published ? merged : policy);
+    }
+  }
+  const {
+    language,
+    actionWords,
+    narrativeCorrections,
+    narrativeExample,
+    actionFirst,
+    activityLabels,
+    minimumMinutes = 0,
+    maxMinutes,
+    activityLimits,
+    incrementMinutes,
+    enforceIncrement,
+    rounding,
+    stopwatchRoundUp,
+  } = resolveTimePolicy(
+    policies,
+    clientId,
+    matter.id,
+    date,
+    projectId,
+    // Private draft defaults cannot change the binding client term or its authorized exceptions.
+    state.policies,
+  );
+  return {
+    language,
+    actionWords,
+    narrativeCorrections,
+    narrativeExample,
+    actionFirst,
+    activityLabels,
+    guidelineInstructions,
+    minimumMinutes,
+    maxMinutes,
+    activityLimits,
+    incrementMinutes,
+    enforceIncrement,
+    rounding,
+    stopwatchRoundUp,
+  };
+}
+
+export function effectiveWorkdayGuidelines(
+  state: TimesheetState,
+  guidelines: WorkdayGuideline[],
+  {
+    clientId,
+    matterId,
+    date,
+  }: { clientId: string; matterId: string; date: string },
+) {
+  const matter = state.matters.find((item) => item.id === matterId);
+  if (!matter) return [];
+  const client =
+    matter.clientIds.includes(clientId) &&
+    state.clients.some((item) => item.id === clientId)
+      ? clientId
+      : undefined;
+  const eligible = guidelines.filter(
+    (guideline) =>
+      guideline.effectiveFrom <= date && visibleGuideline(guideline, state),
+  );
+  // Selection is shared by drafting and invoice review. Precedence belongs to
+  // individual rule fields, never to an entire uploaded document.
+  return [
+    guidelineVersion(eligible, "firm", "firm"),
+    guidelineVersion(eligible, "client", client),
+    guidelineVersion(eligible, "matter", matter.id),
+  ].flatMap(version => version ? [version] : []);
+}
+
+export function visibleSingleClient(
+  matter: TimesheetState["matters"][number],
+  state: TimesheetState,
+) {
+  if (
+    matter.clientIds.length === 1 &&
+    state.clients.some((client) => client.id === matter.clientIds[0])
+  )
+    return matter.clientIds[0];
+}
+
+export function workdayRuleSources(state: TimesheetState, matter: TimesheetState["matters"][number], date: string, projectId?: string) {
+  const client = visibleSingleClient(matter, state);
+  const targets = { firm: "firm", client, matter: matter.id, project: projectId };
+  return (["firm", "client", "matter", "project"] as const).flatMap(scope =>
+    appliedTimePolicies(state.policies, scope, targets[scope], date, client, projectId).map(policy => ({
+      scope, targetId: policy.targetId, effectiveFrom: policy.effectiveFrom, revision: policy.revision,
+      source: policy.agreementId ? "feeAgreement" as const : "billingPolicy" as const,
+      recordId: policy.agreementId,
+    }))
+  );
+}
+
+export function workdayBillableMinutes(
+  minutes: number,
+  rules: Pick<ReturnType<typeof draftRules>, "activityLimits" | "minimumMinutes" | "maxMinutes" | "enforceIncrement" | "incrementMinutes" | "rounding" | "stopwatchRoundUp">,
+  activity: string,
+  stopwatch = false,
+) {
+  if (minutes <= 0) return;
+  const maxMinutes =
+    rules.activityLimits[activity] ?? rules.maxMinutes;
+  if (rules.minimumMinutes > maxMinutes) return;
+  const step =
+    rules.enforceIncrement || stopwatch
+      ? rules.incrementMinutes
+      : 1;
+  const lower = Math.ceil(rules.minimumMinutes / step) * step,
+    upper = Math.floor(maxMinutes / step) * step;
+  if (lower > upper) return;
+  const charge =
+    stopwatch
+      ? proposedStopwatchCharge(minutes, rules)
+      : proposedCharge(minutes, rules);
+  if (step > 1 && charge % step !== 0 && charge >= lower && charge <= upper)
+    return;
+  return Math.min(upper, Math.max(lower, charge));
+}

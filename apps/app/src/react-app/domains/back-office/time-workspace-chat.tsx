@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { CaptureState } from "@legalwork/types/time-capture";
@@ -11,33 +11,33 @@ import { EmbeddedWorkspaceChat } from "../session/chat/embedded-workspace-chat";
 import { useControlScope } from "@/react-app/shell/control/control-provider";
 import { calendarClientScope } from "../calendar/calendar-cache";
 
-export function TimeWorkspaceChat({ client, identity, date, data, visible }: {
-  client: LegalworkServerClient;
-  identity: { profileId?: string; scope: string; principal: string; user: string };
-  date: string;
-  data?: CaptureState;
-  visible: boolean;
-}) {
-  const host = useContext(EmbeddedWorkspaceChat);
-  const focused = useControlScope();
-  const cache = useQueryClient();
-  const profileId = identity.profileId;
-  const chat = useQuery<Awaited<ReturnType<LegalworkServerClient["privateTimeConversation"]>>>({
+export function useTimeConversation(client: LegalworkServerClient, profileId: string | undefined, visible: boolean) {
+  return useQuery({
     queryKey: ["timekeeping-conversation", ...calendarClientScope(client), profileId],
-    enabled: Boolean(visible && host && profileId), retry: false, staleTime: 30_000,
+    enabled: visible && Boolean(profileId), retry: false, staleTime: 30_000,
     refetchInterval: visible ? 60_000 : false,
     queryFn: ({ signal }) => {
       if (!profileId) throw new Error(t("timeWorkspace.chatUnavailable"));
       return client.privateTimeConversation(profileId, signal);
     },
   });
-  const selectWorkspace = host?.selectWorkspace;
+}
+
+export function TimeWorkspaceChat({ client, identity, date, data, visible, sessionId, active }: {
+  client: LegalworkServerClient;
+  identity: { profileId?: string; scope: string; principal: string; user: string };
+  date: string;
+  data?: CaptureState;
+  visible: boolean;
+  sessionId?: string;
+  active?: boolean;
+}) {
+  const host = useContext(EmbeddedWorkspaceChat);
+  const focused = useControlScope();
+  const cache = useQueryClient();
+  const profileId = identity.profileId;
+  const chat = useTimeConversation(client, profileId, visible && Boolean(host));
   const workspace = chat.data?.workspace;
-  useEffect(() => {
-    if (!visible || !workspace || !selectWorkspace) return;
-    selectWorkspace(workspace);
-    return () => selectWorkspace(null);
-  }, [workspace, selectWorkspace, visible]);
   const persist = useRef<Promise<void>>(Promise.resolve());
   const requested = useRef("");
   const [saveError, setSaveError] = useState<{ message: string; model: ModelRef } | null>(null);
@@ -62,10 +62,10 @@ export function TimeWorkspaceChat({ client, identity, date, data, visible }: {
   if (!chat.data || host.workspaceId !== workspace?.id) return <div role="status" className="grid h-full place-items-center" aria-label={t("timeWorkspace.chat")}><Loader2 className="size-4 animate-spin" /></div>;
   return <ChatWorkspaceContext.Provider value="timekeeping">
     {saveError && <p className="px-4 text-sm text-destructive" role="alert">{saveError.message} <Button variant="ghost" size="xs" onClick={() => modelChanged(saveError.model, true)}>{t("timesheets.retry")}</Button></p>}
-    {host.render(chat.data.day.sessionId, focused, {
-      date: chat.data.day.date, model: saved, modelChanged,
-      history: (before, limit, after) => client.privateTimeHistory(profileId, before, limit, after),
-      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read the day log, existing entries and drafts. Read guidelines for each assigned matter, then publish grounded, client-ready drafts as you prepare them. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
+    {host.render(sessionId ?? chat.data.day.sessionId, active ?? focused, {
+      date: sessionId ? undefined : chat.data.day.date, model: saved, modelChanged,
+      history: sessionId ? undefined : (before, limit, after) => client.privateTimeHistory(profileId, before, limit, after),
+      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read the day log, existing entries and drafts. For requested edits, translations or removals of saved entries use list_entries, update_entry and remove_entry with their current revisions. Read guidelines for each assigned matter, then publish grounded, client-ready drafts as you prepare them. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
     })}
   </ChatWorkspaceContext.Provider>;
 }

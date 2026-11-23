@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -115,7 +116,9 @@ test("manual and scheduled workday collection uses the actual authorized mail/ca
     const snapshot = z.object({ observations: z.array(workdayEvidenceSchema), failedAccounts: z.array(z.object({ provider: z.string(), reason: z.string() })),
       superseded: z.array(z.object({ observation: workdayEvidenceSchema })) });
     const log = async () => snapshot.parse(JSON.parse(await readFile(join(profile.path + ".day-log", date + ".json"), "utf8")));
-    const initial = await run({ type: "suggest" });
+    const readDay = await workdayChatReader(config, profile.profileId, server.port);
+    await readDay(date);
+    const initial = await run();
     expect(initial.connections.map(({ provider, name }) => [provider, name]).sort()).toEqual([
       ["gmail", google], ["google-calendar", google], ["outlook", microsoft], ["outlook-calendar", microsoft] ].sort());
     const first = await log();
@@ -145,7 +148,7 @@ test("manual and scheduled workday collection uses the actual authorized mail/ca
     expect(partial.observations.filter(row => row.proposal.source === "outlook")).toHaveLength(2);
     expect((await run()).status?.message).toContain(microsoft);
     rateLimited = false;
-    await run({ type: "suggest" });
+    await readDay(date);
     expect((await log()).failedAccounts).toEqual([]);
   } finally {
     await server?.stop();

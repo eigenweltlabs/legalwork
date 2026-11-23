@@ -95,7 +95,7 @@ export function changeStopwatch(
   if (action.type === "start") {
     if (timer.active?.id === action.id) return;
     if (timer.active) throw new ApiError(409, "stopwatch_running", "A stopwatch is already running.");
-    timer.active = { id: action.id, startedAt: now.toISOString(), matterId: action.matterId, ...(action.note ? { note: action.note } : {}), zone };
+    timer.active = { id: action.id, startedAt: now.toISOString(), matterId: action.matterId ?? null, ...(action.note ? { note: action.note } : {}), zone };
     return;
   }
   if (timer.active?.id !== action.id)
@@ -104,8 +104,6 @@ export function changeStopwatch(
     timer.active.matterId = action.matterId;
     return;
   }
-  if (!timer.active.matterId)
-    throw new ApiError(409, "stopwatch_matter", "Choose a matter before stopping this timer.");
   const start = Date.parse(timer.active.startedAt);
   const end = now.getTime();
   if (end < start)
@@ -123,7 +121,7 @@ export function changeStopwatch(
       digest: "",
       source: "stopwatch",
       projectId: null,
-      matterId: timer.active.matterId,
+      ...(timer.active.matterId ? { matterId: timer.active.matterId } : {}),
       narrative: (action.note ?? timer.active.note)?.trim() || "Stopwatch",
       activity: "",
       dismissed: false,

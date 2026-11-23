@@ -112,27 +112,37 @@ test("daily times fire once, survive a closed workspace, and never run while sug
     const tick = (day: number, hour: number, minute = 0) =>
       checkScheduledWorkday(config, { now: () => new Date(2030, 0, day, hour, minute).getTime(), async readConnected() { reads++; return []; } });
     const saved = async () => profile.parse(JSON.parse(await readFile(path, "utf8")));
-    await tick(10, 7, 59);
+    await tick(10, 17, 59);
     expect(reads).toBe(0);
-    await Promise.all([tick(10, 8, 15), tick(10, 8, 15)]);
+    await Promise.all([tick(10, 18, 15), tick(10, 18, 15)]);
     expect(reads).toBe(1);
-    const morning = await saved();
-    expect(morning.lastScheduledSlot).toBe(new Date(2030, 0, 10, 8).getTime());
-    expect(morning.checkedThrough["2030-01-10"]).toBe(new Date(2030, 0, 10, 8, 15).toISOString());
+    const firstRun = await saved();
+    expect(firstRun.lastScheduledSlot).toBe(new Date(2030, 0, 10, 18).getTime());
+    expect(firstRun.checkedThrough["2030-01-10"]).toBe(new Date(2030, 0, 10, 18, 15).toISOString());
     await tick(10, 19, 59);
     expect(reads).toBe(1);
     await tick(10, 20);
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
     const evening = await saved();
     await writeFile(path, JSON.stringify({ ...evening, settings: { ...evening.settings, enabled: false } }));
-    await tick(11, 8);
-    expect(reads).toBe(2);
+    await tick(11, 18);
+    expect(reads).toBe(1);
     expect((await saved()).checkedThrough["2030-01-11"]).toBeUndefined();
     await writeFile(path, JSON.stringify({ ...evening, settings: { ...evening.settings, enabled: true, schedule: { frequency: "daily", times: ["09:45"] } } }));
     await tick(11, 9, 44);
-    expect(reads).toBe(2);
+    expect(reads).toBe(1);
     await tick(11, 9, 45);
-    expect(reads).toBe(3);
+    expect(reads).toBe(2);
+    const reviewed: Array<[string, string | undefined]> = [];
+    const runChat = (minute: number) => checkScheduledWorkday(config, {
+      now: () => new Date(2030, 0, 12, 9, minute).getTime(),
+      async readConnected() { return []; },
+      async startChat(_profile, date, _request, _model, previousDate) { reviewed.push([date, previousDate]); },
+    });
+    await runChat(44);
+    await runChat(45);
+    await runChat(46);
+    expect(reviewed).toEqual([["2030-01-12", "2030-01-11"]]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

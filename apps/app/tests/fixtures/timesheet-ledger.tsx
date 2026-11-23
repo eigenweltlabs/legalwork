@@ -70,6 +70,7 @@ Object.entries({
   DOMParser: window.DOMParser,
   Element: window.Element,
   Node: window.Node,
+  NodeFilter: window.NodeFilter,
   Event: window.Event,
   PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver,
@@ -905,7 +906,10 @@ try {
   await act(async () => { stopwatchTrigger.focus(); stopwatchTrigger.click(); });
   for (let i = 0; i < 20 && document.activeElement !== stopwatchMatter(); i++) await settle();
   assert.equal(document.activeElement, stopwatchMatter());
-  assert.equal(button("Start stopwatch")?.disabled, true);
+  assert.equal(button("Start stopwatch")?.disabled, false);
+  assert.equal(stopwatchMatter()?.getAttribute("aria-expanded"), "false");
+  await act(async () => stopwatchMatter()?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await settle();
   await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.includes("26/12"))!.click());
   await press("Start stopwatch");
   for (let i = 0; i < 20 && document.activeElement !== stopwatchTrigger; i++) await settle();
@@ -915,7 +919,7 @@ try {
   assert.equal(started.matterId, "matter", "app start updates the same profile snapshot read by the HUD");
 
   await press("Stopwatch");
-  assert.match(document.querySelector('[data-slot="popover-content"]')?.textContent ?? "", /26\/12/);
+  assert.equal(document.querySelector<HTMLInputElement>('[data-slot="popover-content"] input[role="combobox"]')?.value, "M");
   responseLost = true;
   await press("Stop stopwatch");
   for (let i = 0; i < 20 && (!block(recordedTimer) || document.activeElement !== stopwatchTrigger); i++) await settle();
@@ -925,7 +929,7 @@ try {
   assert.equal(writes.length, 0, "starting or stopping the stopwatch does not book time");
 
   await press("Stopwatch");
-  assert.equal(button("Start stopwatch")?.disabled, true, "each start requires a matter");
+  assert.equal(button("Start stopwatch")?.disabled, false, "a stopwatch can run unassigned");
   await press("Stopwatch");
   assert.ok(stopwatchTrigger.closest('[role="toolbar"]')?.querySelector('input[type="date"]'), "date and stopwatch share the app header");
   const proposalPanel = document.querySelector<HTMLFormElement>('[data-time-proposal]');
@@ -1257,7 +1261,8 @@ try {
   await act(async () => expand.click());
   assert.deepEqual([...document.querySelectorAll("[data-document-pane]")].map(pane => pane.getAttribute("data-document-pane")), panesBefore);
 
-  assert.match(document.body.textContent ?? "", /Unchecked/);
+  assert.doesNotMatch(document.body.textContent ?? "", /Unchecked/);
+  assert.ok(button(t("timeWorkspace.createSuggestions")));
   const { TimeTrackingSettingsView } = await import("../../src/react-app/domains/settings/pages/time-tracking-view");
   const settingsClient = { ...workdayClient, activityProfile: async () => ({
     profileId: "synthetic", directoryId: workdayDirectory.directoryId!, scope: workdayDirectory.scope, user: weeklyState.userId,
@@ -1270,7 +1275,7 @@ try {
   const enableSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="' + t("timeWorkspace.suggestionsEnabled") + '"]');
   assert.ok(enableSwitch);
   const scheduleTimes = () => Array.from(document.querySelectorAll<HTMLInputElement>('ul[aria-label="Run times"] li input[type="time"]')).map(input => input.value);
-  assert.deepEqual(scheduleTimes(), ["08:00", "20:00"]);
+  assert.deepEqual(scheduleTimes(), ["18:00"]);
   await selectPopup(t("timeWorkspace.frequency"), t("timeWorkspace.hourly"));
   assert.deepEqual(workdaySettings.schedule, { frequency: "hourly" });
   await act(async () => enableSwitch.click());
@@ -1448,9 +1453,12 @@ try {
     .find(button => button.textContent === label);
   async function confirmSuggestions() {
     assert.ok(confirmationDialog()?.textContent?.includes("which drafts to book"));
-    await press(t("timeWorkspace.createSuggestions"));
+    const submit = confirmationButton(t("timeWorkspace.createSuggestions"));
+    assert.ok(submit);
+    await act(async () => submit.click());
   }
-  const gapAction = document.querySelector<HTMLButtonElement>("[data-workday-unchecked]");
+  const gapAction = button(t("timeWorkspace.createSuggestions"));
+  assert.equal(document.querySelector("[data-workday-unchecked]"), null);
   assert.ok(gapAction);
   const beforeCheck = suggestionCalls().length;
   await act(async () => { gapAction.focus(); gapAction.click(); });
@@ -1487,9 +1495,9 @@ try {
   });
   await until(() => !confirmationDialog() && document.activeElement === gapAction);
   assert.equal(confirmationDialog(), null);
-  assert.ok(document.activeElement === gapAction, "closing with Escape restores the original calendar interval");
+  assert.ok(document.activeElement === gapAction, "closing with Escape restores the Create suggestions button");
   assert.equal(suggestionCalls().length, beforeCheck);
-  const openButton = button(t("timeWorkspace.addSuggestions"));
+  const openButton = button(t("timeWorkspace.createSuggestions"));
   assert.ok(openButton);
   await act(async () => { openButton.focus(); openButton.click(); });
   await until(() => document.activeElement === confirmationButton(t("common.cancel")));
@@ -1504,12 +1512,13 @@ try {
   assert.equal(suggestionCalls().length, beforeCheck + 1);
   assert.doesNotMatch(document.body.textContent ?? "", /Raw internal status/);
   failSuggestionRequest = false;
-  await press(t("timeWorkspace.addSuggestions"));
+  await press(t("timeWorkspace.createSuggestions"));
   await confirmSuggestions();
   assert.equal(suggestionCalls().length, beforeCheck + 2);
   assert.ok(!document.querySelector("progress"));
-  assert.ok(document.querySelector('[data-workspace-tab="chat"]'));
-  await press(t("timesheets.timeline"));
+  assert.equal(tabNode("timeline")?.querySelector("button[aria-pressed]")?.getAttribute("aria-pressed"), "true",
+    "starting suggestions keeps the timeline selected");
+  assert.equal(tabNode("chat")?.querySelector("button[aria-pressed]")?.getAttribute("aria-pressed"), "false");
   workdayProposals.push(liveDraft);
   await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
   await until(() => Boolean(block(liveDraft)));
@@ -1651,7 +1660,11 @@ try {
     workspaceWidth = 540;
     for (const resize of workspaceObservers) resize([], new window.ResizeObserver(() => {}));
   });
-  for (const [id, label] of [["chat", "Private chat"], ["entries", "Time entries"], ["timeline", "Day timeline"]]) {
+  await newTab("Day timeline");
+  await selectTab("chat");
+  assert.equal(panes().length, 1, "the private chat shares the narrow timeline pane");
+  assert.equal(dayInput(), base.date);
+  for (const [id, label] of [["entries", "Time entries"], ["timeline", "Day timeline"]]) {
     await newTab(label);
     assert.equal(panes().length, 1, "only the selected workspace pane is rendered at narrow width");
     assert.equal(tabNode(id)?.querySelector("[aria-pressed]")?.getAttribute("aria-pressed"), "true");
@@ -1668,36 +1681,6 @@ try {
   await openProposal(inlineTimer);
   assert.equal(proposalForm(inlineTimer)?.querySelector<HTMLInputElement>('[data-column="charge"]')?.value,
     "37", "an older stopwatch draft keeps its manually adjusted billable minutes");
-
-  // Use a fixed clock to cover rendering and activation of an unchecked interval.
-  const { WorkdayCoverage } = await import("../../src/react-app/domains/back-office/workday-coverage");
-  let checked = 0;
-  const coverageAt = (through: string, day: string, hourHeight = 48) => act(async () => root.render(
-    <WorkdayCoverage hourHeight={hourHeight} date={day} checkedThrough={through} now={new Date("2026-11-12T10:00:00")} busy={false} onCheck={() => { checked++; }} />,
-  ));
-  await coverageAt(at(base.date, "08:00"), base.date);
-  const gap = document.querySelector<HTMLButtonElement>("[data-workday-unchecked]");
-  assert.ok(gap);
-  assert.ok(Math.abs(parseFloat(gap.style.top) - 100 / 3) < 0.01);
-  assert.ok(Math.abs(parseFloat(gap.style.height) - 100 / 12) < 0.01);
-  assert.ok(gap.querySelector(".time-coverage-label"));
-  await act(async () => gap.click());
-  assert.equal(checked, 1);
-  await coverageAt(at(base.date, "09:40"), base.date);
-  assert.equal(gap.querySelector(".time-coverage-label"), null);
-  await coverageAt(at(base.date, "09:40"), base.date, 96);
-  assert.ok(gap.querySelector(".time-coverage-label"), "an enlarged interval displays its label when it fits");
-  await coverageAt(at(base.date, "09:59"), base.date);
-  assert.equal(gap.querySelector(".time-coverage-label"), null, "a one-minute gap cannot draw a badge across the adjacent entry");
-  assert.equal(gap.getAttribute("aria-label"), gap.title);
-  assert.match(gap.title, /9:59.*10:00/);
-  assert.ok(gap.title.endsWith(t("timeWorkspace.checkForSuggestions")));
-  await act(async () => gap.click());
-  assert.equal(checked, 2, "the one-minute gap still checks the day");
-  await coverageAt(at(base.date, "10:00"), base.date);
-  assert.equal(document.querySelector("[data-workday-unchecked]"), null);
-  await coverageAt(at(base.date, "10:00"), "2026-11-13");
-  assert.equal(document.querySelector("[data-workday-unchecked]"), null);
 
   // A disabled source never calls the desktop bridge. Opting out cancels an outstanding sample.
   const { useDesktopTimeActivity } = await import("../../src/react-app/shell/desktop-time-activity");

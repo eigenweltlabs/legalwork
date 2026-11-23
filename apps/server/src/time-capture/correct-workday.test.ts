@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -141,10 +142,10 @@ test("range changes with a negative, incomplete, cross-day, or mismatched durati
 test("a sub-minute stopwatch correction keeps the recorded clocks and null rounded minutes", () => {
   const { saved, parent, edit } = sample(true);
   parent.source = "stopwatch";
-  expect(() => correctWorkday(saved, parent.date, { ...edit, matterId: null }, "UTC")).toThrow("Choose a matter");
-  correctWorkday(saved, parent.date, { ...edit, matterId: "m1", projectId: null, endAt: "2026-11-12T09:00:14Z", workedMinutes: null }, "UTC");
+  expect(() => correctWorkday(saved, parent.date, { ...edit, matterId: null }, "UTC")).toThrow("assigned directly to a matter");
+  correctWorkday(saved, parent.date, { ...edit, matterId: null, projectId: null, endAt: "2026-11-12T09:00:14Z", workedMinutes: null }, "UTC");
   expect(saved.days[parent.date][0].proposal).toMatchObject({
-    startAt: "2026-11-12T09:00:00Z", endAt: "2026-11-12T09:00:14Z", workedMinutes: null,
+    startAt: "2026-11-12T09:00:00Z", endAt: "2026-11-12T09:00:14Z", workedMinutes: null, narrative: "Edited", matterId: undefined,
   });
 });
 
@@ -186,8 +187,9 @@ test("a private activity correction retains, replaces, or clears the code throug
     await server.stop();
     server = await startServer(config);
     expect((await request()).proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
-    const refreshed = await request({ type: "suggest", model: { workspaceId: "empty", providerID: "fixture", modelID: "fixture" } });
-    expect(refreshed.status?.type).toBe("ready");
+    const readDay = await workdayChatReader(config, profileId, server.port);
+    await readDay(proposal.date);
+    const refreshed = await request();
     expect(refreshed.proposals[0]).toMatchObject({ digest: cleared.digest, activity: "" });
     await expect(acceptPrivateProposal(config, owner, proposal.key, replaced.digest, async () => true)).rejects.toMatchObject({ status: 409 });
     await expect(acceptPrivateProposal(config, owner, proposal.key, cleared.digest, async () => "booked")).resolves.toBe("booked");

@@ -24,6 +24,7 @@ export class HudStopwatch {
     this.state = null;
     this.retry = null;
     this.reading = null;
+    this.readingMatters = false;
     this.mutation = false;
     this.failed = false;
     this.savedUntil = 0;
@@ -64,7 +65,10 @@ export class HudStopwatch {
 
   refresh(includeMatters = false) {
     if (this.mutation) return;
+    if (this.reading && includeMatters && !this.readingMatters)
+      return this.reading.then(() => this.refresh(true));
     if (!this.reading) {
+      this.readingMatters = includeMatters;
       this.reading = this.request(undefined, includeMatters ? this.state?.profileId : undefined, includeMatters).then(state => this.update(state), () => this.update(null)).finally(() => {
         this.reading = null;
         this.notify();
@@ -78,13 +82,13 @@ export class HudStopwatch {
     if (this.mutation || version !== this.version) return;
     if (type === "retry" || type === "prepare" || !this.state) return this.refresh(true);
     if (!["start", "stop", "assign"].includes(type)) return;
-    if (type !== "stop" && !this.state.matters?.some(matter => matter.id === matterId)) return;
-    if (type === "stop" && !this.state.active?.matterId) return;
+    if (type !== "stop" && matterId && !this.state.matters?.some(matter => matter.id === matterId)) return;
+    if (type === "assign" && matterId === undefined) return;
     if (this.state.enabled === false && (type === "start" || (type === "assign" && this.state.active?.matterId))) return;
     if ((type !== "start") !== Boolean(this.state.active)) return;
     const profileId = this.state.profileId;
     const action = type === "stop" ? { type, id: this.state.active.id, ...(note !== undefined ? { note } : {}) }
-      : type === "assign" ? { type, id: this.state.active.id, matterId }
+      : type === "assign" ? { type, id: this.state.active.id, matterId: matterId || null }
       : this.retry?.profileId === profileId && this.retry.action.type === type && this.retry.action.matterId === matterId && this.retry.action.note === note
         ? this.retry.action : { type, id: randomUUID(), matterId, ...(note !== undefined ? { note } : {}) };
     this.retry = { profileId, action };

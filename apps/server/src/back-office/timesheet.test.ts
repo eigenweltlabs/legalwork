@@ -223,9 +223,12 @@ test("issued numbers follow legacy, pins approvals, download is reproducible and
   const runAsReviewer = (command: TimesheetCommand) => run(eva, command);
   const firstDraft = runAsReviewer(prepareInvoice([entries[0]]));
   expect(firstDraft.invoices).toEqual([]);
+  expect(firstDraft.entries.map(entry => entry.status)).toEqual(["approved", "approved"]);
   expect(() => runAsReviewer({ type: "issueInvoice", ...invoiceDraftRef(firstDraft), requestId: randomUUID() })).toThrow(/Approve/);
   const one = approveInvoice(runAsReviewer, firstDraft);
   const issued = runAsReviewer(one).invoices[0];
+  expect(state(eva).entries.find(entry => entry.id === entries[0].id)?.status).toBe("invoiced");
+  expect(state(eva).entries.find(entry => entry.id === entries[1].id)?.status).toBe("approved");
   expect(issued.number).toBe(1043);
   expect(issued.total).toBe(100);
   expect(runAsReviewer(one).invoices[0].id).toBe(issued.id);

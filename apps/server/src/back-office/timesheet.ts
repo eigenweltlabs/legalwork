@@ -475,6 +475,17 @@ function apply(
       : command.entry;
     const clientId = d.clientId || soleMatterClient(state.matters.find(m => m.id === d.matterId), state.clients);
     const assigned = { ...d, clientId };
+    // Rewording a saved line preserves its pricing snapshot and work product.
+    if (!e.legacy && !d.createWorkProduct && d.workProductTitle === e.workProductTitle
+      && nonBillableWork(e) === nonBillableWork(assigned)
+      && editableFields.every(key => key === "narrative" || assigned[key] === e[key])) {
+      validateReferences(state, assigned);
+      if (d.narrative !== e.narrative) {
+        writeEntry(store, scope, actor, e, { ...e, narrative: d.narrative,
+          status: e.status === "submitted" ? "confirmed" : e.status, sharedOriginal: undefined, suggestion: undefined }, "update");
+      }
+      return;
+    }
     validateDraft(state, assigned);
     const product = ensureProduct(store, scope, state, actor.userId, d);
     const { createWorkProduct: _create, ...billingFields } = assigned;
@@ -495,6 +506,13 @@ function apply(
     };
     if (!e.legacy && nonBillableWork(e) === nonBillableWork(next) && editableFields.every((key) => e[key] === next[key])) return;
     writeEntry(store, scope, actor, e, { ...next, ...snapshotRate(state, next) }, "update");
+    return;
+  }
+  if (command.type === "withdraw") {
+    const entry = requireEntry(state, command);
+    if (entry.workerId !== actor.userId) timeError("Only the timekeeper can remove this entry.", 403);
+    if (entry.status !== "pending" && entry.status !== "confirmed") timeError("This entry has already entered billing review.", 409);
+    writeEntry(store, scope, actor, entry, { ...entry, status: "declined" }, "withdraw");
     return;
   }
   if (command.type === "declineSuggestion") {
@@ -638,8 +656,9 @@ export function commandTimesheet(
   advice?: InvoiceWordingSuggestion[],
   context?: InvoiceGuidelineContext,
 ) {
-  if (actor.agentId) timeError("A person must save or confirm billing workflow changes.", 403);
   const command = TimesheetCommandSchema.parse(input);
+  if (actor.agentId && !(actor.agentId === "timekeeping" && (command.type === "update" || command.type === "withdraw")))
+    timeError("A person must save or confirm billing workflow changes.", 403);
   return store.transaction(
     () => {
       store.requireAccount(scope, actor);

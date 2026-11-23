@@ -197,19 +197,20 @@ export function TimesheetWorkspace({
                   onEditingChange={(_, locked) => setDateLocked(locked)} initialDate={date} onDateChange={selectPeriod} />,
                 proposal => <TimeWorkflowProposal key={proposal.digest} proposal={proposal} state={state}
                   capture={capture} onCommand={send} canEdit={directory.permissions.edit} />,
+                undefined, { save: async (requestId, entry) => { await send({ type: "create", requestId, entry, workerIds: [userId] }); } },
               )}
           </TimesheetWorkday>
         </div>
       )}
       {page === "billing-settings" && isLoopbackLegalworkServerUrl(client.baseUrl) && (
-        <div className="px-4 py-2">
+        <div className="py-2">
           <AppButton size="sm" variant="outline" nativeButton={false} render={<Link to={"/settings/time-tracking" + (params.size ? "?" + params : "")} />}>
             {t("timeWorkspace.guidelines")}<ArrowUpRight size={14} />
           </AppButton>
         </div>
       )}
       {recordsOnly && page === "billing-settings" && (
-        <section className="time-record-settings" aria-label={t("timesheets.settings")}>
+        <section className="w-full min-w-0 py-4" aria-label={t("timesheets.settings")}>
           <LayoutStack>
             <TimeSettingsGroup title={t("timesheets.records_settings_title")}>
               <TimeSetting title={t("back_office.feeAgreements.plural")} description={t("timesheets.records_agreements_hint")}>

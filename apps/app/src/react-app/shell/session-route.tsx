@@ -1981,7 +1981,8 @@ export function SessionRoute() {
 
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
-    const workspace = workspaces.find((item) => item.id === workspaceId);
+    const embedded = Boolean(timeSection && timeChatWorkspace?.id === workspaceId);
+    const workspace = embedded ? timeChatWorkspace : workspaces.find((item) => item.id === workspaceId);
     if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
       setNewChatOpen(true);
       return;
@@ -2016,8 +2017,10 @@ export function SessionRoute() {
         source: "new_task",
         surface: analyticsSurface(),
       });
-      setLegacySelectedWorkspaceId(workspaceId);
-      writeActiveWorkspaceId(workspaceId || null);
+      if (!embedded) {
+        setLegacySelectedWorkspaceId(workspaceId);
+        writeActiveWorkspaceId(workspaceId || null);
+      }
       writeLastSessionFor(workspaceId, session.id);
       rememberPendingCreatedSession(workspaceId, session.id);
       setSessionsByWorkspaceId((current) => {
@@ -2043,7 +2046,7 @@ export function SessionRoute() {
           id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
         }, options.paneId);
       }
-      navigateToWorkspaceSession(workspaceId, session.id);
+      if (!embedded) navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
       return session.id;
@@ -2069,7 +2072,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, assistant.data?.workspace.id]);
+  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, timeChatWorkspace, timeSection, assistant.data?.workspace.id]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2751,6 +2754,7 @@ export function SessionRoute() {
     </Dialog>
     <SessionPage
       selectEmbeddedWorkspace={selectEmbeddedWorkspace}
+      timeWorkspaceId={timeChatWorkspace?.id}
       fileWorkspaceGroups={fileWorkspaceGroups}
       workflowLibraryView={workflowLibraryView}
       homePage={homePage}

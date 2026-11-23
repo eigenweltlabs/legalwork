@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { TimeSelect } from "./time-settings-controls";
+import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { Button } from "@/components/ui/button";
 import { t, currentLocale } from "@/i18n";
 import { ChevronRight, FileText, Link2, Plus, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Surface } from "../../design-system/surface";
 import {
+  draftRules, effectiveWorkdayGuidelines, visibleSingleClient, workdayRuleSources,
   workdayGuidelineSchema,
   guidelineRuleSuggestionsSchema,
   guidelineRuleFields,
@@ -290,6 +291,17 @@ export function TimeWorkspaceGuidelines({
   }
   const targetName = (scope: Scope, id: string) => scope === "firm" ? t(scopeKeys.firm)
     : (scope === "client" ? state.clients : state.matters).find(item => item.id === id)?.name ?? t(scopeKeys[scope]);
+  const [lookupMatter, setLookupMatter] = useState(initialTarget?.scope === "matter" ? initialTarget.targetId : "");
+  const [lookupDate, setLookupDate] = useState(date);
+  const [lookupProject, setLookupProject] = useState("");
+  const matter = state.matters.find(item => item.id === lookupMatter);
+  const projects = state.projects.filter(item => item.matterIds.includes(lookupMatter));
+  const projectId = projects.find(item => item.id === lookupProject)?.id;
+  const effectiveRules = matter && lookupDate && draftRules(state, guidelines, matter, lookupDate, projectId);
+  const applied = matter ? effectiveWorkdayGuidelines(state, guidelines, {
+    clientId: visibleSingleClient(matter, state) ?? "", matterId: matter.id, date: lookupDate,
+  }) : [];
+  const sources = matter ? workdayRuleSources(state, matter, lookupDate, projectId) : [];
   const fixedTarget = Boolean(editing || initialTarget);
   return (
     <section className="time-workspace-guidelines grid gap-3" aria-labelledby="billing-guidelines-title">
@@ -300,6 +312,31 @@ export function TimeWorkspaceGuidelines({
         </Button>}
       </div>
       <p className="text-sm text-muted-foreground">{t("timeWorkspace.guidelineHint")}</p>
+      {!formOpen && !initialTarget && <details className="rounded-lg border px-4 py-3 text-sm">
+        <summary className="cursor-pointer font-medium">{t("timeWorkspace.effectiveRules")}</summary>
+        <div className="mt-3 grid gap-3">
+          <TimeRecordPicker label={t("timesheets.workday.matter")} placeholder={t("timesheets.workday.choose")} options={state.matters}
+            value={lookupMatter} onChange={id => { setLookupMatter(id); setLookupProject(""); }} />
+          <label className="grid gap-1">{t("timeWorkspace.ruleDate")}<Input type="date" value={lookupDate} onChange={e => setLookupDate(e.currentTarget.value)} /></label>
+          {projects.length > 0 && <TimeSelect label={t("timeWorkspace.ruleProject")} value={projectId ?? "all"}
+            options={[{ id: "all", name: t("timeWorkspace.matterOnly") }, ...projects]} onChange={setLookupProject} />}
+          {effectiveRules && <div className="grid gap-2" aria-live="polite">
+            <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+              <dt>{t("timeWorkspace.minimumMinutes")}</dt><dd>{effectiveRules.minimumMinutes}</dd>
+              <dt>{t("timeWorkspace.maxMinutes")}</dt><dd>{effectiveRules.maxMinutes}</dd>
+              <dt>{t("timeWorkspace.incrementMinutes")}</dt><dd>{effectiveRules.incrementMinutes}</dd>
+              <dt>{t("timeWorkspace.rounding")}</dt><dd>{t(roundingKeys[effectiveRules.rounding])}</dd>
+            </dl>
+            <ul className="list-disc space-y-1 ps-5 text-muted-foreground">
+              <li>{t("timeWorkspace.builtInPolicy")}</li>
+              {sources.map((source, i) => <li key={i}>{source.source === "feeAgreement"
+                ? <Link className="underline" to={"/back-office/feeAgreements?record=" + encodeURIComponent(source.recordId!)}>{t("back_office.feeAgreements.singular")}</Link>
+                : <Link className="underline" to="/settings/billing">{t("timesheets.settings")}</Link>} · {t("back_office.billing.scope_" + source.scope)}</li>)}
+              {applied.map(item => <li key={item.id}>{item.name} · {item.effectiveFrom} · v{item.revision}</li>)}
+            </ul>
+          </div>}
+        </div>
+      </details>}
       {!formOpen && <Surface className="divide-y divide-border/70 overflow-hidden">
         {latest.size === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{t("timeWorkspace.guidelinesEmpty")}</p>}
         {Array.from(latest.values()).sort((a, b) => a.name.localeCompare(b.name)).map(item => (
@@ -349,8 +386,8 @@ export function TimeWorkspaceGuidelines({
             {scope !== "firm" && (
               <label>
                 {t(scopeKeys[scope])}
-                <TimeSelect label={t(scopeKeys[scope])} value={target} disabled={busy}
-                  placeholder={t(scope === "client" ? "timesheets.sheet.choose_bill_to" : "timesheets.workday.choose")}
+                <TimeRecordPicker key={scope} label={t(scopeKeys[scope])} value={target} disabled={busy}
+                  placeholder={t(scope === "client" ? "invoiceReview.choose_client" : "timesheets.workday.choose")}
                   options={scope === "client" ? state.clients : state.matters} onChange={setTarget} />
               </label>
             )}

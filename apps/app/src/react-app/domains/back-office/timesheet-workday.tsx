@@ -1,12 +1,11 @@
-import { WorkdayAppActivity } from "./workday-app-activity";
+import { EmbeddedWorkspaceChat } from "../session/chat/embedded-workspace-chat";
 import { ItemDetailLabel, ItemDialogContent } from "@/react-app/design-system/item-detail";
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { sourceKeys } from "./timesheet-labels";
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, ChevronLeft, ChevronRight, CalendarClock, Maximize2, Minimize2 } from "lucide-react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Play, Loader2, ChevronLeft, ChevronRight, CalendarClock, Maximize2, Minimize2 } from "lucide-react";
 import { WorkdaySuggestionConfirmation } from "./workday-suggestion-feedback";
-import { WorkdayCoverage } from "./workday-coverage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,7 +24,7 @@ import { TimeHeaderContent, TimekeeperControlTarget, WorkspaceHeaderTarget } fro
 import { TimeWorkspacePanels } from "./time-workspace-panels";
 import { useSessionActivityStore } from "../session/status/session-activity-store";
 import { isStreamingSessionStatus } from "../session/sidebar/utils";
-import { TimeWorkspaceChat } from "./time-workspace-chat";
+import { TimeWorkspaceChat, useTimeConversation } from "./time-workspace-chat";
 import { TimeWorkspaceStopwatch, useTimeWorkspaceStopwatch } from "./time-workspace-stopwatch";
 import { TimesheetPeriodSwitch } from "./timesheet-week-totals";
 import { adjacentPeriod, periodDates, type TimePeriod } from "./timesheet-row";
@@ -33,10 +32,13 @@ import { workdayProposalDisplay, WorkdayCorrectionForm, WorkdayTimeline } from "
 import { DirectProposalDecisionContext, type DirectProposalDecision, type ProposalDecision } from "./time-proposal-actions";
 import "./timesheet-workday.css";
 
+import type { SaveTimelineEntry, TimelineBooking } from "./timeline-time-entry";
+
 export type RenderTimeWorkspace = (
   entries: ReactNode,
   renderProposal: (proposal: CaptureProposal) => ReactNode,
   proposals?: CaptureProposal[],
+  timeline?: { save?: SaveTimelineEntry; bookings?: TimelineBooking[] },
 ) => ReactNode;
 
 const suggestionFailureKeys = {
@@ -171,9 +173,15 @@ export function TimesheetWorkday({
     queryKey: dayKey(date), enabled: local && visible, retry: false, refetchInterval: 60000,
     queryFn: ({ signal }) => client.privateWorkday({ ...identity, date }, undefined, signal),
   });
-  const conversation = useQuery<Awaited<ReturnType<typeof client.privateTimeConversation>>>({
-    queryKey: ["timekeeping-conversation", ...calendarClientScope(client), profileId], queryFn: skipToken,
-  }).data;
+  const host = useContext(EmbeddedWorkspaceChat);
+  const { data: conversation } = useTimeConversation(client, profileId, local && visible && Boolean(host));
+  const selectWorkspace = host?.selectWorkspace;
+  const project = conversation?.workspace;
+  useEffect(() => {
+    if (!visible || !local || !project || !selectWorkspace) return;
+    selectWorkspace(project);
+    return () => selectWorkspace(null);
+  }, [visible, local, project, selectWorkspace]);
   const chatStatus = useSessionActivityStore(s => conversation ? s.getStatus(conversation.workspace.id, conversation.day.sessionId) : "idle");
   const chatBusy = isStreamingSessionStatus(chatStatus);
   const otherDays = dates.filter(day => day !== date);
@@ -281,7 +289,7 @@ export function TimesheetWorkday({
     if (container) setConfirmation({ date, trigger, container });
   }
 
-  async function addSuggestions(openChat: () => void) {
+  async function addSuggestions() {
     if (modelRequest.current || inFlight.current || !settings || settings.enabled === false) return;
     const controller = new AbortController();
     modelRequest.current = controller;
@@ -289,7 +297,7 @@ export function TimesheetWorkday({
     setConfirmation(undefined);
     setRun({ id: runId, date });
     try {
-      if (await act({ type: "suggest", runId }, controller.signal)) openChat();
+      await act({ type: "suggest", runId }, controller.signal);
     } finally {
       if (modelRequest.current === controller) {
         modelRequest.current = undefined;
@@ -381,14 +389,14 @@ export function TimesheetWorkday({
     onDateChange(next, openDay ? "day" : period);
   }
   const capture: TimeCaptureSheet = {
-    proposals: shown, visible, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
+    proposals: shown, visible, guidelines: data?.guidelines, wording: data?.wording, privateAvailable: Boolean(data), drafts, date, dates,
     linkableRecords: ownRecords, selectDate, act, writeDraft,
     openSource: (proposal, draftRevision) => {
       focusRequest.current = { target: "editor" };
       setCorrection({ proposal, draftRevision });
     },
   };
-  const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown) => {
+  const renderWorkspace: RenderTimeWorkspace = (entries, renderProposal, proposals = shown, timeline) => {
     const selected = proposals.find(proposal => proposal.key === selection);
     const correcting = selected && correction?.proposal.key === selected.key && correction.proposal.digest === selected.digest
       ? correction : undefined;
@@ -396,13 +404,13 @@ export function TimesheetWorkday({
     // Reuse the booking form and keep its validation state if a calendar action opens it.
     const editors = selected ? [selected] : [];
     if (deciding && deciding.key !== selected?.key) editors.push(deciding);
-    return <TimeWorkspacePanels visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
+    return <TimeWorkspacePanels conversation={conversation} visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
       chatBusy={chatBusy} entries={entries} invoices={invoices} requestedTab={requestedTab}
-      chat={shown => <TimeWorkspaceChat client={client} identity={identity} date={date} visible={shown && visible} data={data} />}
-      timeline={(view, choose, expanded, toggleExpanded, openChat) => (
+      chat={(shown, sessionId, active) => <TimeWorkspaceChat sessionId={sessionId} active={active} client={client} identity={identity} date={date} visible={shown && visible} data={data} />}
+      timeline={(view, choose, expanded, toggleExpanded) => (
         <>
           {confirmation?.date === date && local && settings && settings.enabled !== false &&
-            <WorkdaySuggestionConfirmation {...confirmation} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions(openChat)} />}
+            <WorkdaySuggestionConfirmation {...confirmation} onCancel={() => setConfirmation(undefined)} onStart={() => void addSuggestions()} />}
           <div className="contents" inert={confirmation?.date === date && Boolean(settings) && settings?.enabled !== false}>
           {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
@@ -411,15 +419,14 @@ export function TimesheetWorkday({
           </p>}
           {local && (
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
-              <WorkdayTimeline date={date} appointments={appointments} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
+              <WorkdayTimeline key={date} date={date} bookings={timeline?.bookings ?? confirmed.filter(entry => entry.date === date).map(entry => ({ ...entry, key: entry.groupId ?? entry.id }))}
+                onCreateEntry={directory.permissions.edit ? timeline?.save : undefined} guidelines={capture.guidelines} appointments={appointments} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
                 headerActions={<div className="time-workspace-calendar-actions">
-                  {profileId && settings && settings.enabled !== false && settings.workspaceActivity !== false &&
-                    <WorkdayAppActivity key={profileId + date} client={client} profileId={profileId} date={date} container={timelineBody} />}
                   {settings && settings.enabled !== false && <Button size="sm" variant="outline"
-                    title={t("timeWorkspace.addSuggestions")} disabled={running || refreshing || chatBusy || date > calendarDay(new Date())}
+                    title={data?.checkedThrough ? t("timeWorkspace.coverageUntil", { time: new Date(data.checkedThrough).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : t("timeWorkspace.coverageNone")} disabled={running || refreshing || chatBusy || date > calendarDay(new Date())}
                     onClick={event => requestSuggestions(event.currentTarget)}>
-                    {refreshing ? <Loader2 className="animate-spin" /> : <Plus />}
-                    <span className="@max-[410px]/calendar-grid:sr-only">{t("timeWorkspace.addSuggestions")}</span>
+                    {refreshing ? <Loader2 className="animate-spin" /> : <Play />}
+                    <span className="@max-[410px]/calendar-grid:sr-only">{t("timeWorkspace.createSuggestions")}</span>
                   </Button>}
                   <TimeSelect modal={false} label={t("timeWorkspace.timelineView")} value={view} options={[
                     { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
@@ -435,9 +442,6 @@ export function TimesheetWorkday({
                       });
                     }}>{expanded ? <Minimize2 /> : <Maximize2 />}</Button>
                 </div>}
-                renderTimeOverlay={settings && settings.enabled !== false ? (now, hourHeight) =>
-                  <WorkdayCoverage date={date} hourHeight={hourHeight} checkedThrough={data?.checkedThrough} now={now}
-                    busy={running || refreshing || chatBusy} onCheck={requestSuggestions} /> : undefined}
                 editorId={editorId} onOpen={openEditor} decisions={{
                   canAccept: directory.permissions.edit,
                   busyKey: deciding?.key ?? correcting?.proposal.key,
@@ -481,7 +485,7 @@ export function TimesheetWorkday({
                       </DialogHeader>
                       <div key={proposal.digest} ref={active ? bindEditorForm : undefined} className="min-h-0 overflow-y-auto px-5 py-4">
                         <div hidden={Boolean(edit)}>{renderProposal(proposal)}</div>
-                        {edit && <WorkdayCorrectionForm proposal={edit.proposal} draftRevision={edit.draftRevision} state={state}
+                        {edit && <WorkdayCorrectionForm guidelines={data?.guidelines} proposal={edit.proposal} draftRevision={edit.draftRevision} state={state}
                           pending={running} save={act} close={() => {
                             if (editor.current?.contains(document.activeElement)) focusRequest.current = { target: "editor" };
                             setCorrection(undefined);

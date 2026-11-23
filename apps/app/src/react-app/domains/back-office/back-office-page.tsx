@@ -9,7 +9,7 @@ import { NativeBacklinks } from "./native-backlinks";
 import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
@@ -51,6 +51,7 @@ import { creatableRecordObject } from "./record-creation-values";
 import { ModelEditor } from "./model-editor";
 import {
   DirectoryDialog,
+  DirectoryDialogContainer,
   DirectoryMenu,
   DirectorySelect,
   BackOfficeTheme,
@@ -84,6 +85,8 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
   billingSettings?: boolean;
 }) {
   const locale = useLocale();
+  const parentDialogContainer = useContext(DirectoryDialogContainer);
+  const [recordPane, setRecordPane] = useState<HTMLDivElement | null>(null);
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
@@ -380,6 +383,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
   </div>;
   return (
     <DirectoryTheme>
+      <DirectoryDialogContainer.Provider value={embeddedObject ? recordPane : parentDialogContainer}>
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
@@ -388,7 +392,8 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
         projects={projects.data?.projects ?? []}
       >
         <div
-          className={billingSettings ? "flex min-w-0 flex-col" : timesheet ? "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : `bo ${detail ? "bo-has-detail" : ""}`}
+          ref={embeddedObject ? setRecordPane : undefined}
+          className={billingSettings ? "flex w-full min-w-0 max-w-3xl flex-col" : timesheet ? "relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : `bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
           {!timesheet && !embeddedObject && <nav className="bo-tabs" aria-label="Back Office">
@@ -637,7 +642,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
             <DirectoryDialog title={t("back_office.team_sync")} onClose={() => { setSyncDetailsOpen(false); setError(""); }}>
               <div className="bo-form">
                 {data.firstSync && data.firstSync.unassigned > 0 && data.permissions.edit && (
-                  <div>
+                  <div className="bo-sync-assignment">
                     <p>{t("back_office.assign_local", { count: data.firstSync.unassigned, firm: data.firstSync.firm })}</p>
                     <Button size="sm" onClick={() => void request("/sync/assign-local", {
                       directoryId: data.directoryId, selection: data.firstSync?.selection,
@@ -743,6 +748,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
         </div>
       </RecordFilesProvider>
       </RecordCreationProvider>
+      </DirectoryDialogContainer.Provider>
     </DirectoryTheme>
   );
 }

@@ -45,17 +45,16 @@ test("timer polls reuse an unchanged snapshot and refresh it after an atomic wri
   }
 });
 
-test("an existing project-only timer keeps its clock until the user selects a matter", () => {
+test("an existing project-only timer can stop without assigning a matter", () => {
   const id = randomUUID(), start = "2026-11-17T12:00:00.000Z";
   const saved: Parameters<typeof changeStopwatch>[0] = {
     stopwatch: privateStopwatchSchema.parse({ active: { id, startedAt: start, projectId: "old-project", zone: "UTC" }, lastStopped: null, stoppedIds: [] }),
     days: {}, originals: {},
   };
   const end = new Date("2026-11-17T12:20:00.000Z");
-  expect(() => changeStopwatch(saved, { type: "stop", id }, end, "UTC")).toThrow("Choose a matter");
-  changeStopwatch(saved, { type: "assign", id, matterId: "chosen-matter" }, end, "UTC");
+
   changeStopwatch(saved, { type: "stop", id }, end, "UTC");
-  expect(saved.days["2026-11-17"][0].proposal).toMatchObject({ startAt: start, matterId: "chosen-matter", projectId: null, workedMinutes: 20 });
+  expect(saved.days["2026-11-17"][0].proposal).toMatchObject({ startAt: start, projectId: null, workedMinutes: 20 });
 });
 
 test("the stopped timer uses the latest quick note for its matter's description", () => {
@@ -166,7 +165,6 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
     const start: StopwatchAction = { type: "start", id: randomUUID(), matterId: matter.id };
     expect((await api("stopwatch?profileId=other", start)).status).toBe(409);
     expect((await api(endpoint, { ...start, matterId: "unavailable-matter" })).status).toBe(404);
-    expect((await api(endpoint, { type: "start", id: start.id })).status).toBe(400);
     expect((await api(endpoint, { type: "start", id: start.id, projectId: "timer-project" })).status).toBe(400);
     const running = stopwatchStateSchema.parse(await (await api(endpoint, start)).json());
     expect(running.active?.id).toBe(start.id);
@@ -259,6 +257,10 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
         narrative: reviewed.entry.narrative,
       });
     }
+    const personalId = randomUUID();
+    const personal = await api(endpoint, { type: "start", id: personalId, note: "Lunch break" });
+    expect(stopwatchStateSchema.parse(await personal.json()).active).toMatchObject({ id: personalId, note: "Lunch break", matterId: null });
+    expect((await api(endpoint, { type: "stop", id: personalId })).status).toBe(200);
     const next = { type: "start", id: randomUUID(), matterId: matter.id };
     expect((await api(endpoint, next)).status).toBe(200);
     expect(stopwatchStateSchema.parse(await (await api(endpoint, stop)).json()).active?.id).toBe(
@@ -269,7 +271,9 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
       settings: { calendar: true, tasks: false, intervalMinutes: 0 },
     });
     const prepared = captureStateSchema.parse(await (await api(workday, { type: "calendar" })).json());
-    expect(prepared.proposals).toEqual([]);
+    expect(prepared.proposals).toHaveLength(1);
+    expect(prepared.proposals[0].narrative).toBe("Lunch break");
+    expect(prepared.proposals[0].matterId).toBeUndefined();
     expect((await api(workday, { type: "dismiss", key: result.proposals[0].key })).status).toBe(409);
     const off = await api(workday, { type: "settings-patch", change: { field: "enabled", value: false } });
     expect(off.status).toBe(200);

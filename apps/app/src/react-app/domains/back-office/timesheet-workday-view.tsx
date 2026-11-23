@@ -1,14 +1,15 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ItemDescriptionInput } from "@/react-app/design-system/item-detail";
 import { DialogFooter } from "@/components/ui/dialog";
+import { appointmentBookingId, appointmentSeed, rangeInstant, TimelineEntryDialog, type SaveTimelineEntry, type TimelineBooking, type TimelineEntrySeed } from "./timeline-time-entry";
+import type { WorkdayGuideline } from "@legalwork/types/time-capture";
 import { TimeSelect } from "./time-settings-controls";
-import { captureChargeMinutes, type CaptureProposal, type CaptureState, type WorkdayCorrection } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, draftRules, workdayBillableMinutes, type CaptureProposal, type CaptureState, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
-  proposedStopwatchCharge,
   resolveTimePolicy,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
@@ -66,19 +67,21 @@ export function workdayProposalDisplay(proposal: CaptureProposal, state: Timelin
 }
 
 export function WorkdayTimeline({
-  date, proposals, appointments = [], previews = [], drafts, state, view, selected, editorId, headerActions, renderTimeOverlay, onOpen, decisions,
+  date, proposals, bookings = [], onCreateEntry, guidelines = [], appointments = [], previews = [], drafts, state, view, selected, editorId, headerActions, onOpen, decisions,
 }: {
   date: string;
   proposals: CaptureProposal[];
   previews?: CaptureProposal[];
   appointments?: CalendarDisplayOccurrence[];
   drafts?: CaptureState["drafts"];
-  state: TimelineDirectory;
+  state: TimesheetState;
+  bookings?: TimelineBooking[];
+  onCreateEntry?: SaveTimelineEntry;
+  guidelines?: WorkdayGuideline[];
   view: TimelineView;
   selected: string | undefined;
   editorId?: string;
   headerActions?: ReactNode;
-  renderTimeOverlay?: (now: Date, hourHeight: number) => ReactNode;
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
   decisions?: {
     canAccept: boolean;
@@ -94,7 +97,38 @@ export function WorkdayTimeline({
   const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>();
   const [opened, setOpened] = useState<{ id: string; trigger: HTMLButtonElement; container: HTMLElement }>();
   const selectedAppointment = opened && appointments.find(item => item.id === opened.id && opened.trigger.isConnected);
+  const [conversion, setConversion] = useState<{ occurrence: string; key: string }>();
+  const appointmentId = selectedAppointment?.id;
+  const canCreateEntry = Boolean(onCreateEntry);
+  useEffect(() => {
+    if (!appointmentId || !canCreateEntry) return;
+    let current = true;
+    void appointmentBookingId(state.userId, appointmentId, date).then(key => { if (current) setConversion({ occurrence: appointmentId, key }); });
+    return () => { current = false; };
+  }, [date, appointmentId, state.userId, canCreateEntry]);
+  const [entry, setEntry] = useState<{ key: string; seed: TimelineEntrySeed; container: HTMLElement; trigger: HTMLElement }>();
   const items: CalendarDisplayOccurrence[] = [...appointments];
+  const booked = new Map<string, CalendarDisplayOccurrence>();
+  function putInLane(matterId: string | null, title: string, item: CalendarDisplayOccurrence) {
+    const lane = groups.get(matterId) ?? { id: matterId ? "matter-" + matterId : "unassigned", title, colorKey: matterId, items: [] };
+    lane.items.push(item);
+    groups.set(matterId, lane);
+  }
+  for (const booking of bookings) {
+    if (!booking.startAt || !booking.endAt || !interval(booking)) continue;
+    const matter = state.matters.find(m => m.id === booking.matterId);
+    const id = "booked-" + booking.key;
+    const item: CalendarDisplayOccurrence = { id, uid: id, itemId: id, projectId: null, projectName: matter?.name ?? unassigned,
+      kind: "event", title: booking.narrative, start: booking.startAt, end: booking.endAt, allDay: false, timeZone, status: "active",
+      assigneeUserId: null, provenance: null, verified: true, recurring: false };
+    items.push(item);
+    booked.set(id, item);
+    if (view === "matters") putInLane(matter?.id ?? null, item.projectName, item);
+  }
+  const selectedBooked = opened && booked.get(opened.id);
+  const selectedItem = selectedAppointment || selectedBooked;
+  const conversionKey = conversion?.occurrence === appointmentId ? conversion?.key : undefined;
+  const alreadyConverted = conversionKey && bookings.some(booking => booking.key === conversionKey);
   const privateById = new Map<string, { proposal: CaptureProposal; matterId: string | null }>();
   const previewKeys = new Set(previews.map(proposal => proposal.key));
   for (const proposal of [...proposals, ...previews]) {
@@ -113,20 +147,22 @@ export function WorkdayTimeline({
     };
     items.push(item);
     privateById.set(item.id, { proposal, matterId });
-    if (view === "matters") {
-      const lane = groups.get(matterId) ?? { id: matterId ? "matter-" + matterId : "unassigned", title: item.projectName, colorKey: matterId, items: [] };
-      lane.items.push(item);
-      groups.set(matterId, lane);
-    }
+    if (view === "matters") putInLane(matterId, item.projectName, item);
   }
   const lanes = [...groups.values()];
   if (appointments.length) lanes.unshift({ id: "calendar", title: t("calendar.title"), colorKey: null, items: appointments });
   return <><CalendarGrid view="day" maxVisibleHours={16} anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
-    dayLanes={view === "matters" ? lanes : undefined} headerActions={headerActions} renderTimeOverlay={renderTimeOverlay}
+    dayLanes={view === "matters" ? lanes : undefined} headerActions={headerActions}
     minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
     label={t("timesheets.workday.timeline")} untimedLabel={t(appointments.some(item => item.allDay) ? "timeWorkspace.allDayAndUntimed" : "timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}
+    onSelectTimeRange={onCreateEntry && ((date, start, end, lane, trigger) => {
+      const container = trigger.closest<HTMLElement>('[data-workspace-tab="timeline"]');
+      if (container) setEntry({ key: crypto.randomUUID(), trigger, container, seed: { date, narrative: "",
+        matterId: lane.startsWith("matter-") ? lane.slice(7) : undefined, startAt: rangeInstant(date, start), endAt: rangeInstant(date, end) } });
+    })}
     entryAppearance={item => {
+      if (booked.has(item.id)) return { secondaryLabel: t("timesheets.workday.booked"), buttonAttributes: { "data-workday-booking": true, "aria-haspopup": "dialog" } };
       const source = privateById.get(item.id);
       if (!source) return {
         secondaryLabel: t("calendar.title"),
@@ -162,8 +198,15 @@ export function WorkdayTimeline({
       const container = trigger.closest<HTMLElement>('[data-workspace-tab="timeline"]');
       if (container) setOpened({ id: item.id, trigger, container });
     }} />
-    {selectedAppointment && opened && <ConnectedCalendarEventDialog key={opened.id} item={selectedAppointment}
+    {selectedItem && opened && <ConnectedCalendarEventDialog key={opened.id} item={selectedItem}
+      footerAction={selectedAppointment && onCreateEntry && <Button disabled={!conversionKey || Boolean(alreadyConverted)} onClick={() => {
+        if (!conversionKey) return;
+        setEntry({ key: conversionKey, trigger: opened.trigger, container: opened.container, seed: appointmentSeed(selectedAppointment, date, state) });
+        setOpened(undefined);
+      }}>{t(alreadyConverted ? "timeWorkspace.alreadyRecorded" : "timeWorkspace.createTimeEntry")}</Button>}
       pane={opened} onClose={() => setOpened(undefined)} />}
+    {entry && onCreateEntry && <TimelineEntryDialog key={entry.key} requestId={entry.key} seed={entry.seed} trigger={entry.trigger} container={entry.container}
+      state={state} guidelines={guidelines} onSave={onCreateEntry} onClose={() => setEntry(undefined)} />}
   </>;
 }
 
@@ -190,6 +233,7 @@ function TimelineProposalActions({ proposal, title, canAccept, busyKey, onDecisi
 export function WorkdayCorrectionForm({
   proposal: p,
   draftRevision,
+  guidelines,
   state,
   pending,
   save,
@@ -197,7 +241,8 @@ export function WorkdayCorrectionForm({
 }: {
   proposal: CaptureProposal;
   draftRevision?: number;
-  state: Directory;
+  guidelines?: CaptureState["guidelines"];
+  state: TimesheetState;
   pending: boolean;
   save: (action: WorkdayCorrection) => Promise<boolean>;
   close: () => void;
@@ -243,11 +288,11 @@ export function WorkdayCorrectionForm({
     const m = state.matters.find((x) => x.id === id);
     if (!m) return "";
     const project = assignment(id).projectId ?? undefined;
-    const policy = resolveTimePolicy(state.policies, m.clientIds.length === 1 ? m.clientIds[0] : "", id, p.date, project);
-    if (p.source === "stopwatch")
-      return t("timesheets.workday.minutes_rounded", {
-        minutes, charge: proposedStopwatchCharge(measured, policy),
-      });
+    const policy = draftRules(state, guidelines ?? [], m, p.date, project);
+    if (p.source === "stopwatch") {
+      const charge = workdayBillableMinutes(measured, policy, activity, true);
+      return charge === undefined ? "" : t("timesheets.workday.minutes_rounded", { minutes, charge });
+    }
     if (!policy.enforceIncrement || minutes % policy.incrementMinutes === 0)
       return t("timesheets.workday.minutes_exact", { minutes });
     if (policy.rounding !== "choose")
@@ -271,7 +316,7 @@ export function WorkdayCorrectionForm({
           ((start || end) && (!startAt || !endAt)) ||
           (total !== null && !shortStopwatch && (!Number.isInteger(total) || total < 1 || total > 1440)) ||
           (elapsed !== null && elapsed <= 0) ||
-          (p.source === "stopwatch" && !sourceMatch.matterId) || !narrative.trim()
+          !narrative.trim()
         ) {
           setError(t("timesheets.workday.invalid"));
           return;
@@ -322,7 +367,7 @@ export function WorkdayCorrectionForm({
       </label>
       <label className="grid gap-1.5 text-sm">{t("timesheets.workday.matter")}
         <TimeSelect label={t("timesheets.workday.matter")} value={matter} onChange={setMatter}
-          placeholder={t("timesheets.workday.choose")} options={canSplit ? [{ id: "", name: t("timesheets.workday.unassigned") }, ...options] : options} />
+          placeholder={t("timesheets.workday.choose")} options={[{ id: "", name: t("timesheets.workday.unassigned") }, ...options]} />
       </label>
       <div className="grid grid-cols-2 gap-3">
         <label className="grid gap-1.5 text-sm">{t("timesheets.workday.start")}

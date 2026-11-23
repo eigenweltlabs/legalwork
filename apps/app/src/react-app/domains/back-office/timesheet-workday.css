@@ -78,48 +78,4 @@
   .bo-workday-controls { gap: 4px; padding-inline: 6px; }
 }
 
-.time-coverage-overlay {
-  container: unchecked-time / inline-size;
-  overflow: clip;
-  pointer-events: auto;
-  position: absolute;
-  inset-inline: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  --coverage-ink: var(--blue-11, #3767aa);
-  border-block: 1px dashed color-mix(in srgb, var(--coverage-ink) 65%, transparent);
-  border-inline-start: 3px solid var(--coverage-ink);
-  background: repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--coverage-ink) 18%, transparent) 8px 9px);
-  background-color: color-mix(in srgb, var(--coverage-ink) 7%, transparent);
-  text-align: start;
-  cursor: pointer;
-}
-.time-coverage-overlay:hover, .time-coverage-overlay:focus-visible { background-color: color-mix(in srgb, var(--coverage-ink) 15%, transparent); }
-.time-coverage-label {
-  position: sticky;
-  top: 3.25rem;
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  max-inline-size: calc(100% - .8rem);
-  margin-inline-start: .4rem;
-  padding: .15rem .45rem;
-  border: 1px solid var(--border);
-  border-radius: .35rem;
-  color: var(--foreground);
-  background: var(--background);
-  font-size: .7rem;
-  line-height: 1rem;
-  white-space: nowrap;
-}
-
-.time-coverage-label > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-@container unchecked-time (max-width: 11rem) {
-  .time-coverage-label > span { display: none; }
-}
-
 .time-workspace-timeline [data-suggestion-preview] { border-style: dashed; cursor: progress; }

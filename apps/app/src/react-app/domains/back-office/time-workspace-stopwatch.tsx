@@ -5,7 +5,7 @@ import type { StopwatchAction, StopwatchState } from "@legalwork/types/time-capt
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { TimeRecordPicker } from "./time-settings-controls";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { calendarClientScope } from "../calendar/calendar-cache";
@@ -65,7 +65,6 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
   const clockId = useId();
   const [open, setOpen] = useState(false);
   const [matter, setMatter] = useState("");
-  const [query, setQuery] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState(false);
@@ -125,7 +124,6 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
       if (next) {
         restoreFocus.current = undefined;
         setMatter("");
-        setQuery("");
         setNote(active?.note ?? "");
         setNotice("");
         setFailure(false);
@@ -144,42 +142,37 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
           const focused = trigger.current?.ownerDocument.activeElement;
           return !focused || focused === focused.ownerDocument.body || popup.current?.contains(focused) ? trigger.current : false;
         }}>
-        <PopoverTitle>{t("timesheets.source.stopwatch")}</PopoverTitle>
+        <PopoverTitle className="sr-only">{t("timesheets.source.stopwatch")}</PopoverTitle>
         {stopwatch.isPending && <p role="status">{t("timesheets.loading")}</p>}
         {!stopwatch.isPending && !available && <p role="status">{t("timeWorkspace.stopwatchUnavailable")}</p>}
-        <form className="time-workspace-form" aria-busy={pending} onSubmit={event => {
+        <form className="grid gap-3" aria-busy={pending} onSubmit={event => {
           event.preventDefault();
           if (working.current || stopwatch.isPending) return;
           if (!available) { void stopwatch.refetch(); return; }
-          if (active) { if (active.matterId) void change({ type: "stop", id: active.id, ...(note !== (active.note ?? "") ? { note } : {}) }); return; }
-          const matterId = matter;
-          if (!matters.some(item => item.id === matterId)) return;
+          if (active) { void change({ type: "stop", id: active.id, ...(note !== (active.note ?? "") ? { note } : {}) }); return; }
+          const matterId = matter || null;
+          if (matterId && !matters.some(item => item.id === matterId)) return;
           if (!startRetry.current || startRetry.current.matterId !== matterId || (startRetry.current.note ?? "") !== note) {
             startRetry.current = { type: "start", id: crypto.randomUUID(), matterId, ...(note ? { note } : {}) };
           }
           void change(startRetry.current);
         }}>
-          {available && <div className="grid gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">{t("timesheets.workday.matter")}</span>
-            <Command filter={null} value={query} onValueChange={(value, details) => { if (details.reason !== "item-press") { setQuery(value); setMatter(""); } }}>
-              <CommandInput ref={picker} aria-label={t("timesheets.workday.matter")} placeholder={t("timesheets.workday.choose")} disabled={pending} />
-              <CommandList className="max-h-40 overflow-y-auto">
-                {matters.filter(item => (item.name + " " + (item.reference ?? "")).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(item =>
-                  <CommandItem key={item.id} value={item.id} aria-selected={item.id === (active?.matterId ?? matter)}
-                    disabled={pending || (stopwatch.data?.enabled === false && Boolean(active?.matterId))}
-                    onClick={() => {
-                      setMatter(item.id);
-                      setQuery(item.name);
-                      if (active && active.matterId !== item.id) void change({ type: "assign", id: active.id, matterId: item.id });
-                    }}>{item.reference ? item.name + " · " + item.reference : item.name}</CommandItem>)}
-              </CommandList>
-            </Command>
-            {(active?.matterId || matter) && <span className="text-xs">{matters.find(item => item.id === (active?.matterId ?? matter))?.name}</span>}
-            <label>{t("timeWorkspace.quickNote")}<Input value={note} maxLength={2000} onChange={event => setNote(event.target.value)} /></label>
-            {!matters.length && <p className="text-xs text-muted-foreground">{t("timeWorkspace.noStopwatchMatters")}</p>}
+          {available && <div className="grid min-w-0 gap-3">
+            <label className="grid gap-1.5 text-sm">{t("timeWorkspace.optionalMatter")}
+              <TimeRecordPicker label={t("timesheets.workday.matter")} placeholder={t("timesheets.workday.choose")}
+                inputRef={picker} value={active ? active.matterId ?? "" : matter} options={[{ id: "", name: t("timesheets.workday.unassigned") }, ...matters]}
+                disabled={pending || (stopwatch.data?.enabled === false && Boolean(active?.matterId))}
+                onChange={id => {
+                  setMatter(id);
+                  if (active && active.matterId !== id) void change({ type: "assign", id: active.id, matterId: id || null });
+                }} />
+            </label>
+            <label className="grid gap-1.5 text-sm">{t("timeWorkspace.quickNote")}
+              <Input value={note} maxLength={2000} onChange={event => setNote(event.target.value)} />
+            </label>
           </div>}
           {failure && <p role="alert">{t("timeWorkspace.stopwatchFailed")}</p>}
-          <Button ref={actionButton} type="submit" size="sm" disabled={pending || stopwatch.isPending || (available && !(active ? active.matterId : matters.some(item => item.id === matter)))}>
+          <Button className="justify-self-end" ref={actionButton} type="submit" size="sm" disabled={pending || stopwatch.isPending}>
             {t(!available ? "timesheets.retry" : active ? "timeWorkspace.stopwatchStop" : "timeWorkspace.stopwatchStart")}
           </Button>
         </form>

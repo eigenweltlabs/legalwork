@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -36,6 +37,7 @@ test("host-only recording ingest preserves consent, ignores duplicate delivery a
   try {
     const owner = await activeCaptureProfile(config);
     const { profileId, scope, user, principal } = owner;
+    const readDay = await workdayChatReader(config, profileId, server.port);
     const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
     const workday = "workday?" + new URLSearchParams({ profileId, scope, user, principal, date });
     const api = (route: string, body?: unknown, host = true) => fetch("http://127.0.0.1:" + server.port + "/private-timesheet/" + route, {
@@ -53,11 +55,11 @@ test("host-only recording ingest preserves consent, ignores duplicate delivery a
     expect((await api(consent, { ...row, profileId: "f".repeat(64) })).status).toBe(409);
     expect(await (await api(consent, row)).json()).toEqual({ added: 1 });
     expect(await (await api(consent, row)).json()).toEqual({ added: 0 });
-    expect((await api(workday, { type: "suggest" })).status).toBe(200);
+    await readDay(date);
     const logged = async (): Promise<WorkdayEvidence[]> => JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8")).observations;
     expect((await logged()).filter(item => item.proposal.source === "recordings")).toHaveLength(1);
     expect((await set("recordings", false)).status).toBe(200);
-    expect((await api(workday, { type: "suggest" })).status).toBe(200);
+    await readDay(date);
     expect((await logged()).filter(item => item.proposal.source === "recordings")).toEqual([]);
     expect((await set("recordings", true)).status).toBe(200);
     expect((await api(consent, row)).status).toBe(409);

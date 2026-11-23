@@ -400,6 +400,7 @@ const snapshot = TimeDraftSchema.extend({
 const history = z.object({
   revision: z.number(),
   actorId: id,
+  agentId: id.optional(),
   action: z.string(),
   at: z.iso.datetime(),
   reason: z.string().optional(),
@@ -580,6 +581,7 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("applyWording"),
     entries: z.array(ref.extend({ before: text, after: text })).min(1).max(1000),
   }),
+  ref.extend({ type: z.literal("withdraw") }).strict(),
   z.strictObject({
     type: z.literal("declineSuggestion"),
     id,

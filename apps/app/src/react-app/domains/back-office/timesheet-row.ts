@@ -5,7 +5,7 @@ import {
   type TimeDraft,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
-import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, workdayBillableMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 
 export type LedgerDirectory = Pick<
@@ -247,6 +247,8 @@ export function stopwatchRowCharge(
   evidence: StopwatchEvidence,
   amounts: TimeAmounts,
   policy: Parameters<typeof proposedStopwatchCharge>[1],
+  rules?: Parameters<typeof workdayBillableMinutes>[1],
+  activity = "",
 ) {
   const worked = Number(amounts.worked);
   if (!amounts.billable || (worked > 0 && Number(amounts.billableWork) === 0)) return 0;
@@ -254,7 +256,8 @@ export function stopwatchRowCharge(
     ? captureChargeMinutes({ source: "stopwatch", workedMinutes: evidence.workedMinutes ?? null,
         startAt: evidence.startAt ?? null, endAt: evidence.endAt ?? null })
     : worked;
-  return proposedStopwatchCharge(Math.max(0, (measured ?? 0) - Number(amounts.nonBillable)), policy);
+  const minutes = Math.max(0, (measured ?? 0) - Number(amounts.nonBillable));
+  return rules && minutes > 0 ? workdayBillableMinutes(minutes, rules, activity, true) ?? 0 : proposedStopwatchCharge(minutes, policy);
 }
 
 export function changeAmounts(

@@ -10,6 +10,17 @@ const state = TimesheetStateSchema.parse({ userId: "worker", scope: "local", can
   clients: [{ id: "client", name: "Demo client" }], projects: [{ id: "project", name: "Demo project", matterIds: ["matter"] }],
   people: [], products: [], policies: [], invoices: [] });
 
+test("a personal timer retains its note and a one-minute matter timer uses the effective six-minute minimum", () => {
+  const timer = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: "2026-11-23",
+    source: "stopwatch", projectId: null, activity: "", narrative: "Reviewed the rent schedule.", workedMinutes: 1,
+    startAt: "2026-11-23T10:00:00Z", endAt: "2026-11-23T10:01:00Z", dismissed: false });
+  const guidelines = [{ id: crypto.randomUUID(), name: "General", scope: "firm" as const, targetId: "firm",
+    revision: 2, effectiveFrom: timer.date, rules: { minimumMinutes: 6, incrementMinutes: 6, enforceIncrement: true, rounding: "up" as const } }];
+  expect(proposalValues(timer, state, guidelines)).toMatchObject({ matter: null, recordedMinutes: 1, billableMinutes: null, billingNarrative: timer.narrative });
+  expect(proposalValues({ ...timer, matterId: "matter" }, state, guidelines)).toMatchObject({
+    recordedMinutes: 1, billableMinutes: 6, billingNarrative: timer.narrative });
+});
+
 test("stopwatch rows preserve measured minutes separately from the rounded charge", () => {
   for (const [seconds, up, nearest] of [[601, 20, 10], [899, 20, 10], [900, 20, 20], [10, 10, 0]]) {
     const proposal = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: "2026-11-18", source: "stopwatch",

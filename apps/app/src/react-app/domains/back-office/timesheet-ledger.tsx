@@ -36,7 +36,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
-import type { CaptureProposal, PrivateBookingRevision } from "@legalwork/types/time-capture";
+import { draftRules, effectiveWorkdayGuidelines, workdayBillableMinutes, type CaptureProposal, type PrivateBookingRevision } from "@legalwork/types/time-capture";
 import { useLocale } from "@/i18n/use-locale";
 import { decodeTimeRow, encodeTimeRow, timeRowMime } from "./timesheet-clipboard";
 import {
@@ -381,6 +381,14 @@ export function TimesheetLedger({
     setSelected("");
     setHistory("");
   }
+  function manualRules(values: RowValues) {
+    const option = matchMatter(draftMatters, values.matter);
+    const matter = state.matters.find(item => item.id === option?.matterId);
+    const guidelines = capture?.guidelines ?? [];
+    if (!matter || !option) return;
+    if (!stopwatchDraft && !effectiveWorkdayGuidelines(state, guidelines, { date: values.date, clientId: option.clientId, matterId: matter.id }).length) return;
+    return draftRules(state, guidelines, matter, values.date, option.projectId, option.clientId);
+  }
   function policyFor(values: RowValues) {
     const matter = matchMatter(draftMatters, values.matter);
     return resolveTimePolicy(
@@ -392,7 +400,7 @@ export function TimesheetLedger({
     );
   }
   function stopwatchCharge(values: RowValues) {
-    return stopwatchRowCharge(initialDraft?.entry ?? {}, values, policyFor(values));
+    return stopwatchRowCharge(initialDraft?.entry ?? {}, values, policyFor(values), manualRules(values), values.activity);
   }
   function participantAmounts(amounts?: TimeAmounts) {
     if (amounts) return amounts;
@@ -404,8 +412,11 @@ export function TimesheetLedger({
     const update = (current: RowValues) => {
       const next = { ...current, [key]: value };
       if (key === "worked" || key === "billableWork" || key === "nonBillable" || key === "charge") {
-        return { ...current, ...changeAmounts(current, key, value, policyFor(current),
-          row === "new" && stopwatchDraft ? (amounts) => stopwatchCharge({ ...current, ...amounts }) : undefined) };
+        const rules = manualRules(current);
+        const calculate = row === "new" && stopwatchDraft ? (amounts: TimeAmounts) => stopwatchCharge({ ...current, ...amounts })
+          : rules ? (amounts: TimeAmounts) => amounts.billable ? workdayBillableMinutes(Number(amounts.billableWork), rules, current.activity) ?? Number(amounts.billableWork) : 0
+          : undefined;
+        return { ...current, ...changeAmounts(current, key, value, rules ?? policyFor(current), calculate) };
       }
       if (key === "matter" && current.matter !== value) {
         next.product = "";
@@ -420,6 +431,10 @@ export function TimesheetLedger({
       }
       if (row === "new" && stopwatchDraft && (key === "matter" || key === "date") && !current.manualCharge)
         next.charge = next.worked ? String(stopwatchCharge(next)) : "";
+      else if (["matter", "date", "activity"].includes(key) && !current.manualCharge && next.worked && next.billable) {
+        const rules = manualRules(next);
+        if (rules) next.charge = String(workdayBillableMinutes(Number(next.billableWork), rules, next.activity) ?? next.billableWork);
+      }
       return next;
     };
     if (row === "new") {
@@ -564,6 +579,14 @@ export function TimesheetLedger({
       entry.date,
       entry.projectId,
     );
+    const localRules = manualRules(current);
+    if (localRules && entry.billableMinutes > 0) {
+      const limit = localRules.activityLimits[entry.activity] ?? localRules.maxMinutes;
+      const message = entry.billableMinutes < localRules.minimumMinutes ? t("timeWorkspace.minimumBillable", { minutes: localRules.minimumMinutes })
+        : entry.billableMinutes > limit ? t("timesheets.ledger.cap", { minutes: limit })
+        : localRules.enforceIncrement && entry.billableMinutes % localRules.incrementMinutes ? t("timesheets.ledger.increment", { minutes: localRules.incrementMinutes }) : "";
+      if (message) { setError(message); focus(row, "charge"); return false; }
+    }
     if (policy.enforceIncrement && entry.billableMinutes % policy.incrementMinutes) {
       setError(t("timesheets.ledger.increment", { minutes: policy.incrementMinutes }));
       focus(row, "charge");

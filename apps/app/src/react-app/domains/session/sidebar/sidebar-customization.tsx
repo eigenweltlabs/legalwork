@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import { AssistantAvatar } from "./assistant-appearance";
-import { BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
+import { BriefcaseBusiness, Timer, BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { readSidebarBrandLogo } from "../../../shell/sidebar-branding";
 import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
 
 export const SIDEBAR_ITEMS = {
+  navBackOffice: { label: "sidebar.backOffice", icon: BriefcaseBusiness },
+  navTimeTracking: { label: "timesheets.workspace_title", icon: Timer },
   navHome: { label: "home.nav_label", icon: House },
   navAssistant: { label: "assistant.title" },
   navScheduled: { label: "scheduled.title", icon: Clock },

@@ -1,15 +1,14 @@
 import { visibleTimekeepingProjects } from "./profile.js";
 import {
   captureFileSource,
-  appliedTimePolicies,
-  resolveTimePolicy,
-  type TimePolicy,
   type TimesheetState,
 } from "../back-office/timesheet-schema.js";
 import type {
   CaptureProposal,
   WorkdayGuideline,
 } from "@legalwork/types/time-capture";
+import { draftRules, visibleSingleClient } from "../back-office/timesheet-schema.js";
+export { draftRules, visibleGuideline, effectiveWorkdayGuidelines } from "../back-office/timesheet-schema.js";
 import { z } from "zod";
 import {
   backOfficeAccess,
@@ -27,7 +26,7 @@ import { connectedTaskOrgId } from "../tasks-api.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import type { WorkdayEvidence } from "./private-workday.js";
-import type { DraftRules, ModelEvidence } from "./reconstruct-workday.js";
+import type { ModelEvidence } from "./reconstruct-workday.js";
 import { extname } from "node:path";
 import { matterTitleMatcher } from "./matter-title-match.js";
 
@@ -64,154 +63,9 @@ export async function workdayContext(
     store,
   );
   const links = await timeWorkspaces(workspaces, directory);
-  return readTimesheet(store, access.scope, access.actor, [], links);
-}
-
-export function visibleGuideline(
-  guideline: WorkdayGuideline,
-  state: Pick<TimesheetState, "clients" | "matters">,
-) {
-  if (guideline.scope === "firm") return guideline.targetId === "firm";
-  return (guideline.scope === "client" ? state.clients : state.matters).some(
-    (record) => record.id === guideline.targetId,
-  );
-}
-
-function guidelineVersion(
-  guidelines: WorkdayGuideline[],
-  scope: "firm" | "client" | "matter",
-  target?: string,
-) {
-  return guidelines
-    .filter((item) => item.scope === scope && item.targetId === target)
-    .sort(
-      (a, b) =>
-        b.effectiveFrom.localeCompare(a.effectiveFrom) ||
-        b.revision - a.revision ||
-        a.id.localeCompare(b.id),
-    )[0];
-}
-
-export function draftRules(
-  state: TimesheetState,
-  guidelines: WorkdayGuideline[],
-  matter: TimesheetState["matters"][number],
-  date: string,
-  projectId?: string,
-): DraftRules {
-  const clientId = visibleSingleClient(matter, state) ?? "";
-  const versions = effectiveWorkdayGuidelines(state, guidelines, {
-    clientId,
-    matterId: matter.id,
-    date,
-  });
-  const guidelineInstructions: string[] = [];
-  let policies = [...state.policies];
-  for (const version of versions) {
-    const {
-      scope,
-      targetId,
-      effectiveFrom,
-      revision,
-      rules: { instructions, ...rules },
-    } = version;
-    if (instructions) guidelineInstructions.push(instructions);
-    const published = appliedTimePolicies(state.policies, scope, targetId, date, clientId, projectId)
-      .find(policy => !policy.agreementId && !(policy.revision === 0 && policy.effectiveFrom === "0001-01-01"));
-    const imported: TimePolicy = { scope, targetId, effectiveFrom, revision, ...rules };
-    if (!published) policies.push(imported);
-    else {
-      // Published fields win, while unrelated local drafting instructions and
-      // limits remain available. Contractual agreement layers stay untouched.
-      const merged: TimePolicy = { ...imported,
-        ...Object.fromEntries(Object.entries(published).filter(([, value]) => value !== undefined)),
-        scope: published.scope, targetId: published.targetId, effectiveFrom: published.effectiveFrom, revision: published.revision,
-        actionWords: { ...rules.actionWords, ...published.actionWords },
-        narrativeCorrections: { ...rules.narrativeCorrections, ...published.narrativeCorrections },
-        activityLimits: { ...rules.activityLimits, ...published.activityLimits },
-      };
-      policies = policies.map(policy => policy === published ? merged : policy);
-    }
-  }
-  const {
-    language,
-    actionWords,
-    narrativeCorrections,
-    narrativeExample,
-    actionFirst,
-    activityLabels,
-    minimumMinutes = 0,
-    maxMinutes,
-    activityLimits,
-    incrementMinutes,
-    enforceIncrement,
-    rounding,
-    stopwatchRoundUp,
-  } = resolveTimePolicy(
-    policies,
-    clientId,
-    matter.id,
-    date,
-    projectId,
-    // Private draft defaults cannot change the binding client term or its authorized exceptions.
-    state.policies,
-  );
-  return {
-    language,
-    actionWords,
-    narrativeCorrections,
-    narrativeExample,
-    actionFirst,
-    activityLabels,
-    guidelineInstructions,
-    minimumMinutes,
-    maxMinutes,
-    activityLimits,
-    incrementMinutes,
-    enforceIncrement,
-    rounding,
-    stopwatchRoundUp,
-  };
-}
-
-export function effectiveWorkdayGuidelines(
-  state: TimesheetState,
-  guidelines: WorkdayGuideline[],
-  {
-    clientId,
-    matterId,
-    date,
-  }: { clientId: string; matterId: string; date: string },
-) {
-  const matter = state.matters.find((item) => item.id === matterId);
-  if (!matter) return [];
-  const client =
-    matter.clientIds.includes(clientId) &&
-    state.clients.some((item) => item.id === clientId)
-      ? clientId
-      : undefined;
-  const eligible = guidelines.filter(
-    (guideline) =>
-      guideline.effectiveFrom <= date && visibleGuideline(guideline, state),
-  );
-  // Selection is shared by drafting and invoice review. Precedence belongs to
-  // individual rule fields, never to an entire uploaded document.
-  return [
-    guidelineVersion(eligible, "firm", "firm"),
-    guidelineVersion(eligible, "client", client),
-    guidelineVersion(eligible, "matter", matter.id),
-  ].flatMap(version => version ? [version] : []);
-}
-
-function visibleSingleClient(
-  matter: TimesheetState["matters"][number],
-  state: TimesheetState,
-) {
-  if (
-    matter.clientIds.length === 1 &&
-    state.clients.some((client) => client.id === matter.clientIds[0])
-  )
-    return matter.clientIds[0];
+  const state = readTimesheet(store, access.scope, access.actor, [], links);
+  if (access.scope !== "local") state.service = "records";
+  return state;
 }
 
 export function captureMatter(

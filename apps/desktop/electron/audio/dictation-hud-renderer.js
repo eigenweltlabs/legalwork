@@ -37,7 +37,7 @@ let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
-    stopwatchTitle: "Stopwatch", stopwatchMatter: "Search matters", quickNote: "Quick note", noMatches: "No matching matters", noMatters: "No matters available",
+    stopwatchTitle: "Stopwatch", stopwatchMatter: "Matter (optional)", quickNote: "Quick note", noMatches: "No matching matters", noMatters: "No matters available",
     stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
     stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Time tracking",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
@@ -50,7 +50,7 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
-    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat suchen", quickNote: "Kurznotiz", noMatches: "Keine passenden Mandate", noMatters: "Keine Mandate verfügbar",
+    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat (optional)", quickNote: "Kurznotiz", noMatches: "Keine passenden Mandate", noMatters: "Keine Mandate verfügbar",
     stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
     stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit in der Zeiterfassung gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
@@ -146,10 +146,11 @@ function renderStopwatchPanel() {
   }
   document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
     ? stopwatchLabels.stopwatchFailed
-    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : !matters.length ? stopwatchLabels.noMatters : !filtered.length ? stopwatchLabels.noMatches : "";
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : matterSearch.value.trim() && !filtered.length ? stopwatchLabels.noMatches : "";
   stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
     : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
-  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.unavailable && !(stopwatch.startedAt ? stopwatch.matterId : selectedStopwatchMatter));
+  const unmatchedSearch = !stopwatch.startedAt && matterSearch.value.trim() && !selectedStopwatchMatter;
+  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.unavailable && Boolean(unmatchedSearch));
 }
 matterSearch.addEventListener("input", () => {
   if (!stopwatch?.startedAt) selectedStopwatchMatter = null;

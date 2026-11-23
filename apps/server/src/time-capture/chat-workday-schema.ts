@@ -1,8 +1,19 @@
 import { z } from "zod";
 
 const date = z.iso.date();
+const entryRef = { date, id: z.string().min(1).max(200), revision: z.number().int().positive() };
+const entryChanges = z.strictObject({
+  narrative: z.string().trim().min(1).max(2000).optional(),
+  matterId: z.string().min(1).max(200).optional(),
+  serviceDate: date.optional(),
+  recordedMinutes: z.number().int().min(0).max(1440).optional(),
+  billableMinutes: z.number().int().min(0).max(1440).optional(),
+}).refine(value => Object.keys(value).length > 0, "Choose a field to update.");
 export const chatWorkdayAction = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("read"), date }),
+  z.strictObject({ action: z.literal("list_entries"), date }),
+  z.strictObject({ action: z.literal("update_entry"), ...entryRef, changes: entryChanges }),
+  z.strictObject({ action: z.literal("remove_entry"), ...entryRef }),
   z.strictObject({ action: z.literal("guidelines"), date, matterId: z.string().min(1).max(200) }),
   z.strictObject({
     action: z.literal("publish"), date, revision: z.string().min(1).max(80),

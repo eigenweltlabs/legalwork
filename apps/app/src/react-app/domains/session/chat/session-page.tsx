@@ -100,7 +100,7 @@ import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarg
 import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
-import { SidePanel } from "../panel/side-panel";
+import { SidePanel, type PageCatalog } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
 import { WorkspaceChat } from "./workspace-chat";
 import { DisconnectedChat } from "./disconnected-chat";
@@ -209,6 +209,7 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  timeWorkspaceId?: string;
   selectEmbeddedWorkspace?: (workspace: WorkspaceInfo | null) => void;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
@@ -403,6 +404,7 @@ export function SessionPage(props: SessionPageProps) {
   // A project window owns one layout, independently of the currently focused chat.
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
+  const timeWorkspaceActive = props.sidebar.activeNav === "time" && props.selectedWorkspaceId === props.timeWorkspaceId;
   const assistantWorkspace = props.sidebar.assistantWorkspaceId === props.selectedWorkspaceId || Boolean(props.sidebar.assistantActive);
   useEffect(() => {
     if (assistantWorkspace) usePanelTabStore.getState().setAssistantWorkspace(props.selectedWorkspaceId);
@@ -529,10 +531,10 @@ export function SessionPage(props: SessionPageProps) {
     // including drafts parked by other chats, so hiding chrome cannot discard them.
     if (sidePanelOpen && panel !== "panel" && !confirmDiscardSessionDocuments(panelStateSessionId, usePanelTabStore.getState().sessions[panelStateSessionId]?.tabs.map(tab => tab.id) ?? [], undefined, false, () => setPanel(panel))) return;
     setSidePanelState(panelStateSessionId, panel);
-    if (panel === "panel" && hasMainView && panelStateSessionId !== EVALS_PANEL_SESSION_ID) {
+    if (panel === "panel" && hasMainView && !timeWorkspaceActive && panelStateSessionId !== EVALS_PANEL_SESSION_ID) {
       navigate(workspaceSessionRoute(props.selectedWorkspaceId, props.selectedSessionId) + (props.selectedSessionId ? "" : "?view=workspace"));
     }
-  }, [sidePanelOpen, panelStateSessionId, setSidePanelState, setFileSidebarState, hasMainView, navigate, props.selectedWorkspaceId, props.selectedSessionId]);
+  }, [sidePanelOpen, panelStateSessionId, setSidePanelState, setFileSidebarState, hasMainView, timeWorkspaceActive, navigate, props.selectedWorkspaceId, props.selectedSessionId]);
 
   // A mainView (the Tasks pane) hands the page a file to show in the panel.
   useEffect(() => {
@@ -542,11 +544,11 @@ export function SessionPage(props: SessionPageProps) {
       const destination = "destination" in tab ? tab.destination : undefined;
       if (destination && typeof destination === "object" && "kind" in destination && destination.kind === "workflows") return;
       if (destination && typeof destination === "object" && "kind" in destination && destination.kind === "evals" && props.sidebar.activeNav !== "evals") return;
-      if (hasMainView && props.sidebar.activeNav !== "evals" && !destination) return;
+      if (hasMainView && props.sidebar.activeNav !== "evals" && !timeWorkspaceActive && !destination) return;
       const scope = destination && typeof destination === "object" && "workspaceId" in destination && typeof destination.workspaceId === "string" ? workspacePanelKey(destination.workspaceId) : panelStateSessionId;
       const pane = destination && typeof destination === "object" && "paneId" in destination && typeof destination.paneId === "string" ? destination.paneId : undefined;
       openTab(scope, tab, pane, undefined, { preview: tab.openAsPreview, besideChat: tab.openBesideChat });
-      if (destination?.kind === "workspace" && ((tab.type === "artifact" && tab.pendingImportId) || (tab.type === "recording" && hasMainView))) {
+      if (destination?.kind === "workspace" && !(timeWorkspaceActive && scope === workspaceScope) && ((tab.type === "artifact" && tab.pendingImportId) || (tab.type === "recording" && hasMainView))) {
         navigate(workspaceSessionRoute(destination.workspaceId) + "?view=workspace");
       }
       if (scope !== panelStateSessionId) return;
@@ -555,7 +557,7 @@ export function SessionPage(props: SessionPageProps) {
     };
     window.addEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
     return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
-  }, [openTab, panelStateSessionId, setCurrentSidePanel, hasMainView, navigate, props.selectedWorkspaceId, props.selectedSessionId]);
+  }, [openTab, panelStateSessionId, setCurrentSidePanel, hasMainView, timeWorkspaceActive, workspaceScope, navigate, props.sidebar.activeNav, props.selectedWorkspaceId, props.selectedSessionId]);
 
   const closeFileSidebar = useCallback(() => {
     setFileSidebarState(panelStateSessionId, null);
@@ -634,7 +636,7 @@ export function SessionPage(props: SessionPageProps) {
 
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [props.legalworkServerClient, props.runtimeWorkspaceId]);
-  const openTarget = useCallback((target: OpenTarget, options?: OpenTargetOptions, sourceSessionId?: string) => {
+  const openTarget = useCallback(async (target: OpenTarget, options?: OpenTargetOptions, sourceSessionId?: string) => {
     if (target.kind === "url" || target.preview === "browser") {
       const url = browserUrlForTarget(target);
       if (options?.external && isElectronRuntime()) {
@@ -648,6 +650,29 @@ export function SessionPage(props: SessionPageProps) {
         window.open(url, "_blank", "noopener,noreferrer");
       }
       return;
+    }
+    if (target.kind === "file" && target.exists === false && !target.streaming) {
+      if (options?.auto) return;
+      // Chat links can be relative to the agent’s working directory. The file
+      // API normally resolves relative names from the project's document folder.
+      const path = absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value);
+      const client = props.legalworkServerClient;
+      const workspaceId = props.runtimeWorkspaceId;
+      if (client && workspaceId && path && !target.value.split(/[/\\]/).includes("..")) {
+        try {
+          const file = await client.statWorkspaceFile(workspaceId, path);
+          if (file.exists && file.kind === "file") {
+            target = { ...target, id: `file:${file.path}`, value: file.path, exists: true, size: file.size, updatedAt: file.updatedAt };
+          }
+        } catch (error) {
+          toast.error(t("session.open_failed", { name: target.name }), { description: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+      }
+      if (!target.exists) {
+        toast.error(t("artifact.file_not_found"));
+        return;
+      }
     }
     if (options?.external && target.kind === "file") {
       const path = absoluteWorkspacePath(fileRoot(target.value), target.value);
@@ -704,7 +729,7 @@ export function SessionPage(props: SessionPageProps) {
     });
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
-  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, props.wiki?.client, props.wiki?.serverUrl, wikiWorkspace, setCurrentSidePanel]);
+  }, [panelStateSessionId, activePanelTab?.id, browserUrlForTarget, openTab, props.legalworkServerClient, props.runtimeWorkspaceId, props.selectedSessionId, contentRoot, props.selectedWorkspaceRoot, props.wiki?.client, props.wiki?.serverUrl, wikiWorkspace, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
@@ -979,8 +1004,8 @@ export function SessionPage(props: SessionPageProps) {
         : sessionInfo(sessionId)?.title || t("session.default_title");
       store.adoptChat(scope, sessionId, title, { preserveLayout: true, parentID: sessionInfo(sessionId)?.parentID ?? undefined });
     }
-    if (props.selectedSessionId !== sessionId || props.selectedWorkspaceId !== workspaceId || hasMainView || props.projectPage) props.sidebar.onOpenSession(workspaceId, sessionId);
-  }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, props.projectPage, isAssistantChat, sessionInfo]);
+    if (!(timeWorkspaceActive && workspaceId === props.selectedWorkspaceId) && (props.selectedSessionId !== sessionId || props.selectedWorkspaceId !== workspaceId || hasMainView || props.projectPage)) props.sidebar.onOpenSession(workspaceId, sessionId);
+  }, [props.sidebar, props.selectedSessionId, props.selectedWorkspaceId, hasMainView, timeWorkspaceActive, props.projectPage, isAssistantChat, sessionInfo]);
 
   const openSessionWindow = useCallback((workspaceId: string, sessionId: string) => {
     if (!isElectronRuntime()) return;
@@ -1104,6 +1129,50 @@ export function SessionPage(props: SessionPageProps) {
               realtimeVoiceActive={active && voiceSidePanelOpen}
               onRealtimeVoiceActiveChange={active => active ? setCurrentSidePanel("voice") : closeVoicePanel()}
             /> : <DisconnectedChat workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId} sessionId={sessionId} />;
+  const renderWorkspacePanel = (pages: PageCatalog | undefined, visible: boolean, daySessionId?: string) => (
+    <SidePanel
+            renderWikiTab={renderWikiTab}
+            onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
+            onOpenWikiGraph={wikiWorkspace && props.wiki?.client ? pane => {
+              const client = props.wiki?.client;
+              if (client) openTab(workspaceScope, wikiPanelTab(client.baseUrl, wikiWorkspace.id, { kind: "graph" }, t("wiki.graph")), pane);
+            } : undefined}
+            key={workspaceScope}
+            sessionId={workspaceScope}
+            pageCatalog={pages}
+            notice={reconnectNotice}
+            controlSessionIds={controlSessionIds}
+            pageControlSessionId={daySessionId}
+            client={props.legalworkServerClient}
+            workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId}
+            workspaceRoot={props.selectedWorkspaceRoot}
+            isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+            projects={props.workspaces.map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
+            visible={visible}
+            onClose={closeRightPane}
+            projectId={props.selectedWorkspaceId}
+            renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
+            onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
+            onDropChat={(ids, pane, edge) => {
+              let destination = pane;
+              for (const [index, id] of ids.entries()) {
+                const store = usePanelTabStore.getState();
+                const title = isAssistantChat(id) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(id)?.title || t("session.default_title");
+                store.openTab(workspaceScope, chatPanelTab(id, title, sessionInfo(id)?.parentID ?? undefined), destination, index === 0 ? edge : undefined);
+                const opened = usePanelTabStore.getState().sessions[workspaceScope]?.panes.find(pane => pane.activeTabId === `chat:${id}`);
+                if (!opened) break;
+                destination = opened.id;
+                openSessionTab(props.selectedWorkspaceId, id);
+              }
+            }}
+            onNewChat={assistantWorkspace || !props.legalworkServerClient || !props.runtimeWorkspaceId ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
+            onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
+            onCloseChat={(id, nextId) => {
+              if (!timeWorkspaceActive && id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
+            }}
+            renderChat={pages?.renderChat ?? renderChat}
+          />
+  );
   const mainView = props.projectsPage ? <ProjectsPage
     client={props.environmentClient ?? null}
     groups={listedSessionGroups}
@@ -1119,10 +1188,10 @@ export function SessionPage(props: SessionPageProps) {
     onReveal={props.sidebar.onRevealWorkspace}
     onForget={props.sidebar.onForgetWorkspace}
     newChatDisabled={props.sidebar.newChatDisabled}
-  /> : <WorkspaceHeaderTarget.Provider value={workspaceHeaderTarget}><EmbeddedWorkspaceChat.Provider value={props.selectEmbeddedWorkspace ? { workspaceId: props.runtimeWorkspaceId ?? "", selectWorkspace: props.selectEmbeddedWorkspace, render: renderChat } : null}>{props.mainView}</EmbeddedWorkspaceChat.Provider></WorkspaceHeaderTarget.Provider>;
+  /> : <WorkspaceHeaderTarget.Provider value={workspaceHeaderTarget}><EmbeddedWorkspaceChat.Provider value={props.selectEmbeddedWorkspace ? { workspaceId: props.runtimeWorkspaceId ?? "", selectWorkspace: props.selectEmbeddedWorkspace, render: renderChat, renderPanel: renderWorkspacePanel } : null}>{props.mainView}</EmbeddedWorkspaceChat.Provider></WorkspaceHeaderTarget.Provider>;
   const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
   const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "dashboards" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); if (!timeWorkspaceActive) navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
   ) : view === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : view === "files" ? <ProjectFilesPage
@@ -1614,48 +1683,9 @@ export function SessionPage(props: SessionPageProps) {
           </PanelTabDestinationProvider>
         </ControlActionScope>
       </DocumentPane>)}
-      {canRenderWorkspace && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
+      {canRenderWorkspace && !timeWorkspaceActive && <DocumentPane key={`workspace:${props.selectedWorkspaceId}`} destination={hasMainView ? null : workspaceHost}>
         <ControlActionScope active={!hasMainView}>
-          <SidePanel
-            renderWikiTab={renderWikiTab}
-            onOpenWiki={props.wiki?.client ? setWikiPickerPane : undefined}
-            onOpenWikiGraph={wikiWorkspace && props.wiki?.client ? pane => {
-              const client = props.wiki?.client;
-              if (client) openTab(workspaceScope, wikiPanelTab(client.baseUrl, wikiWorkspace.id, { kind: "graph" }, t("wiki.graph")), pane);
-            } : undefined}
-            key={workspaceScope}
-            sessionId={workspaceScope}
-            notice={reconnectNotice}
-            controlSessionIds={controlSessionIds}
-            client={props.legalworkServerClient}
-            workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId}
-            workspaceRoot={props.selectedWorkspaceRoot}
-            isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
-            projects={props.workspaces.map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
-            visible={!hasMainView}
-            onClose={closeRightPane}
-            projectId={props.selectedWorkspaceId}
-            renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
-            onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
-            onDropChat={(ids, pane, edge) => {
-              let destination = pane;
-              for (const [index, id] of ids.entries()) {
-                const store = usePanelTabStore.getState();
-                const title = isAssistantChat(id) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(id)?.title || t("session.default_title");
-                store.openTab(workspaceScope, chatPanelTab(id, title, sessionInfo(id)?.parentID ?? undefined), destination, index === 0 ? edge : undefined);
-                const opened = usePanelTabStore.getState().sessions[workspaceScope]?.panes.find(pane => pane.activeTabId === `chat:${id}`);
-                if (!opened) break;
-                destination = opened.id;
-                openSessionTab(props.selectedWorkspaceId, id);
-              }
-            }}
-            onNewChat={assistantWorkspace || !props.legalworkServerClient || !props.runtimeWorkspaceId ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
-            onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
-            onCloseChat={(id, nextId) => {
-              if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
-            }}
-            renderChat={renderChat}
-          />
+          {renderWorkspacePanel(undefined, !hasMainView)}
         </ControlActionScope>
       </DocumentPane>}
       {workflowLibrary && <DocumentPane key={props.selectedWorkspaceId} destination={workflowsPage ? workflowLibraryHost : null}><ControlActionScope active={workflowsPage}>{workflowLibrary}</ControlActionScope></DocumentPane>}

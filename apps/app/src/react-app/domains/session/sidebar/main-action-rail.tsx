@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
-import { BriefcaseBusiness, Timer, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { useQuery } from "@tanstack/react-query";
 import { timeTrackingProfile } from "../../back-office/time-tracking-profile";
@@ -57,6 +57,11 @@ export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, 
     execute: openSettings,
   }), [openSettings]);
   useControlAction(settingsAction);
+  const navigation: Partial<Record<ShellNavKey, MainRailAction>> = {
+    ...actions,
+    navBackOffice: { onClick: () => navigate("/back-office/matters"), active: location.pathname.startsWith("/back-office") && !timePage(location.pathname) },
+    navTimeTracking: { onClick: () => navigate("/time"), active: Boolean(timePage(location.pathname)), available: tracking.data?.enabled !== false },
+  };
   // What the firm switched off leaves the rail.
   const firmOff: Partial<Record<ShellNavKey, boolean>> = {
     navRecorder: useOrgPolicyForbids("recorder.allow"),
@@ -65,7 +70,7 @@ export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, 
   return (
     <nav aria-label={t("sidebar.main_actions")} className="flex w-[var(--lw-window-left-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 mac:titlebar-no-drag">
       {config.navOrder.map(key => {
-        const action = actions[key];
+        const action = navigation[key];
         if (!action || !config[key] || action.available === false || firmOff[key]) return null;
         const Icon = key === "navAssistant" ? null : SIDEBAR_ITEMS[key].icon;
         const assistant = key === "navAssistant" ? actions.navAssistant : undefined;
@@ -75,7 +80,7 @@ export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, 
             <TooltipTrigger render={<Button variant="ghost" size="icon"
               className={cn(RAIL_BUTTON_CLASS, action.active && RAIL_BUTTON_ACTIVE_CLASS)}
               aria-label={label} aria-pressed={assistant ? undefined : Boolean(action.active)} aria-current={assistant?.active ? "page" : undefined}
-              disabled={action.disabled} onClick={action.onClick} onDoubleClick={key === "navAssistant" ? undefined : () => onOpenWindow?.(key)} />}>
+              disabled={action.disabled} onClick={action.onClick} onDoubleClick={key === "navAssistant" || key === "navBackOffice" || key === "navTimeTracking" ? undefined : () => onOpenWindow?.(key)} />}>
               {Icon ? <Icon className="size-[18px]" strokeWidth={1.6} /> : <AssistantAvatar icon={assistant?.profile?.icon} />}
               {assistant?.unread && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-green-9" role="img" aria-label={t("assistant.unread_activity")} title={t("assistant.unread_activity")} />}
               {key === "navTasks" && unreadTasks > 0 && !action.active && <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary" />}
@@ -84,16 +89,6 @@ export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, 
           </Tooltip>
         );
       })}
-      {[{ path: "/back-office/matters", label: "Back Office", Icon: BriefcaseBusiness, active: location.pathname.startsWith("/back-office") && !timePage(location.pathname) },
-        { path: "/time", label: t("timesheets.workspace_title"), Icon: Timer, active: Boolean(timePage(location.pathname)) }].filter(item => item.path !== "/time" || tracking.data?.enabled !== false).map(({ path, label, Icon, active }) => (
-        <Tooltip key={path}>
-          <TooltipTrigger render={<Button variant="ghost" size="icon" className={cn(RAIL_BUTTON_CLASS, active && RAIL_BUTTON_ACTIVE_CLASS)}
-            aria-label={label} aria-current={active ? "page" : undefined} onClick={() => navigate(path)} />}>
-            <Icon className="size-[18px]" strokeWidth={1.6} />
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={10}>{label}</TooltipContent>
-        </Tooltip>
-      ))}
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1.5 pt-4">
         <Tooltip>
           <TooltipTrigger render={<Button ref={settingsButtonRef} variant="ghost" size="icon" className={cn("size-9 rounded-lg text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15", settingsActive && "bg-sidebar-accent text-foreground")} aria-label={t("status.settings")} aria-pressed={settingsActive} onClick={openSettings} />}>

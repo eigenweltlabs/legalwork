@@ -1,10 +1,9 @@
+import { workdayBillableMinutes } from "../back-office/timesheet-schema.js";
 import { replaceDocumentTerm } from "./document-terminology.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   captureFileSource,
-  proposedCharge,
-  proposedStopwatchCharge,
   timeActivities,
   type resolveTimePolicy,
 } from "../back-office/timesheet-schema.js";
@@ -156,24 +155,7 @@ export function proposedWorkdayCharge(
     proposal.source === "stopwatch" && clocks !== null
       ? clocks
       : proposal.workedMinutes ?? proposal.estimatedMinutes ?? null;
-  if (minutes === null || minutes <= 0) return;
-  const maxMinutes =
-    rules.activityLimits[proposal.activity] ?? rules.maxMinutes;
-  if (rules.minimumMinutes > maxMinutes) return;
-  const step =
-    rules.enforceIncrement || proposal.source === "stopwatch"
-      ? rules.incrementMinutes
-      : 1;
-  const lower = Math.ceil(rules.minimumMinutes / step) * step,
-    upper = Math.floor(maxMinutes / step) * step;
-  if (lower > upper) return;
-  const charge =
-    proposal.source === "stopwatch"
-      ? proposedStopwatchCharge(minutes, rules)
-      : proposedCharge(minutes, rules);
-  if (step > 1 && charge % step !== 0 && charge >= lower && charge <= upper)
-    return;
-  return Math.min(upper, Math.max(lower, charge));
+  if (minutes !== null) return workdayBillableMinutes(minutes, rules, proposal.activity, proposal.source === "stopwatch");
 }
 
 export function modelInput(evidence: ModelEvidence[]) {

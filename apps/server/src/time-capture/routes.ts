@@ -1,3 +1,4 @@
+import { workdayRuleSources } from "../back-office/timesheet-schema.js";
 import { activeCaptureProfile as profile, captureProfile, timekeepingPreset } from "./profile.js";
 export { captureProfile } from "./profile.js";
 import { timeActivities } from "../back-office/timesheet-schema.js";
@@ -47,6 +48,7 @@ import { recordingEvidence, recordingInput } from "./meeting-recording.js";
 import { readDesktopEvidence, recordDesktopSample, resetDesktopSampling, resolveDesktopForeground } from "./desktop-activity.js";
 import { announceSyncChange } from "../app-sync-events.js";
 import { chatSuggestions, workdayChatInstructions } from "./chat-workday.js";
+import { changeChatEntry, chatEntries } from "./chat-entries.js";
 import { chatWorkdayAction } from "./chat-workday-schema.js";
 import { readWorkdayLog, saveWorkdayLog } from "./day-log.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
@@ -379,7 +381,7 @@ function requireUnbooked(saved: Saved, item: WorkdayEvidence) {
 
 type Profile = Awaited<ReturnType<typeof profile>>;
 type ResolveWorkspace = (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-type StartChat = (profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">) => Promise<void>;
+type StartChat = (profileId: string, date: string, requestId: string, model?: Pick<WorkdayModel, "providerID" | "modelID">, previousDate?: string) => Promise<void>;
 type PreparationOptions = {
   signal?: AbortSignal;
   resolveWorkspace?: ResolveWorkspace;
@@ -765,7 +767,7 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
   }
   if (slot <= lastScheduledSlot) return;
   if (options.startChat) {
-    await options.startChat(owner.profileId, date, "timekeeping-schedule-" + slot, settings.model);
+    await options.startChat(owner.profileId, date, "timekeeping-schedule-" + slot, settings.model, addDays(date, -1));
     await withFileWriteLock(owner.path, async () => {
       const saved = await load(owner.path);
       saved.lastScheduledSlot = Math.max(saved.lastScheduledSlot, slot);
@@ -899,12 +901,24 @@ export function registerWorkdayRoutes(options: {
     const { date } = input;
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const now = new Date();
-    if (date > dayInZone(now.toISOString(), zone)) throw new ApiError(400, "future_workday", "Choose today or an earlier date.");
+    const today = dayInZone(now.toISOString(), zone);
+    if (date > today || (input.action === "update_entry" && input.changes.serviceDate && input.changes.serviceDate > today))
+      throw new ApiError(400, "future_workday", "Choose today or an earlier date.");
     const initial = await load(owner.path);
     if (initial.settings.enabled === false) throw new ApiError(403, "timekeeping_disabled", "Turn on time tracking in Settings.");
     const workspaces = await workdayWorkspaces(config);
     const workspaceIds = new Set(workspaces.map(item => item.id));
-    const state = await workdayContext(config, await backOfficeAccess(config), workspaces);
+    const access = await backOfficeAccess(config);
+    if ((await captureProfile(config, access)).path !== owner.path)
+      throw new ApiError(409, "private_workday_changed", "The active timekeeping account changed.");
+    const state = await workdayContext(config, access, workspaces);
+    if (input.action === "list_entries") return options.jsonResponse({ date, entries: await chatEntries(config, state, access, date) });
+    if (input.action === "update_entry" || input.action === "remove_entry") {
+      options.ensureWritable(config);
+      if ((await profile(config)).path !== owner.path)
+        throw new ApiError(409, "private_workday_changed", "The active timekeeping account changed.");
+      return options.jsonResponse(await changeChatEntry(config, state, access, input, Object.values(initial.guidelines).flat()));
+    }
     const accounts = await connectedWorkdayAccounts(config);
     const visibleInputs = (s: Saved) => digest([s.settings, s.guidelines, s.fileProducts, s.fileHistoryRevision[date],
       s.documentEpoch, s.desktopHistoryEpoch, s.recordingEpoch, s.personalDriveEpoch]);
@@ -923,13 +937,19 @@ export function registerWorkdayRoutes(options: {
           .map(({ name, scope, effectiveFrom, revision, rules }) => ({ name, scope, effectiveFrom, revision, rules }));
         const projects = state.projects.filter(p => p.matterIds.includes(matter.id) && workspaceIds.has(p.id));
         const rules = draftRules(state, versions, matter, date);
-        const projectRules = projects.map(p => ({ projectId: p.id, rules: draftRules(state, versions, matter, date, p.id) }));
-        return { matter: matter.name, guidelines, rules, projectRules, receipt: digest([owner.profileId, date, matterId, guidelines, rules, projectRules]) };
+        const projectRules = projects.map(p => ({ projectId: p.id, rules: draftRules(state, versions, matter, date, p.id), policySources: workdayRuleSources(state, matter, date, p.id) }));
+        return { matter: matter.name, guidelines, rules, projectRules, policySources: workdayRuleSources(state, matter, date),
+          settings: { effectiveRules: "Settings > Time tracking > Rules for a matter", feeAgreement: "Back Office > Fee agreements",
+            billingPolicy: "Settings > Billing", baseline: "LegalWork defaults are 10-minute increments and a 120-minute limit before applicable overrides." }, receipt: digest([owner.profileId, date, matterId, guidelines, rules, projectRules]) };
       };
       if (input.action === "guidelines") return guidance(input.matterId);
       if (collection) {
         if (collection.sourceFailure) throw new ApiError(503, "sources_failed", "A selected source could not be read. Retry the day.");
         await saveWorkdayLog(owner.path, date, zone, now.toISOString(), collection.eligible, collection.failedAccounts, collection.scannedAccounts);
+        if (Object.entries(collection.names).some(([id, name]) => saved.connectionNames[id] !== name)) {
+          Object.assign(saved.connectionNames, collection.names);
+          await save(owner.path, saved);
+        }
       }
       const log = await readWorkdayLog(owner.path, date);
       const sourceRows = resolveDesktopForeground(elapsedEvidence(uniqueOccurrences(log.observations), date, zone, Date.parse(log.collectedAt)));
@@ -941,10 +961,7 @@ export function registerWorkdayRoutes(options: {
         state, versions, date, saved.fileProducts);
       const day = saved.days[date] ?? [];
       const available = remainingEvidence(all, day.filter(i => protectedProposal(saved, i)));
-      const entries = state.entries.filter(e => e.date === date && e.workerId === state.userId).map(e => ({
-        id: e.id, matterId: e.matterId, narrative: e.narrative, recordedMinutes: e.workedMinutes, billableMinutes: e.billableMinutes,
-        startAt: e.startAt, endAt: e.endAt, status: e.status,
-      }));
+      const entries = await chatEntries(config, state, access, date);
       const revision = () => digest([visibleInputs(saved), log.collectedAt, entries, available.map(ref => [ref.item.eventKey, claimsFor(ref.item), ref.matter?.id]),
         (saved.days[date] ?? []).map(i => [i.eventKey, i.proposal.digest, protectedProposal(saved, i)])]);
       if (input.action === "read") {
@@ -992,7 +1009,7 @@ export function registerWorkdayRoutes(options: {
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const command = method === "POST" ? stopwatchActionSchema.safeParse(await options.readJsonBodyLimited(ctx.request, 16_384)) : undefined;
       if (command && !command.success)
-        throw new ApiError(400, "stopwatch_action", "Start or reassign the stopwatch with a matter, or stop the current timer.");
+        throw new ApiError(400, "stopwatch_action", "Invalid stopwatch action.");
       const action = command?.data;
       const snapshot = await readStopwatch(path);
       const requireEnabled = (enabled: boolean, active: typeof snapshot.active) => {
@@ -1002,7 +1019,7 @@ export function registerWorkdayRoutes(options: {
       requireEnabled(snapshot.enabled, snapshot.active);
       // Polling the clock must not repeatedly fetch the firm's directory.
       const listMatters = ctx.url.searchParams.get("includeMatters") === "1";
-      const matters = (listMatters && (snapshot.enabled || snapshot.active)) || (action && action.type !== "stop")
+      const matters = (listMatters && (snapshot.enabled || snapshot.active)) || (action && action.type !== "stop" && action.matterId)
         ? (await workdayContext(config, access, [])).matters.map(({ id, name, reference }) => ({
             id, name: reference ? name + " · " + reference : name,
           }))
@@ -1010,7 +1027,7 @@ export function registerWorkdayRoutes(options: {
       let timer = snapshot;
       if (action) {
         options.ensureWritable(config);
-        if (action.type !== "stop" && !matters?.some(matter => matter.id === action.matterId))
+        if (action.type !== "stop" && action.matterId && !matters?.some(matter => matter.id === action.matterId))
           throw new ApiError(404, "stopwatch_matter", "Choose an available matter.");
         timer = await withFileWriteLock(path, async () => {
           const saved = await load(path);

@@ -101,3 +101,21 @@ test("turning time tracking off hides the idle control and lets a running timer 
   await hud.act("start", hud.version, "m");
   assert.deepEqual(writes, [{ type: "stop", id: active.id }]);
 });
+
+test("opening the matter picker during a status poll still loads the directory", async () => {
+  const pending = Promise.withResolvers();
+  const reads = [];
+  const state = { profileId: "p", active: null, lastStopped: null };
+  const matter = { id: "matter", name: "Lease" };
+  const watch = new HudStopwatch(async (_action, _profile, includeMatters) => {
+    reads.push(includeMatters);
+    if (!includeMatters) await pending.promise;
+    return includeMatters ? { ...state, matters: [matter] } : state;
+  }, () => {});
+  const status = watch.refresh();
+  const first = watch.refresh(true), second = watch.refresh(true);
+  pending.resolve();
+  await Promise.all([status, first, second]);
+  assert.deepEqual(reads, [false, true]);
+  assert.deepEqual(watch.state.matters, [matter]);
+});

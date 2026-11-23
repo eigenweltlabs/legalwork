@@ -171,8 +171,8 @@ export type SessionSurfaceProps = {
   /** Only the focused chat handles window-wide composer and voice events. */
   active?: boolean;
   timekeeping?: {
-    date: string;
-    history: LegalworkServerClient["mainAssistantHistory"];
+    date?: string;
+    history?: LegalworkServerClient["mainAssistantHistory"];
     model?: ModelRef & { workspaceId?: string };
     modelChanged: (model: ModelRef, confirm?: boolean) => void;
     context: string;

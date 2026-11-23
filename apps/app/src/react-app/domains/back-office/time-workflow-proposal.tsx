@@ -1,3 +1,4 @@
+import { draftRules } from "@legalwork/types/time-capture";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeSelect } from "./time-settings-controls";
@@ -38,6 +39,12 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     return resolveTimePolicy(state.policies, assigned?.clientId ?? "", assigned?.matterId ?? "",
       values.date, assigned ? assigned.projectId : project?.id);
   }
+  function timerCharge(values: RowValues) {
+    const assigned = matchMatter(matters, values.matter);
+    const matter = state.matters.find(item => item.id === assigned?.matterId);
+    const rules = matter ? draftRules(state, capture.guidelines ?? [], matter, values.date, assigned?.projectId, assigned?.clientId) : undefined;
+    return stopwatchRowCharge(proposal, values, policyFor(values), rules, values.activity);
+  }
   function applyDraftFields(initial: RowValues, values: Record<string, BackOfficeValue>) {
     const result = { ...initial };
     for (const column of rowColumns) {
@@ -47,7 +54,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     if (typeof values.billable === "boolean") result.billable = values.billable;
     if (stopwatch) {
       result.manualCharge = typeof values.manualCharge === "boolean" ? values.manualCharge
-        : Boolean(result.charge && Number(result.charge) !== stopwatchRowCharge(proposal, result, policyFor(result)));
+        : Boolean(result.charge && Number(result.charge) !== timerCharge(result));
     }
     return result;
   }
@@ -75,7 +82,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
     Number(edited.nonBillable) === 0 && assignment?.matterId === matter?.id &&
     assignment?.projectId === project?.id && (assignment?.clientId ?? "") === clientId;
   const charge = stopwatch
-    ? (unchangedTimer ? proposal.chargeMinutes : undefined) ?? stopwatchRowCharge(proposal, edited, policy)
+    ? (unchangedTimer && !capture.guidelines?.length ? proposal.chargeMinutes : undefined) ?? timerCharge(edited)
     : null;
   const values = charge !== null && !edited.manualCharge && Number.isFinite(charge)
     ? { ...edited, charge: edited.worked || (duration !== null && proposal.workedMinutes === null) ? String(charge) : "" }

@@ -6,7 +6,7 @@ import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { serverToken, serverUrl, resolveWorkspaceId, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
 
-export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. For fees, time, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
+export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. For saved time entries in the private Timekeeping chat use legalwork_timekeeping_workday. For fees, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
 When mentioning a Back Office record in a reply, link its readable name using its returned url (or $url on query rows).
 Back Office is LegalWork's structured CRM and metadata data store: clients, matters, people, organisations and user-defined objects. Project metadata links to those records; do not maintain parallel CRM lists in notes, text fields or internal databases.
 The Legal Matter template supports matter links and optional direct project clients. Resolve clients of a linked matter through its relationships. Keep matter reference, subject, practice area, status, opening date and other matter-owned facts on the Back Office matter or its related records, never duplicate them as project metadata. Follow the linked-record context and discovered relations for those details. Add project-specific fields only when the user's workflow needs them; do not expand the default schema to mirror record fields.
@@ -41,7 +41,7 @@ export function backOfficeTools(ctx: Plugin.Context) {
   return [
     nativeTool(ctx, {
       name: "legalwork_timekeeping_workday",
-      description: "In the private Timekeeping chat, read a day's enabled activity log, existing entries and suggestions. Read guidelines for each assigned matter, then publish evidence-backed draft suggestions directly to the timeline using the latest revision and guideline receipts. Only mark complete after reviewing the whole day. Nothing is booked.",
+      description: "Manage the selected date in the private Timekeeping workspace, including previous days. For existing timesheet rows, list_entries returns their IDs, revisions and allowed actions. Use update_entry to edit or translate the requested rows and remove_entry to remove them with history. Pass the exact row revision and only the requested changes. Read back the entries to verify. For suggested work use read, guidelines and publish. A suggestion run publishes private drafts.",
       schema: chatWorkdayAction,
       execute: async (input, context) => {
         const id = await resolveWorkspaceId(context, { requireDirectory: true });

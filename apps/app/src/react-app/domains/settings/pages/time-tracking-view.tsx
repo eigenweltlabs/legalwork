@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { Plus, X } from "lucide-react";
-import { captureAccountEnabled, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
+import { captureAccountEnabled, defaultWorkdayRunTime, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,7 +82,7 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
           <TimeSelect label={t("timeWorkspace.frequency")} value={schedule.frequency} disabled={pending}
             options={[{ id: "hourly", name: t("timeWorkspace.hourly") }, { id: "daily", name: t("scheduled.daily") }]}
             onChange={frequency => { if (frequency === "hourly") change({ field: "schedule", value: { frequency } });
-              if (frequency === "daily") saveTimes(["08:00", "20:00"]); }} />
+              if (frequency === "daily") saveTimes([defaultWorkdayRunTime]); }} />
         </TimeSetting>
         {schedule.frequency === "daily" && <TimeSetting title={t("timeWorkspace.runTimes")}>
           <ul className="grid gap-2" aria-label={t("timeWorkspace.runTimes")}>

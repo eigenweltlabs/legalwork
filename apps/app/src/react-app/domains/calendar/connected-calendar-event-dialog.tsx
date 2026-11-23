@@ -12,9 +12,10 @@ import { CalendarEventDescription, CalendarEventLink } from "./calendar-event-de
 import { calendarRecurrence } from "./calendar-recurrence";
 import { safeCalendarUrl, type CalendarDisplayOccurrence } from "./connected-calendars";
 
-export function ConnectedCalendarEventDialog({ item, onClose, pane }: {
+export function ConnectedCalendarEventDialog({ item, onClose, pane, footerAction }: {
   item: CalendarDisplayOccurrence;
   onClose: () => void;
+  footerAction?: ReactNode;
   pane?: { container: HTMLElement; trigger: HTMLButtonElement };
 }) {
   const [showAllAttendees, setShowAllAttendees] = useState(false);
@@ -76,10 +77,11 @@ export function ConnectedCalendarEventDialog({ item, onClose, pane }: {
           </div>}
         </div>
       </div>}
-      {details && hasActions && <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap gap-2 border-t border-border/60 bg-muted/15 px-6 py-4 sm:px-7">
+      {(hasActions || footerAction) && <DialogFooter className="mx-0 mb-0 shrink-0 flex-wrap gap-2 border-t border-border/60 bg-muted/15 px-6 py-4 sm:px-7">
         <Button variant="ghost" className="sm:mr-auto" onClick={onClose}>{t("common.close")}</Button>
-        {details.webUrl && <Button variant="outline" onClick={() => { if (details.webUrl) void openDesktopUrl(details.webUrl); }}><ExternalLink />{t("calendar.open_in_provider", { provider: details.calendar.providerName })}</Button>}
+        {details?.webUrl && <Button variant="outline" onClick={() => { if (details.webUrl) void openDesktopUrl(details.webUrl); }}><ExternalLink />{t("calendar.open_in_provider", { provider: details.calendar.providerName })}</Button>}
         {joinUrl && <Button onClick={() => { void openDesktopUrl(joinUrl); }}><Video />{t("calendar.join_meeting")}</Button>}
+        {footerAction}
       </DialogFooter>}
     </DialogContent>
   </Dialog>;

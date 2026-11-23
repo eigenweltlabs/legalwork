@@ -18,8 +18,8 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
   if (!item || item.proposal.dismissed || item.proposal.digest !== command.digest)
     throw new ApiError(409, "private_workday_changed", "Refresh the proposal before editing it.");
   const parent = item.proposal;
-  if (parent.source === "stopwatch" && (!command.matterId || command.projectId))
-    throw new ApiError(400, "stopwatch_matter", "Choose a matter for this timer.");
+  if (parent.source === "stopwatch" && command.projectId)
+    throw new ApiError(400, "stopwatch_matter", "A stopwatch can be assigned directly to a matter.");
   const start = command.startAt ? Date.parse(command.startAt) : null,
     end = command.endAt ? Date.parse(command.endAt) : null;
   const elapsed = start !== null && end !== null ? (end - start) / 60000 : null;

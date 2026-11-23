@@ -2,10 +2,13 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CaptureProposal, CaptureState } from "@legalwork/types/time-capture";
+import { calendarTimeRange } from "../src/react-app/domains/calendar/calendar-range-selection";
 import { CalendarGrid } from "../src/react-app/domains/calendar/calendar-grid";
 import { calendarDisplayColor } from "../src/react-app/domains/calendar/calendar-colors";
 import { calendarDay } from "../src/react-app/domains/calendar/calendar-format";
 import { WorkdayTimeline } from "../src/react-app/domains/back-office/timesheet-workday-view";
+import { appointmentBookingId, appointmentSeed, rangeInstant } from "../src/react-app/domains/back-office/timeline-time-entry";
+import { localRecordInstant, timeRecordDate } from "../src/react-app/domains/back-office/time-record-values";
 import { matterOptions } from "../src/react-app/domains/back-office/timesheet-row";
 
 const anchor = new Date(2026, 10, 19, 12);
@@ -34,6 +37,34 @@ function documentFor(markup: string) {
   document.body.innerHTML = markup;
   return document;
 }
+
+test("empty timeline ranges snap in both directions and stop at the end of the day", () => {
+  expect(calendarTimeRange(601, 601, false)).toEqual({ start: 600, end: 630 });
+  expect(calendarTimeRange(601, 660, true)).toEqual({ start: 600, end: 660 });
+  expect(calendarTimeRange(663, 600, true)).toEqual({ start: 600, end: 660 });
+  expect(calendarTimeRange(600, 604, true)).toEqual({ start: 600, end: 615 });
+  expect(calendarTimeRange(1439, 1439, false)).toEqual({ start: 1425, end: 1440 });
+  expect(calendarTimeRange(1370, 1490, true)).toEqual({ start: 1365, end: 1440 });
+});
+
+test("calendar conversion uses the selected local day and does not guess all-day duration", async () => {
+  const event = { id: "event", itemId: "event", uid: "uid", projectId: "workspace", projectName: "Project",
+    kind: "event" as const, title: "Planning conference", start: rangeInstant(date, -30), end: rangeInstant(date, 60),
+    timeZone, allDay: false, status: "active" as const, assigneeUserId: null, provenance: null, verified: true, recurring: false };
+  const directory = { projects: [{ id: "workspace", name: "Project", matterIds: ["case"] }] };
+  expect(appointmentSeed(event, date, directory)).toMatchObject({
+    date, matterId: "case", narrative: event.title, startAt: rangeInstant(date, 0), endAt: rangeInstant(date, 60),
+  });
+  expect(appointmentSeed({ ...event, allDay: true }, date, directory)).not.toHaveProperty("startAt");
+  expect(appointmentSeed({ ...event, end: null }, date, directory)).not.toHaveProperty("endAt");
+  expect(appointmentSeed(event, date, { projects: [{ ...directory.projects[0], matterIds: ["a", "b"] }] }).matterId).toBeUndefined();
+  const key = await appointmentBookingId("first worker", event.id, date);
+  expect(await appointmentBookingId("first worker", event.id, date)).toBe(key);
+  expect(await appointmentBookingId("second worker", event.id, date)).not.toBe(key);
+  const storedStart = localRecordInstant(rangeInstant(date, 0));
+  expect(timeRecordDate(storedStart)).toBe(date);
+  expect(Date.parse(storedStart)).toBe(Date.parse(rangeInstant(date, 0)));
+});
 
 test("private day layouts share one calendar and preserve suggestion button attributes", () => {
   for (const view of ["combined", "matters"] as const) {

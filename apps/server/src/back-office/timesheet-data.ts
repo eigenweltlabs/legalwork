@@ -157,7 +157,7 @@ export function timeDirectory(
 const serviceDay = z.iso.date();
 const clockInstant = z.iso.datetime({ offset: true });
 
-function legacyServiceDate(values: BackOfficeRecord["values"]) {
+export function legacyServiceDate(values: BackOfficeRecord["values"]) {
   if (typeof values.serviceDate === "string" && serviceDay.safeParse(values.serviceDate).success)
     return values.serviceDate;
   const started = values.startedAt;
@@ -578,6 +578,7 @@ export function writeEntry(
     ...(previous?.history ?? []),
     {
       actorId: actor.userId,
+      agentId: actor.agentId,
       at: new Date().toISOString(),
       action,
       reason,

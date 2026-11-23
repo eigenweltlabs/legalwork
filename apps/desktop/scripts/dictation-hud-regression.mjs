@@ -54,7 +54,7 @@ app.whenReady().then(async () => {
       else if (action.type === "assign") timerState.active.matterId = action.matterId ?? null;
       else {
         assert.equal(action.id, timerState.active.id);
-        assert.equal(action.note ?? timerState.active.note, "Checked the rent schedule");
+        assert.equal(action.note ?? timerState.active.note, timerState.active.note);
         timerState.active = null;
         timerState.lastStopped = { id: action.id, stoppedAt: new Date().toISOString(), date: "2026-11-15" };
       }
@@ -133,14 +133,16 @@ app.whenReady().then(async () => {
           const bar = document.getElementById("bar").getBoundingClientRect();
           return [bar.width, bar.height, getComputedStyle(document.getElementById("stopwatch")).pointerEvents];
         })()`);
-        assert.deepEqual(await compact(), [30, 28, "none"], dock + " starts with only the microphone");
+        const resting = dock === "bottom" ? [62, 28, "auto"] : [30, 60, "auto"];
+        assert.deepEqual(await compact(), resting, dock + " shows the timer before hover");
+        const timer = await center("stopwatch");
         move(mic);
         await delay(400);
         const pinnedMic = await center("start");
         assert.ok(Math.hypot(mic.x - pinnedMic.x, mic.y - pinnedMic.y) <= 2, dock + " keeps the microphone anchored");
         const axis = dock === "bottom" ? "x" : "y";
         let previous = mic;
-        for (const id of ["meeting-start", "stopwatch"]) {
+        for (const id of ["stopwatch", "meeting-start"]) {
           const next = await center(id);
           assert.ok(next[axis] > previous[axis], dock + " displays " + id + " in sequence");
           for (let step = 1; step <= 5; step++) {
@@ -156,10 +158,11 @@ app.whenReady().then(async () => {
             const r = b.getBoundingClientRect();
             return r.width > 0 && r.height > 0 && r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom;
           });
-          return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("stopwatch-label")).opacity];
-        })()`), [["start", "meeting-start", "stopwatch"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 94, "1"]);
-        await click(previous);
-        assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
+          return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("meeting-start-label")).opacity];
+        })()`), [["start", "stopwatch", "meeting-start"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 92, "1"]);
+        assert.deepEqual(await center("stopwatch"), timer, dock + " keeps the timer anchored on hover");
+        await click(timer);
+        assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
         await read(`(() => {
           const search = document.getElementById("stopwatch-search");
           search.value = "review";
@@ -172,14 +175,14 @@ app.whenReady().then(async () => {
         assert.ok(await read(`(() => { const r = document.querySelector("#stopwatch-panel").getBoundingClientRect(); return r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight; })()`), dock + " matter panel stays on screen");
         if (output) await writeFile(path.join(output, "stopwatch-matter-" + dock + ".png"), (await window.webContents.capturePage()).toPNG());
         await click(await center("stopwatch-confirm"));
+        await waitFor(() => Boolean(timerState.active), dock + " receives the start action");
         assert.equal(timerState.active?.note, "Checked the rent schedule");
         assert.equal(timerState.active?.matterId, "test-matter", "start retains the selected matter");
         await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "starting closes the matter panel");
         assert.ok(timerState.active, dock + " starts the timer");
         move({ x: 220, y: 8 });
         await delay(1100);
-        await waitFor(async () => (await compact())[0] === 30, dock + " collapses after starting");
-        assert.deepEqual(await compact(), [30, 28, "none"]);
+        assert.deepEqual(await compact(), resting);
         assert.equal(await read('getComputedStyle(document.querySelector("#bar"), "::after").width'), "5px");
         await waitFor(async () => {
           const elapsed = await read('document.querySelector("#stopwatch-time").textContent');
@@ -187,8 +190,6 @@ app.whenReady().then(async () => {
         }, dock + " displays elapsed time");
 
         await hud.setMeeting({ ...idleMeeting, state: "recording", startedAt: Date.now(), recordingId: "synthetic" });
-        await delay(350);
-        move(await center("bar"));
         await delay(350);
         const running = await window.webContents.executeJavaScript(`(() => {
           const b = document.querySelector("#stopwatch"), r = b.getBoundingClientRect();
@@ -228,10 +229,19 @@ app.whenReady().then(async () => {
       await click(await center("stopwatch"));
       await waitFor(() => read('!document.querySelector("#stopwatch-matters").hidden'), "missing context opens the matter chooser");
       assert.equal(await read('document.querySelector("#stopwatch-matters button:first-child").getAttribute("aria-pressed")'), "false");
-      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), true);
+      assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
       assert.equal(timerState.active, null);
+      await read('document.getElementById("stopwatch-note").value = "Lunch break"');
+      await click(await center("stopwatch-confirm"));
+      await waitFor(() => Boolean(timerState.active), "starts a personal timer without choosing a matter");
+      assert.equal(timerState.active.matterId, null);
+      assert.equal(timerState.active.note, "Lunch break");
+      await waitFor(() => read('document.querySelector("#stopwatch-panel").hidden'), "closes the personal timer panel");
+      await click(await center("stopwatch"));
+      await click(await center("stopwatch-confirm"));
+      await waitFor(() => !timerState.active, "stops a personal timer without choosing a matter");
       assert.deepEqual(actions, [], "operating the timer never triggers dictation or meeting actions");
-      console.log("PASS: the anchored mini bar reveals Dictate, Record meeting and Stopwatch on all three docks; timing survives collapse and stops independently during a meeting");
+      console.log("PASS: the anchored mini bar keeps Dictate and Stopwatch visible on all three docks; timing survives collapse and stops independently during a meeting");
       return;
     }
     const rendererErrors = [];

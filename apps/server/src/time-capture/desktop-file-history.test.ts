@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ test("only the local host can import date-scoped file-use observations with curr
   const date = "2025-04-14";
   const owner = await activeCaptureProfile(config);
   const { profileId, scope, user, principal } = owner;
+  const readDay = await workdayChatReader(config, profileId, server.port);
   const history = "desktop-history?profileId=" + profileId;
   const workday = "workday?" + new URLSearchParams({ profileId, scope, user, principal, date });
   const api = (route: string, body?: unknown, host = true) => fetch("http://127.0.0.1:" + server.port + "/private-timesheet/" + route, {
@@ -43,12 +45,12 @@ test("only the local host can import date-scoped file-use observations with curr
     expect(work[0].proposal).toMatchObject({ source: "desktop", narrative: row.name, observedAt: row.observedAt, fileUseSource: "spotlight-last-used",
       startAt: null, endAt: null, projectId: null, workedMinutes: null });
     expect(humanInterval(work[0].proposal)).toBeUndefined();
-    expect((await api(workday, { type: "suggest" })).status).toBe(200);
+    await readDay(date);
     const log = async (): Promise<WorkdayEvidence[]> => JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8")).observations;
     expect((await log()).map(item => item.eventKey)).toContain(work[0].eventKey);
     expect((await setting("desktopActivity", false)).status).toBe(200);
     expect((await api(history, payload)).status).toBe(403);
-    expect((await api(workday, { type: "suggest" })).status).toBe(200);
+    await readDay(date);
     expect((await log()).map(item => item.eventKey)).not.toContain(work[0].eventKey);
     expect((await setting("desktopActivity", true)).status).toBe(200);
     expect((await api(history, payload)).status).toBe(409);

@@ -10,17 +10,19 @@ import { calendarDisplayColor } from "./calendar-colors";
 import { calendarDay, formatCalendarDay, occursOnDay, shiftDay } from "./calendar-format";
 import { CALENDAR_HOUR_HEIGHT, layoutCalendarDay } from "./calendar-layout";
 
+import { CalendarRangeTarget, type CalendarRangeSelection } from "./calendar-range-selection";
+
 type CalendarDayLane = { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] };
 type GridProps = {
   view: "day" | "week" | "month"; anchor: Date; start: Date; items: CalendarDisplayOccurrence[];
   projectId?: string; showProjects: boolean; timeZone: string;
   dayLanes?: CalendarDayLane[]; untimedLabel?: string; headerActions?: ReactNode; label?: string;
   nowLabel?: (clock: string) => string;
-  renderTimeOverlay?: (now: Date, hourHeight: number) => ReactNode;
   entryAppearance?: (item: CalendarDisplayOccurrence) => CalendarEntryAppearance | undefined;
   minimumEventSize?: { width: number; height: number };
   maxVisibleHours?: number;
   onOpen: (item: CalendarDisplayOccurrence, trigger: HTMLButtonElement) => void;
+  onSelectTimeRange?: CalendarRangeSelection;
   onDay?: (day: Date) => void; onWeekChange?: (direction: number) => void; onCreate?: (day: string) => void;
 };
 
@@ -201,6 +203,7 @@ function TimeGrid(props: GridProps) {
         {columns.map((column, index) => {
           const key = calendarDay(column.day);
           return <div key={column.id} data-calendar-column={column.id} className={cn("relative min-w-0 border-l border-border/60", key === today && "bg-primary/[0.015]", column.day.getDay() % 6 === 0 && "bg-muted/15")} style={{ height: 24 * hourHeight }}>
+            {props.onSelectTimeRange && <CalendarRangeTarget key={key} date={key} lane={column.id} onSelect={props.onSelectTimeRange} />}
             {Array.from({ length: 48 }, (_, halfHour) => <div aria-hidden="true" key={halfHour} className={cn("pointer-events-none absolute inset-x-0 border-t", halfHour % 2 === 0 ? "border-border/60" : "border-border/25")} style={{ top: halfHour * hourHeight / 2 }} />)}
             {layouts[index].map(segment => <CalendarTimeBlock key={segment.item.id} item={segment.item} projectId={props.projectId}
               height={(segment.displayEnd - segment.displayStart) * hourHeight / 60 - 2} appearance={props.entryAppearance?.(segment.item)}
@@ -209,9 +212,7 @@ function TimeGrid(props: GridProps) {
             {week && key === today && <CalendarNow minute={minute} hourHeight={hourHeight} />}
           </div>;
         })}
-        {!week && props.renderTimeOverlay && <div className="pointer-events-none absolute inset-y-0 start-[52px] end-0">
-          {props.renderTimeOverlay(now, hourHeight)}
-        </div>}
+
         {!week && calendarDay(props.start) === today && <CalendarNow minute={minute} hourHeight={hourHeight} inset={52}
           label={props.nowLabel?.(now.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" }))} />}
       </div>
