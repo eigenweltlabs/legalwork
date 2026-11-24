@@ -1,8 +1,7 @@
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Plus, X } from "lucide-react";
 import { defaultWorkdayRunTime, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
-import { TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
@@ -12,11 +11,10 @@ import { calendarClientScope } from "../../calendar/calendar-cache";
 import { timeTrackingProfile } from "../../back-office/time-tracking-profile";
 import { sourceKeys } from "../../back-office/timesheet-labels";
 import { TimeSettingsGroup, TimeSelect, TimeSetting, TimeSwitch } from "../../back-office/time-settings-controls";
-import { TimeWorkspaceGuidelines } from "../../back-office/time-workspace-guidelines";
 import { LayoutStack } from "../settings-layout";
 import { DesktopActivitySetting } from "./desktop-activity-setting";
 
-type SettingAction = Extract<CaptureAction, { type: "settings-patch" | "guideline" }>;
+type SettingAction = Extract<CaptureAction, { type: "settings-patch" }>;
 
 export function TimeTrackingSettingsView({ client }: { client: LegalworkServerClient | null }) {
   const [params] = useSearchParams();
@@ -30,17 +28,6 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
   const dayKey = [...key, "day", date];
   const day = useQuery({ queryKey: dayKey, enabled: Boolean(local && identity), retry: false,
     queryFn: ({ signal }) => client!.privateWorkday({ ...identity!, date }, undefined, signal) });
-  const targets = useQuery({
-    queryKey: ["time-tracking-settings", ...calendarClientScope(client), "targets", profile?.directoryId, identity], enabled: Boolean(local && profile && day.data && day.data.settings.enabled !== false), retry: false,
-    queryFn: async () => {
-      const params = new URLSearchParams({ expectedUserId: identity!.user });
-      if (profile?.directoryId) params.set("directoryId", profile.directoryId);
-      if (identity?.principal) params.set("expectedPrincipalKey", identity.principal);
-      const result = TimesheetStateSchema.parse(await client!.backOffice("/timesheet?" + params, { team: profile?.scope !== "local" }));
-      if (result.userId !== identity?.user || result.scope !== identity?.scope) throw new Error(t("timesheets.account_changed"));
-      return result;
-    },
-  });
   const update = useMutation({
     mutationFn: async (action: SettingAction) => {
       if (!client || !profile || !identity) throw new Error(t("timesheets.account_changed"));
@@ -56,21 +43,21 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
       await cache.invalidateQueries({ queryKey: key });
     },
   });
+  if (params.has("directory") && (params.has("matter") || params.has("client"))) {
+    const next = new URLSearchParams(params);
+    next.set("tab", "guidelines");
+    return <Navigate replace to={"/settings/billing?" + next} />;
+  }
   if (!local) return <p>{t("timesheets.local_only")}</p>;
   const error = directory.error || day.error;
   if (error) return <p role="alert">{error.message}</p>;
   if (!day.data || !profile || !identity) return <p role="status">{t("timesheets.loading")}</p>;
-  const { settings, guidelines } = day.data;
+  const { settings } = day.data;
   const enabled = settings.enabled !== false;
   const schedule = workdaySchedule(settings);
   const pending = update.isPending;
   const change = (change: Extract<CaptureAction, { type: "settings-patch" }>["change"]) => update.mutate({ type: "settings-patch", change });
   const saveTimes = (times: string[]) => change({ field: "schedule", value: { frequency: "daily", times: [...times].sort() } });
-  const directoryMatches = profile.directoryId && profile.directoryId === params.get("directory");
-  const matter = directoryMatches && targets.data?.matters.find(item => item.id === params.get("matter"));
-  const clientTarget = directoryMatches && targets.data?.clients.find(item => item.id === params.get("client"));
-  const initialTarget = matter ? { scope: "matter" as const, targetId: matter.id } :
-    clientTarget ? { scope: "client" as const, targetId: clientTarget.id } : undefined;
   return <LayoutStack>
     <TimeSettingsGroup>
       <TimeSwitch label={t("timeWorkspace.suggestionsEnabled")} description={t("timeWorkspace.suggestionsDescription")}
@@ -117,12 +104,6 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
         </TimeSetting>
       </TimeSettingsGroup>
     </>}
-    {enabled && (targets.error ? <p role="alert">{targets.error.message}</p> : targets.data &&
-      <TimeWorkspaceGuidelines key={JSON.stringify([identity, initialTarget])} initialTarget={initialTarget}
-        date={date} guidelines={guidelines} state={targets.data} pending={pending}
-        save={async action => { try { await update.mutateAsync(action); return true; } catch { return false; } }}
-        extractRules={(text, signal) => client.privateGuidelineRules({ ...identity, date }, text, undefined, signal)}
-        readPdf={(file, signal) => client.privateGuidelineText({ ...identity, date }, file, signal)} />)}
     {update.error && <p role="alert">{update.error.message}</p>}
   </LayoutStack>;
 }

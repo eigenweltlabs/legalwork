@@ -629,7 +629,8 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                     [billingTarget]: detail.id,
                     directory: data.directoryId,
                   })}>{t("timesheets.review_rules")}</Link>
-                  {isLoopbackLegalworkServerUrl(client.baseUrl) && <Link className="bo-time-secondary" to={"/settings/time-tracking?" + new URLSearchParams({
+                  {isLoopbackLegalworkServerUrl(client.baseUrl) && <Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({
+                    tab: "guidelines",
                     [billingTarget]: detail.id,
                     directory: data.directoryId,
                   })}>{t("timeWorkspace.guidelines")}</Link>}</>

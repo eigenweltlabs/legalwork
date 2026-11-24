@@ -1135,7 +1135,7 @@ try {
   const { BillingPreferences } = await import("../../src/react-app/domains/back-office/billing-preferences");
   await act(async () => root.render(
     <MemoryRouter><BackOfficeTheme><BillingPreferences state={timerState} onCommand={send}
-      initialMatterId="matter" initialDate={base.date}
+      initialMatterId="matter" initialDate={base.date} section="rules"
     /></BackOfficeTheme></MemoryRouter>,
   ));
   const roundSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="Round stopwatch time up"]');
@@ -1307,11 +1307,14 @@ try {
   const settingsClient = { ...workdayClient, activityProfile: async () => ({
     profileId: "synthetic", directoryId: workdayDirectory.directoryId!, scope: workdayDirectory.scope, user: weeklyState.userId,
     principal: "", enabled: workdaySettings.enabled !== false, workspaceActivity: true,
-  }), backOffice: async (path: string) =>
-    path.startsWith("/timesheet") ? weeklyState : workdayDirectory };
+  }), backOffice: async (path: string, options?: { body?: TimesheetCommand }) => {
+    if (!path.startsWith("/timesheet")) return workdayDirectory;
+    if (options?.body) await send(options.body);
+    return weeklyState;
+  } };
   await act(async () => root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/settings/time-tracking"]}>
     <TimeTrackingSettingsView client={settingsClient} /></MemoryRouter></QueryClientProvider>));
-  await until(() => document.querySelector(".time-workspace-guidelines"));
+  await until(() => document.querySelector('[role="switch"][aria-label="' + t("timeWorkspace.suggestionsEnabled") + '"]'));
   const enableSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="' + t("timeWorkspace.suggestionsEnabled") + '"]');
   assert.ok(enableSwitch);
   const scheduleTimes = () => Array.from(document.querySelectorAll<HTMLInputElement>('ul[aria-label="Run times"] li input[type="time"]')).map(input => input.value);
@@ -1325,7 +1328,37 @@ try {
   await act(async () => enableSwitch.click());
   await until(() => enableSwitch.getAttribute("aria-checked") === "true" && !enableSwitch.hasAttribute("disabled"));
   assert.equal(workdaySettings.enabled, true);
+  assert.equal(document.querySelector(".time-workspace-guidelines"), null);
+  assert.equal(document.querySelector('[role="combobox"][aria-label="Stopwatch"]'), null);
+  assert.doesNotMatch(document.body.textContent ?? "", /Synthetic mailbox/);
+  assert.equal([...document.querySelectorAll("a")].find(link => link.textContent === t("catalog.manage_integrations"))?.getAttribute("href"), "/settings/extensions");
+  await act(async () => root.render(<QueryClientProvider client={cache}>
+    <MemoryRouter key="billing-settings" initialEntries={["/settings/billing"]}>
+      <BackOfficePage client={settingsClient} billingSettings />
+    </MemoryRouter>
+  </QueryClientProvider>));
+  await until(() => document.querySelector('[role="combobox"][aria-label="Policy level"]'));
+  const policyLevel = () => document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Policy level"]');
+  const reviewer = () => document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Assigned reviewer"]');
+  assert.equal(button(t("back_office.billing.time_rules"))?.getAttribute("aria-pressed"), "true");
+  assert.equal(policyLevel()?.disabled, false);
+  assert.equal(reviewer(), null);
+  await selectPopup("Policy level", "Matter");
+  await press(t("back_office.billing.detail"));
+  assert.equal(button(t("back_office.billing.detail"))?.getAttribute("aria-pressed"), "true");
+  assert.match(policyLevel()?.textContent ?? "", /Matter/);
+  assert.equal(document.querySelector('[role="combobox"][aria-label="Proposed rounding"]'), null);
+  await selectPopup("Assigned reviewer", "Ben");
+  await press("Save billing settings");
+  const assignment = commands.at(-1);
+  assert.ok(assignment?.type === "policy");
+  assert.equal(assignment.policy.scope, "matter");
+  assert.equal(assignment.policy.targetId, "matter");
+  assert.equal(assignment.policy.reviewerId, "ben");
+  await press(t("timeWorkspace.guidelines"));
   await until(() => document.querySelector(".time-workspace-guidelines"));
+  assert.equal(button(t("timeWorkspace.guidelines"))?.getAttribute("aria-pressed"), "true");
+  assert.equal(document.querySelector('[role="combobox"][aria-label="Policy level"]'), null);
   await press(t("timeWorkspace.guidelineNew"));
   const guidelineForm = document.querySelector<HTMLFormElement>(".time-workspace-guidelines form");
   const guidelineText = guidelineForm?.querySelector<HTMLTextAreaElement>("textarea");
@@ -1399,9 +1432,6 @@ try {
   await input(serviceDate, "2025-01-01");
   assert.notEqual(values()[0], "12 min", "the displayed rule follows the selected service date");
 
-  assert.equal(document.querySelector('[role="combobox"][aria-label="Stopwatch"]'), null);
-  assert.doesNotMatch(document.body.textContent ?? "", /Synthetic mailbox/);
-  assert.equal([...document.querySelectorAll("a")].find(link => link.textContent === t("catalog.manage_integrations"))?.getAttribute("href"), "/settings/extensions");
   {
     const { Routes, Route } = await import("react-router-dom");
     const clientRecord = { ...workdayDirectory.records[0], id: crypto.randomUUID(), objectId: "clients",
@@ -1427,14 +1457,16 @@ try {
           <Routes>
             <Route path="/back-office/:object" element={<BackOfficePage client={linkedClient} />} />
             <Route path="/settings/time-tracking" element={<TimeTrackingSettingsView client={linkedClient} />} />
+            <Route path="/settings/billing" element={<BackOfficePage client={linkedClient} billingSettings />} />
           </Routes>
         </MemoryRouter></QueryClientProvider>));
-      await until(() => document.querySelector('a[href^="/settings/time-tracking?"]'));
+      await until(() => document.querySelector('a[href^="/settings/billing?tab=guidelines"]'));
     };
     const followGuidelineLink = async (scope: string, recordId: string) => {
-      const link = document.querySelector<HTMLAnchorElement>('a[href^="/settings/time-tracking?"]');
+      const link = document.querySelector<HTMLAnchorElement>('a[href^="/settings/billing?tab=guidelines"]');
       assert.ok(link);
       const params = new URL(link.href).searchParams;
+      assert.equal(params.get("tab"), "guidelines");
       assert.equal(params.get(scope), recordId);
       assert.equal(params.get("directory"), directory.directoryId);
       await act(async () => link.click());

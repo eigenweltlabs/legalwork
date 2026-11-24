@@ -46,13 +46,13 @@ You can ask **Chat** to translate billing descriptions, correct time, or remove 
 
 ## Billing settings and access
 
-Open **Settings → Billing settings** for the firm’s billing workflow. In the full workflow, billing managers can change the rules and reviewer assignments. Other members can inspect the rules their account can access. In records mode the settings link opens **Fee agreements** in Back Office, where normal directory permissions still apply.
+In **Settings → Billing settings**, open **Time rules** to manage the firm’s billing policy or **Review** to assign a reviewer. Select the policy level and effective date, choose an **Assigned reviewer**, and select **Save billing settings**. In the full workflow, billing managers can change these settings. Other members can inspect the rules their account can access. The **Billing guidelines** tab contains the guidelines saved to your account on this device. In records mode, **Time rules** links to **Fee agreements** in Back Office.
 
 In the basic **Time entries** view, you can continue recording for yourself when the people list cannot load. Your own complete entries enter the local outbox when the firm connection is interrupted and synchronize when it returns. Recording for another person still requires the firm's current permission; a previously loaded people list does not grant access during an outage.
 
 ### Link a billing guideline
 
-1. Open **Settings → Time tracking → Billing guidelines**. You can also open **Billing guidelines** from **Billing settings**, or from the client or matter record in Back Office.
+1. Open **Settings → Billing settings → Billing guidelines**, or choose **Billing guidelines** from a client or matter record in Back Office.
 2. From a client or matter record, the link shows the guidelines for that record. If it has none yet, the form opens with the record selected. In general settings, choose **New guideline**, enter a name and set the scope. **Firm** covers eligible matters. **Client** lets you pick a client from Back Office. **Matter** lets you pick one matter. Choose the effective date.
 3. Enter the instructions or import a TXT, DOCX, searchable PDF or JSON file. **Extract time rules** proposes numerical rules with supporting quotations. Check the extracted wording, minimum, maximum, rounding and billing increment. You can also enter these yourself.
 4. Choose **Save guideline version**. The list shows each saved guideline’s name, linked scope, effective date and revision. Open a guideline to edit it or follow the link to its client or matter. The profile stores the reviewed text and rules on this device. Importing a document leaves its original file in place.

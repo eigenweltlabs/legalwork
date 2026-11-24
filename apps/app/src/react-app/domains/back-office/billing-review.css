@@ -244,9 +244,7 @@
 .bo-time-policy {
   display: grid;
   width: 100%;
-  max-width: 816px;
   gap: 16px;
-  padding: 18px clamp(12px, 3vw, 32px) 28px;
   color: var(--foreground);
 }
 .bo-time-policy fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
@@ -254,12 +252,8 @@
 .bo-time-policy details[open] > summary { margin-bottom: 12px; }
 .bo-time-policy [data-slot="item-header-actions"] :is(input, textarea, select) { width: min(210px, 50vw); }
 .bo-time-policy [data-slot="item-header-actions"] input[type="number"] { width: 96px; }
-.bo-time-preferences > .bo-view-toolbar { padding-inline: clamp(12px, 3vw, 32px); border-bottom: 1px solid var(--border); }
 .bo-time-preferences .bo-billing-subrow { padding: 0; }
 
-.bo-time-preferences > .bo-view-toolbar { gap:12px; padding-block:12px; align-items:end }
-.bo-time-preferences > .bo-view-toolbar > label { display:grid; gap:5px; font-size:12px }
-.bo-time-preferences > .bo-view-toolbar [data-slot="select-trigger"] { min-width:180px }
 
 .bo-invoice-draft fieldset {
   border: 0;

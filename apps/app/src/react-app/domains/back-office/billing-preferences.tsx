@@ -95,6 +95,7 @@ function PolicyForm({
   inherited,
   entriesAffected,
   context,
+  section,
 }: BillingProps & {
   scope: Scope;
   targetId: string;
@@ -103,6 +104,7 @@ function PolicyForm({
   inherited: ReturnType<typeof resolveTimePolicy>;
   entriesAffected: TimeEntry[];
   context: BillingContext;
+  section: "rules" | "review";
 }) {
   const [policy, setPolicy] = useState<TimePolicy>(() => {
     const {
@@ -155,6 +157,15 @@ function PolicyForm({
   const bindingTerms = projectBindingTerms(state, policy);
   const needsReason = bindingTerms.length > 0 && !policy.incrementExceptionReason?.trim();
   const readOnly = !state.canManage || pending;
+  const review = section === "review";
+  const bindingException = bindingTerms.length > 0 && (
+    <BindingTerms
+      state={state}
+      terms={bindingTerms}
+      value={policy.incrementExceptionReason ?? ""}
+      onChange={(reason) => update("incrementExceptionReason", reason || undefined)}
+    />
+  );
   return (
     <form
       className="bo-time-policy"
@@ -169,9 +180,9 @@ function PolicyForm({
         }
       }}
     >
-      <fieldset disabled={readOnly} aria-label={t("timesheets.settings")}>
+      <fieldset disabled={readOnly} aria-label={t(review ? "timesheets.review_assignment" : "back_office.billing.time_rules")}>
         <LayoutStack>
-          <TimeSettingsGroup title={t("timesheets.review_assignment")}>
+          {review && <TimeSettingsGroup title={t("timesheets.review_assignment")}>
             <Rule name={t("back_office.billing.reviewer")} description={t("timesheets.assignment_hint")}>
               <TimeSelect
                 label={t("back_office.billing.reviewer")}
@@ -200,8 +211,9 @@ function PolicyForm({
                 onChange={(v) => update("soloApproval", v)}
               />
             )}
-          </TimeSettingsGroup>
-          <TimeSettingsGroup title={t("back_office.billing.time_rules")}>
+            {bindingException}
+          </TimeSettingsGroup>}
+          {!review && <TimeSettingsGroup title={t("back_office.billing.time_rules")}>
             {scope === "client" && (
               <TimeSwitch
                 label={t("back_office.billing.binding")}
@@ -216,14 +228,7 @@ function PolicyForm({
                 }
               />
             )}
-            {scope === "project" && bindingTerms.length > 0 && (
-              <BindingTerms
-                state={state}
-                terms={bindingTerms}
-                value={policy.incrementExceptionReason ?? ""}
-                onChange={(reason) => update("incrementExceptionReason", reason || undefined)}
-              />
-            )}
+            {bindingException}
             <InheritableToggle
               label={t("back_office.billing.enforce")}
               disabled={readOnly || clientBound}
@@ -337,8 +342,8 @@ function PolicyForm({
                 </div>
               </details>
             </LayoutSectionItem>
-          </TimeSettingsGroup>
-          <TimeSettingsGroup title={t("back_office.billing.invoice_words")}>
+          </TimeSettingsGroup>}
+          {!review && <TimeSettingsGroup title={t("back_office.billing.invoice_words")}>
             <Rule name={t("back_office.billing.language")}>
               <Input
                 placeholder={inherited.language}
@@ -393,8 +398,8 @@ function PolicyForm({
                 onChange={(e) => update("narrativeExample", e.target.value || undefined)}
               />
             </Rule>
-          </TimeSettingsGroup>
-          <TimeSettingsGroup title={t("back_office.billing.fees")}>
+          </TimeSettingsGroup>}
+          {!review && <TimeSettingsGroup title={t("back_office.billing.fees")}>
             <Rule name={t("back_office.billing.currency")}>
               <Input
                 maxLength={3}
@@ -449,10 +454,10 @@ function PolicyForm({
                 </Button>
               </div>
             </LayoutSectionItem>
-          </TimeSettingsGroup>
+          </TimeSettingsGroup>}
         </LayoutStack>
       </fieldset>
-      <EffectiveTerms state={state} context={context} />
+      {!review && <EffectiveTerms state={state} context={context} />}
       <BillingImpact state={state} policy={policy} entries={entriesAffected} />
       <div>
         {state.canManage && (
@@ -479,6 +484,7 @@ export function BillingPreferences({
   initialMatterId,
   initialClientId,
   initialDate,
+  section,
 }: BillingProps & {
   accountScope?: string;
   previewWord?: import("./billing-word-template").PreviewTemplate;
@@ -486,6 +492,7 @@ export function BillingPreferences({
   initialMatterId?: string;
   initialClientId?: string;
   initialDate?: string;
+  section: "rules" | "review";
 }) {
   const [scope, setScope] = useState<Scope>(
     initialProjectId ? "project" : initialMatterId ? "matter" : initialClientId ? "client" : "firm",
@@ -524,89 +531,93 @@ export function BillingPreferences({
         (scope === "project" ? e.projectId : scope === "matter" ? e.matterId : e.clientId) === targetId),
   );
   return (
-    <section className="bo-billing bo-time-preferences">
-      <div className="bo-view-toolbar">
-        <label>{t("back_office.billing.scope")}
-        <TimeSelect
-          label={t("back_office.billing.scope")}
-          value={scope}
-          options={scopes.map((id) => ({ id, name: t(scopeKeys[id]) }))}
-          onChange={(next) => {
-            const item = scopes.find((scope) => scope === next);
-            if (!item) return;
-            setScope(item);
-            setTarget(options(item)[0]?.id ?? "");
-            setClientContext("");
-            setMatterContext("");
-          }}
-        />
-        </label>
-        {scope !== "firm" && (
-          <label>{t("back_office.billing.target")}<TimeSelect
-            label={t("back_office.billing.target")}
-            value={target}
-            options={
-              options(scope).some((p) => p.id === target)
-                ? options(scope)
-                : [{ id: target, name: t("back_office.billing.choose_target") }, ...options(scope)]
-            }
-            onChange={(id) => {
-              setTarget(id);
+    <LayoutStack className="bo-billing bo-time-preferences">
+      <TimeSettingsGroup>
+        <Rule name={t("back_office.billing.scope")}>
+          <TimeSelect
+            label={t("back_office.billing.scope")}
+            value={scope}
+            options={scopes.map((id) => ({ id, name: t(scopeKeys[id]) }))}
+            onChange={(next) => {
+              const item = scopes.find((scope) => scope === next);
+              if (!item) return;
+              setScope(item);
+              setTarget(options(item)[0]?.id ?? "");
               setClientContext("");
               setMatterContext("");
             }}
-          /></label>
+          />
+        </Rule>
+        {scope !== "firm" && (
+          <Rule name={t(scopeKeys[scope])}>
+            <TimeSelect
+              label={t("back_office.billing.target")}
+              value={target}
+              options={
+                options(scope).some((p) => p.id === target)
+                  ? options(scope)
+                  : [{ id: target, name: t("back_office.billing.choose_target") }, ...options(scope)]
+              }
+              onChange={(id) => {
+                setTarget(id);
+                setClientContext("");
+                setMatterContext("");
+              }}
+            />
+          </Rule>
         )}
         {matters.length > 1 && (
-          <TimeSelect
-            label={t("back_office.billing.matter")}
-            value={matter?.id ?? ""}
-            options={matters}
-            onChange={(id) => {
-              setMatterContext(id);
-              setClientContext("");
-            }}
-          />
+          <Rule name={t("back_office.billing.matter")}>
+            <TimeSelect
+              label={t("back_office.billing.matter")}
+              value={matter?.id ?? ""}
+              options={matters}
+              onChange={(id) => {
+                setMatterContext(id);
+                setClientContext("");
+              }}
+            />
+          </Rule>
         )}
         {clients.length > 1 && (
-          <TimeSelect
-            label={t("back_office.billing.client")}
-            value={client?.id ?? ""}
-            options={clients}
-            onChange={setClientContext}
-          />
+          <Rule name={t("back_office.billing.client")}>
+            <TimeSelect
+              label={t("back_office.billing.client")}
+              value={client?.id ?? ""}
+              options={clients}
+              onChange={setClientContext}
+            />
+          </Rule>
         )}
-        <label>
-          {t("back_office.billing.effective")}
+        <Rule name={t("back_office.billing.effective")}>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-      </div>
-      <div className="bo-billing-body">
-        {!date || (scope !== "firm" && !options(scope).some((o) => o.id === target)) ? (
-          <p className="bo-billing-notice">{t("back_office.billing.choose_target")}</p>
-        ) : (
-          <PolicyForm
-            key={[scope, targetId, date, editable?.revision].join("/")}
-            state={state}
-            onCommand={onCommand}
-            scope={scope}
-            targetId={targetId}
-            date={date}
-            base={editable}
-            inherited={inherited}
-            entriesAffected={affected}
-            context={{
-              date,
-              clientId: client?.id ?? "",
-              matterId: matter?.id ?? "",
-              projectId: project?.id,
-            }}
-          />
-        )}
-        {scope === "firm" && state.canManage && state.supportsInvoiceDrafts !== false && (
-          <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
-        )}
-      </div>
-    </section>
+        </Rule>
+      </TimeSettingsGroup>
+      {!date || (scope !== "firm" && !options(scope).some((o) => o.id === target)) ? (
+        <p className="text-sm text-muted-foreground">{t("back_office.billing.choose_target")}</p>
+      ) : (
+        <PolicyForm
+          key={[scope, targetId, date, editable?.revision].join("/")}
+          state={state}
+          onCommand={onCommand}
+          scope={scope}
+          targetId={targetId}
+          date={date}
+          base={editable}
+          inherited={inherited}
+          entriesAffected={affected}
+          section={section}
+          context={{
+            date,
+            clientId: client?.id ?? "",
+            matterId: matter?.id ?? "",
+            projectId: project?.id,
+          }}
+        />
+      )}
+      {section === "rules" && scope === "firm" && state.canManage && state.supportsInvoiceDrafts !== false && (
+        <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
+      )}
+    </LayoutStack>
   );
 }

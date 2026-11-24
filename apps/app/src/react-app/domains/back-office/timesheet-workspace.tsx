@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, ClipboardCheck, FileText, SlidersHorizontal } from "lucide-react";
 import { calendarDay } from "../calendar/calendar-format";
 import { periodDates, type TimePeriod } from "./timesheet-row";
 import { Button as AppButton } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { timeRoutes } from "./time-routes";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { FirmTimeReview } from "./firm-time-review";
+import { BillingGuidelinesSettings } from "./billing-guidelines-settings";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
 import type { SaveBackOfficeView } from "./record-grid";
@@ -33,6 +34,7 @@ import { TimeWorkflowProposal } from "./time-workflow-proposal";
 import { BackOfficeSurface } from "./twenty-controls";
 import { TimeSetting, TimeSettingsGroup } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
+import { HubTabs } from "../settings/segmented-tabs";
 
 export function TimesheetWorkspace({
   client,
@@ -151,6 +153,14 @@ export function TimesheetWorkspace({
   const workdayScope = JSON.stringify([...calendarClientScope(client), directory.directoryId,
     directory.scope, principalKey, userId, directory.captureProfileId]);
   const timekeepingPage = page !== "billing-settings";
+  const localBilling = !timekeepingPage && isLoopbackLegalworkServerUrl(client.baseUrl);
+  const requestedBillingTab = params.get("tab");
+  const billingTab = localBilling && requestedBillingTab === "guidelines" ? "guidelines"
+    : requestedBillingTab === "review" ? "review" : "rules";
+  const matchesBillingDirectory = !params.has("directory") || params.get("directory") === directory.directoryId;
+  const billingMatterId = matchesBillingDirectory ? params.get("matter") ?? undefined : undefined;
+  const billingClientId = matchesBillingDirectory ? params.get("client") ?? undefined : undefined;
+
   const canOpenInvoices = state && (team || recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
     team || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
@@ -223,52 +233,64 @@ export function TimesheetWorkspace({
           </TimesheetWorkday>
         </div>
       )}
-      {page === "billing-settings" && isLoopbackLegalworkServerUrl(client.baseUrl) && (
-        <div className="py-2">
-          <AppButton size="sm" variant="outline" nativeButton={false} render={<Link to={"/settings/time-tracking" + (params.size ? "?" + params : "")} />}>
-            {t("timeWorkspace.guidelines")}<ArrowUpRight size={14} />
-          </AppButton>
-        </div>
-      )}
-      {recordsOnly && page === "billing-settings" && (
-        <section className="w-full min-w-0 py-4" aria-label={t("timesheets.settings")}>
-          <LayoutStack>
-            <TimeSettingsGroup title={t("timesheets.records_settings_title")}>
-              <TimeSetting title={t("back_office.feeAgreements.plural")} description={t("timesheets.records_agreements_hint")}>
-                <AppButton size="sm" variant="outline" nativeButton={false} role="link" render={<Link to="/back-office/feeAgreements" />}>
-                  {t("timesheets.records_agreements_open")}<ArrowUpRight size={14} />
-                </AppButton>
-              </TimeSetting>
-              <TimeSetting title={t("timesheets.records_workflow_title")} description={t("timesheets.records_settings")}>
-                <span className="text-xs text-muted-foreground">{t("timesheets.records_unavailable")}</span>
-              </TimeSetting>
-            </TimeSettingsGroup>
-          </LayoutStack>
-        </section>
-      )}
-      {state && !recordsOnly && page === "billing-settings" && (
-        <BackOfficeSurface>
-          <BillingPreferences
-            accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
-            previewWord={template => client.previewBillingTemplate(template,state.scope)}
-            key={[params.get("project"), params.get("matter"), params.get("client"), params.get("date")].join("/")}
-            initialDate={initialDate}
-            state={state}
-            onCommand={send}
-            initialProjectId={params.get("project") ?? undefined}
-            initialMatterId={
-              !params.has("directory") || params.get("directory") === directory.directoryId
-                ? (params.get("matter") ?? undefined)
-                : undefined
-            }
-            initialClientId={
-              !params.has("directory") || params.get("directory") === directory.directoryId
-                ? (params.get("client") ?? undefined)
-                : undefined
-            }
-          />
-        </BackOfficeSurface>
-      )}
+      {!timekeepingPage && <LayoutStack>
+        <HubTabs<"rules" | "review" | "guidelines">
+          label={t("timesheets.settings")} value={billingTab}
+          items={[
+            { id: "rules", label: t("back_office.billing.time_rules"), icon: SlidersHorizontal },
+            { id: "review", label: t("back_office.billing.detail"), icon: ClipboardCheck },
+            ...(localBilling ? [{ id: "guidelines" as const, label: t("timeWorkspace.guidelines"), icon: FileText }] : []),
+          ]}
+          onChange={tab => {
+            if (tab === billingTab) return;
+            setParams(previous => {
+              const next = new URLSearchParams(previous);
+              if (tab === "rules") next.delete("tab");
+              else next.set("tab", tab);
+              return next;
+            });
+          }}
+        />
+        {state && billingTab === "guidelines" && (
+          <BillingGuidelinesSettings client={client} directory={directory} state={state} date={date}
+            matterId={billingMatterId} clientId={billingClientId} />
+        )}
+        {recordsOnly && billingTab === "rules" && (
+          <TimeSettingsGroup title={t("timesheets.records_settings_title")}>
+            <TimeSetting title={t("back_office.feeAgreements.plural")} description={t("timesheets.records_agreements_hint")}>
+              <AppButton size="sm" variant="outline" nativeButton={false} role="link" render={<Link to="/back-office/feeAgreements" />}>
+                {t("timesheets.records_agreements_open")}<ArrowUpRight size={14} />
+              </AppButton>
+            </TimeSetting>
+            <TimeSetting title={t("back_office.billing.time_rules")} description={t("timesheets.records_settings")}>
+              <span className="text-xs text-muted-foreground">{t("timesheets.records_unavailable")}</span>
+            </TimeSetting>
+          </TimeSettingsGroup>
+        )}
+        {recordsOnly && billingTab === "review" && (
+          <TimeSettingsGroup>
+            <TimeSetting title={t("timesheets.review_assignment")} description={t("timesheets.records_review_settings")}>
+              <span className="text-xs text-muted-foreground">{t("timesheets.records_unavailable")}</span>
+            </TimeSetting>
+          </TimeSettingsGroup>
+        )}
+        {state && !recordsOnly && billingTab !== "guidelines" && (
+          <BackOfficeSurface>
+            <BillingPreferences
+              accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
+              previewWord={template => client.previewBillingTemplate(template, state.scope)}
+              key={[params.get("project"), billingMatterId, billingClientId, initialDate].join("/")}
+              initialDate={initialDate}
+              section={billingTab}
+              state={state}
+              onCommand={send}
+              initialProjectId={params.get("project") ?? undefined}
+              initialMatterId={billingMatterId}
+              initialClientId={billingClientId}
+            />
+          </BackOfficeSurface>
+        )}
+      </LayoutStack>}
 
     </>
   );
