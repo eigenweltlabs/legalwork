@@ -3,7 +3,7 @@ import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { seedHostApprovalState } from "../domains/session/sync/session-sync";
 import type { RouteWorkspace } from "./route-workspaces";
 
-export type ApprovalWorkspace = Pick<RouteWorkspace, "id" | "workspaceType">;
+export type ApprovalWorkspace = { id: string; workspaceType?: RouteWorkspace["workspaceType"] };
 
 export const hostApprovalScope = (baseUrl: string, workspaceId: string) =>
   `host-approvals:${JSON.stringify([baseUrl.replace(/\/+$/, ""), workspaceId])}`;
