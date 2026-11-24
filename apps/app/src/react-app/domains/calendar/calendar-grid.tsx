@@ -13,6 +13,8 @@ import { CALENDAR_ZOOM_KEY, CALENDAR_ZOOM_MAX, CALENDAR_ZOOM_MIN, clampCalendarZ
 
 import { CalendarRangeTarget, type CalendarRangeSelection } from "./calendar-range-selection";
 
+const MAX_VISIBLE_HOURS_AT_MIN_ZOOM = 22;
+
 type CalendarDayLane = { id: string; title: string; colorKey: string | null; color?: CalendarColor; items: CalendarDisplayOccurrence[] };
 type GridProps = {
   view: "day" | "week" | "month"; anchor: Date; start: Date; items: CalendarDisplayOccurrence[];
@@ -41,18 +43,24 @@ function TimeGrid(props: GridProps) {
   const zoomAnchor = useRef<{ hour: number; offset: number } | undefined>(undefined);
   const [viewport, setViewport] = useState({ height: 0, width: 0 });
   const viewportHeight = viewport.height;
-  const hourHeight = (props.maxVisibleHours ? Math.max(CALENDAR_HOUR_HEIGHT, viewportHeight / props.maxVisibleHours) : CALENDAR_HOUR_HEIGHT) * zoom;
+  const baseHourHeight = props.maxVisibleHours ? Math.max(CALENDAR_HOUR_HEIGHT, viewportHeight / props.maxVisibleHours) : CALENDAR_HOUR_HEIGHT;
+  // Keep part of the workday offscreen even at the lowest saved zoom.
+  const minZoom = props.maxVisibleHours
+    ? Math.max(CALENDAR_ZOOM_MIN, viewportHeight / (MAX_VISIBLE_HOURS_AT_MIN_ZOOM * baseHourHeight))
+    : CALENDAR_ZOOM_MIN;
+  const effectiveZoom = Math.max(zoom, minZoom);
+  const hourHeight = baseHourHeight * effectiveZoom;
   const position = useRef({ viewportHeight: 0, viewportWidth: 0, hourHeight: CALENDAR_HOUR_HEIGHT, gridTop: 0, top: 8 * CALENDAR_HOUR_HEIGHT - 12 });
   const changeZoom = useCallback((factor: number, clientY?: number) => {
     const element = scroller.current, grid = hours.current;
     if (!element || !grid) return;
-    const next = clampCalendarZoom(zoom * factor);
-    if (next === zoom) return;
+    const next = Math.max(minZoom, clampCalendarZoom(effectiveZoom * factor));
+    if (next === effectiveZoom) return;
     const bounds = element.getBoundingClientRect();
     const offset = clientY === undefined ? element.clientHeight / 2 : clientY - bounds.top;
     zoomAnchor.current = { hour: (bounds.top + offset - grid.getBoundingClientRect().top) / hourHeight, offset };
     setZoom(next);
-  }, [hourHeight, zoom]);
+  }, [effectiveZoom, hourHeight, minZoom]);
   useEffect(() => {
     try { window.localStorage.setItem(CALENDAR_ZOOM_KEY, String(zoom)); } catch { /* Storage can be disabled. */ }
   }, [zoom]);
@@ -138,9 +146,9 @@ function TimeGrid(props: GridProps) {
   const lineStep = hourHeight >= 240 ? 5 : hourHeight >= 96 ? 15 : 30;
   const zoomControls = <div className="flex shrink-0 items-center rounded-md border bg-background">
     <Button size="icon-xs" variant="ghost" title={t("calendar.zoom_out")} aria-label={t("calendar.zoom_out")}
-      disabled={zoom <= CALENDAR_ZOOM_MIN} onClick={() => changeZoom(1 / 1.25)}><Minus className="size-3" /></Button>
+      disabled={effectiveZoom <= minZoom} onClick={() => changeZoom(1 / 1.25)}><Minus className="size-3" /></Button>
     <Button size="icon-xs" variant="ghost" title={t("calendar.zoom_in")} aria-label={t("calendar.zoom_in")}
-      disabled={zoom >= CALENDAR_ZOOM_MAX} onClick={() => changeZoom(1.25)}><Plus className="size-3" /></Button>
+      disabled={effectiveZoom >= CALENDAR_ZOOM_MAX} onClick={() => changeZoom(1.25)}><Plus className="size-3" /></Button>
   </div>;
   const minute = now.getHours() * 60 + now.getMinutes();
   const untimed = columns.map(column => column.items.filter(item => item.allDay && occursOnDay(item, calendarDay(column.day))));

@@ -630,6 +630,18 @@ try {
   assert.match(document.querySelector("[data-calendar-untimed]")?.textContent ?? "", /Estimated 8 min/);
   assert.ok(!axis.textContent?.includes("Unused matter"));
   assert.ok(!axis.querySelector("[data-calendar-column]")?.textContent?.includes("Untimed"));
+  const zoomOut = axis.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]');
+  const zoomIn = axis.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+  assert.ok(zoomOut && zoomIn);
+  await act(async () => zoomOut.click());
+  await act(async () => zoomOut.click());
+  assert.ok(!zoomOut.disabled, "a small window can use the lower zoom");
+  await resizeCalendar(1600, 900, true);
+  const zoomedDayHeight = calendarHeight();
+  assert.ok(zoomedDayHeight > 1600, "the saved low zoom still leaves scroll room after the window grows");
+  assert.ok(zoomOut.disabled, "zoom out stops at the scrollable minimum");
+  await act(async () => zoomIn.click());
+  assert.ok(calendarHeight() > zoomedDayHeight, "zoom in starts at the visible scale");
   const { calendarDay } = await import("../../src/react-app/domains/calendar/calendar-format");
   await act(async () => root.render(
     <WorkdayTimeline date={calendarDay(new Date())} proposals={[]} state={directory}
