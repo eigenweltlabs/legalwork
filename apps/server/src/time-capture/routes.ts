@@ -562,7 +562,7 @@ async function collectDay(config: ServerConfig, owner: Profile, date: string, zo
   return { eligible, sourceFailure, failedAccounts, scannedAccounts, names };
 }
 
-async function prepare(config: ServerConfig, owner: Profile, date: string, action: Preparation,
+export async function prepareWorkday(config: ServerConfig, owner: Profile, date: string, action: Preparation,
   { signal: requestSignal, resolveWorkspace, now = Date.now, scheduledSlot, readConnected = readConnectedWorkday }: PreparationOptions = {}) {
   const { path } = owner;
   let days = workdaysRunning.get(path);
@@ -767,7 +767,7 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
       saved.lastScheduledSlot = Math.max(saved.lastScheduledSlot, slot);
       await save(owner.path, saved);
     });
-  } else await prepare(config, owner, date, { type: "suggest" }, { ...options, scheduledSlot: slot });
+  } else await prepareWorkday(config, owner, date, { type: "suggest" }, { ...options, scheduledSlot: slot });
 }
 
 async function visibleProposals(config: ServerConfig, s: Saved, date: string, connections: CaptureState["connections"], sourcePreview: boolean) {
@@ -1147,7 +1147,7 @@ export function registerWorkdayRoutes(options: {
             throw new ApiError(400, "future_workday", "Choose today or an earlier date.");
           await options.startChat(profileId, date, action.runId ?? randomUUID(), current.settings.model);
         } else if (action.type === "suggest" || action.type === "calendar")
-          await prepare(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
+          await prepareWorkday(config, owner, date, action, { signal: ctx.request.signal, resolveWorkspace: options.resolveWorkspace });
         else
           await withFileWriteLock(path, async () => {
             const s = await load(path);

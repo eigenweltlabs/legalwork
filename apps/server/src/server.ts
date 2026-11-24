@@ -5682,34 +5682,33 @@ async function refreshManagedEngineLocation(config: ServerConfig, workspace: Wor
   // registered location and refreshes domains without resetting other projects.
   if (!configurationPublished) await writeLegalworkRuntimeConfigFile(config, workspace.id);
   const client = createEngineClient(config, workspace);
-  const refresh = async () => {
-    for (const delay of [0, 150, 300, 600]) {
-      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-      try { return await client.rpc.call({ rpcID: "legalwork.managed-settings", method: "refresh", input: {}, location: { directory } }); }
-      catch (error) {
-        let cause: unknown = error;
-        const seen = new Set<unknown>();
-        let refused = false;
-        while (cause instanceof Error && !seen.has(cause)) {
-          seen.add(cause);
-          if ("code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused")) refused = true;
-          cause = cause.cause;
-        }
-        // A refused socket cannot have admitted the refresh. Other failures
-        // may follow an accepted request, so do not repeat the mutation.
-        if (!refused || delay === 600) throw error;
+  const location = { directory };
+  for (const delay of [0, 150, 300, 600]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    try {
+      await client.rpc.call({ rpcID: "legalwork.managed-settings", method: "refresh", input: {}, location });
+      return;
+    } catch (error) {
+      if (delay === 600) throw error;
+      const api = findApiError(error);
+      const details = api?.details;
+      if (api?.status === 404 || (isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) {
+        // Catalog reads initialize native registrations. Wait for the handler to
+        // become available before treating an unopened project as a failure.
+        await client.model.list({ location });
+        continue;
       }
+      let cause: unknown = error;
+      const seen = new Set<unknown>();
+      let refused = false;
+      while (cause instanceof Error && !seen.has(cause)) {
+        seen.add(cause);
+        if ("code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused")) refused = true;
+        cause = cause.cause;
+      }
+      // A refused socket and a missing handler cannot admit the refresh.
+      if (!refused) throw error;
     }
-  };
-  try { await refresh(); }
-  catch (error) {
-    const api = findApiError(error);
-    const details = api?.details;
-    if (api?.status !== 404 && !(isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) throw error;
-    // Fresh locations activate external native registrations when their model
-    // catalog is read; public plugin/agent metadata alone does not do that.
-    await client.model.list({ location: { directory } });
-    await refresh();
   }
 }
 async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {

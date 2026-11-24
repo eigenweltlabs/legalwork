@@ -9,7 +9,7 @@ import { backOfficeAccess } from "../back-office/access.js";
 import { nativeMcpBinary, nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { startServer } from "../server.js";
 import { recordCompletedTask } from "./activity-workday.js";
-import { beginDocumentCapture, captureProfile, checkScheduledWorkday, workdayModelFailure } from "./routes.js";
+import { beginDocumentCapture, captureProfile, checkScheduledWorkday, prepareWorkday, workdayModelFailure } from "./routes.js";
 import { ApiError } from "../errors.js";
 import { connectedWorkdayModel, generateConnectedTimeText } from "./connected-model.js";
 
@@ -59,7 +59,7 @@ test.skipIf(!nativeMcpBinary)("retired providers advertised by the native engine
   } finally { await engine.close(); }
 }, 30_000);
 
-test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and respects the selected model", async () => {
+test.skipIf(!nativeMcpBinary)("inline suggestion generation groups sources and respects the selected model", async () => {
   const narrative = "Drafting Example";
   const prompts: string[] = [];
   let invalidResponse = true;
@@ -115,6 +115,12 @@ test.skipIf(!nativeMcpBinary)("explicit suggestion generation groups sources and
     const query = new URLSearchParams({ date, profileId: profile.profileId, scope: profile.scope, principal: profile.principal, user: profile.user });
     const url = `http://127.0.0.1:${server.port}/private-timesheet/workday?` + query;
     const request = async (action?: CaptureAction) => {
+      // The desktop's POST starts a chat. Exercise the inline reconstruction
+      // used without a chat launcher, then read its result from the desktop API.
+      if (action?.type === "suggest") {
+        await prepareWorkday(config, profile, date, action);
+        action = undefined;
+      }
       const response = await fetch(url, { method: action ? "POST" : "GET", headers: {
         authorization: "Bearer fixture", "x-legalwork-host-token": "host", "content-type": "application/json",
       }, body: JSON.stringify(action) });

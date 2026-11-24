@@ -257,17 +257,17 @@ describe("workspace activation", () => {
   test.each([400, 500])("explicit reload initializes a fresh location when native managed settings RPC is unavailable (HTTP %s)", async status => {
     const workspaceRoot = await createWorkspaceRoot();
     const requests: string[] = [];
-    let ready = false;
+    let modelReads = 0;
     const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
       const url = new URL(request.url);
       requests.push(url.pathname);
       expect(url.searchParams.get("location[directory]")).toBe(workspaceRoot);
       if (url.pathname === "/api/model") {
-        ready = true;
+        modelReads++;
         return Response.json({ location: { directory: workspaceRoot }, data: [] });
       }
       if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
-        return ready ? Response.json({ refreshed: true })
+        return modelReads === 2 ? Response.json({ refreshed: true })
           : Response.json({ _tag: "RpcError", type: "rpc.unavailable", message: "RPC is unavailable: legalwork.managed-settings" }, { status });
       }
       return new Response(null, { status: 404 });
@@ -278,7 +278,8 @@ describe("workspace activation", () => {
       method: "POST", headers: hostAuth(legalwork.hostToken),
     });
     expect(response.status).toBe(200);
-    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh", "/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
+    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh", "/api/model",
+      "/api/rpc/legalwork.managed-settings/refresh", "/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
   });
 
   test("does not retry an admitted settings handler that reports a different engine error", async () => {
