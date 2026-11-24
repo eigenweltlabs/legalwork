@@ -1,3 +1,4 @@
+import { useTimeEntryRemoval } from "./time-entry-removal";
 import type { TimeCaptureSheet } from "./time-record-sheet";
 import {
   labelForCode,
@@ -59,6 +60,8 @@ import {
   type RowValues,
 } from "./timesheet-row";
 import { AdjustmentRequest } from "./timesheet-adjustment";
+import { TimeEntryInput, useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration, isTimeAmountColumn } from "./time-duration";
 import { useTimesheetColumns } from "./timesheet-columns";
 import { useBookingReceipt } from "./time-booking-receipt";
 import { differentTimeValues, privateDraftConflict, type TimeRecordValues } from "./time-record-edits";
@@ -199,6 +202,7 @@ export function TimesheetLedger({
   onOriginal,
 }: Props) {
   const locale = useLocale();
+  const durationFormat = useTimeDurationFormat();
   const currentState = useRef(state);
   currentState.current = state;
   const uid = useId();
@@ -239,6 +243,7 @@ export function TimesheetLedger({
     const maximum = policy.activityLimits[entry.activity] ?? policy.maxMinutes;
     return entry.billableMinutes > maximum ? maximum : null;
   }
+  const removal = useTimeEntryRemoval();
   const own = person(state.userId);
   const restored = Object.entries(capture?.drafts ?? {}).find(([id, item]) =>
     item.date === date && item.values.workflow && !item.proposalDigest &&
@@ -883,7 +888,7 @@ export function TimesheetLedger({
         list = choices[column];
       return (
         <div role="gridcell" className="bo-grid-cell bo-time-input-cell" key={column}>
-          <input
+          <TimeEntryInput unstyled duration={isTimeAmountColumn(column)}
             data-column={column}
             aria-label={t(ledgerColumnKeys[column])}
             type={column === "date" ? "date" : "text"}
@@ -901,7 +906,7 @@ export function TimesheetLedger({
             inputMode={
               ["worked", "charge", "billableWork", "nonBillable"].includes(column) ? "numeric" : undefined
             }
-            onChange={(e) => field(row, column, e.currentTarget.value)}
+            onValueChange={value => field(row, column, value)}
             onBlur={(e) => {
               const value = e.currentTarget.value;
               const destination = e.relatedTarget;
@@ -980,7 +985,7 @@ export function TimesheetLedger({
           {entry.activity}
         </span>
       );
-    return row[column];
+    return isTimeAmountColumn(column) && row[column] !== "" ? formatTimeDuration(Number(row[column]), durationFormat) : row[column];
   }
   const activeValues = edit?.values ?? draft,
     activeMatter = matters.find((m) => m.label === activeValues.matter);
@@ -1082,12 +1087,12 @@ export function TimesheetLedger({
                 <button
                   disabled={busy}
                   aria-label={t("timesheets.ledger.decline")}
-                  onClick={() =>
-                    void run({
+                  onClick={async () => {
+                    if (await removal.confirm([entry.narrative])) void run({
                       type: "decline",
                       entries: [{ id: entry.id, revision: entry.revision }],
-                    })
-                  }
+                    });
+                  }}
                 >
                   <X size={13} />
                 </button>
@@ -1320,14 +1325,13 @@ export function TimesheetLedger({
                 {(["billableWork", "nonBillable", "charge"] as const).map((field) => (
                   <label key={field}>
                     {t(ledgerColumnKeys[field])}
-                    <input
+                    <TimeEntryInput unstyled
                       disabled={busy}
                       readOnly={field === "charge" && !participantAmounts(item.amounts).billable}
                       inputMode="numeric"
                       placeholder="0"
                       value={field === "charge" && !participantAmounts(item.amounts).billable ? "0" : participantAmounts(item.amounts)[field]}
-                      onChange={(e) => {
-                        const value = e.currentTarget.value;
+                      onValueChange={value => {
                         setParticipants((items) =>
                           items.map((p) =>
                             p.key === item.key
@@ -1389,7 +1393,7 @@ export function TimesheetLedger({
         <div className="bo-grid-summary bo-time-summary" aria-label={t("timesheets.ledger.totals")}>
           <div />
           {columns.map(column => <div key={column}>{column === "worked" || column === "charge"
-            ? <span aria-label={t(ledgerColumnKeys[column])}>{column === "worked" ? totals.worked : totals.charge} min</span> : null}</div>)}
+            ? <span aria-label={t(ledgerColumnKeys[column])}>{formatTimeDuration(column === "worked" ? totals.worked : totals.charge, durationFormat)}</span> : null}</div>)}
         </div>
       </div>
       {delegated.length > 0 && (
@@ -1412,6 +1416,7 @@ export function TimesheetLedger({
           </ul>
         </details>
       )}
+      {removal.dialog}
       {notice && <div className="bo-time-footer" role="status">{notice}</div>}
     </div>
   );

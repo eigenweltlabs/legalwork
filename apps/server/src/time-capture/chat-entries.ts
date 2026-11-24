@@ -55,15 +55,20 @@ export async function chatEntries(config: ServerConfig, state: TimesheetState, a
 
 const stale = () => new ApiError(409, "workday_entry_changed", "This entry changed. List the entries again and review its current revision.");
 
-export async function changeChatEntry(config: ServerConfig, state: TimesheetState, access: Access, input: EntryChange, guidelines: WorkdayGuideline[]) {
-  const actor = { ...access.actor, agentId: "timekeeping" };
-  const store = await backOfficeStore(config);
-  store.requireAccount(access.scope, actor);
+export async function chatEntryForChange(config: ServerConfig, state: TimesheetState, access: Access, input: EntryChange) {
   const row = (await chatEntries(config, state, access, input.date)).find(entry => entry.id === input.id);
   if (!row) throw new ApiError(404, "workday_entry", "This time entry is unavailable for the selected date.");
   if (row.revision !== input.revision) throw stale();
   if (input.action === "remove_entry" ? !row.removable : !row.editable)
     throw new ApiError(403, "workday_entry_locked", "This time entry is locked for the requested change.");
+  return row;
+}
+
+export async function changeChatEntry(config: ServerConfig, state: TimesheetState, access: Access, input: EntryChange, guidelines: WorkdayGuideline[]) {
+  const actor = { ...access.actor, agentId: "timekeeping" };
+  const store = await backOfficeStore(config);
+  store.requireAccount(access.scope, actor);
+  const row = await chatEntryForChange(config, state, access, input);
   const changes = input.action === "update_entry" ? { ...input.changes } : {};
   const newDate = changes.serviceDate ?? input.date;
   const entry = state.entries.find(item => item.id === row.id);
@@ -94,7 +99,7 @@ export async function changeChatEntry(config: ServerConfig, state: TimesheetStat
     if (changes.billableMinutes !== undefined) values.billableMinutes = changes.billableMinutes;
     if (resetClock) { values.serviceDate = newDate; values.startedAt = newDate; values.endedAt = null; }
     revision = store.transaction(() => {
-      // The interactive archive can merge disjoint changes. A chat removal is bound to the entire row the user reviewed.
+      // The one-time confirmation is bound to the entire row the user reviewed.
       const current = store.raw(access.scope, row.id);
       if (!current || current.revision !== input.revision || current.archivedAt || !ownRecord(access, current)) throw stale();
       if (!openRecord(current)) throw new ApiError(403, "workday_entry_locked", "This time entry is locked for the requested change.");

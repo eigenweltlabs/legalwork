@@ -3,11 +3,13 @@ import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { seedHostApprovalState } from "../domains/session/sync/session-sync";
 import type { RouteWorkspace } from "./route-workspaces";
 
+export type ApprovalWorkspace = Pick<RouteWorkspace, "id" | "workspaceType">;
+
 export const hostApprovalScope = (baseUrl: string, workspaceId: string) =>
   `host-approvals:${JSON.stringify([baseUrl.replace(/\/+$/, ""), workspaceId])}`;
 
 /** Each host owns its credentials, snapshot and failure state. */
-export async function refreshHostApprovals(client: LegalworkServerClient | null, workspaces: RouteWorkspace[],
+export async function refreshHostApprovals(client: LegalworkServerClient | null, workspaces: readonly ApprovalWorkspace[],
   current: () => boolean) {
   const local = { localClient: client, baseUrl: client?.baseUrl, token: client?.token };
   const sources = workspaces.flatMap(workspace => {

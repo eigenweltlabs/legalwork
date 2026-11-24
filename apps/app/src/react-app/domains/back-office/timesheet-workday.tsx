@@ -421,7 +421,7 @@ export function TimesheetWorkday({
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline key={date} date={date} bookings={timeline?.bookings ?? confirmed.filter(entry => entry.date === date).map(entry => ({ ...entry, key: entry.groupId ?? entry.id }))}
                 onCreateEntry={directory.permissions.edit ? timeline?.save : undefined} guidelines={capture.guidelines} appointments={appointments} proposals={proposals} drafts={drafts} state={state} view={view} selected={selected?.key}
-                headerActions={<div className="time-workspace-calendar-actions">
+                headerActions={zoomControls => <div className="time-workspace-calendar-actions">
                   {settings && settings.enabled !== false && <Button size="sm" variant="outline"
                     title={data?.checkedThrough ? t("timeWorkspace.coverageUntil", { time: new Date(data.checkedThrough).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : t("timeWorkspace.coverageNone")} disabled={running || refreshing || chatBusy || date > calendarDay(new Date())}
                     onClick={event => requestSuggestions(event.currentTarget)}>
@@ -431,6 +431,7 @@ export function TimesheetWorkday({
                   <TimeSelect modal={false} label={t("timeWorkspace.timelineView")} value={view} options={[
                     { id: "combined", name: t("timeWorkspace.combined") }, { id: "matters", name: t("timeWorkspace.byMatter") },
                   ]} onChange={value => { if (value === "combined" || value === "matters") choose(value); }} />
+                  {zoomControls}
                   <Button size="icon-sm" variant="ghost" aria-pressed={expanded}
                     aria-label={t(expanded ? "side_panel.restore_workspace" : "timeWorkspace.expandTimeline")}
                     title={t(expanded ? "side_panel.restore_workspace" : "timeWorkspace.expandTimeline")}

@@ -65,7 +65,7 @@ export function TimeWorkspaceChat({ client, identity, date, data, visible, sessi
     {host.render(sessionId ?? chat.data.day.sessionId, active ?? focused, {
       date: sessionId ? undefined : chat.data.day.date, model: saved, modelChanged,
       history: sessionId ? undefined : (before, limit, after) => client.privateTimeHistory(profileId, before, limit, after),
-      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read the day log, existing entries and drafts. For requested edits, translations or removals of saved entries use list_entries, update_entry and remove_entry with their current revisions. Read guidelines for each assigned matter, then publish grounded, client-ready drafts as you prepare them. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
+      context: "The selected workday is " + date + ". Use legalwork_timekeeping_workday to read the day log, existing entries and drafts. For requested edits of unaccepted suggestions use update_suggestion with the current key, digest and draftRevision; these stay private and retain their evidence. For requested edits, translations or removals of saved entries use list_entries, update_entry and remove_entry with their current revisions. Read guidelines for each assigned matter, then publish grounded, client-ready drafts as you prepare them. When requested, save reusable billing preferences through normal project instructions or a project version of the workflow-suggest-timesheet skill. Reconstructions use that skill and these project instructions.",
     })}
   </ChatWorkspaceContext.Provider>;
 }

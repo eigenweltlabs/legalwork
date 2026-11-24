@@ -194,17 +194,23 @@ async function editProposal(id: string, field: "textarea" | 'input[data-field="r
   assert.ok(input instanceof window.HTMLInputElement || input instanceof window.HTMLTextAreaElement);
   await act(async () => {
     input.focus();
-    input.value = value;
+    const setter = Object.getOwnPropertyDescriptor(input instanceof window.HTMLInputElement ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype, "value")?.set;
+    assert.ok(setter);
+    setter.call(input, value);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
     input.blur();
   });
   return input;
 }
 
 try {
+  localStorage.setItem("legalwork.timekeeping.duration-format", "minutes");
   // A refresh that removes the source must not send a private row to the directory.
   const active = capture({ proposals: [proposal], privateAvailable: true,
     wording: { [proposal.digest]: { narrative: "Generated private wording", activity: "RES" } } });
-  const { weekDates } = await import("../../src/react-app/domains/back-office/timesheet-row");
+  const { weekDates, periodDates } = await import("../../src/react-app/domains/back-office/timesheet-row");
   const additional = { ...savedRow, id: crypto.randomUUID(), values: { ...savedRow.values, recordedMinutes: 5, billableMinutes: 15 } };
   await render({ ...active, dates: weekDates(first) }, [workerContact, savedRow, additional]);
   const calendarMetrics = (day: string) => [...host.querySelectorAll(`.bo-time-week button:has(time[datetime="${day}"]) span`)].map(item => item.textContent);
@@ -289,7 +295,7 @@ try {
   const reconcile = { ...proposal, key: crypto.randomUUID() };
   await render(capture({ proposals: [reconcile], privateAvailable: true }), [workerContact, current]);
   await chooseProposalOption(proposalDetails(reconcile.key), t("timesheets.sheet.reconcile"),
-    String(current.values.billingNarrative || current.values.name) + " · " + String(current.values.recordedMinutes) + " min");
+    String(current.values.billingNarrative || current.values.name) + " · " + String(current.values.recordedMinutes));
   assert.deepEqual(privateActions.at(-1), { type: "reconcile", key: reconcile.key, digest: reconcile.digest, recordId: current.id, recordRevision: current.revision });
   assert.equal(visible(reconcile.key), false);
   assert.equal(writes.length, 3);
@@ -394,7 +400,7 @@ try {
     setSearch.call(search, "no matching narrative");
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  assert.deepEqual(summaryValues(), ["0 min", "0 min"], "both totals follow Back Office search");
+  assert.deepEqual(summaryValues(), ["0", "0"], "both totals follow Back Office search");
   await act(async () => button(host, t("integrations.clear_search")).click());
   assert.deepEqual(summaryValues(), originTotals);
   const offDayId = blank().dataset.recordId;
@@ -648,7 +654,16 @@ try {
   await options();
   await act(async () => menuItem(t("back_office.show_active_records")).click());
   await act(async () => row(archiveCandidate.id).querySelector<HTMLElement>('[role="checkbox"],input[type="checkbox"]')!.click());
+  const beforeRemoval = writes.length;
   await act(async () => button(host, t("back_office.archive")).click());
+  assert.equal(writes.length, beforeRemoval, "saved time remains until the user confirms");
+  let removalDialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  assert.ok(removalDialog.textContent?.includes(t("timesheets.remove.title")));
+  await act(async () => button(removalDialog, t("common.cancel")).click());
+  assert.equal(writes.length, beforeRemoval, "cancelling does not archive the selected entry");
+  await act(async () => button(host, t("back_office.archive")).click());
+  removalDialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  await act(async () => button(removalDialog, t("timesheets.remove.confirm")).click());
   assert.equal(writes.at(-1)?.archived, true);
   await options();
   await act(async () => menuItem(t("back_office.show_archive")).click());
@@ -663,6 +678,56 @@ try {
   root = createRoot(host);
   await render(capture());
   assert.ok(hasField("name"), "the default time-entry view retains its columns on remount");
+  // Exercise the actual format option, persisted minute payloads and every summary together.
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  directory.scope = "duration-fixture";
+  localStorage.removeItem("legalwork.timekeeping.duration-format");
+  const formatRow = { ...savedRow, id: crypto.randomUUID(), values: { ...savedRow.values, name: "Format fixture",
+    billingNarrative: "Format fixture", recordedMinutes: 138, billableMinutes: 98, status: "Draft", invoice: null } };
+  createdRows.set(formatRow.id, formatRow);
+  const formatCapture = capture({ dates: weekDates(first) });
+  await render(formatCapture, [workerContact, formatRow]);
+  assert.equal(cell(row(formatRow.id), 4).textContent, "2:18", "existing 138 minutes are never reinterpreted as HHMM input");
+  assert.deepEqual(summaryValues(), ["2:18", "1:38"]);
+  assert.deepEqual(calendarMetrics(first), ["2:18 · 1:38"]);
+  await render({ ...formatCapture, dates: periodDates(first, "month") }, [workerContact, formatRow]);
+  assert.deepEqual(calendarMetrics(first), ["2:18 · 1:38"], "month cells use the same duration format");
+  await render(formatCapture, [workerContact, formatRow]);
+  const hourInput = await enter(row(formatRow.id), 4, "138");
+  await act(async () => hourInput.blur());
+  assert.equal(writes.at(-1)?.values.recordedMinutes, 98, "default HHMM shorthand stores 98 minutes");
+  assert.equal(cell(row(formatRow.id), 4).textContent, "1:38");
+  const writesBeforeModeChange = writes.length;
+  await options();
+  await act(async () => menuItem(t("timeWorkspace.durationMinutes")).click());
+  assert.equal(localStorage.getItem("legalwork.timekeeping.duration-format"), "minutes");
+  assert.equal(cell(row(formatRow.id), 4).textContent, "98");
+  assert.deepEqual(calendarMetrics(first), ["98 · 98"]);
+  assert.deepEqual(summaryValues(), ["98", "98"]);
+  assert.equal(writes.length, writesBeforeModeChange, "format changes must not write time records");
+  await options();
+  const minuteInput = await enter(row(formatRow.id), 4, "138");
+  await act(async () => minuteInput.blur());
+  assert.equal(writes.at(-1)?.values.recordedMinutes, 138, "minute mode stores the complete number");
+  await options();
+  await act(async () => menuItem(t("timeWorkspace.durationHours")).click());
+  assert.equal(cell(row(formatRow.id), 4).textContent, "2:18");
+  await options();
+  // Private suggestion edits use the same format but must not accept a suggestion.
+  const formatProposal = { ...proposal, key: crypto.randomUUID() };
+  await render({ ...formatCapture, proposals: [formatProposal], privateAvailable: true }, [workerContact, createdRows.get(formatRow.id)!]);
+  const beforePrivateDuration = writes.length;
+  await editProposal(formatProposal.key, 'input[data-field="recordedMinutes"]', "138");
+  assert.equal(proposalDetails(formatProposal.key).querySelector<HTMLInputElement>('[data-field="recordedMinutes"]')?.value, "1:38");
+  assert.equal(writes.length, beforePrivateDuration);
+  const savedDurationDraft = privateActions.findLast(action => action.type === "draft" && action.key === formatProposal.key);
+  assert.ok(savedDurationDraft?.type === "draft");
+  assert.equal(savedDurationDraft.values.recordedMinutes, 98);
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await render(formatCapture, [workerContact, createdRows.get(formatRow.id)!]);
+  assert.equal(cell(row(formatRow.id), 4).textContent, "2:18", "reopening preserves format and stored time");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

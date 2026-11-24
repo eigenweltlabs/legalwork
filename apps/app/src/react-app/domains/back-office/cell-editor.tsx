@@ -1,6 +1,8 @@
 import { isInternalBackOfficeObject } from "@legalwork/types/back-office";
 import { allRecordsTarget, nativeKind } from "./native-model";
 import { NativeDateEditor } from "./native-date-editor";
+import { useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration, parseTimeDuration, isTimeDurationField } from "./time-duration";
 import { cellInputText, parseCellInput } from "./cell-input";
 import { FileCellEditor } from "./record-files";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -9,7 +11,7 @@ import { Plus, X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { ListItem } from "twenty-ui/primitives/navigation";
-import { Avatar } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import type {
   BackOfficeField,
   BackOfficeRecord,
@@ -54,6 +56,9 @@ export function CellEditor({
   onTab?: (event: KeyboardEvent<HTMLElement>) => void;
 }) {
   const locale = useLocale();
+  const duration = isTimeDurationField(record?.objectId, field.id);
+  const selectedFormat = useTimeDurationFormat();
+  const [format] = useState(selectedFormat);
   const creation = useRecordCreation();
   const [targetType,setTargetType] = useState("");
   const polymorphic = field.target === allRecordsTarget;
@@ -65,7 +70,7 @@ export function CellEditor({
       const date = new Date(value);
       return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     }
-    return cellInputText(value);
+    return duration && typeof value === "number" ? formatTimeDuration(value, format) : cellInputText(value);
   });
   const [month, setMonth] = useState(
     (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -160,7 +165,7 @@ export function CellEditor({
         if (event.key === "Tab" && onTab && canTab?.(event.shiftKey) !== false) {
           event.preventDefault(); event.stopPropagation();
           try {
-            const next = isChoices ? (multiple ? selected : query ? options[0]?.id : selected[0]) : parseCellInput(field.type, text, value);
+            const next = isChoices ? (multiple ? selected : query ? options[0]?.id : selected[0]) : (duration ? parseTimeDuration(text, format) : parseCellInput(field.type, text, value));
             if (isChoices && query && !options.length) { setError(t("back_office.invalid_value")); return; }
             void queue.current.then(() => save(next ?? null)).then(saved => { if (saved) onTab(event); });
           } catch (error) { setError(error instanceof Error ? error.message : t("back_office.invalid_value")); }
@@ -192,7 +197,7 @@ export function CellEditor({
             return;
           }
           try {
-            void save(parseCellInput(field.type, text, value));
+            void save((duration ? parseTimeDuration(text, format) : parseCellInput(field.type, text, value)));
           } catch (error) {
             setError(error instanceof Error ? error.message : t("back_office.invalid_value"));
           }
@@ -300,7 +305,7 @@ export function CellEditor({
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 type={
-                  field.type === "datetime"
+                  duration ? "text" : field.type === "datetime"
                     ? "datetime-local"
                     : field.type === "number" || field.type === "currency"
                       ? "number"

@@ -131,6 +131,36 @@ try {
   assert.equal(input("Matter name").value, "Name draft");
 
   await reset();
+  const timeObject = defaultBackOfficeModel().objects.find(item => item.id === "timeEntries");
+  assert.ok(timeObject);
+  const timeRecord = { ...original, objectId: "timeEntries", values: { name: "Saved entry", billingNarrative: "Reviewed a clause" } };
+  const archives: BackOfficeRecord[] = [];
+  const timeDetail = (record: BackOfficeRecord) => <RecordDetail client={client} team={false} historyAccessKey="local" record={record}
+    object={timeObject} records={[record]} editable finance userId="owner" width={400} onWidthChange={() => {}}
+    onClose={() => {}} onOpen={() => {}} onSave={async (entry, _values, archive) => { if (archive) archives.push(entry); }} />;
+  await render(timeDetail(timeRecord));
+  const archiveDetail = async () => {
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Record options"]')!.click());
+    const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === "Archive record");
+    assert.ok(action);
+    await act(async () => action.click());
+  };
+  const removalButton = (label: string) => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(item => item.textContent?.trim() === label);
+    assert.ok(button);
+    return button;
+  };
+  await archiveDetail();
+  assert.equal(archives.length, 0);
+  await act(async () => removalButton("Cancel").click());
+  assert.equal(archives.length, 0);
+  await archiveDetail();
+  await render(timeDetail({ ...timeRecord, revision: 2, values: { ...timeRecord.values, name: "Changed elsewhere" } }));
+  await act(async () => removalButton("Remove").click());
+  assert.equal(archives.length, 1);
+  assert.equal(archives[0].revision, 1, "deletion stays bound to the reviewed version for the server's revision check");
+
+  await reset();
   const view = BackOfficeViewSchema.parse({ id: crypto.randomUUID(), objectId: "matters", name: "Original view", columns: ["name"] });
   const viewWrites: { view: BackOfficeView; expected: BackOfficeView | null }[] = [];
   const grid = (current: BackOfficeView, scope = "editing-fixture") => <MemoryRouter initialEntries={[`/?viewId=${view.id}`]}>

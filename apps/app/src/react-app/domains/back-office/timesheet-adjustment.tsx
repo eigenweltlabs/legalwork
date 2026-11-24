@@ -1,3 +1,4 @@
+import { TimeEntryInput } from "./time-duration-controls";
 import { useState, type FormEvent } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import {
@@ -33,7 +34,7 @@ export function AdjustmentRequest({
     );
   async function send(event: FormEvent) {
     event.preventDefault();
-    if (working || !reason.trim() || !narrative.trim() || !/^\d+$/.test(minutes)) return;
+    if (working || !reason.trim() || !narrative.trim() || !/^\d+$/.test(minutes) || Number(minutes) > 1440) return;
     setWorking(true);
     try {
       if (
@@ -70,13 +71,10 @@ export function AdjustmentRequest({
           </label>
           <label>
             {t("timesheets.ledger.charge")}
-            <input
-              type="number"
+            <TimeEntryInput unstyled
               required
-              min="0"
-              max="1440"
               value={minutes}
-              onChange={(e) => setMinutes(e.target.value)}
+              onValueChange={setMinutes}
             />
           </label>
           <label>

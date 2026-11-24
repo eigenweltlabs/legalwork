@@ -5,6 +5,7 @@ import type { CaptureProposal, CaptureState } from "@legalwork/types/time-captur
 import { calendarTimeRange } from "../src/react-app/domains/calendar/calendar-range-selection";
 import { CalendarGrid } from "../src/react-app/domains/calendar/calendar-grid";
 import { calendarDisplayColor } from "../src/react-app/domains/calendar/calendar-colors";
+import { matterCalendarColor } from "../src/react-app/domains/back-office/matter-calendar-color";
 import { calendarDay } from "../src/react-app/domains/calendar/calendar-format";
 import { WorkdayTimeline } from "../src/react-app/domains/back-office/timesheet-workday-view";
 import { appointmentBookingId, appointmentSeed, rangeInstant } from "../src/react-app/domains/back-office/timeline-time-entry";
@@ -78,7 +79,7 @@ test("private day layouts share one calendar and preserve suggestion button attr
     expect(document.querySelectorAll("[data-calendar-column]").length).toBe(view === "combined" ? 1 : 2);
     const review = document.querySelector('button[data-proposal-id="review"]');
     const neutral = document.querySelector('button[data-proposal-id="unassigned"]');
-    expect(review?.getAttribute("class")).toContain(calendarDisplayColor("case").card);
+    expect(review?.getAttribute("class")).toContain(matterCalendarColor("case").card);
     expect(review?.textContent).toContain("Matter Example");
     expect(neutral?.getAttribute("class")).toContain(calendarDisplayColor(null).card);
     expect(neutral?.textContent).toContain("Unassigned matter");
@@ -120,7 +121,7 @@ test("saved private draft fields drive both calendar layouts and their accessibl
       const withoutTime = document.querySelector(`[data-proposal-id="${untimed.key}"]`);
       expect(timed?.getAttribute("aria-label")).toContain("Revised private wording");
       expect(timed?.getAttribute("aria-label")).toContain("Reassigned matter");
-      expect(timed?.className).toContain(calendarDisplayColor("replacement").card);
+      expect(timed?.className).toContain(matterCalendarColor("replacement").card);
       expect(timed?.textContent).not.toContain(proposal.narrative);
       expect(timed?.parentElement?.querySelector("[data-calendar-proposal-actions]")?.getAttribute("aria-label")).toBe("Revised private wording");
       expect(withoutTime?.getAttribute("aria-label")).toContain("Revised untimed wording · Unassigned matter");
@@ -128,6 +129,46 @@ test("saved private draft fields drive both calendar layouts and their accessibl
       expect(document.querySelector(`[data-proposal-id="${unassigned.key}"]`)?.getAttribute("aria-label")).toContain(unassigned.narrative);
       if (view === "matters") expect(timed?.closest('[data-calendar-column="matter-replacement"]')).not.toBeNull();
     }
+  }
+});
+
+test("recorded time keeps the same matter color as timed and untimed suggestions", () => {
+  for (const view of ["combined", "matters"] as const) {
+    const document = documentFor(renderToStaticMarkup(
+      <WorkdayTimeline date={date} state={state} proposals={[proposal, untimed]}
+        bookings={state.matters.map(matter => ({ key: matter.id, matterId: matter.id, narrative: matter.name,
+          startAt: clock("10:00:00"), endAt: clock("10:30:00") }))}
+        selected={undefined} view={view} onOpen={() => {}} />,
+    ));
+    const recorded = [...document.querySelectorAll("button[data-workday-booking]")];
+    expect(recorded).toHaveLength(2);
+    state.matters.forEach((matter, index) => {
+      expect(recorded[index].className).toContain(matterCalendarColor(matter.id).card);
+      for (const value of Object.values(matterCalendarColor(matter.id).style ?? {})) expect(recorded[index].getAttribute("style")).toContain(value);
+    });
+    expect(matterCalendarColor("case").style).not.toEqual(matterCalendarColor("replacement").style);
+    for (const key of [proposal.key, untimed.key]) {
+      expect(document.querySelector(`[data-proposal-id="${key}"]`)?.className).toContain(matterCalendarColor("case").card);
+    }
+  }
+});
+
+test("timed stopwatch and untimed document suggestions share matter, wording and source order", () => {
+  const document = documentFor(renderToStaticMarkup(
+    <WorkdayTimeline date={date} state={state} proposals={[{ ...proposal, source: "stopwatch" }, { ...untimed, source: "documents" }]}
+      selected={undefined} view="combined" onOpen={() => {}}
+      decisions={{ canAccept: true, onDecision: () => {}, onFocusedRemoval: () => {} }} />,
+  ));
+  for (const [key, wording, source, icon] of [
+    [proposal.key, proposal.narrative, "Stopwatch", ".lucide-timer"],
+    [untimed.key, untimed.narrative, "Project documents saved in LegalWork", ".lucide-file-text"],
+  ]) {
+    const button = document.querySelector(`button[data-proposal-id="${key}"]`);
+    const text = button?.textContent ?? "";
+    expect(button?.querySelector('[data-slot="badge"]')?.textContent).toBe("Matter Example");
+    expect(text.indexOf("Matter Example")).toBeLessThan(text.indexOf(wording));
+    expect(text.indexOf(source)).toBeGreaterThan(text.indexOf(wording));
+    expect(button?.querySelector(icon)).not.toBeNull();
   }
 });
 
@@ -171,7 +212,8 @@ test("the workday date and actions stay outside the scrolling hours in both day 
     const header = document.querySelector("[data-calendar-day-header]");
     const hours = document.querySelector("[data-calendar-time-grid]");
     expect(header?.textContent).toContain(String(anchor.getDate()));
-    expect(header?.querySelector("button")?.textContent).toBe("Calendar action");
+    expect(header?.textContent).toContain("Calendar action");
+    expect(header?.querySelector('button[aria-label="Zoom in"]')).not.toBeNull();
     expect(header?.nextElementSibling).toBe(hours);
     expect(hours?.querySelector("[data-calendar-hours]")).not.toBeNull();
   }

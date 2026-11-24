@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { THEME_DARK, THEME_LIGHT } from "twenty-ui/theme";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
+import { TimeEntryInput, useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration } from "./time-duration";
+import { matterCalendarColor } from "./matter-calendar-color";
+import type { CalendarColor } from "../calendar/calendar-colors";
+import { Bot, CalendarDays, CircleCheck, FileText, ListTodo, Mail, Mic, Monitor, PanelsTopLeft, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +32,17 @@ import { matchMatter, matterOptions } from "./timesheet-row";
 
 type Directory = Pick<TimesheetState, "matters" | "projects" | "policies">;
 type TimelineDirectory = Directory & Pick<TimesheetState, "clients" | "service">;
+function sourceIcon(source: CaptureProposal["source"]) {
+  if (source === "stopwatch") return Timer;
+  if (source === "recordings") return Mic;
+  if (source === "tasks") return ListTodo;
+  if (source === "desktop") return Monitor;
+  if (source === "workspace") return PanelsTopLeft;
+  if (source === "agent") return Bot;
+  if (source === "gmail" || source === "outlook") return Mail;
+  if (source === "calendar" || source === "google-calendar" || source === "outlook-calendar") return CalendarDays;
+  return FileText;
+}
 function matterFor(p: CaptureProposal, state: Directory) {
   const linked = p.source === "stopwatch" ? undefined : state.projects.find((project) => project.id === p.projectId)?.matterIds;
   return state.matters.find(matter => matter.id === p.matterId) ??
@@ -80,7 +98,7 @@ export function WorkdayTimeline({
   view: TimelineView;
   selected: string | undefined;
   editorId?: string;
-  headerActions?: ReactNode;
+  headerActions?: ReactNode | ((zoomControls: ReactNode) => ReactNode);
   onOpen: (p: CaptureProposal, trigger: HTMLButtonElement) => void;
   decisions?: {
     canAccept: boolean;
@@ -92,8 +110,11 @@ export function WorkdayTimeline({
   const anchor = useMemo(() => new Date(date + "T12:00:00"), [date]);
   const choices = useMemo(() => state.service === "records" ? undefined : matterOptions(state), [state]);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const durationFormat = useTimeDurationFormat();
   const unassigned = t("timesheets.workday.unassigned");
-  const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; items: CalendarDisplayOccurrence[] }>();
+  const mode = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
+  const color = (matterId: string | null) => matterCalendarColor(matterId, mode === "dark" ? THEME_DARK : THEME_LIGHT);
+  const groups = new Map<string | null, { id: string; title: string; colorKey: string | null; color: CalendarColor; items: CalendarDisplayOccurrence[] }>();
   const [opened, setOpened] = useState<{ id: string; trigger: HTMLButtonElement; container: HTMLElement }>();
   const selectedAppointment = opened && appointments.find(item => item.id === opened.id && opened.trigger.isConnected);
   const [conversion, setConversion] = useState<{ occurrence: string; key: string }>();
@@ -107,9 +128,9 @@ export function WorkdayTimeline({
   }, [date, appointmentId, state.userId, canCreateEntry]);
   const [entry, setEntry] = useState<{ key: string; seed: TimelineEntrySeed; container: HTMLElement; trigger: HTMLElement }>();
   const items: CalendarDisplayOccurrence[] = [...appointments];
-  const booked = new Map<string, CalendarDisplayOccurrence>();
+  const booked = new Map<string, { item: CalendarDisplayOccurrence; matterId: string | null }>();
   function putInLane(matterId: string | null, title: string, item: CalendarDisplayOccurrence) {
-    const lane = groups.get(matterId) ?? { id: matterId ? "matter-" + matterId : "unassigned", title, colorKey: matterId, items: [] };
+    const lane = groups.get(matterId) ?? { id: matterId ? "matter-" + matterId : "unassigned", title, colorKey: matterId, color: color(matterId), items: [] };
     lane.items.push(item);
     groups.set(matterId, lane);
   }
@@ -121,10 +142,10 @@ export function WorkdayTimeline({
       kind: "event", title: booking.narrative, start: booking.startAt, end: booking.endAt, allDay: false, timeZone, status: "active",
       assigneeUserId: null, provenance: null, verified: true, recurring: false };
     items.push(item);
-    booked.set(id, item);
+    booked.set(id, { item, matterId: matter?.id ?? null });
     if (view === "matters") putInLane(matter?.id ?? null, item.projectName, item);
   }
-  const selectedBooked = opened && booked.get(opened.id);
+  const selectedBooked = opened && booked.get(opened.id)?.item;
   const selectedItem = selectedAppointment || selectedBooked;
   const conversionKey = conversion?.occurrence === appointmentId ? conversion?.key : undefined;
   const alreadyConverted = conversionKey && bookings.some(booking => booking.key === conversionKey);
@@ -148,10 +169,10 @@ export function WorkdayTimeline({
     if (view === "matters") putInLane(matterId, item.projectName, item);
   }
   const lanes = [...groups.values()];
-  if (appointments.length) lanes.unshift({ id: "calendar", title: t("calendar.title"), colorKey: null, items: appointments });
+  if (appointments.length) lanes.unshift({ id: "calendar", title: t("calendar.title"), colorKey: null, color: color(null), items: appointments });
   return <><CalendarGrid view="day" maxVisibleHours={16} anchor={anchor} start={anchor} timeZone={timeZone} items={items} showProjects={false}
     dayLanes={view === "matters" ? lanes : undefined} headerActions={headerActions}
-    minimumEventSize={decisions ? { width: 92, height: 28 } : undefined}
+    minimumEventSize={{ width: 160, height: 44 }}
     label={t("timesheets.workday.timeline")} untimedLabel={t(appointments.some(item => item.allDay) ? "timeWorkspace.allDayAndUntimed" : "timeWorkspace.untimed")}
     nowLabel={time => t("timeWorkspace.now", { time })}
     onSelectTimeRange={onCreateEntry && ((date, start, end, lane, trigger) => {
@@ -160,19 +181,29 @@ export function WorkdayTimeline({
         matterId: lane.startsWith("matter-") ? lane.slice(7) : undefined, startAt: rangeInstant(date, start), endAt: rangeInstant(date, end) } });
     })}
     entryAppearance={item => {
-      if (booked.has(item.id)) return { secondaryLabel: t("timesheets.workday.booked"), buttonAttributes: { "data-workday-booking": true, "aria-haspopup": "dialog" } };
+      const booking = booked.get(item.id);
+      if (booking) return { color: color(booking.matterId), groupLabel: item.projectName, sourceLabel: t("timesheets.workday.booked"),
+        sourceIcon: <CircleCheck aria-hidden className="size-3 shrink-0" />,
+        buttonAttributes: { "data-workday-booking": true, "aria-haspopup": "dialog" } };
       const source = privateById.get(item.id);
       if (!source) return {
         secondaryLabel: t("calendar.title"),
         buttonAttributes: { "data-workday-appointment": true, "aria-haspopup": "dialog" },
       };
+      const SourceIcon = sourceIcon(source.proposal.source);
       return {
-        colorKey: source.matterId,
+        color: color(source.matterId),
+        groupLabel: item.projectName,
+        sourceLabel: t(sourceKeys[source.proposal.source]),
+        sourceIcon: <SourceIcon aria-hidden className="size-3 shrink-0" />,
+        durationLabel: item.allDay ? source.proposal.estimatedMinutes !== undefined
+          ? t("timeWorkspace.estimatedMinutes", { minutes: source.proposal.estimatedMinutes })
+          : source.proposal.workedMinutes === null ? undefined : formatTimeDuration(source.proposal.workedMinutes, durationFormat) : undefined,
         secondaryLabel: item.allDay ? [
           item.projectName,
           t(sourceKeys[source.proposal.source]),
           source.proposal.estimatedMinutes !== undefined ? t("timeWorkspace.estimatedMinutes", { minutes: source.proposal.estimatedMinutes })
-            : source.proposal.workedMinutes === null ? undefined : source.proposal.workedMinutes + " min",
+            : source.proposal.workedMinutes === null ? undefined : formatTimeDuration(source.proposal.workedMinutes, durationFormat),
         ].filter(Boolean).join(" · ") : item.projectName,
         buttonAttributes: {
           "data-proposal-id": item.id,
@@ -371,8 +402,8 @@ export function WorkdayCorrectionForm({
           <Input type="time" value={end} onChange={event => setEnd(event.currentTarget.value)} />
         </label>
         <label className="grid gap-1.5 text-sm">{t("timesheets.workday.worked")}
-          <Input type="number" min="1" max="1440" disabled={!!start || !!end}
-            value={start && end ? String(total ?? "") : actual} onChange={event => setActual(event.currentTarget.value)} />
+          <TimeEntryInput disabled={!!start || !!end}
+            value={start && end ? String(total ?? "") : actual} onValueChange={setActual} />
         </label>
         <label className="grid min-w-0 gap-1.5 text-sm">{t("timesheets.ledger.activity")}
           <TimeSelect label={t("timesheets.ledger.activity")} value={activity} options={[
@@ -389,8 +420,7 @@ export function WorkdayCorrectionForm({
       </label>}
       {split && <>
         <label className="grid gap-1.5 text-sm">{t("timesheets.workday.last_minutes")}
-          <Input type="number" min="1" max={total ? total - 1 : 1439} value={minutes}
-            onChange={event => setMinutes(event.currentTarget.value)} />
+          <TimeEntryInput value={minutes} onValueChange={setMinutes} />
         </label>
         <label className="grid gap-1.5 text-sm">{t("timesheets.workday.target")}
           <TimeSelect label={t("timesheets.workday.target")} value={target} options={options}

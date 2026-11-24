@@ -590,7 +590,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                   const field = data.model.objects.find(o => o.id === collision.current.objectId)?.fields.find(f => f.id === id);
                   if (!field) return null;
                   const display = (value: BackOfficeValue | undefined) => value == null || value === "" ? "∅" :
-                    <ValueDisplay field={field} value={value} records={records} onOpen={openRecord} />;
+                    <ValueDisplay objectId={collision.current.objectId} field={field} value={value} records={records} onOpen={openRecord} />;
                   return <section key={id}><strong>{field.label}</strong><dl>
                     <dt>{t("back_office.conflict.saved")}</dt><dd>{display(collision.current.values[id])}</dd>
                     <dt>{t("back_office.conflict.yours")}</dt><dd>{display(collision.proposed[id])}</dd>

@@ -1,3 +1,4 @@
+import { TimeDurationOptions } from "./time-duration-controls";
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { RotateCcw } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
@@ -65,6 +66,7 @@ export function useTimesheetColumns(scope: string, grid: RefObject<HTMLDivElemen
     },
     control: (
       <DirectoryMenu trigger={<Button variant="ghost" size="sm">{t("back_office.options")}</Button>}>
+        <TimeDurationOptions />
         <Dropdown.Header><Dropdown.Title>{t("back_office.visible_fields")}</Dropdown.Title></Dropdown.Header>
         {optional.map(field => (
           <Dropdown.OptionItem key={field} value={field} indicator="checkbox" selected={!hidden.includes(field)} closeOnSelect={false}

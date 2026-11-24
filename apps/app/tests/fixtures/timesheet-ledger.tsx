@@ -51,6 +51,10 @@ Object.defineProperty(window.HTMLElement.prototype, "ariaDisabled", {
   get() { return this.getAttribute("aria-disabled"); },
 });
 window.HTMLElement.prototype.getBoundingClientRect = function () {
+  if (this.hasAttribute("data-calendar-hours")) {
+    const grid = this.closest("[data-calendar-time-grid]");
+    return new window.DOMRect(0, -(grid?.scrollTop ?? 0), 52, Number.parseFloat(this.style.height));
+  }
   if (this.hasAttribute("data-panel") || this.hasAttribute("data-separator")) {
     return new window.DOMRect(this.offsetLeft, 0, this.offsetWidth || 1, 500);
   }
@@ -196,8 +200,29 @@ async function clip(element: Element, type: string, clipboard: DataTransfer) {
   });
 }
 try {
+  localStorage.setItem("legalwork.timekeeping.duration-format", "minutes");
   // Exercise the optional recorded-time allocations throughout the keyboard tests.
   localStorage.setItem("legalwork.timesheet.columns." + state.scope + ":" + state.userId, JSON.stringify(["worked"]));
+  await act(async () => root.render(<MemoryRouter><BackOfficeTheme><TimesheetLedger
+    state={{ ...state, entries: [{ ...base, status: "pending" }] }} initialDate={base.date} onCommand={send} /></BackOfficeTheme></MemoryRouter>));
+  const decline = () => {
+    const button = document.querySelector<HTMLButtonElement>('[aria-label="' + t("timesheets.ledger.decline") + '"]');
+    assert.ok(button);
+    return button;
+  };
+  const deletionChoice = (label: string) => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(item => item.textContent?.trim() === label);
+    assert.ok(button);
+    return button;
+  };
+  await act(async () => decline().click());
+  assert.equal(commands.length, 0);
+  await act(async () => deletionChoice(t("common.cancel")).click());
+  assert.equal(commands.length, 0);
+  await act(async () => decline().click());
+  await act(async () => deletionChoice(t("timesheets.remove.confirm")).click());
+  assert.deepEqual(commands.pop(), { type: "decline", entries: [{ id: base.id, revision: base.revision }] });
+  await act(async () => root.render(null));
   const suggestionId = crypto.randomUUID();
   await act(async () =>
     root.render(
@@ -642,7 +667,7 @@ try {
   assert.equal(correctedMinutes, null, "saving other fields preserves the separately marked estimate");
   assert.match(correction.textContent ?? "", /Estimated 8 min/);
   assert.match(correction.textContent ?? "", /Two recorded amendments/);
-  assert.equal(correction.querySelector<HTMLInputElement>('input[type=number]')?.value, "8");
+  assert.equal(correction.querySelector<HTMLInputElement>('input[inputmode=numeric]')?.value, "8");
   assert.equal(correctedRevision, 4);
   const splitControl = correction.querySelector<HTMLInputElement>("[role=checkbox]");
   assert.ok(splitControl, "calendar suggestions allow splitting");
@@ -1240,13 +1265,15 @@ try {
   };
 
   await renderWorkday();
+  const maximize = document.querySelector('button[aria-label="' + t("timeWorkspace.expandTimeline") + '"]');
+  assert.ok(maximize?.previousElementSibling?.querySelector('button[aria-label="' + t("calendar.zoom_in") + '"]'), "zoom is immediately to the left of maximize");
   await until(() => Boolean(block(inlineTimer)));
   assert.equal(workdayActions.some(action => action.type === "suggest"), false,
     "opening the workday reads its private state without starting a reconstruction");
   assert.ok(block(inlineTimer), "the default mode keeps the stopped timer visible");
   const appointments = () => [...document.querySelectorAll<HTMLButtonElement>("[data-workday-appointment]")];
   await until(() => appointments().length === 2);
-  assert.deepEqual(appointments().map(item => item.textContent).sort(), ["Calendargoogle-calendar appointment", "Calendaroutlook-calendar appointment"]);
+  assert.deepEqual(appointments().map(item => item.textContent?.match(/^Calendar.*? appointment/)?.[0]).sort(), ["Calendargoogle-calendar appointment", "Calendaroutlook-calendar appointment"]);
   assert.ok(appointments().every(item => !item.hasAttribute("data-proposal-id")));
   const expand = document.querySelector<HTMLButtonElement>('[aria-label="Expand day timeline"]')!;
   const panesBefore = [...document.querySelectorAll("[data-document-pane]")].map(pane => pane.getAttribute("data-document-pane"));
@@ -1566,7 +1593,7 @@ try {
   assert.ok(document.querySelector(`[data-calendar-untimed] [data-proposal-id="${unedited.key}"]`));
   await openProposal(exact);
   assert.equal(acceptFor(exact)?.disabled, false, "the worker may link an existing entry or review independently supported simultaneous work");
-  await selectPopup(t("timesheets.sheet.reconcile"), booked.narrative + " · " + booked.workedMinutes + " min");
+  await selectPopup(t("timesheets.sheet.reconcile"), booked.narrative + " · " + booked.workedMinutes);
   await until(() => !block(exact));
   assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
     type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7, draftRevision: 1,

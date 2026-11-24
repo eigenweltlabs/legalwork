@@ -1,3 +1,5 @@
+import { useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration, isTimeDurationField } from "./time-duration";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { backOfficeOptionLabel } from "./labels";
@@ -13,7 +15,8 @@ import {
   Tag as TagIcon,
   Type,
 } from "lucide-react";
-import { Avatar, Chip, Tag } from "twenty-ui/primitives/data-display";
+import { Chip, Tag } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import {
   backOfficeMajorAmount,
   type BackOfficeField,
@@ -78,18 +81,22 @@ export const RecordChip = memo(function RecordChip({
   );
 });
 export function ValueDisplay({
+  objectId,
   field,
   value,
   records,
   recordById,
   onOpen,
 }: {
+  objectId?: string;
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
   records: BackOfficeRecord[];
   recordById?: ReadonlyMap<string, BackOfficeRecord>;
   onOpen: (record: BackOfficeRecord) => void;
 }) {
+  const format = useTimeDurationFormat();
+  if (isTimeDurationField(objectId, field.id) && typeof value === "number") return <span>{formatTimeDuration(value, format)}</span>;
   if (value === null || value === undefined || value === "") return null;
   if (field.type === "relation")
     return (
@@ -141,7 +148,7 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
     return (
       <div className="bo-relation-values">
         {value.map((item) => (
-          <Tag key={typeof item === "string" ? item : item.id} color="gray">
+          <Tag key={typeof item === "string" ? item : item.id} color={selectColor(typeof item === "string" ? item : item.name)}>
             {typeof item === "string" ? item : item.name}
           </Tag>
         ))}

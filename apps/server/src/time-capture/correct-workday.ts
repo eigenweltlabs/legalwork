@@ -12,12 +12,18 @@ type Day = DraftStore & {
 };
 export function correctWorkday(saved: Day, date: string, command: WorkdayCorrection, zone: string,
   charge?: (proposal: CaptureProposal, split: boolean) => number | undefined,
-  matterOf = (proposal: CaptureProposal) => proposal.matterId) {
+  matterOf = (proposal: CaptureProposal) => proposal.matterId,
+  editedFields: ReadonlySet<"narrative" | "matter" | "activity" | "time"> = new Set(),
+  editor: "user" | "agent" = "user") {
   const day = saved.days[date] ?? [];
   const item = day.find((item) => item.proposal.key === command.key);
   if (!item || item.proposal.dismissed || item.proposal.digest !== command.digest)
     throw new ApiError(409, "private_workday_changed", "Refresh the proposal before editing it.");
   const parent = item.proposal;
+  // Preserve earlier user edits across later agent edits. Legacy corrections
+  // without provenance remain protected until their origin is established.
+  const userEdited = editor === "user" || Boolean(saved.drafts[parent.key]) ||
+    (item.userEdited ?? Boolean(parent.parentDigest));
   if (parent.source === "stopwatch" && command.projectId)
     throw new ApiError(400, "stopwatch_matter", "A stopwatch can be assigned directly to a matter.");
   const start = command.startAt ? Date.parse(command.startAt) : null,
@@ -71,16 +77,16 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     delete remaining.estimatedMinutes;
     delete remaining.estimateReason;
   }
-  const timeChanged = parent.estimatedMinutes !== remaining.estimatedMinutes || parent.startAt !== remaining.startAt || parent.endAt !== remaining.endAt ||
+  const timeChanged = editedFields.has("time") || parent.estimatedMinutes !== remaining.estimatedMinutes || parent.startAt !== remaining.startAt || parent.endAt !== remaining.endAt ||
     parent.workedMinutes !== remaining.workedMinutes;
-  const matterChanged = matterOf(parent) !== matterOf(remaining);
+  const matterChanged = editedFields.has("matter") || matterOf(parent) !== matterOf(remaining);
   if (matterChanged) delete remaining.workProductId;
   const assignmentChanged = matterChanged || parent.projectId !== remaining.projectId;
-  const activityChanged = parent.activity !== remaining.activity;
+  const activityChanged = editedFields.has("activity") || parent.activity !== remaining.activity;
   const chargeChanged = timeChanged || assignmentChanged || activityChanged;
   if (chargeChanged) remaining.chargeMinutes = charge?.(remaining, false);
   const replaced = [
-    ...(parent.narrative !== remaining.narrative ? ["name", "billingNarrative", "narrative"] : []),
+    ...(editedFields.has("narrative") || parent.narrative !== remaining.narrative ? ["name", "billingNarrative", "narrative"] : []),
     ...(activityChanged ? ["activity"] : []),
     ...(timeChanged ? ["worked", "billableWork", "billable", "workedMinutes", "recordedMinutes", "startedAt", "endedAt", "nonBillable", "nonBillableMinutes"] : []),
     ...(assignmentChanged ? ["matter", "matterId", "client", "clientId", "projectId", "workProduct", "workProductId", "workProductTitle", "createWorkProduct", "product", "productId", "createProduct"] : []),
@@ -91,6 +97,7 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
   saved.originals[parent.digest] = parent;
   saved.originals[remaining.digest] = remaining;
   item.proposal = remaining;
+  item.userEdited = userEdited;
   if (command.split) {
     // Only the interval a human assigned to each segment can carry an existing claim.
     const sourceClaims = claimsFor({ ...item, proposal: parent });
@@ -116,6 +123,6 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
     saved.originals[segment.digest] = segment;
     const eventKey = item.eventKey + "/" + segment.key;
     const claims = sourceClaims.flatMap(claim => part(claim, true));
-    day.push({ eventKey, proposal: segment, sourceDocumentTitle: item.sourceDocumentTitle, ...(claims.length ? { claims } : {}) });
+    day.push({ eventKey, proposal: segment, userEdited, sourceDocumentTitle: item.sourceDocumentTitle, ...(claims.length ? { claims } : {}) });
   }
 }

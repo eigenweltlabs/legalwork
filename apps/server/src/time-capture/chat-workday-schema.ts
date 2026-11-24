@@ -11,6 +11,16 @@ const entryChanges = z.strictObject({
 }).refine(value => Object.keys(value).length > 0, "Choose a field to update.");
 export const chatWorkdayAction = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("read"), date }),
+  z.strictObject({ action: z.literal("update_suggestion"), date, key: z.uuid(), digest: z.string().regex(/^[a-f0-9]{64}$/),
+    draftRevision: z.number().int().nonnegative(), changes: z.strictObject({
+      narrative: z.string().trim().min(1).max(2000).optional(),
+      matterId: z.string().min(1).max(200).nullable().optional(),
+      activity: z.string().trim().min(1).max(100).nullable().optional(),
+      recordedMinutes: z.number().int().min(1).max(1440).nullable().optional(),
+      startAt: z.iso.datetime({ offset: true }).nullable().optional(),
+      endAt: z.iso.datetime({ offset: true }).nullable().optional(),
+    }).refine(value => Object.keys(value).length > 0, "Choose a field to update.")
+      .refine(value => (value.startAt === undefined) === (value.endAt === undefined), "Provide both clock fields.") }),
   z.strictObject({ action: z.literal("list_entries"), date }),
   z.strictObject({ action: z.literal("update_entry"), ...entryRef, changes: entryChanges }),
   z.strictObject({ action: z.literal("remove_entry"), ...entryRef }),

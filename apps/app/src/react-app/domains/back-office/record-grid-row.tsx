@@ -1,3 +1,4 @@
+import { isTimeDurationField } from "./time-duration";
 import { t } from "@/i18n";
 import { memo, useId, useRef, type ReactNode, type KeyboardEvent } from "react";
 import type { BackOfficeField, BackOfficeRecord, BackOfficeValue } from "@legalwork/types/back-office";
@@ -94,7 +95,7 @@ export const RecordGridRow = memo(function RecordGridRow({
             }}
           >
             {inline && active && editing ? (
-              <InlineCellEditor preserveOnExit={sheet} commitUnchanged={sheet && record.revision === 0} field={field} value={valueFor(editing.base, field.id)}
+              <InlineCellEditor duration={isTimeDurationField(record.objectId, field.id)} preserveOnExit={sheet} commitUnchanged={sheet && record.revision === 0} field={field} value={valueFor(editing.base, field.id)}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={close} onError={onError}
                 canTab={canTab && (backward => canTab(column, backward))}
@@ -102,7 +103,7 @@ export const RecordGridRow = memo(function RecordGridRow({
             ) : field.id === "name" ? (
               <><RecordChip record={record} onOpen={onOpen} />{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}</>
             ) : (
-              <ValueDisplay field={field} value={valueFor(record, field.id)}
+              <ValueDisplay objectId={record.objectId} field={field} value={valueFor(record, field.id)}
                 records={records} recordById={recordById} onOpen={onOpen} />
             )}
             {active && !inline && editing && (

@@ -23,7 +23,7 @@ export function ConnectedCalendarEventDialog({ item, onClose, pane, footerAction
   const day = occurrenceDay(item);
   const endDay = item.end ? item.allDay ? calendarDay(shiftDay(new Date(`${item.end.slice(0, 10)}T12:00:00`), -1)) : occurrenceDay({ ...item, start: item.end }) : day;
   const date = formatCalendarDay(day, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  const color = calendarDisplayColor(details?.calendar.key ?? item.projectId, details?.calendar.color);
+  const color = calendarDisplayColor(details?.calendar.key ?? item.projectId ?? item.itemId, details?.calendar.color);
   const joinUrl = safeCalendarUrl(details?.conference?.url ?? null);
   const attendees = showAllAttendees ? details?.attendees ?? [] : details?.attendees.slice(0, 4) ?? [];
   const hasMain = Boolean(details?.description || details?.attendees.length);

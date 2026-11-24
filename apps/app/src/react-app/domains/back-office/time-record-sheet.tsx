@@ -1,4 +1,5 @@
-import { Input } from "@/components/ui/input";
+import { TimeEntryInput, useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration } from "./time-duration";
 import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -78,8 +79,8 @@ function RecordProposalField({ record, revision, field, disabled, errorId, onCom
   return field === "billingNarrative"
     ? <Textarea aria-invalid={errorId ? true : undefined} aria-describedby={errorId} value={typed ?? saved} maxLength={2000} rows={3} disabled={disabled}
         onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />
-    : <Input aria-invalid={errorId ? true : undefined} aria-describedby={errorId} type="number" data-field={field} min="0" max="1440" value={typed ?? saved} disabled={disabled}
-        onChange={event => change(event.currentTarget.value)} onBlur={event => commit(event.currentTarget.value)} />;
+    : <TimeEntryInput aria-invalid={errorId ? true : undefined} aria-describedby={errorId} data-field={field} value={typed ?? saved} disabled={disabled}
+        onValueChange={change} onBlur={() => commit(typed ?? saved)} />;
 }
 
 export function TimeRecordSheet(props: Props) {
@@ -90,6 +91,7 @@ export function TimeRecordSheet(props: Props) {
 
 function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onSaveView, edits, scope }: Props & { scope: string; edits: ReturnType<typeof timeRecordEdits> }) {
   const cache = useQueryClient();
+  const durationFormat = useTimeDurationFormat();
   const navigate = useNavigate();
   useSyncExternalStore(edits.subscribe, edits.snapshot, () => 0);
   const [validationAttempts, setValidationAttempts] = useState<Set<string>>(() => new Set());
@@ -677,7 +679,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         if (!canWrite(record) || !record.revision) throw new Error(t("back_office.save_failed"));
         await enqueue(record.id, async () => {
           const latest = currentRecords.current.get(record.id) ?? record;
-          if (!canWrite(latest) || edits.updates.has(record.id)) throw new Error(t("back_office.save_failed"));
+          if (!canWrite(latest) || edits.updates.has(record.id) || (archive && latest.revision !== record.revision)) throw new Error(t("back_office.save_failed"));
           const { record: saved } = responseSchema.parse(await writeBackOfficeRecord(client, directory, {
             id: latest.id, objectId: latest.objectId, revision: latest.revision, values: {}, archived: archive,
           }));
@@ -724,7 +726,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
               {[...conflictingTimeFields(change.values, change.conflict.fields)].map(id => {
                 const field = object.fields.find(field => field.id === id);
                 if (!field || !change.conflict) return null;
-                const show = (value: BackOfficeValue | undefined) => value == null || value === "" ? "∅" : <ValueDisplay field={field} value={value} records={records} onOpen={openRecord} />;
+                const show = (value: BackOfficeValue | undefined) => value == null || value === "" ? "∅" : <ValueDisplay objectId="timeEntries" field={field} value={value} records={records} onOpen={openRecord} />;
                 const saved = fieldValue(change.conflict.record, id);
                 const mine = fieldValue({ ...record, values: change.values }, id);
                 return <div key={id}><strong>{field.label}</strong><dl><dt>{t("back_office.conflict.saved")}</dt><dd>{show(saved)}</dd><dt>{t("back_office.conflict.yours")}</dt><dd>{show(mine)}</dd></dl></div>;
@@ -797,7 +799,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
           <TimeSelect label={t("timesheets.sheet.reconcile")} value="" disabled={!editable || busy}
             placeholder={t("timeWorkspace.chooseRecorded")} options={matches.map(entry => ({ id: entry.id,
-              name: String(entry.values.billingNarrative || entry.values.name) + " · " + String(entry.values.recordedMinutes) + " min",
+              name: String(entry.values.billingNarrative || entry.values.name) + " · " + formatTimeDuration(Number(entry.values.recordedMinutes), durationFormat),
             }))} onChange={id => {
               const match = matches.find(entry => entry.id === id);
               if (match) finishProposal(proposal, { type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });

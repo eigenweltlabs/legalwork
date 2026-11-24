@@ -1,5 +1,6 @@
 import { draftRules } from "@legalwork/types/time-capture";
-import { Input } from "@/components/ui/input";
+import { TimeEntryInput, useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration, isTimeAmountColumn } from "./time-duration";
 import { Textarea } from "@/components/ui/textarea";
 import { TimeSelect } from "./time-settings-controls";
 import { useId, useRef, useState } from "react";
@@ -29,6 +30,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
   canEdit: boolean;
 }) {
   const id = useId();
+  const durationFormat = useTimeDurationFormat();
   const directory = proposal.source === "stopwatch" ? { ...state, projects: [] } : state;
   const matters = matterOptions(directory), worker = workerOptions(state).find(person => person.id === state.userId);
   const { project, matter, clientId, policy: initialPolicy } = proposalAssignment(proposal, state);
@@ -251,10 +253,10 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
                 disabled={!canEdit || busy} options={matters.filter(item => !item.clientId || state.matters.find(m => m.id === item.matterId)?.clientIds.length === 1 || item.label === values.matter)
                   .map(({ label }) => ({ id: label, name: label }))}
                 onChange={value => change(column, value)} />
-            : <Input data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
+            : <TimeEntryInput duration={isTimeAmountColumn(column)} data-column={column} value={column === "charge" && !values.billable ? "0" : values[column]}
                 disabled={!canEdit || busy} readOnly={column === "charge" && !values.billable}
                 list={choices[column] ? id + column : undefined}
-                onChange={event => change(column, event.currentTarget.value)} onBlur={privateSave} />}
+                onValueChange={value => change(column, value)} onBlur={privateSave} />}
           {choices[column] && <datalist id={id + column}>{choices[column]?.map(value => <option key={value} value={value} />)}</datalist>}
         </label>
       ))}
@@ -279,7 +281,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
       </div>}
       {matches.length > 0 && <label>{t("timesheets.sheet.reconcile")}
         <TimeSelect label={t("timesheets.sheet.reconcile")} value="" disabled={!canEdit || busy} placeholder={t("timeWorkspace.chooseRecorded")}
-          options={matches.map(record => ({ id: record.id, name: String(record.values.billingNarrative || record.values.name) + " · " + String(record.values.recordedMinutes) + " min" }))}
+          options={matches.map(record => ({ id: record.id, name: String(record.values.billingNarrative || record.values.name) + " · " + formatTimeDuration(Number(record.values.recordedMinutes), durationFormat) }))}
           onChange={id => {
             const match = matches.find(record => record.id === id);
             if (match) updateSource({ type: "reconcile", key: proposal.key, digest: proposal.digest, recordId: match.id, recordRevision: match.revision });

@@ -15,10 +15,10 @@ import { captureProfile, registerWorkdayRoutes } from "./routes.js";
 import { digest } from "./private-workday.js";
 import { changeStopwatch, emptyStopwatch } from "./stopwatch.js";
 
-test("the chat must read each matter's effective guidelines before publishing its draft", async () => {
+test("the chat reads scoped guidelines, publishes privately and edits the same suggestion without replacing its evidence", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-chat-guidelines-"));
   try {
-    const config = backOfficeTestConfig(root);
+    const config = backOfficeTestConfig(root, { approval: { mode: "manual", timeoutMs: 100 } });
     const access = await backOfficeAccess(config);
     const store = await backOfficeStore(config);
     const owner = await captureProfile(config, access);
@@ -40,7 +40,7 @@ test("the chat must read each matter's effective guidelines before publishing it
       observedAt: date + "T11:00:00Z",
     }]));
     const guideline = { id: randomUUID(), name: "Lease wording", revision: 1, scope: "matter", targetId: matters[0].id,
-      effectiveFrom: date, rules: { instructions: "Name the lease provision reviewed." } };
+      effectiveFrom: date, rules: { instructions: "Name the lease provision reviewed.", minimumMinutes: 30 } };
     await mkdir(dirname(owner.path), { recursive: true });
     await writeFile(owner.path, JSON.stringify({ ...saved, lastRun: 0, settings: { calendar: false, tasks: false, documents: true, stopwatchMode: "evidence" },
       documentSaves: { [date]: documentSaves },
@@ -80,7 +80,56 @@ test("the chat must read each matter's effective guidelines before publishing it
     expect(Object.keys(persisted.accepted)).toHaveLength(0);
     const reviewedDay = await call({ action: "read" });
     expect(reviewedDay.suggestions.filter((item: { narrative: string }) => item.narrative === "Reviewed agreement"))
-      .toEqual([expect.objectContaining({ editable: false }), expect.objectContaining({ editable: false })]);
+      .toEqual([expect.objectContaining({ editable: true, replaceable: false }), expect.objectContaining({ editable: true, replaceable: false })]);
+    const timer = reviewedDay.suggestions.find((item: { narrative: string }) => item.narrative === "Reviewed agreement");
+    const shortTimer = await call({ action: "update_suggestion", key: timer.key, digest: timer.digest, draftRevision: timer.draftRevision,
+      changes: { startAt: date + "T10:00:00Z", endAt: date + "T10:00:15Z" } });
+    const namedTimer = await call({ action: "update_suggestion", key: timer.key, digest: shortTimer.suggestion.digest, draftRevision: shortTimer.draftRevision,
+      changes: { narrative: "Reviewed the short update." } });
+    expect(namedTimer.suggestion).toMatchObject({ workedMinutes: null, startAt: date + "T10:00:00Z", endAt: date + "T10:00:15Z" });
+    const suggestion = reviewedDay.suggestions.find((item: { narrative: string }) => item.narrative === "Reviewed the lease rent provision.");
+    const firstEdit = await call({ action: "update_suggestion", key: suggestion.key, digest: suggestion.digest,
+      draftRevision: suggestion.draftRevision, changes: { narrative: "Reviewed the rent adjustment provision." } });
+    const protectedDay = await call({ action: "read" });
+    expect(protectedDay.suggestions.find((item: { key: string }) => item.key === suggestion.key))
+      .toMatchObject({ editable: true, replaceable: false, evidence: [] });
+    const edited = JSON.parse(await readFile(owner.path, "utf8"));
+    const evidenceBefore = edited.days[date].find((item: { proposal: { key: string } }) => item.proposal.key === suggestion.key).claims;
+    expect(evidenceBefore.length).toBeGreaterThan(0);
+    // Simulate a form edit in another window. Changing minutes must retain unrelated private fields.
+    edited.drafts[suggestion.key] = { date, proposalDigest: firstEdit.suggestion.digest, revision: 3,
+      values: { billingNarrative: "The worker's wording", client: "preserved recipient", recordedMinutes: 15 } };
+    await writeFile(owner.path, JSON.stringify(edited));
+    const update = { action: "update_suggestion", key: suggestion.key, digest: firstEdit.suggestion.digest,
+      draftRevision: 3, changes: { recordedMinutes: 20 } };
+    await expect(call({ ...update, draftRevision: 2 })).rejects.toMatchObject({ code: "private_workday_changed" });
+    await expect(call({ ...update, changes: { matterId: randomUUID() } })).rejects.toMatchObject({ code: "private_workday_scope" });
+    const result = await call(update);
+    expect(result.suggestion).toMatchObject({ key: suggestion.key, workedMinutes: 20, chargeMinutes: 30, startAt: null, endAt: null });
+    expect(result.draft).toEqual({ billingNarrative: "The worker's wording", client: "preserved recipient" });
+    await expect(call(update)).rejects.toMatchObject({ code: "private_workday_changed" });
+    const changed = JSON.parse(await readFile(owner.path, "utf8"));
+    expect(changed.days[date]).toHaveLength(persisted.days[date].length);
+    expect(changed.days[date].find((item: { proposal: { key: string } }) => item.proposal.key === suggestion.key).claims).toEqual(evidenceBefore);
+    expect(changed.accepted).toEqual({});
+    expect((await call({ action: "list_entries" })).entries).toHaveLength(day.existingEntries.length);
+    // Resetting to the proposal's own text must also replace an intervening form override.
+    const wording = await call({ ...update, digest: result.suggestion.digest, draftRevision: result.draftRevision,
+      changes: { narrative: result.suggestion.narrative } });
+    expect(wording.draft).toEqual({ client: "preserved recipient" });
+    const guarded = JSON.parse(await readFile(owner.path, "utf8"));
+    const next = { ...update, digest: wording.suggestion.digest, draftRevision: wording.draftRevision };
+    guarded.pendingBookings[suggestion.key] = true;
+    await writeFile(owner.path, JSON.stringify(guarded));
+    await expect(call(next)).rejects.toMatchObject({ code: "private_booking_pending" });
+    delete guarded.pendingBookings[suggestion.key];
+    guarded.accepted[suggestion.key] = wording.suggestion.digest;
+    await writeFile(owner.path, JSON.stringify(guarded));
+    await expect(call(next)).rejects.toMatchObject({ code: "private_already_booked" });
+    const manualKey = randomUUID();
+    guarded.drafts[manualKey] = { date, values: { recordedMinutes: 10 }, revision: 1 };
+    await writeFile(owner.path, JSON.stringify(guarded));
+    await expect(call({ ...next, key: manualKey, draftRevision: 1 })).rejects.toMatchObject({ code: "private_workday_changed" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

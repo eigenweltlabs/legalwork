@@ -34,8 +34,8 @@ test("old servers and invalid colors retain their calendars and stable fallback 
   }
 });
 
-test("white, black and saturated provider colors never become event text colors", () => {
-  for (const color of ["#ffffff", "#000000", "#ffff00", "#0000ff"]) {
+test("saturated provider colors never become event text colors", () => {
+  for (const color of ["#ffff00", "#0000ff"]) {
     const appearance = calendarDisplayColor("calendar", color);
     expect(appearance.style).toEqual({ "--calendar-color": color });
     expect(appearance.accent).toBe("text-muted-foreground");

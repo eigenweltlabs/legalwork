@@ -1,3 +1,4 @@
+import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
 import { workdayRuleSources } from "../back-office/timesheet-schema.js";
 import { activeCaptureProfile as profile, captureProfile, timekeepingPreset } from "./profile.js";
 export { captureProfile } from "./profile.js";
@@ -48,8 +49,9 @@ import { recordingEvidence, recordingInput } from "./meeting-recording.js";
 import { readDesktopEvidence, recordDesktopSample, resetDesktopSampling, resolveDesktopForeground } from "./desktop-activity.js";
 import { announceSyncChange } from "../app-sync-events.js";
 import { chatSuggestions, workdayChatInstructions } from "./chat-workday.js";
-import { changeChatEntry, chatEntries } from "./chat-entries.js";
+import { changeChatEntry, chatEntries, chatEntryForChange } from "./chat-entries.js";
 import { chatWorkdayAction } from "./chat-workday-schema.js";
+import { updateChatSuggestion } from "./chat-suggestion.js";
 import { readWorkdayLog, saveWorkdayLog } from "./day-log.js";
 import { generateStructuredWorkday } from "./workday-model-passes.js";
 import { guidePdfText } from "./guideline-text.js";
@@ -400,7 +402,14 @@ type Preparation = { type: "suggest" | "calendar"; model?: WorkdayModel; runId?:
 
 function protectedProposal(s: Saved, item: WorkdayEvidence) {
   const p = item.proposal;
-  return p.dismissed || Boolean(p.parentDigest || s.drafts[p.key] || s.accepted[p.key] || s.reconciled[p.key]);
+  return p.dismissed || Boolean(item.userEdited || p.parentDigest || s.drafts[p.key] || s.accepted[p.key] || s.reconciled[p.key]);
+}
+/** Agent corrections survive reconstruction but may still be explicitly removed. */
+function removableSuggestion(s: Saved, item: WorkdayEvidence) {
+  const p = item.proposal;
+  return Boolean(item.generated || item.userEdited === false) && !p.dismissed && !(item.userEdited ?? Boolean(p.parentDigest)) &&
+    !s.drafts[p.key] && !s.accepted[p.key] && !s.reconciled[p.key] && !s.pendingBookings[p.key] &&
+    !s.draftClocks[p.key]?.booking;
 }
 /** Project the same keys and commitments for a read-only live preview and its eventual atomic save. */
 function matchProposals(saved: Saved, date: string, proposed: WorkdayEvidence[]) {
@@ -838,10 +847,35 @@ export function registerWorkdayRoutes(options: {
     const access = await backOfficeAccess(config);
     if ((await captureProfile(config, access)).path !== owner.path)
       throw new ApiError(409, "private_workday_changed", "The active timekeeping account changed.");
-    const state = await workdayContext(config, access, workspaces);
+    let state = await workdayContext(config, access, workspaces);
     if (input.action === "list_entries") return options.jsonResponse({ date, entries: await chatEntries(config, state, access, date) });
     if (input.action === "update_entry" || input.action === "remove_entry") {
       options.ensureWritable(config);
+      if (input.action === "remove_entry") {
+        const row = await chatEntryForChange(config, state, access, input);
+        const agent = await authenticateWikiAgentRequest(config, ctx.request);
+        if (!agent) throw new ApiError(403, "private_workday", "An authenticated Timekeeping chat is required.");
+        const matter = state.matters.find(item => item.id === row.matterId);
+        const decision = await ctx.approvals.requestApproval({
+          action: "timekeeping.entry.remove", workspaceId: workspace.id, sessionID: agent.sessionId, actor: agent.actor,
+          summary: "Remove this saved time entry?",
+          description: [row.date, matter?.name ?? String(row.matterId ?? ""), String(row.narrative ?? ""),
+            `Recorded: ${row.recordedMinutes ?? 0} min · Billable: ${row.billableMinutes ?? 0} min`,
+            "The entry will be removed from active time entries. Its history will be retained."].join("\n"),
+          paths: [],
+        }, ctx.request.signal, true);
+        if (!decision.allowed) throw new ApiError(403, "time_entry_removal_denied", "The user did not approve removing this time entry. Nothing was removed. Do not retry without a new user request.");
+        const currentAgent = await authenticateWikiAgentRequest(config, ctx.request);
+        const currentAccess = await backOfficeAccess(config);
+        if (!currentAgent || currentAgent.generation !== agent.generation || currentAgent.actor.scope !== "owner" ||
+            currentAccess.scope !== access.scope || currentAccess.actor.userId !== access.actor.userId ||
+            currentAccess.actor.principalKey !== access.actor.principalKey || !currentAccess.actor.edit ||
+            (await load(owner.path)).settings.enabled === false || ctx.request.signal.aborted)
+          throw new ApiError(409, "private_workday_changed", "Timekeeping access changed while confirmation was pending. Read the entries again.");
+        // Approval covers only the reviewed revision. Re-read workflow permissions and
+        // status as well as directory records before executing the removal.
+        state = await workdayContext(config, currentAccess, await workdayWorkspaces(config));
+      }
       if ((await profile(config)).path !== owner.path)
         throw new ApiError(409, "private_workday_changed", "The active timekeeping account changed.");
       return options.jsonResponse(await changeChatEntry(config, state, access, input, Object.values(initial.guidelines).flat()));
@@ -870,6 +904,20 @@ export function registerWorkdayRoutes(options: {
             billingPolicy: "Settings > Billing", baseline: "LegalWork defaults are 10-minute increments and a 120-minute limit before applicable overrides." }, receipt: digest([owner.profileId, date, matterId, guidelines, rules, projectRules]) };
       };
       if (input.action === "guidelines") return guidance(input.matterId);
+      if (input.action === "update_suggestion") {
+        options.ensureWritable(config);
+        if (saved.pendingBookings[input.key] || saved.draftClocks[input.key]?.booking?.pending)
+          throw new ApiError(409, "private_booking_pending", "This suggestion is being booked. Wait for the booking to finish.");
+        if (saved.accepted[input.key] || saved.reconciled[input.key])
+          throw new ApiError(409, "private_already_booked", "This suggestion has already been booked. It cannot be edited as a private suggestion.");
+        const current = saved.days[date]?.find(item => item.proposal.key === input.key);
+        if (!current || current.proposal.date !== date || !eligibleSource(current, accounts, saved.settings))
+          throw new ApiError(409, "private_workday_changed", "This suggestion is no longer available. Read the day again.");
+        updateChatSuggestion(saved, input, current.proposal, state, versions, workspaceIds, zone);
+        await save(owner.path, saved);
+        announceSyncChange(config, "backOffice");
+        return { suggestion: current.proposal, draftRevision: saved.drafts[input.key]?.revision ?? 0, draft: saved.drafts[input.key]?.values };
+      }
       if (collection) {
         if (collection.sourceFailure) throw new ApiError(503, "sources_failed", "A selected source could not be read. Retry the day.");
         await saveWorkdayLog(owner.path, date, zone, now.toISOString(), collection.eligible, collection.failedAccounts, collection.scannedAccounts);
@@ -890,7 +938,7 @@ export function registerWorkdayRoutes(options: {
       const available = remainingEvidence(all, day.filter(i => protectedProposal(saved, i)));
       const entries = await chatEntries(config, state, access, date);
       const revision = () => digest([visibleInputs(saved), log.collectedAt, entries, available.map(ref => [ref.item.eventKey, claimsFor(ref.item), ref.matter?.id]),
-        (saved.days[date] ?? []).map(i => [i.eventKey, i.proposal.digest, protectedProposal(saved, i)])]);
+        (saved.days[date] ?? []).map(i => [i.eventKey, i.proposal.digest, protectedProposal(saved, i), removableSuggestion(saved, i)])]);
       if (input.action === "read") {
         const rows = await visibleProposals(config, saved, date, accounts, false);
         const availableKeys = new Set(available.map(ref => ref.item.eventKey));
@@ -898,9 +946,13 @@ export function registerWorkdayRoutes(options: {
           activityCodes: timeActivities,
           observations: modelInput(available).map(({rules, priorDescriptions, ...facts}, i) => ({ ...facts, id: "e" + (i + 1) })),
           claimedObservations: modelInput(all.filter(ref => !availableKeys.has(ref.item.eventKey))).map(ref => ({ source: ref.source, title: ref.title, status: ref.status, agentVisibility: ref.agentVisibility, startAt: ref.startAt, endAt: ref.endAt })),
-          existingEntries: entries, suggestions: rows.map(i => ({ key: i.proposal.key, matterId: i.proposal.matterId, narrative: i.proposal.narrative,
+          existingEntries: entries, suggestions: rows.map(i => ({ key: i.proposal.key, digest: i.proposal.digest,
+            draftRevision: saved.drafts[i.proposal.key]?.revision ?? 0, matterId: i.proposal.matterId, narrative: i.proposal.narrative,
             startAt: i.proposal.startAt, endAt: i.proposal.endAt, recordedMinutes: i.proposal.workedMinutes, billableMinutes: i.proposal.chargeMinutes,
-            editable: Boolean(i.generated && !protectedProposal(saved, i)), draft: saved.drafts[i.proposal.key]?.values,
+            editable: !Boolean(i.proposal.dismissed || saved.accepted[i.proposal.key] || saved.reconciled[i.proposal.key] ||
+              saved.pendingBookings[i.proposal.key] || saved.draftClocks[i.proposal.key]?.booking?.pending),
+            replaceable: Boolean(i.generated && !protectedProposal(saved, i)), removable: removableSuggestion(saved, i),
+            draft: saved.drafts[i.proposal.key]?.values,
             evidence: available.flatMap((ref,j) => overlapsEvidence(ref.item, i) ? ["e" + (j+1)] : []) })) };
       }
       options.ensureWritable(config);
@@ -911,9 +963,17 @@ export function registerWorkdayRoutes(options: {
         if (!input.guidelineReceipts?.includes(guidance(id).receipt)) throw new ApiError(409, "workday_guidelines", "Read the guidelines for each assigned matter and include its current receipt.");
       const removable = day.filter(i => i.generated && !protectedProposal(saved, i));
       const remove = new Set(input.remove ?? []);
-      if ([...remove].some(key => !removable.some(i => i.proposal.key === key)))
-        throw new ApiError(409, "private_workday_changed", "Only unedited suggestions from this day can be replaced.");
+      if ([...remove].some(key => !day.some(i => i.proposal.key === key && removableSuggestion(saved, i))))
+        throw new ApiError(409, "private_workday_changed", "Only unaccepted suggestions without user edits can be removed. Agent-only edits do not prevent removal.");
       const keep = removable.filter(old => !remove.has(old.proposal.key) && !added.some(row => overlapsEvidence(row, old)));
+      // Remove explicitly selected agent-edited rows before merging, otherwise
+      // reconstruction protection would retain them through applyProposals.
+      saved.days[date] = day.flatMap(item => {
+        if (!remove.has(item.proposal.key)) return [item];
+        // Keep a rejection for an edited source interval (for example a
+        // stopwatch), so refreshing its source cannot bring it straight back.
+        return item.generated ? [] : [{ ...item, proposal: { ...item.proposal, dismissed: true } }];
+      });
       applyProposals(saved, date, [...keep, ...added]);
       if (input.complete) {
         saved.checkedThrough[date] = log.collectedAt;
@@ -1135,6 +1195,10 @@ export function registerWorkdayRoutes(options: {
               }
               if (action.type === "draft-patch") patchPrivateDraft(s, action);
               else writePrivateDraft(s, date, action);
+              if (changes !== null) {
+                const item = s.days[date]?.find(row => row.proposal.key === action.key);
+                if (item) item.userEdited = true;
+              }
             } else if (action.type === "reconcile") {
               const item = s.days[date]?.find(row => row.proposal.key === action.key);
               const proposal = item?.proposal;

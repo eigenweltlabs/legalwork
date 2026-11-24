@@ -1,3 +1,6 @@
+import { useTimeEntryRemoval } from "./time-entry-removal";
+import { TimeDurationOptions, useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration } from "./time-duration";
 import { RecordSearchFilters, RecordFilterChips } from "./record-search-filters";
 import { BackOfficeFilesSchema, backOfficeMajorAmount, backOfficeViewFilters, compareBackOfficeMoney, compileBackOfficeFilters, sumBackOfficeMoney } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
@@ -164,6 +167,7 @@ export function RecordGrid({
   onArchivedChange: (archived: boolean) => void;
 }) {
   const locale = useLocale();
+  const durationFormat = useTimeDurationFormat();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlViewId = searchParams.get("viewId");
   const initialView = views.find(
@@ -343,12 +347,16 @@ export function RecordGrid({
     if (scroll.current) scroll.current.scrollTop = 0;
   }, [query, sort, filters, archived, activeViewId]);
 
+  const removal = useTimeEntryRemoval();
   const bulkArchive = async () => {
     if (archiving) return;
     setArchiving(true);
     const failures: string[] = [];
+    const selectedRecords = selectable.filter(row => selectedIds.has(row.id));
     try {
-      for (const record of selectable.filter(row => selectedIds.has(row.id))) {
+      if (object.id === "timeEntries" && !archived &&
+          !await removal.confirm(selectedRecords.map(record => String(record.values.billingNarrative || record.values.name)))) return;
+      for (const record of selectedRecords) {
         try {
           await onSave(record, {}, !archived);
           setSelected(ids => ids.filter(id => id !== record.id));
@@ -508,7 +516,7 @@ export function RecordGrid({
       <div key={field.id}>
         {sheet?.sumFields?.includes(field.id) ? (
           <span data-total-field={field.id} aria-label={field.label}>
-            {rows.reduce((sum, row) => sum + (row.revision > 0 ? Number(row.values[field.id] ?? 0) : 0), 0)} min
+            {formatTimeDuration(rows.reduce((sum, row) => sum + (row.revision > 0 ? Number(row.values[field.id] ?? 0) : 0), 0), durationFormat)}
           </span>
         ) : field.id === "name" ? (
           <span className="bo-muted">{t("back_office.records_count", { count: rows.length })}</span>
@@ -520,7 +528,7 @@ export function RecordGrid({
         ) : null}
       </div>
     );
-  }), [layout, rows, visibleFields, locale, sheet?.sumFields]);
+  }), [layout, rows, visibleFields, locale, sheet?.sumFields, durationFormat]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
@@ -671,6 +679,7 @@ export function RecordGrid({
               </Button>
             }
           >
+            {object.id === "timeEntries" && <TimeDurationOptions />}
             <Dropdown.Header>
               <Dropdown.Title>{t("back_office.visible_fields")}</Dropdown.Title>
             </Dropdown.Header>
@@ -1083,6 +1092,7 @@ export function RecordGrid({
           </Popover.Positioner>
         </Popover.Portal>
       </Popover.Root>
+      {removal.dialog}
       {deletingView && (
         <DirectoryDialog
           title={t("back_office.delete_view")}

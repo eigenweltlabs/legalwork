@@ -1,3 +1,5 @@
+import { useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration, parseTimeDuration } from "./time-duration";
 import { t } from "@/i18n";
 import { cellInputText, parseCellInput } from "./cell-input";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -9,6 +11,7 @@ import type {
 
 export function InlineCellEditor({
   field,
+  duration = false,
   value,
   onSave,
   onCancel,
@@ -19,6 +22,7 @@ export function InlineCellEditor({
   preserveOnExit = false,
 }: {
   field: BackOfficeField;
+  duration?: boolean;
   value: BackOfficeValue | undefined;
   onSave: (value: BackOfficeValue) => Promise<void>;
   onCancel: (focus?: boolean) => void;
@@ -28,13 +32,15 @@ export function InlineCellEditor({
   canTab?: (backward: boolean) => boolean;
   onTab?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
-  const initial = field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
+  const selectedFormat = useTimeDurationFormat();
+  const [format] = useState(selectedFormat);
+  const initial = duration && typeof value === "number" ? formatTimeDuration(value, format) : field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
     ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
     : cellInputText(value);
   const [text, setText] = useState(initial);
   const completed = useRef(false);
-  const draft = useRef({ field, value, text, initial, onSave, onError });
-  draft.current = { field, value, text, initial, onSave, onError };
+  const draft = useRef({ field, value, text, initial, onSave, onError, duration, format });
+  draft.current = { field, value, text, initial, onSave, onError, duration, format };
   useEffect(() => {
     if (!preserveOnExit) return;
     const unsaved = () => !completed.current && draft.current.text !== draft.current.initial;
@@ -49,7 +55,7 @@ export function InlineCellEditor({
       if (!unsaved()) return;
       const draftCell = draft.current;
       const failed = (error: unknown) => draftCell.onError(error instanceof Error ? error.message : t("back_office.value_failed"));
-      try { void draftCell.onSave(parseCellInput(draftCell.field.type, draftCell.text, draftCell.value)).catch(failed); }
+      try { void draftCell.onSave(draftCell.duration ? parseTimeDuration(draftCell.text, draftCell.format) : parseCellInput(draftCell.field.type, draftCell.text, draftCell.value)).catch(failed); }
       catch (error) { failed(error); }
     };
   }, [preserveOnExit]);
@@ -62,7 +68,7 @@ export function InlineCellEditor({
     }
     try {
       onError("");
-      await onSave(parseCellInput(field.type, text, value));
+      await onSave(duration ? parseTimeDuration(text, format) : parseCellInput(field.type, text, value));
       onCancel(focus);
       return true;
     } catch (error) {
@@ -81,12 +87,13 @@ export function InlineCellEditor({
       aria-label={field.label}
       value={text}
       type={
-        field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : field.type === "number" || field.type === "currency"
+        duration ? "text" : field.type === "date" ? "date" : field.type === "datetime" ? "datetime-local" : field.type === "number" || field.type === "currency"
           ? "number"
           : field.type === "email"
             ? "email"
             : "text"
       }
+      inputMode={duration ? "numeric" : undefined}
       step="any"
       onFocus={(event) => event.target.select()}
       onChange={(event) => setText(event.target.value)}

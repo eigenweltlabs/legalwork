@@ -377,6 +377,12 @@ export function registerBackOfficeRoutes(options: {
       throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
     const memberId = timekeeperUserId === undefined ? undefined : z.string().min(1).max(200).parse(timekeeperUserId);
     const existing = body.objectId === "timeEntries" && typeof body.id === "string" ? store.raw(scope, body.id) : null;
+    if (body.objectId === "timeEntries" && body.archived === true) {
+      if (ctx.agentAccess || actor.agentId)
+        throw new ApiError(403, "time_entry_confirmation_required", "Remove saved time entries through the Timekeeping chat's remove_entry action. Each removal requires user confirmation.");
+      if (existing && body.revision !== existing.revision)
+        throw new ApiError(409, "time_entry_changed", "This time entry changed. Review it again before removing it.");
+    }
     const timekeeper = z.object({ timekeeper: z.string().optional().nullable() }).safeParse(body.values);
     const ownContact = timeMemberContactId(scope, actor.userId);
     const needsRoster = (memberId !== undefined && memberId !== actor.userId) || (existing?.values.timekeeper && existing.values.timekeeper !== ownContact)
@@ -390,6 +396,8 @@ export function registerBackOfficeRoutes(options: {
     if (memberId && !member) throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
     const recordableWorkers = new Set(roster.map(person => person.userId));
     const save = (record: unknown) => {
+      if (existing && body.archived === true && store.raw(scope, existing.id)?.revision !== body.revision)
+        throw new ApiError(409, "time_entry_changed", "This time entry changed. Review it again before removing it.");
       if (!member) return store.saveRecord(scope, actor, record, undefined, recordableWorkers);
       const value = z.object({ values: z.record(z.string(), BackOfficeValueSchema) }).passthrough().parse(record);
       return store.transaction(() => store.saveRecord(scope, actor, { ...value,

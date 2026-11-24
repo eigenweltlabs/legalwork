@@ -1,3 +1,5 @@
+import { useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration } from "./time-duration";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -19,6 +21,7 @@ export function TimesheetWeekTotals({ dates, date, totalsByDate, onDateChange }:
   onDateChange: (date: string) => void;
 }) {
   const locale = useLocale();
+  const format = useTimeDurationFormat();
   if (dates.length < 2) return null;
   const month = dates.length > 7;
   const weekdays = weekDates(dates[0]);
@@ -48,7 +51,7 @@ export function TimesheetWeekTotals({ dates, date, totalsByDate, onDateChange }:
                     <button type="button" aria-pressed={day === date}
                       title={`${recorded} · ${billable}`} aria-label={`${fullDate.format(localDay)}. ${recorded}. ${billable}.`} onClick={() => onDateChange(day)}>
                       <time dateTime={day}>{localDay.getDate()}</time>
-                      <span>{totals?.worked ?? 0} · {totals?.charge ?? 0}</span>
+                      <span>{formatTimeDuration(totals?.worked ?? 0, format)} · {formatTimeDuration(totals?.charge ?? 0, format)}</span>
                     </button>
                   </td>
                 );

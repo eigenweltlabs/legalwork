@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TimeEntryInput } from "./time-duration-controls";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { draftRules, workdayBillableMinutes, type WorkdayGuideline } from "@legalwork/types/time-capture";
@@ -117,7 +118,7 @@ export function TimelineEntryDialog({ seed, requestId, container, trigger, state
           <label className="grid gap-1">{t("timesheets.workday.end")}<Input aria-label={t("timesheets.workday.end")} aria-invalid={attempted && !durationValid} type="time" value={end} onChange={e => setEnd(e.target.value)} />
             {fieldError(!durationValid, t("timesheets.workday.invalid"))}</label>
         </div> : <label className="grid gap-1">{t("timesheets.workday.worked")}
-          <Input aria-label={t("timesheets.workday.worked")} aria-invalid={attempted && !durationValid} type="number" min={1} max={1440} value={minutes} onChange={e => setMinutes(e.target.value)} />
+          <TimeEntryInput aria-label={t("timesheets.workday.worked")} aria-invalid={attempted && !durationValid} value={minutes} onValueChange={setMinutes} />
           {fieldError(!durationValid, t("timesheets.ledger.valid_worked"))}</label>}
         <label className="flex items-center gap-2"><Checkbox checked={billable} onCheckedChange={setBillable} />{t("timesheets.ledger.change.billable")}</label>
         {durationValid && charge !== undefined && <p className="text-xs text-muted-foreground">{t("timeWorkspace.entryMinutes", { worked, charge })}</p>}

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -32,6 +33,32 @@ test("the private chat translates or removes saved records and workflow entries 
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = await ensureWikiAgentToken(config);
     plugin = await nativePluginTools(ProjectPlugin, { directory: config.workspaces[0].path, sessionID: "workday-source-test" });
     const workday = plugin.tool.legalwork_timekeeping_workday;
+    const hostHeaders = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
+    const base = "http://127.0.0.1:" + server.port;
+    const pendingSchema = z.object({ items: z.array(z.object({ id: z.string(), sessionID: z.string(), workspaceId: z.string(),
+      action: z.string(), canRemember: z.boolean(), description: z.string() })) });
+    const pending = async () => pendingSchema.parse(await (await fetch(base + "/approvals", { headers: hostHeaders })).json()).items;
+    const withDecision = async <T>(operation: Promise<T>, reply: "allow" | "deny", before?: () => void) => {
+      void operation.catch(() => {});
+      let requests = await pending();
+      for (let attempt = 0; !requests.length && attempt < 50; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        requests = await pending();
+      }
+      expect(requests).toHaveLength(1);
+      const request = requests[0];
+      expect(request).toMatchObject({ action: "timekeeping.entry.remove", sessionID: "workday-source-test", workspaceId: "time-review", canRemember: false });
+      expect(request.description).toContain("Recorded:");
+      before?.();
+      const body = { reply, sessionID: request.sessionID, workspaceId: request.workspaceId };
+      // The agent cannot answer its own approval or create a permanent deletion grant.
+      expect((await fetch(base + "/approvals/" + request.id, { method: "POST", headers: { Authorization: "Bearer " + config.token,
+        "Content-Type": "application/json" }, body: JSON.stringify(body) })).status).toBe(401);
+      expect((await fetch(base + "/approvals/" + request.id, { method: "POST", headers: hostHeaders,
+        body: JSON.stringify({ ...body, reply: "always" }) })).status).toBe(404);
+      expect((await fetch(base + "/approvals/" + request.id, { method: "POST", headers: hostHeaders, body: JSON.stringify(body) })).status).toBe(200);
+      return operation;
+    };
     const store = await backOfficeStore(config);
     const client = store.saveRecord(scope, actor, { revision: 0, objectId: "clients", values: { name: "Example" } });
     const matter = store.saveRecord(scope, actor, { revision: 0, objectId: "matters", values: { name: "Lease", clients: [client.id] } });
@@ -60,8 +87,27 @@ test("the private chat translates or removes saved records and workflow entries 
     expect(store.raw(scope, retained.id)?.values).toEqual({ ...retained.values, name: translation, billingNarrative: translation });
     await expect(chat({ action: "update_entry", ...ref, changes: { narrative: "Stale" } })).rejects.toThrow("(409)");
     await expect(chat({ action: "remove_entry", ...ref })).rejects.toThrow("(409)");
+    const removable = placeholders[0];
+    const remove = () => workday.execute({ action: "remove_entry", date, id: removable.id, revision: removable.revision });
+    await expect(withDecision(remove(), "deny", () => expect(store.raw(scope, removable.id)?.archivedAt).toBeNull())).rejects.toThrow("did not approve");
+    expect(store.raw(scope, removable.id)?.archivedAt).toBeNull();
+    // The generic archive tool must not bypass the chat confirmation.
+    await expect(plugin.tool.legalwork_back_office_save.execute({ id: removable.id, objectId: "timeEntries", revision: removable.revision,
+      values: {}, archived: true })).rejects.toThrow("requires user confirmation");
+    const concurrent = add("Concurrent edit");
+    await expect(withDecision(chat({ action: "remove_entry", date, id: concurrent.id, revision: concurrent.revision }), "allow", () => {
+      store.saveRecord(scope, actor, { id: concurrent.id, objectId: "timeEntries", revision: concurrent.revision, values: { name: "Changed while pending" } });
+    })).rejects.toThrow("(409)");
+    expect(store.raw(scope, concurrent.id)?.archivedAt).toBeNull();
+    await withDecision(chat({ action: "remove_entry", date, id: concurrent.id, revision: concurrent.revision + 1 }), "allow");
+    const timedOut = add("Unanswered removal");
+    await expect(chat({ action: "remove_entry", date, id: timedOut.id, revision: timedOut.revision })).rejects.toThrow("did not approve");
+    expect(store.raw(scope, timedOut.id)?.archivedAt).toBeNull();
+    expect(await pending()).toEqual([]);
+    await withDecision(chat({ action: "remove_entry", date, id: timedOut.id, revision: timedOut.revision }), "allow");
     for (const entry of placeholders) {
-      expect(JSON.parse(await workday.execute({ action: "remove_entry", date, id: entry.id, revision: entry.revision }))).toMatchObject({ removed: true });
+      expect(JSON.parse(await withDecision(workday.execute({ action: "remove_entry", date, id: entry.id, revision: entry.revision }), "allow",
+        () => expect(store.raw(scope, entry.id)?.archivedAt).toBeNull()))).toMatchObject({ removed: true });
       expect(store.raw(scope, entry.id)?.archivedAt).toBeTruthy();
       expect(store.history(scope, actor, entry.id).length).toBeGreaterThan(1);
     }
@@ -77,7 +123,11 @@ test("the private chat translates or removes saved records and workflow entries 
       after: { narrative: translation, workedMinutes: 19, billableMinutes: 20, hourlyRate: 150 },
     });
     const nextRevision = (await chat({ action: "update_entry", date, id: workflow.id, revision, changes: { recordedMinutes: 22, billableMinutes: 30 } })).revision;
-    await chat({ action: "remove_entry", date, id: workflow.id, revision: nextRevision });
+    await withDecision(chat({ action: "remove_entry", date, id: workflow.id, revision: nextRevision }), "allow", () => {
+      const pendingEntry = readTimeDocument(store, scope, workflow.id);
+      expect(pendingEntry?.kind === "entry" && pendingEntry.value.status).not.toBe("declined");
+    });
+    expect(await pending()).toEqual([]);
     const withdrawn = readTimeDocument(store, scope, workflow.id);
     expect(withdrawn?.kind === "entry" && withdrawn.value).toMatchObject({ status: "declined", history: expect.arrayContaining([expect.objectContaining({ action: "withdraw" })]) });
     expect((await list()).entries).toMatchObject([{ id: retained.id, revision: translated.revision, narrative: translation }]);

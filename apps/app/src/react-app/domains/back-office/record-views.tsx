@@ -7,7 +7,8 @@ import {
   ChevronRight,
   Plus,
 } from "lucide-react";
-import { Avatar, Tag } from "twenty-ui/primitives/data-display";
+import { Tag } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import { Button } from "twenty-ui/primitives/input";
 import { Card, Popover } from "twenty-ui/primitives/surfaces";
 import { DatePicker } from "twenty-ui/components/input";
@@ -71,7 +72,7 @@ function Property({
         <span className="bo-muted">{field.label}</span>
       ) : null
     ) : (
-      <ValueDisplay
+      <ValueDisplay objectId={record.objectId}
         field={field}
         value={value}
         records={props.localIds?.has(record.id) ? props.localChoices ?? [] : props.records}

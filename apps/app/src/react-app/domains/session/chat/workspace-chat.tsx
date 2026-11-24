@@ -5,6 +5,7 @@ import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../sync/s
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { createClient } from "@/app/lib/opencode";
 import { useSessionInteractions } from "../sync/use-session-interactions";
+import { useHostApprovalSync } from "@/react-app/shell/use-host-approval-sync";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
 import { useModelPicker } from "../modals/use-model-picker";
 import { ModelPickerModal } from "../modals/model-picker-modal";
@@ -39,6 +40,10 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
     const releaseSession = trackWorkspaceSessionSync(input, props.sessionId);
     return () => { releaseSession(); releaseWorkspace(); };
   }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken, props.sessionId]);
+  // Embedded chats (including private Timekeeping) need their own approval feed;
+  // the navigation workspace list can omit them or refresh while a tool waits.
+  const approvalWorkspaces = useMemo(() => [{ id: props.workspaceId }], [props.workspaceId]);
+  useHostApprovalSync(props.client, approvalWorkspaces, props.sessionId);
   const interactions = useSessionInteractions({ client, serverClient: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: props.workspaceRoot });
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);

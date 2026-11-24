@@ -8,7 +8,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
-import { Avatar } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import {
   BackOfficeHistoryPageSchema,
