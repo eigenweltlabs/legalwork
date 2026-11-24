@@ -1539,12 +1539,16 @@ export function SessionRoute() {
   }, [engineReloadVersion, opencodeClient,selectedWorkspaceRoot]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
-    const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
+    // Settings uses a standard project connection, independent of the private chat workspace.
+    const settingsWorkspaceId = workspaces.some(workspace => workspace.id === workspaceId && isTimekeepingProject(workspace))
+      ? sidebarWorkspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id ?? sidebarWorkspaces[0]?.id ?? ""
+      : workspaceId;
+    const sessionId = settingsWorkspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
     const tab = route.replace(/^\/settings\/?/, "").replace(/^\/+|\/+$/g, "") || "general";
-    const target = workspaceId ? workspaceSettingsRoute(workspaceId, tab) : route;
-    writeActiveWorkspaceId(workspaceId || null);
-    navigate(target, { state: { workspaceId, sessionId } });
-  }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
+    const target = settingsWorkspaceId ? workspaceSettingsRoute(settingsWorkspaceId, tab) : route;
+    writeActiveWorkspaceId(settingsWorkspaceId || null);
+    navigate(target, { state: { workspaceId: settingsWorkspaceId, sessionId } });
+  }, [navigate, selectedSessionId, selectedWorkspaceId, sidebarActiveWorkspaceId, sidebarWorkspaces, workspaces]);
 
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !opencodeClient) {
