@@ -40,12 +40,13 @@ type RowProps = {
   onSelect: (id: string, checked: boolean) => void;
   onMove: (event: KeyboardEvent<HTMLElement>, row: number, column: number) => void;
   onOpen: (record: BackOfficeRecord) => void;
+  openOnRowClick?: boolean;
   onSave: (record: BackOfficeRecord, values: Record<string, BackOfficeValue>) => Promise<void>;
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
   sheet, blank, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
-  selected, editing, readOnlyFields, allowedRelationIds, canTab, onEdit, onError, onSelect, onMove, onOpen, onSave,
+  selected, editing, readOnlyFields, allowedRelationIds, canTab, onEdit, onError, onSelect, onMove, onOpen, openOnRowClick, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
@@ -53,13 +54,18 @@ export const RecordGridRow = memo(function RecordGridRow({
   return (
     <div
       onFocus={onFocus}
+      onClick={openOnRowClick ? event => {
+        if (event.defaultPrevented || !(event.target instanceof Element) ||
+          event.target.closest('a, button, input, select, textarea, [role="button"], [role="checkbox"]')) return;
+        onOpen(record);
+      } : undefined}
       role="row"
       data-record-id={record.id}
       data-sheet-blank={blank || undefined}
       data-index={index}
       ref={measure}
       aria-rowindex={index + 2}
-      className={`bo-grid-row ${details ? "bo-grid-row-detail" : ""} ${selected ? "bo-row-selected" : ""}`}
+      className={`bo-grid-row ${details ? "bo-grid-row-detail" : ""} ${selected ? "bo-row-selected" : ""} ${openOnRowClick ? "cursor-pointer" : ""}`}
       style={{ gridTemplateColumns: template, transform: top === undefined ? undefined : `translateY(${top}px)` }}
     >
       <div className="bo-check-cell">
@@ -82,14 +88,14 @@ export const RecordGridRow = memo(function RecordGridRow({
           <div key={field.id} role="gridcell" tabIndex={0}
             className={`bo-grid-cell ${localOnly && field.id === "name" ? "bo-local-name" : ""} ${inline && active ? "bo-inline-cell" : ""}`}
             data-row={index} data-col={column}
-            aria-haspopup={canEdit && !inline ? "dialog" : undefined}
+            aria-haspopup={openOnRowClick || (canEdit && !inline) ? "dialog" : undefined}
             aria-controls={active && !inline ? popupId : undefined}
             aria-expanded={canEdit && !inline ? active : undefined}
             onClick={event => edit(event.currentTarget)}
             onKeyDown={event => {
-              if (event.target === event.currentTarget && (event.key === "Enter" || (!inline && event.key === " "))) {
+              if (event.target === event.currentTarget && (event.key === "Enter" || ((openOnRowClick || !inline) && event.key === " "))) {
                 if (canEdit) { event.preventDefault(); edit(event.currentTarget); }
-                else if (field.id === "name" && !record.objectId.startsWith("@")) {
+                else if (openOnRowClick || (field.id === "name" && !record.objectId.startsWith("@"))) {
                   event.preventDefault();
                   onOpen(record);
                 }

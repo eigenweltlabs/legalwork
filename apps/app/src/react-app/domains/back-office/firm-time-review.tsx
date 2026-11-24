@@ -81,7 +81,7 @@ export function FirmTimeReview({ state, directory, dates, onCommand, columnScope
   const blocked = busy || stale;
   return <div ref={container} className="relative isolate min-h-0 flex flex-1 flex-col">
     {rows.length ? <RecordGrid object={object} records={rows} views={[]} finance userId={state.userId}
-      editable={false} archived={false} lockedSchema columnScope={columnScope}
+      editable={false} archived={false} lockedSchema openOnRowClick columnScope={columnScope}
       onSave={async () => {}} onCreate={() => {}} onSaveView={onSaveView}
       onOpen={record => {
         const entry = entries.get(record.id);

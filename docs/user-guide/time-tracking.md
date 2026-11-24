@@ -63,6 +63,8 @@ For example, a reviewed six-minute rounding rule can suggest **17 Recorded / 18 
 
 Each saved entry has its own status. With the full workflow, submit a period from **Time entries**. An authorized reviewer can check hours, pricing, manual wording and suggested corrections. Issuing a bill links the included entries to the invoice. Approved changes to a previously issued entry use a correction linked to the original invoice.
 
+In a shared workspace, open **Review** and choose the service date or range. Click anywhere on an entry’s row to open its review. Use the checkboxes to select multiple entries for **Approve selection**.
+
 ## Create an invoice
 
 In the full workflow, open **Invoices → Create Invoice** and choose the matter. Select a service period or include open work through a cutoff date. This includes older entries that became eligible after an earlier invoice. Resolve missing prices, approvals and competing fee agreements before issuing. A temporary connection failure keeps the open editor and its inputs available. Use **Try again** to reconnect. A change of account or access permissions requires a fresh authorized view. When several billing clients apply, choose the recipient, then **Assign to [client]** on any open entry that needs a recipient. A reviewer can also select the billing client in the entry’s Billing review details. Assigning a recipient to a previously approved entry returns it to review under that client’s billing terms.

@@ -122,6 +122,7 @@ export function RecordGrid({
   userId,
   onSave,
   onOpen,
+  openOnRowClick = false,
   onCreate,
   onSaveView,
   archived,
@@ -162,6 +163,7 @@ export function RecordGrid({
     archived?: boolean,
   ) => Promise<void>;
   onOpen: (record: BackOfficeRecord) => void;
+  openOnRowClick?: boolean;
   onCreate: (values?: Record<string, BackOfficeValue>) => void;
   onSaveView: SaveBackOfficeView;
   archived: boolean;
@@ -539,7 +541,7 @@ export function RecordGrid({
       canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length + (sheet.appendedRowCount ?? 0) - 1 || column < visibleFields.length - 1 : undefined}
       editing={editing?.record === record.id ? editing : undefined}
       onEdit={editCell} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
-      onSave={onSave} onOpen={onOpen} />
+      onSave={onSave} onOpen={onOpen} openOnRowClick={openOnRowClick && !editable} />
   );
   const viewProps = {
     rows, records, localIds, localChoices, readOnlyFields, fields: visibleFields, editable: editable && !archived,
