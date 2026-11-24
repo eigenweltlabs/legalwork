@@ -10,7 +10,7 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 export type ShellNavKey = "navHome" | "navAssistant" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations" | "navBackOffice" | "navTimeTracking";
 export type ShellWindowNavKey = Exclude<ShellNavKey, "navAssistant" | "navBackOffice" | "navTimeTracking">;
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navAssistant", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations", "navBackOffice", "navTimeTracking"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navAssistant", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations", "navTimeTracking", "navBackOffice"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";

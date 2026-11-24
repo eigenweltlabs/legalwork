@@ -19,7 +19,7 @@ import {
   type CaptureState,
 } from "@legalwork/types/time-capture";
 import type { TimesheetState } from "@legalwork/types/timesheet";
-import { roundingKeys } from "./timesheet-labels";
+import { roundingKeys, scopeKeys as ruleScopeKeys } from "./timesheet-labels";
 import "./time-workspace-guidelines.css";
 
 type Guideline = CaptureState["guidelines"][number];
@@ -360,7 +360,7 @@ export function TimeWorkspaceGuidelines({
                     <li>{t("timeWorkspace.builtInPolicy")}</li>
                     {sources.map((source, i) => <li key={i}>{source.source === "feeAgreement"
                       ? <Link className="underline underline-offset-2" to={"/back-office/feeAgreements?record=" + encodeURIComponent(source.recordId!)}>{t("back_office.feeAgreements.singular")}</Link>
-                      : <Link className="underline underline-offset-2" to="/settings/billing">{t("timesheets.settings")}</Link>} · {t("back_office.billing.scope_" + source.scope)}</li>)}
+                      : <Link className="underline underline-offset-2" to="/settings/billing">{t("timesheets.settings")}</Link>} · {t(ruleScopeKeys[source.scope])}</li>)}
                     {applied.map(item => <li key={item.id} className="[overflow-wrap:anywhere]">
                       {item.name} · {formatCalendarDay(item.effectiveFrom, { dateStyle: "medium" })} · v{item.revision}
                     </li>)}
