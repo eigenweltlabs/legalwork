@@ -293,7 +293,7 @@ export function BillingInvoiceDraft({
       ? preparedLine.actionFirst
       : check?.actionFirst;
     if (actionFirst) rules.push(t("back_office.billing.action_first"));
-    return { entry, line, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked, canAssign, direct };
+    return { entry, line, policy, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked, canAssign, direct };
   });
   const suggestedWording = checks.flatMap(({ picked, line, suggested, accepted }) =>
     picked && suggested && accepted !== suggested
