@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button } from "twenty-ui/primitives/input";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 
 export function BillingWordRules({
@@ -15,15 +16,15 @@ export function BillingWordRules({
   toLabel: string;
   values?: Record<string, string>;
   inherited: Record<string, string>;
-  onChange: (values: Record<string, string> | undefined) => void;
+  onChange: (values: Record<string, string> | undefined, persist: boolean) => void;
 }) {
   const [term, setTerm] = useState("");
   const [replacement, setReplacement] = useState("");
-  function update(key: string, text: string) {
+  function update(key: string, text: string, persist = false) {
     const next = { ...values };
     if (text) next[key] = text;
     else delete next[key];
-    onChange(Object.keys(next).length ? next : undefined);
+    onChange(Object.keys(next).length ? next : undefined, persist);
   }
   return (
     <details>
@@ -31,7 +32,7 @@ export function BillingWordRules({
       {Object.entries({ ...inherited, ...values }).map(([key, value]) => (
         <label key={key} className="bo-billing-rule">
           <span>{key}</span>
-          <input
+          <Input
             aria-label={key}
             placeholder={inherited[key]}
             value={values?.[key] ?? ""}
@@ -41,14 +42,14 @@ export function BillingWordRules({
         </label>
       ))}
       <div className="bo-billing-subrow">
-        <input
+        <Input
           aria-label={fromLabel}
           placeholder={fromLabel}
           value={term}
           maxLength={200}
           onChange={(e) => setTerm(e.target.value)}
         />
-        <input
+        <Input
           aria-label={toLabel}
           placeholder={toLabel}
           value={replacement}
@@ -61,7 +62,7 @@ export function BillingWordRules({
           variant="ghost"
           disabled={!term.trim() || !replacement.trim()}
           onClick={() => {
-            update(term.trim(), replacement.trim());
+            update(term.trim(), replacement.trim(), true);
             setTerm("");
             setReplacement("");
           }}

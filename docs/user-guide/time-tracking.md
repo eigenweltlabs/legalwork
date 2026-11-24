@@ -46,7 +46,7 @@ You can ask **Chat** to translate billing descriptions, correct time, or remove 
 
 ## Billing settings and access
 
-In **Settings → Billing settings**, open **Time rules** to manage the firm’s billing policy or **Review** to assign a reviewer. Select the policy level and effective date, choose an **Assigned reviewer**, and select **Save billing settings**. In the full workflow, billing managers can change these settings. Other members can inspect the rules their account can access. The **Billing guidelines** tab contains the guidelines saved to your account on this device. In records mode, **Time rules** links to **Fee agreements** in Back Office.
+In **Settings → Billing settings**, open **Time rules** to manage the firm’s billing policy or **Review** to assign a reviewer. Select the policy level and effective date, then choose an **Assigned reviewer**. Billing settings save automatically. Switches and dropdowns save when changed, and text and number fields save when you leave the field. In the full workflow, billing managers can change these settings. Other members can inspect the rules their account can access. The **Billing guidelines** tab contains the guidelines saved to your account on this device. In records mode, **Time rules** links to **Fee agreements** in Back Office.
 
 In the basic **Time entries** view, you can continue recording for yourself when the people list cannot load. Your own complete entries enter the local outbox when the firm connection is interrupted and synchronize when it returns. Recording for another person still requires the firm's current permission; a previously loaded people list does not grant access during an outage.
 

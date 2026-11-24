@@ -157,7 +157,7 @@
   align-items: center;
   gap: 12px;
   min-height: 36px;
-  border-bottom: 1px solid var(--bo-border);
+  border-bottom: 1px solid var(--border);
 }
 .bo-billing-rule > div {
   display: flex;
@@ -219,9 +219,10 @@
 .bo-billing-binding {
   display: grid;
   gap: 4px;
-  background: var(--bo-surface);
-  padding: 8px;
-  border: 1px solid var(--bo-border);
+  background: var(--muted);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .bo-billing-binding label {
   display: grid;

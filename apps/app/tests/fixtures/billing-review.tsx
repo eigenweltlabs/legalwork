@@ -183,10 +183,9 @@ try {
   await click(charge);
   const minutes = field('input[aria-label="Billable (min)"]');
   await write(minutes, "20");
-  await key(minutes, "Enter");
   assert.equal(calls.length, 1);
   assert.ok(match("Approve selection").disabled, "Open edits must never approve an older line");
-  const reason = field('input[aria-label="Reason for charge adjustment"]');
+  const reason = field('input[aria-label="Reason for changing billable time (optional)"]');
   await write(reason, "Capped by agreement");
   await key(reason, "Enter");
   assert.deepEqual(calls.at(-1), {
@@ -452,6 +451,7 @@ try {
   assert.equal(feeTotals([smallFee, smallFee, smallFee]).byCurrency.get("EUR"), 0.3);
   await render(
     <BillingPreferences
+      section="rules"
       state={{ ...actor, scope: "local", policies: [{ ...policy, hourlyRate: undefined, currency: undefined }] }}
       onCommand={command}
     />,
@@ -463,7 +463,6 @@ try {
   assert.equal(toggle.dataset.size, "default");
   assert.ok(toggle.closest('[data-slot="item-header-actions"]'));
   await click(toggle);
-  await click(match("Save billing settings"));
   const saved = calls.at(-1);
   assert.ok(saved?.type === "policy");
   assert.equal(saved.policy.scope, "firm");
@@ -481,6 +480,7 @@ try {
   await render(
     <BillingPreferences
       key="project"
+      section="rules"
       state={{
         ...actor,
         entries: [
@@ -500,8 +500,10 @@ try {
   assert.match(host.textContent ?? "", /Binding increment of 6 minutes/);
   const inherited = host.querySelector<HTMLButtonElement>('[aria-label="Enforce billing increment"]');
   assert.ok(inherited);
+  const beforeException = calls.length;
   await click(inherited);
-  assert.ok(match("Save billing settings").disabled);
+  assert.equal(calls.length, beforeException);
+  assert.match(host.textContent ?? "", /Enter the reason to save this project exception/);
   assert.match(host.textContent ?? "", /Open positions with changed terms \(1\)/);
   const receipt = host.querySelector("textarea[required]");
   assert.ok(receipt);
@@ -511,7 +513,8 @@ try {
     setter.call(receipt, "Signed engagement amendment");
     receipt.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  await click(match("Save billing settings"));
+  assert.equal(calls.length, beforeException, "Typing the reason does not publish it");
+  await act(async () => receipt.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true })));
   const authorized = calls.at(-1);
   assert.ok(authorized?.type === "policy");
   assert.equal(authorized.policy.incrementExceptionReason, "Signed engagement amendment");
@@ -539,7 +542,7 @@ try {
   assert.ok(match("Approve selection").disabled);
   await click(host.querySelector<HTMLButtonElement>('button[aria-label="Billable (min)"]')!);
   await write(field('input[aria-label="Billable (min)"]'), "120");
-  const capReason = field('input[aria-label="Reason for charge adjustment"]');
+  const capReason = field('input[aria-label="Reason for changing billable time (optional)"]');
   await write(capReason, "Client time limit");
   await key(capReason, "Enter");
   assert.deepEqual(calls.at(-1), {
@@ -639,8 +642,8 @@ try {
   await select("View", "approved");
   await click(field('input[aria-label="Select all eligible positions"]'));
   const returnButton = match("Return for pricing review");
-  assert.ok(returnButton.disabled);
-  await write(field('input[aria-label="Reason for returning"]'), "Apply the agreed hourly rate");
+  assert.equal(returnButton.disabled, false);
+  await write(field('input[aria-label="Reason for returning (optional)"]'), "Apply the agreed hourly rate");
   await click(returnButton);
   assert.deepEqual(calls.at(-1), {
     type: "return", entries: [{ id: historical.id, revision: 5 }], reason: "Apply the agreed hourly rate",

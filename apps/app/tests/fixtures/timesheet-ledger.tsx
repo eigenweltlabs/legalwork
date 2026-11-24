@@ -1133,8 +1133,16 @@ try {
   await input(cell("new", "billableWork"), "0");
   assert.equal(cell("new", "charge").value, "0", "non-billable work is never rounded into a charge");
   const { BillingPreferences } = await import("../../src/react-app/domains/back-office/billing-preferences");
+  let completeFirstPolicySave: (() => void) | undefined;
+  const firstPolicyWrite = new Promise<void>(resolve => { completeFirstPolicySave = resolve; });
+  const firstPolicyIndex = commands.length;
+  const savePolicy = async (command: TimesheetCommand) => {
+    const first = commands.length === firstPolicyIndex;
+    await send(command);
+    if (first) await firstPolicyWrite;
+  };
   await act(async () => root.render(
-    <MemoryRouter><BackOfficeTheme><BillingPreferences state={timerState} onCommand={send}
+    <MemoryRouter><BackOfficeTheme><BillingPreferences state={timerState} onCommand={savePolicy}
       initialMatterId="matter" initialDate={base.date} section="rules"
     /></BackOfficeTheme></MemoryRouter>,
   ));
@@ -1143,14 +1151,27 @@ try {
   assert.equal(roundSwitch.getAttribute("aria-checked"), "true");
   assert.equal(roundSwitch.dataset.size, "default");
   await act(async () => roundSwitch.click());
-  const savePolicy = button("Save billing settings");
-  assert.ok(savePolicy);
-  await act(async () => savePolicy.click());
+  assert.equal(button("Save billing settings"), undefined);
   const savedPolicy = commands.at(-1);
   assert.ok(savedPolicy?.type === "policy");
   assert.equal(savedPolicy.policy.scope, "matter");
   assert.equal(savedPolicy.policy.targetId, "matter");
   assert.equal(savedPolicy.policy.stopwatchRoundUp, false);
+  const maximumLabel = [...document.querySelectorAll("label")].find(
+    label => label.textContent === t("back_office.billing.maximum"),
+  );
+  const maximum = maximumLabel?.control;
+  assert.ok(maximum instanceof window.HTMLInputElement);
+  await input(maximum, "90");
+  assert.equal(commands.length, firstPolicyIndex + 1, "typing stages the draft");
+  await act(async () => maximum.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true })));
+  assert.equal(commands.length, firstPolicyIndex + 1, "a second change waits for the current revision");
+  await act(async () => completeFirstPolicySave?.());
+  const nextPolicy = commands.at(-1);
+  assert.ok(nextPolicy?.type === "policy");
+  assert.equal(nextPolicy.policy.revision, savedPolicy.policy.revision + 1);
+  assert.equal(nextPolicy.policy.stopwatchRoundUp, false);
+  assert.equal(nextPolicy.policy.maxMinutes, 90);
 
   const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
   const { TimeWorkflowProposal } = await import("../../src/react-app/domains/back-office/time-workflow-proposal");
@@ -1349,7 +1370,7 @@ try {
   assert.match(policyLevel()?.textContent ?? "", /Matter/);
   assert.equal(document.querySelector('[role="combobox"][aria-label="Proposed rounding"]'), null);
   await selectPopup("Assigned reviewer", "Ben");
-  await press("Save billing settings");
+  assert.equal(button("Save billing settings"), undefined);
   const assignment = commands.at(-1);
   assert.ok(assignment?.type === "policy");
   assert.equal(assignment.policy.scope, "matter");

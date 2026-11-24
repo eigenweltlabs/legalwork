@@ -275,20 +275,18 @@ export function TimesheetWorkspace({
           </TimeSettingsGroup>
         )}
         {state && !recordsOnly && billingTab !== "guidelines" && (
-          <BackOfficeSurface>
-            <BillingPreferences
-              accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
-              previewWord={template => client.previewBillingTemplate(template, state.scope)}
-              key={[params.get("project"), billingMatterId, billingClientId, initialDate].join("/")}
-              initialDate={initialDate}
-              section={billingTab}
-              state={state}
-              onCommand={send}
-              initialProjectId={params.get("project") ?? undefined}
-              initialMatterId={billingMatterId}
-              initialClientId={billingClientId}
-            />
-          </BackOfficeSurface>
+          <BillingPreferences
+            accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
+            previewWord={template => client.previewBillingTemplate(template, state.scope)}
+            key={[params.get("project"), billingMatterId, billingClientId, initialDate].join("/")}
+            initialDate={initialDate}
+            section={billingTab}
+            state={state}
+            onCommand={send}
+            initialProjectId={params.get("project") ?? undefined}
+            initialMatterId={billingMatterId}
+            initialClientId={billingClientId}
+          />
         )}
       </LayoutStack>}
 

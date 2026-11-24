@@ -11,6 +11,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
+import { Textarea } from "@/components/ui/textarea";
 
 export type BillingContext = { clientId: string; matterId: string; projectId?: string; date: string };
 type Effective = ReturnType<typeof resolveTimePolicy>;
@@ -231,7 +232,7 @@ export function BindingTerms({
       ))}
       <label>
         {t("back_office.billing.exception_reason")}
-        <textarea required maxLength={2000} value={value} onChange={(e) => onChange(e.target.value)} />
+        <Textarea required maxLength={2000} value={value} onChange={(e) => onChange(e.target.value)} />
       </label>
       <small>{t("back_office.billing.exception_authority")}</small>
     </div>

@@ -52,4 +52,4 @@ Open the profile menu and choose **Show mini bar** or **Hide mini bar** to contr
 
 Related: [Recording and transcripts](audio.md), [Privacy](settings-privacy.md), [Troubleshooting](troubleshooting.md).
 
-Stopwatch invoice quantities round up to the applicable billing increment by default. Under **Time tracking > Billing settings**, select **Matter** and the matter, then turn **Time rules > Round stopwatch time up** off and choose **Save billing settings** to use the nearest increment instead. Exact halves round up. The measured interval is preserved; see [Time tracking](time-tracking.md) for billing and effective-date details.
+Stopwatch invoice quantities round up to the applicable billing increment by default. In **Settings → Billing settings → Time rules**, select **Matter** and the matter, then turn off **Round stopwatch time up** to use the nearest increment. The switch saves automatically. Exact halves round up. The measured interval is preserved; see [Time tracking](time-tracking.md) for billing and effective-date details.

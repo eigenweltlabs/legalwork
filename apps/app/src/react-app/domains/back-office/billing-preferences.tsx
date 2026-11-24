@@ -1,9 +1,10 @@
 import { roundingKeys, scopeKeys } from "./timesheet-labels";
 import { BillingTemplate } from "./billing-template";
-import { cloneElement, useId, useState, type ReactElement } from "react";
+import { cloneElement, useId, useMemo, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SettingsNotice } from "../settings/settings-section";
 import { LayoutStack, LayoutSectionItem } from "../settings/settings-layout";
 import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
 import { BillingWordRules } from "./billing-word-rules";
@@ -22,7 +23,9 @@ import {
   type TimeEntry,
   type TimePolicy,
 } from "@legalwork/types/timesheet";
-import { useBillingAction, type BillingProps } from "./billing-components";
+import type { BillingProps } from "./billing-components";
+import { useBillingPolicyAutosave } from "./billing-policy-autosave";
+import { BackOfficeSurface, BackOfficeTheme } from "./twenty-controls";
 import { reviewPeriod } from "./billing-amounts";
 import "./billing-review.css";
 
@@ -106,7 +109,7 @@ function PolicyForm({
   context: BillingContext;
   section: "rules" | "review";
 }) {
-  const [policy, setPolicy] = useState<TimePolicy>(() => {
+  const baseline = useMemo<TimePolicy>(() => {
     const {
       incrementException: receipt,
       incrementExceptionReason: _oldReason,
@@ -136,51 +139,59 @@ function PolicyForm({
       if (terms.length > 0 && matches) return { ...draft, incrementExceptionReason: receipt.reason };
     }
     return draft;
-  });
-  const { send, pending, error } = useBillingAction(onCommand);
-  const [message, setMessage] = useState("");
+  }, [base, scope, targetId, date, state]);
+  const { policy, stage, save, pending, error, invalid, dirty } = useBillingPolicyAutosave(baseline, onCommand);
   const [limitCode, setLimitCode] = useState("");
   const [worker, setWorker] = useState("");
-  function update<K extends keyof TimePolicy>(key: K, value: TimePolicy[K]) {
-    setMessage("");
-    setPolicy((old) => ({ ...old, [key]: value }));
+  function commit(value: TimePolicy) {
+    if (state.canManage && (!projectBindingTerms(state, value).length || value.incrementExceptionReason?.trim())) {
+      void save(value);
+    }
   }
-  function updateMap(key: "activityLimits" | "workerRates", id: string, value?: number) {
+  function change(fields: Partial<TimePolicy>, persist = true) {
+    const next = { ...policy, ...fields };
+    stage(next);
+    if (persist) commit(next);
+  }
+  function update<K extends keyof TimePolicy>(key: K, value: TimePolicy[K], persist = true) {
+    change({ [key]: value }, persist);
+  }
+  function updateMap(key: "activityLimits" | "workerRates", id: string, value?: number, persist = true) {
     const map = { ...policy[key] };
     if (value === undefined) delete map[id];
     else map[id] = value;
-    update(key, Object.keys(map).length ? map : undefined);
+    update(key, Object.keys(map).length ? map : undefined, persist);
   }
   const clientBound = scope === "client" && (policy.bindingIncrement ?? Boolean(inherited.bindingClientTerm));
   const strict = policy.enforceIncrement ?? inherited.enforceIncrement;
   const increment = policy.incrementMinutes ?? inherited.incrementMinutes;
   const bindingTerms = projectBindingTerms(state, policy);
   const needsReason = bindingTerms.length > 0 && !policy.incrementExceptionReason?.trim();
-  const readOnly = !state.canManage || pending;
+  const readOnly = !state.canManage;
   const review = section === "review";
   const bindingException = bindingTerms.length > 0 && (
     <BindingTerms
       state={state}
       terms={bindingTerms}
       value={policy.incrementExceptionReason ?? ""}
-      onChange={(reason) => update("incrementExceptionReason", reason || undefined)}
+      onChange={(reason) => update("incrementExceptionReason", reason || undefined, false)}
     />
   );
   return (
-    <form
-      className="bo-time-policy"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (!state.canManage || pending || needsReason) return;
-        try {
-          await send({ type: "policy", policy });
-          setMessage(t("back_office.billing.saved"));
-        } catch {
-          /* Server message is shown below. */
-        }
-      }}
-    >
-      <fieldset disabled={readOnly} aria-label={t(review ? "timesheets.review_assignment" : "back_office.billing.time_rules")}>
+    <div className="bo-time-policy">
+      <fieldset
+        disabled={readOnly}
+        aria-label={t(review ? "timesheets.review_assignment" : "back_office.billing.time_rules")}
+        onBlur={event => {
+          const input = event.target;
+          if (input.matches("input, textarea")) commit(policy);
+        }}
+        onKeyDown={event => {
+          if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.type !== "checkbox") {
+            event.target.blur();
+          }
+        }}
+      >
         <LayoutStack>
           {review && <TimeSettingsGroup title={t("timesheets.review_assignment")}>
             <Rule name={t("back_office.billing.reviewer")} description={t("timesheets.assignment_hint")}>
@@ -219,13 +230,7 @@ function PolicyForm({
                 label={t("back_office.billing.binding")}
                 disabled={readOnly}
                 checked={clientBound}
-                onChange={(v) =>
-                  setPolicy((old) => ({
-                    ...old,
-                    bindingIncrement: v,
-                    enforceIncrement: v ? true : old.enforceIncrement,
-                  }))
-                }
+                onChange={v => change({ bindingIncrement: v, enforceIncrement: v ? true : policy.enforceIncrement })}
               />
             )}
             {bindingException}
@@ -251,7 +256,7 @@ function PolicyForm({
                 step={1}
                 value={policy.incrementMinutes ?? ""}
                 placeholder={String(inherited.incrementMinutes)}
-                onChange={(e) => update("incrementMinutes", rateValue(e.target.value))}
+                onChange={(e) => update("incrementMinutes", rateValue(e.target.value), false)}
               />
             </Rule>
             <Rule name={t("back_office.billing.rounding")}>
@@ -293,7 +298,7 @@ function PolicyForm({
                 step={1}
                 value={policy.maxMinutes ?? ""}
                 placeholder={String(inherited.maxMinutes)}
-                onChange={(e) => update("maxMinutes", rateValue(e.target.value))}
+                onChange={(e) => update("maxMinutes", rateValue(e.target.value), false)}
               />
             </Rule>
             <LayoutSectionItem>
@@ -310,7 +315,7 @@ function PolicyForm({
                         max={1440}
                         placeholder={String(val)}
                         value={policy.activityLimits?.[code] ?? ""}
-                        onChange={(e) => updateMap("activityLimits", code, rateValue(e.target.value))}
+                        onChange={(e) => updateMap("activityLimits", code, rateValue(e.target.value), false)}
                       />
                     </Rule>
                   ),
@@ -348,7 +353,7 @@ function PolicyForm({
               <Input
                 placeholder={inherited.language}
                 value={policy.language ?? ""}
-                onChange={(e) => update("language", e.target.value || undefined)}
+                onChange={(e) => update("language", e.target.value || undefined, false)}
               />
             </Rule>
             {scope === "firm" && (
@@ -359,7 +364,7 @@ function PolicyForm({
                   toLabel={t("back_office.billing.activity_label")}
                   values={policy.activityLabels}
                   inherited={inherited.activityLabels}
-                  onChange={(labels) => update("activityLabels", labels)}
+                  onChange={(labels, persist) => update("activityLabels", labels, persist)}
                 />
               </LayoutSectionItem>
             )}
@@ -377,7 +382,7 @@ function PolicyForm({
                 toLabel={t("back_office.billing.action_word")}
                 values={policy.actionWords}
                 inherited={inherited.actionWords}
-                onChange={(v) => update("actionWords", v)}
+                onChange={(v, persist) => update("actionWords", v, persist)}
               />
             </LayoutSectionItem>
             <LayoutSectionItem>
@@ -387,7 +392,7 @@ function PolicyForm({
                 toLabel={t("back_office.billing.preferred")}
                 values={policy.narrativeCorrections}
                 inherited={inherited.narrativeCorrections}
-                onChange={(v) => update("narrativeCorrections", v)}
+                onChange={(v, persist) => update("narrativeCorrections", v, persist)}
               />
             </LayoutSectionItem>
             <Rule name={t("back_office.billing.example")}>
@@ -395,7 +400,7 @@ function PolicyForm({
                 maxLength={500}
                 value={policy.narrativeExample ?? ""}
                 placeholder={inherited.narrativeExample}
-                onChange={(e) => update("narrativeExample", e.target.value || undefined)}
+                onChange={(e) => update("narrativeExample", e.target.value || undefined, false)}
               />
             </Rule>
           </TimeSettingsGroup>}
@@ -406,7 +411,7 @@ function PolicyForm({
                 pattern="[A-Za-z]{3}"
                 value={policy.currency ?? ""}
                 placeholder={inherited.currency}
-                onChange={(e) => update("currency", e.target.value.toUpperCase() || undefined)}
+                onChange={(e) => update("currency", e.target.value.toUpperCase() || undefined, false)}
               />
             </Rule>
             <Rule name={t("back_office.billing.hourly_rate")}>
@@ -416,7 +421,7 @@ function PolicyForm({
                 min={0}
                 value={policy.hourlyRate ?? ""}
                 placeholder={inherited.hourlyRate?.toString()}
-                onChange={(e) => update("hourlyRate", rateValue(e.target.value))}
+                onChange={(e) => update("hourlyRate", rateValue(e.target.value), false)}
               />
             </Rule>
             {Object.entries({ ...inherited.workerRates, ...policy.workerRates }).map(([id, val]) => (
@@ -427,7 +432,7 @@ function PolicyForm({
                   step="0.01"
                   placeholder={String(val)}
                   value={policy.workerRates?.[id] ?? ""}
-                  onChange={(e) => updateMap("workerRates", id, rateValue(e.target.value))}
+                  onChange={(e) => updateMap("workerRates", id, rateValue(e.target.value), false)}
                 />
               </Rule>
             ))}
@@ -457,22 +462,25 @@ function PolicyForm({
           </TimeSettingsGroup>}
         </LayoutStack>
       </fieldset>
-      {!review && <EffectiveTerms state={state} context={context} />}
-      <BillingImpact state={state} policy={policy} entries={entriesAffected} />
-      <div>
-        {state.canManage && (
-          <Button type="submit" size="sm" variant="outline" disabled={pending || needsReason}>
-            {t("back_office.billing.save_terms")}
-          </Button>
-        )}
-      </div>
-      {error && (
-        <p role="alert" className="bo-billing-error">
-          {error}
-        </p>
+      <BackOfficeTheme>
+        <div className="bo-billing gap-4">
+          {!review && <EffectiveTerms state={state} context={context} />}
+          <BillingImpact state={state} policy={policy} entries={entriesAffected} />
+        </div>
+      </BackOfficeTheme>
+      {pending && <span role="status" className="sr-only">{t("common.saving")}</span>}
+      {needsReason && dirty && state.canManage && <p role="status" className="text-xs text-muted-foreground">{t("back_office.billing.exception_pending")}</p>}
+      {(error || invalid) && (
+        <SettingsNotice tone="error">
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
+            <span>{invalid ? t("back_office.billing.invalid_setting") : error}</span>
+            {!invalid && <Button type="button" variant="outline" size="sm" disabled={readOnly || pending || needsReason} onClick={() => commit(policy)}>
+              {t("timesheets.retry")}
+            </Button>}
+          </div>
+        </SettingsNotice>
       )}
-      {message && <p role="status">{message}</p>}
-    </form>
+    </div>
   );
 }
 
@@ -531,7 +539,7 @@ export function BillingPreferences({
         (scope === "project" ? e.projectId : scope === "matter" ? e.matterId : e.clientId) === targetId),
   );
   return (
-    <LayoutStack className="bo-billing bo-time-preferences">
+    <LayoutStack className="bo-time-preferences">
       <TimeSettingsGroup>
         <Rule name={t("back_office.billing.scope")}>
           <TimeSelect
@@ -597,7 +605,7 @@ export function BillingPreferences({
         <p className="text-sm text-muted-foreground">{t("back_office.billing.choose_target")}</p>
       ) : (
         <PolicyForm
-          key={[scope, targetId, date, editable?.revision].join("/")}
+          key={JSON.stringify([accountScope, scope, targetId, date])}
           state={state}
           onCommand={onCommand}
           scope={scope}
@@ -616,7 +624,11 @@ export function BillingPreferences({
         />
       )}
       {section === "rules" && scope === "firm" && state.canManage && state.supportsInvoiceDrafts !== false && (
-        <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
+        <BackOfficeSurface>
+          <div className="bo-billing">
+            <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
+          </div>
+        </BackOfficeSurface>
       )}
     </LayoutStack>
   );
