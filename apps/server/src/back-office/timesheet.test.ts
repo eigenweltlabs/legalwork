@@ -168,29 +168,27 @@ test("entry rules, idempotent meetings, products, corrections and atomic indepen
   expect(returned.workProductId).toBe(first.workProductId);
   expect(() => run(eva, { type: "approve", entries: sel(submitted) })).toThrow();
   const latest = run(owner, { type: "submit", entries: sel(returned) }).entries[0];
-  expect(() =>
-    run(eva, {
-      type: "review",
-      id: latest.id,
-      revision: latest.revision,
-      billableMinutes: 10,
-      narrative: latest.narrative,
-    }),
-  ).toThrow(/reason/);
   const reviewed = run(eva, {
     type: "review",
     id: latest.id,
     revision: latest.revision,
     billableMinutes: 10,
     narrative: "Amending memo",
-    reason: "Write down",
   }).entries.find((e) => e.id === latest.id)!;
   expect(reviewed.workedMinutes).toBe(17);
   expect(reviewed.history.at(-1)?.before?.billableMinutes).toBe(20);
-  const approved = run(eva, {
-    type: "approve",
-    entries: [...sel(reviewed), ...sel(submittedBen)],
-  }).entries;
+  expect(reviewed.history.at(-1)?.reason).toBeUndefined();
+  const approvedAfterEdit = run(eva, {
+    type: "review",
+    id: reviewed.id,
+    revision: reviewed.revision,
+    narrative: "Amended the client memo",
+    billableMinutes: 20,
+    approve: true,
+  }).entries.find(entry => entry.id === reviewed.id)!;
+  expect(approvedAfterEdit).toMatchObject({ status: "approved", billableMinutes: 20, revision: reviewed.revision + 1 });
+  expect(approvedAfterEdit.history.at(-1)).toMatchObject({ action: "approve", before: { billableMinutes: 10 } });
+  const approved = run(eva, { type: "approve", entries: sel(submittedBen) }).entries;
   expect(approved.every((e) => e.status === "approved" && e.hourlyRate === 300)).toBe(true);
   expect(
     store.journal

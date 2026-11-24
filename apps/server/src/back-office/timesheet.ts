@@ -524,7 +524,7 @@ function apply(
       actorId: actor.userId, canReview: canReviewEntry(state, e, actor), policy, policyDigest: digest(policy),
     });
     if (!("entry" in result)) timeError(result.message, result.status);
-    writeEntry(store, scope, actor, e, result.entry, command.type, command.reason);
+    writeEntry(store, scope, actor, e, result.entry, command.approve ? "approve" : "review", command.reason);
     return;
   }
   const selection = command.entries.map((ref) => requireEntry(state, ref));
@@ -551,7 +551,6 @@ function apply(
         !e.nonHourlyApproval && !policy.nonHourlyAgreement && !hasTimeEntryPrice(e)
       ) {
         requireReviewer(state, e, actor);
-        if (!command.reason) timeError("Give a reason for returning the unpriced approval.");
         const adjustments = state.adjustments ?? [];
         if (adjustments.some((a) => a.status === "pending" && appliesTimeAdjustment(e, a)))
           timeError("Resolve pending corrections before returning this entry.", 409);

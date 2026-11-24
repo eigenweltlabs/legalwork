@@ -138,7 +138,6 @@ export function RecordGrid({
     trailing?: (record: BackOfficeRecord) => ReactNode;
     blankId: string;
     appendedRowCount?: number;
-    toolbarAction?: ReactNode;
     sumFields?: readonly string[];
     afterRows?: (render: (record: BackOfficeRecord, index: number) => ReactNode) => ReactNode;
     leading?: (record: BackOfficeRecord) => ReactNode;
@@ -629,7 +628,6 @@ export function RecordGrid({
             </>
           )}
         </DirectoryMenu>
-        {sheet?.toolbarAction}
         <div className="bo-view-actions">
           <RecordSearchFilters query={query} onQuery={setQuery} object={object} records={records} rows={searchRows.filter(row => row.id !== sheet?.blankId)} filterRecord={filterRecord}
             finance={finance} filters={filters} onFilters={setFilters} />

@@ -226,7 +226,8 @@ try {
   assert.ok(![...host.querySelectorAll('[role="columnheader"]')].some(header => header.textContent?.includes(t("timesheets.sheet.bill_to"))));
   assert.equal(host.querySelector("[data-sheet-blank]"), null);
   assert.equal(host.querySelectorAll(".time-new-entry").length, 1);
-  assert.ok(host.querySelector(".bo-view-toolbar .time-new-entry"));
+  assert.ok(host.querySelector(".time-entry-actions .time-new-entry"));
+  assert.equal(host.querySelector(".bo-view-toolbar .time-new-entry"), null);
   assert.equal(visible(proposal.key), false);
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.decline")));
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")));

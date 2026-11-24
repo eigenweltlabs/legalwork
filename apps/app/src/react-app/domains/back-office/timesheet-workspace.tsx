@@ -159,7 +159,7 @@ export function TimesheetWorkspace({
         workdayModels={workdayModels} client={client} state={state} onCommand={send} />
     </BackOfficeSurface>
   ) : undefined;
-  const review = firmReview && state?.canReview ? <FirmTimeReview state={state} directory={directory}
+  const review = firmReview && state?.canReview ? <FirmTimeReview client={client} state={state} directory={directory}
     dates={periodDates(date, period)} onCommand={send} columnScope={workdayScope + ":review"} onSaveView={onSaveView} /> : undefined;
   const requestedTab = page === "billing-review" ? (review ? "review" : !team && invoices ? "invoices" : "entries")
     : location.state?.timeWorkspaceTab === "entries" ? "entries" : undefined;

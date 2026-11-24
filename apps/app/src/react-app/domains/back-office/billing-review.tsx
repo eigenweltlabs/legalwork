@@ -232,7 +232,7 @@ export function BillingReview({
     )
     .sort((a, b) => b.number - a.number);
   function returnSelection() {
-    void send({ type: "return", entries: refs(selected), reason: reason.trim() }).then(reset).catch(() => {});
+    void send({ type: "return", entries: refs(selected), reason: reason.trim() || undefined }).then(reset).catch(() => {});
   }
   async function download(id: string, number?: number, format?: "docx" | "pdf") {
     setDownloadError("");
@@ -526,7 +526,7 @@ export function BillingReview({
                             numeric
                             value={String(effective(e).billableMinutes)}
                             disabled={!canEditLine}
-                            requireReason
+                            showReason
                             onSave={(next, reason) =>
                               send({
                                 type: "review",
@@ -708,7 +708,7 @@ export function BillingReview({
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={pending || draftCells.size > 0 || !reason.trim()}
+                      disabled={pending || draftCells.size > 0}
                       onClick={returnSelection}
                     >
                       {t(mode === "submitted" ? "back_office.billing.return" : "back_office.billing.price_return")}

@@ -372,7 +372,16 @@
 .time-proposal-actions button { display:grid; place-items:center; width:24px; height:24px; border-radius:999px }
 .time-proposal-actions button:hover, .bo-billing-wording-actions button:hover { background:#eee; color:#171717 }
 .bo-billing-wording-actions button { border:0; box-shadow:none; background:transparent; color:inherit; border-radius:999px }
-.time-new-entry { display:flex; width:fit-content; margin:3px auto 3px 4px }
+.time-entry-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--bo-border);
+}
 .time-booking-receipt { margin:4px 6px; padding:4px; border:1px dashed var(--bo-border); border-radius:6px; font-size:12px }
 .time-booking-receipt > strong, .time-created-date, .time-created-entry > div > small { display:block; padding:2px 4px; color:var(--muted-foreground) }
 .time-created-date { text-decoration:underline; text-underline-offset:2px }

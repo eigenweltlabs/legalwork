@@ -6,7 +6,7 @@ export function BillingEditCell({
   label,
   numeric,
   disabled,
-  requireReason,
+  showReason,
   cellId,
   revision,
   onEditing,
@@ -16,7 +16,7 @@ export function BillingEditCell({
   label: string;
   numeric?: boolean;
   disabled?: boolean;
-  requireReason?: boolean;
+  showReason?: boolean;
   cellId?: string;
   revision?: number;
   onEditing?: (cellId: string, active: boolean) => void;
@@ -28,7 +28,6 @@ export function BillingEditCell({
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  const reasonInput = useRef<HTMLInputElement>(null);
   const cancel = useRef(false);
   const editing = !!edit && !disabled;
   useEffect(() => {
@@ -47,11 +46,6 @@ export function BillingEditCell({
     }
     if (value !== edit.initial || revision !== edit.revision) {
       setMessage(t("back_office.billing.stale"));
-      return;
-    }
-    if (requireReason && next !== value && !reason.trim()) {
-      setMessage(t("back_office.billing.change_reason"));
-      if (returnFocus) reasonInput.current?.focus();
       return;
     }
     pending.current = true;
@@ -100,13 +94,13 @@ export function BillingEditCell({
         onChange={(event) => setEdit({ ...edit, value: event.currentTarget.value })}
         onKeyDown={keys}
       />
-      {requireReason && value !== edit.value && (
+      {showReason && value !== edit.value && (
         <input
-          ref={reasonInput}
           readOnly={saving}
           value={reason}
-          placeholder={t("back_office.billing.change_reason")}
-          aria-label={t("back_office.billing.change_reason")}
+          maxLength={2000}
+          placeholder={t("timesheets.review_change_reason")}
+          aria-label={t("timesheets.review_change_reason")}
           onChange={(event) => setReason(event.target.value)}
           onKeyDown={keys}
         />

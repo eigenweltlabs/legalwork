@@ -16,6 +16,7 @@ import { applySavedRecord, loadBackOfficeState, writeBackOfficeRecord, type Back
 import { displayBackOfficeObject } from "./labels";
 import { TimeHeaderContent, TimekeeperControlTarget } from "./time-workspace-header";
 import { TimeSelect } from "./time-settings-controls";
+import { RecordHistorySidebar } from "./history-panel";
 import { RecordGrid, type SaveBackOfficeView } from "./record-grid";
 import { ValueDisplay } from "./record-values";
 import type { RenderTimeWorkspace } from "./timesheet-workday";
@@ -124,6 +125,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   const person = members.length > 1 && (!filter || members.some(member => memberPrefix + member.userId === filter)) ? filter : self;
   const [composerId, setComposerId] = useState<string>();
   const grid = useRef<HTMLDivElement>(null);
+  const [historyId, setHistoryId] = useState<string>();
   useEffect(() => setComposerId(undefined), [capture.date]);
   const { showBooking, bookings, receipt } = useBookingReceipt(capture.date, (target, worker) => {
     if (person && person !== worker) setPerson("");
@@ -697,7 +699,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   })));
   const unsaved = edits.updates.size > 0 || [...edits.drafts.values()].some(draft => !draft.proposal && !known.has(draft.record.id)) ||
     Object.entries(capture.drafts).some(([id, draft]) => !draft.proposalDigest && !draft.values.workflow && !known.has(id));
-  const ledger = <div ref={grid} className="time-record-sheet" onCopy={event => {
+  const historyRecord = historyId ? stored.find(record => record.id === historyId && record.revision > 0) : undefined;
+  const ledger = <div className="@container/time-history relative isolate flex min-h-0 min-w-0 flex-1">
+    <div ref={grid} className="time-record-sheet min-w-0" onCopy={event => {
     if (!copied.current || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || window.getSelection()?.toString()) return;
     event.clipboardData.setData("text/plain", JSON.stringify({ legalworkTimeRow: 1, values: copyTimeRecordValues(copied.current, object.fields, capture.date, self, directory.permissions.finance) }));
     event.preventDefault();
@@ -718,6 +722,15 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     {archived && archiveQuery.isPending && <p role="status">{t("common.loading")}</p>}
     {archived && archiveQuery.error && <p role="alert" className="bo-error">{archiveQuery.error.message} <Button size="xs" variant="outline" onClick={() => void archiveQuery.refetch()}>{t("timesheets.retry")}</Button></p>}
     {submitNotice && <p role={submitNotice.error ? "alert" : "status"} className={submitNotice.error ? "bo-error" : "px-3 py-1 text-sm"}>{submitNotice.message}</p>}
+    {editable && !archived && <div className="time-entry-actions">
+      {reviewLink && <Button size="sm" variant="ghost" nativeButton={false} render={<Link to={reviewLink} />}>{t("back_office.billing.detail")}</Button>}
+      {submit && <Button size="sm" variant="outline" disabled={!ready.length || submitting || edits.saving.size > 0 || edits.updates.size > 0}
+        onClick={() => void submitPeriod()}><Send size={14} />{t("timesheets.ledger.submit")}</Button>}
+      <Button size="sm" className="time-new-entry" onClick={() => {
+        setComposerId(blankId);
+        grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
+      }}><Plus size={14} />{t("timesheets.ledger.new")}</Button>
+    </div>}
     <RecordGrid object={object} records={records} views={directory.views} editable={editable} finance={directory.permissions.finance}
       userId={directory.permissions.userId} columnScope={scope} archived={archived} onArchivedChange={setArchived} lockedSchema
       onSave={async (record, patch, archive) => {
@@ -740,14 +753,6 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
       }} onCreate={() => {}} onOpen={openRecord} onSaveView={onSaveView}
       readOnlyFields={firmCommand ? ["timekeeper", "status"] : members.length <= 1 ? ["timekeeper"] : undefined}
       sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
-        toolbarAction: editable && !archived && <>
-          {reviewLink && <Button size="sm" variant="outline" nativeButton={false} render={<Link to={reviewLink} />}>{t("back_office.billing.detail")}</Button>}
-          {submit && ready.length > 0 && <Button size="sm" variant="outline" disabled={submitting || edits.saving.size > 0 || edits.updates.size > 0}
-            onClick={() => void submitPeriod()}><Send size={14} />{t("timesheets.ledger.submit")}</Button>}
-          <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => {
-          setComposerId(blankId);
-          grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
-        }}><Plus size={14} />{t("timesheets.ledger.new")}</Button></>,
         sumFields: ["recordedMinutes", "billableMinutes"],
         afterRows: archived ? undefined : render => <>
           {receipt((item, index) => {
@@ -763,7 +768,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         trailing: record => record.revision > 0 ? <>
           {directory.permissions.edit && !archived && <Button variant="ghost" size="icon-xs" type="button" title={t("timesheets.ledger.duplicate")} aria-label={t("timesheets.ledger.duplicate")}
             onClick={() => duplicate(record.values)}><CopyPlus /></Button>}
-          <Button type="button" variant="ghost" size="icon-xs" title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} onClick={() => openRecord(record)}><History /></Button>
+          <Button type="button" variant="ghost" size="icon-xs" title={t("timesheets.ledger.history")} aria-label={t("timesheets.ledger.history")} aria-expanded={historyId === record.id} onClick={() => setHistoryId(current => current === record.id ? undefined : record.id)}><History /></Button>
         </> : null,
         leading: record => {
           if (!editable) return null;
@@ -796,6 +801,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     {(edits.saving.size > 0 || unsaved || directory.sync.error || directory.sync.pending > 0) && <span className="time-sheet-sync" role="status">
       <Info size={12} />{edits.saving.size ? t("projects.saving") : unsaved ? t("timesheets.sheet.edit_unsaved") : directory.sync.error ? t("timesheets.sheet.sync_error") : t("timesheets.sheet.pending")}
     </span>}
+    </div>
+    {historyRecord && <RecordHistorySidebar key={historyRecord.id} client={client} directory={directory} record={historyRecord}
+      onClose={() => setHistoryId(undefined)} onOpen={openRecord} />}
   </div>;
   const timelineBookings = [...known.values()].filter(record => !record.archivedAt && isOwn(record) && serviceDate(record.values) === capture.date)
     .map(({ id, values }) => ({ key: id, matterId: String(values.matter ?? ""), narrative: String(values.billingNarrative || values.name || ""),

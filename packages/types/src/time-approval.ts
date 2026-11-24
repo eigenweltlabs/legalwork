@@ -7,7 +7,7 @@ import { suggestBillingNarrative } from "@legalwork/types/billing-narrative";
 type Policy = ReturnType<typeof resolveTimePolicy>;
 type ApprovalAction =
   | { type: "submit" | "approve" | "return"; reason?: string }
-  | { type: "review"; narrative: string; billableMinutes: number; reason?: string };
+  | { type: "review"; narrative: string; billableMinutes: number; approve?: true };
 type Decision = { entry: TimeEntry } | { status: 400 | 403 | 409; message: string };
 
 export function timeApprovalPrice(entry: TimeEntry, policy: Policy, policyDigest: string) {
@@ -36,17 +36,14 @@ export function changeTimeApproval(entry: TimeEntry, action: ApprovalAction, con
   }
 
   if (action.type === "return") {
-    if (!action.reason?.trim()) return { status: 400, message: "Give a reason for returning this time." };
     return { entry: { ...entry, status: "confirmed", suggestion: undefined, sharedOriginal: undefined } };
   }
   if (action.type === "review") {
-    if (action.billableMinutes !== entry.billableMinutes && !action.reason?.trim())
-      return { status: 400, message: "Give a reason for the changed chargeable time." };
     const next = { ...entry, narrative: action.narrative, billableMinutes: action.billableMinutes };
     const error = timeEntryError(next, policy);
-    return error ? { status: 400, message: error } : {
-      entry: { ...next, ...timeApprovalPrice(next, policy, policyDigest), suggestion: suggestBillingNarrative(next, policy) },
-    };
+    if (error) return { status: 400, message: error };
+    const reviewed = { ...next, ...timeApprovalPrice(next, policy, policyDigest), suggestion: suggestBillingNarrative(next, policy) };
+    return action.approve ? changeTimeApproval(reviewed, { type: "approve" }, context) : { entry: reviewed };
   }
 
   if (entry.billable && policy.ambiguousAgreement)

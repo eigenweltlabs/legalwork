@@ -443,7 +443,7 @@ export const timeSchemaFields = { id, text, minutes, date, currency, source, pro
 
 const approvalRef = z.strictObject({ id, revision: z.number().int().positive() });
 export const reviewTimeCommandSchema = approvalRef.extend({
-  type: z.literal("review"), narrative: text, billableMinutes: minutes, reason: text.optional(),
+  type: z.literal("review"), narrative: text, billableMinutes: minutes, reason: text.optional(), approve: z.literal(true).optional(),
 });
 export const submitTimeCommandSchema = z.strictObject({
   type: z.literal("submit"), entries: z.array(approvalRef.extend({

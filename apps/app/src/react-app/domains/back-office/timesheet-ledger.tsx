@@ -1146,6 +1146,29 @@ export function TimesheetLedger({
       onCopy={clipboardCopy}
       onPaste={clipboardPaste}
     >
+      {canEdit && <div className="time-entry-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !ready.length}
+          startIcon={<Send size={13} />}
+          onClick={async () => {
+            if (edit || draftChanged || provenance) {
+              setError(t("timesheets.ledger.finish_edit"));
+              return;
+            }
+            if (await run({
+              type: "submit",
+              entries: ready.map(e => ({ id: e.id, revision: e.revision })),
+            })) setNotice(t("timesheets.ledger.submitted"));
+          }}
+        >
+          {t("timesheets.ledger.submit")}
+        </Button>
+        <Button size="sm" variant="solid" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
+          {t("timesheets.ledger.new")}
+        </Button>
+      </div>}
       <div className="bo-view-toolbar bo-time-toolbar">
         {!capture && <><TimesheetPeriodSwitch period={period} onChange={value => {
           if (edit) return setError(t("timesheets.ledger.finish_edit"));
@@ -1182,33 +1205,10 @@ export function TimesheetLedger({
           {t("timesheets.ledger.today")}
         </button>
         </>}
-        {canEdit && <Button size="sm" variant="ghost" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
-          {t("timesheets.ledger.new")}
-        </Button>}
         <div className="bo-view-actions">
           <RecordSearchFilters object={filterObject} records={searchRecords} rows={searchRecords} finance={false}
             query={search} onQuery={setSearch} filters={filters} onFilters={setFilters} />
           {columnChooser}
-          {canEdit && !!ready.length && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              startIcon={<Send size={13} />}
-              onClick={async () => {
-                if (edit || draftChanged || provenance) {
-                  setError(t("timesheets.ledger.finish_edit"));
-                  return;
-                }
-                if (await run({
-                  type: "submit",
-                  entries: ready.map(e => ({ id: e.id, revision: e.revision })),
-                })) setNotice(t("timesheets.ledger.submitted"));
-              }}
-            >
-              {t("timesheets.ledger.submit")}
-            </Button>
-          )}
         </div>
       </div>
       <RecordFilterChips object={filterObject} records={searchRecords} filters={filters} onFilters={setFilters} />
