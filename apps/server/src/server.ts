@@ -5049,10 +5049,8 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [legalworkConfigPath(workspace.path)],
     });
-    const removedScopes = await removeMcp(config, workspace.id, name);
-    // A reload immediately after removal must also see the new shared config.
-    const primary = config.workspaces[0];
-    if (primary) await writeLegalworkRuntimeConfigFile(config, primary.id);
+    const removedScopes = await withPluginImportLock(() => publishRuntimeConfigChanges(config,
+      config.workspaces[0]?.id ?? workspace.id, () => removeMcp(config, workspace.id, name)));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5882,9 +5880,8 @@ async function disconnectSharedMcpFromOtherWorkspaces(
   );
 }
 
-// Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
-// to drop the MCP's client so deleted MCPs stop serving tools immediately
-// instead of lingering until the next engine restart. Failures reach the UI.
+// Native configuration watching removes the saved definition after publication.
+// Close the cached connection immediately, including during OAuth sign-out.
 async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, name: string): Promise<void> {
   if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
   await mcpRecovery(config).mutate(name, async () => {
@@ -5894,9 +5891,6 @@ async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: 
       const apiError = findApiError(error);
       if (apiError?.status !== 404) throw error;
     });
-    // Refresh removes the registered definition too; a stale dynamic entry must
-    // not reconnect after its managed source has been deleted.
-    await refreshManagedEngineLocation(config, workspace);
   });
 }
 
