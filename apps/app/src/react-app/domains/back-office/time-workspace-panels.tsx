@@ -1,5 +1,5 @@
 import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
-import { CalendarDays, List, MessageSquare, ReceiptText, Loader2 } from "lucide-react";
+import { CalendarDays, List, MessageSquare, ReceiptText, ClipboardCheck, Loader2 } from "lucide-react";
 import { BackOfficeSurface } from "./twenty-controls";
 import { z } from "@legalwork/types/back-office";
 import { t } from "@/i18n";
@@ -9,11 +9,11 @@ import { EmbeddedWorkspaceChat } from "../session/chat/embedded-workspace-chat";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { usePanelTabStore, workspacePanelKey } from "../session/panel/panel-tab-store";
 
-const viewSchema = z.enum(["entries", "invoices", "timeline", "chat"]);
+const viewSchema = z.enum(["entries", "invoices", "review", "timeline", "chat"]);
 type View = z.infer<typeof viewSchema>;
 export type TimelineView = "combined" | "matters";
-const labelKeys = { entries: "timeWorkspace.entries", invoices: "back_office.invoices.plural", timeline: "timesheets.timeline", chat: "timeWorkspace.chat" } as const;
-const icons = { entries: List, invoices: ReceiptText, timeline: CalendarDays, chat: MessageSquare };
+const labelKeys = { entries: "timeWorkspace.entries", invoices: "back_office.invoices.plural", review: "back_office.billing.detail", timeline: "timesheets.timeline", chat: "timeWorkspace.chat" } as const;
+const icons = { entries: List, invoices: ReceiptText, review: ClipboardCheck, timeline: CalendarDays, chat: MessageSquare };
 const idFor = (view: View) => "timekeeping:" + view;
 const tabFor = (view: View) => ({ type: "workspace-page" as const, id: idFor(view), label: t(labelKeys[view]) });
 
@@ -91,12 +91,13 @@ function InvoicePane({ shown, children }: { shown: boolean; children: ReactNode 
     : null;
 }
 
-export function TimeWorkspacePanels({ scope, conversation, entries, timeline, chat, chatBusy, invoices, requestedTab, visible = true }: {
+export function TimeWorkspacePanels({ scope, conversation, entries, timeline, chat, chatBusy, invoices, review, requestedTab, visible = true }: {
   scope: string;
   conversation?: Awaited<ReturnType<LegalworkServerClient["privateTimeConversation"]>>;
   entries: ReactNode;
   invoices?: ReactNode;
-  requestedTab?: "entries" | "invoices";
+  review?: ReactNode;
+  requestedTab?: "entries" | "invoices" | "review";
   timeline: (view: TimelineView, choose: (view: TimelineView) => void, expanded: boolean, toggleExpanded: () => void) => ReactNode;
   chat: (visible: boolean, sessionId?: string, active?: boolean) => ReactNode;
   chatBusy?: boolean;
@@ -135,19 +136,27 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
     try { localStorage.setItem(timelineKey, next); } catch { /* Window-local setting. */ }
   }
   const withInvoices = invoices != null;
-  useLayoutEffect(() => { prepareLayout(sessionId, withInvoices, legacyKey); }, [sessionId, withInvoices, legacyKey]);
+  const withReview = review != null;
   useLayoutEffect(() => {
-    if (!requestedTab || (requestedTab === "invoices" && !withInvoices)) return;
+    prepareLayout(sessionId, withInvoices, legacyKey);
+    if (withReview) return;
+    const store = usePanelTabStore.getState();
+    const reviewId = idFor("review");
+    if (store.sessions[sessionId]?.tabs.some(tab => tab.id === reviewId)) store.closeTab(sessionId, reviewId);
+  }, [sessionId, withInvoices, withReview, legacyKey]);
+  useLayoutEffect(() => {
+    if (!requestedTab || (requestedTab === "invoices" && !withInvoices) || (requestedTab === "review" && !withReview)) return;
     const store = usePanelTabStore.getState();
     const layout = store.sessions[sessionId];
     const tab = tabFor(requestedTab);
     if (layout?.tabs.some(item => item.id === tab.id)) store.selectTab(sessionId, tab.id);
     else store.openTab(sessionId, tab, layout?.panes.find(pane => pane.tabIds.includes(idFor("entries")))?.id ?? layout?.panes[0]?.id);
-  }, [sessionId, requestedTab, withInvoices]);
+  }, [sessionId, requestedTab, withInvoices, withReview]);
 
   const contents: Record<View, WorkspacePage["content"]> = {
     entries: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</BackOfficeSurface>,
     invoices: shown => <InvoicePane shown={shown}>{invoices}</InvoicePane>,
+    review: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="review">{review}</BackOfficeSurface>,
     timeline: <section className="time-workspace-timeline" data-workspace-tab="timeline" tabIndex={-1} aria-label={t(labelKeys.timeline, locale)}
       onKeyDown={event => {
         if (!expanded || event.key !== "Escape" || event.defaultPrevented ||
@@ -157,7 +166,7 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
       }}>{timeline(view, chooseView, expanded, toggleExpanded)}</section>,
     chat: shown => <section className="time-workspace-chat" data-workspace-tab="chat">{chat(shown)}</section>,
   };
-  const pages = viewSchema.options.filter(id => id !== "invoices" || withInvoices).map((id): WorkspacePage => {
+  const pages = viewSchema.options.filter(id => (id !== "invoices" || withInvoices) && (id !== "review" || withReview)).map((id): WorkspacePage => {
     const Icon = icons[id];
     return { id: idFor(id), type: "workspace-page", label: t(labelKeys[id], locale), showInNewTab: id !== "chat", icon: id === "chat" && chatBusy ? <Loader2 className="animate-spin" aria-label={t("session.assistant_thinking")} /> : <Icon />, content: contents[id] };
   });

@@ -1,3 +1,4 @@
+import { changeTimeApproval, timeApprovalPrice } from "@legalwork/types/time-approval";
 import { adjustTime, decideAdjustment } from "./timesheet-adjustment.js";
 import { buildInvoiceDraft } from "./timesheet-invoice-draft.js";
 import type { InvoiceGuidelineContext } from "./timesheet-invoice-guidelines.js";
@@ -8,7 +9,6 @@ import {
   currencyScale,
   renderInvoice,
   suggestBillingNarrative,
-  timeActivities,
   resolveTimePolicy,
   soleMatterClient,
   timePolicyError,
@@ -18,7 +18,6 @@ import {
   adjustedTimeEntry,
   appliesTimeAdjustment,
   hasTimeEntryPrice,
-  timeEntryPrice,
   TimesheetCommandSchema,
   type TimeDraft,
   type TimeEntry,
@@ -96,14 +95,8 @@ function requireEntry(state: TimesheetState, ref: { id: string; revision: number
   if (e.revision !== ref.revision) timeError("This entry has changed. Refresh before saving.", 409);
   return e;
 }
-function snapshotRate(state: TimesheetState, e: TimeEntry, p = policyFor(state, e)) {
-  return {
-    activityLabel:
-      p.activityLabels[e.activity] ??
-      (Object.hasOwn(timeActivities, e.activity) ? timeActivities[e.activity] : e.activity),
-    ...timeEntryPrice(p, e.workerId),
-    policyDigest: digest(p),
-  };
+function snapshotRate(state: TimesheetState, e: TimeEntry, policy = policyFor(state, e)) {
+  return timeApprovalPrice(e, policy, digest(policy));
 }
 function issue(
   store: BackOfficeStore,
@@ -525,29 +518,13 @@ function apply(
   }
   if (command.type === "review") {
     const e = requireEntry(state, command);
-    requireReviewer(state, e, actor);
-    if (e.status !== "submitted") timeError("Review a submitted revision.", 409);
-    if (command.billableMinutes !== e.billableMinutes && !command.reason)
-      timeError("Give a reason for the changed chargeable time.");
-    const next = {
-      ...e,
-      narrative: command.narrative,
-      billableMinutes: command.billableMinutes,
-    };
-    validateDraft(state, next);
-    writeEntry(
-      store,
-      scope,
-      actor,
-      e,
-      {
-        ...next,
-        ...snapshotRate(state, next),
-        suggestion: suggestion(state, next),
-      },
-      "review",
-      command.reason,
-    );
+    validateReferences(state, e);
+    const policy = policyFor(state, e);
+    const result = changeTimeApproval(e, command, {
+      actorId: actor.userId, canReview: canReviewEntry(state, e, actor), policy, policyDigest: digest(policy),
+    });
+    if (!("entry" in result)) timeError(result.message, result.status);
+    writeEntry(store, scope, actor, e, result.entry, command.type, command.reason);
     return;
   }
   const selection = command.entries.map((ref) => requireEntry(state, ref));
@@ -567,14 +544,13 @@ function apply(
     ? state.entries.filter((e) => e.workerId === actor.userId && e.status !== "pending" && e.status !== "declined").map(meetingSlot)
     : []);
   for (const e of selection) {
-    let status: TimeEntry["status"];
     const policy = policyFor(state, e);
-    if (command.type === "approve" || command.type === "return") {
-      requireReviewer(state, e, actor);
+    if (command.type === "approve" || command.type === "return" || command.type === "submit") {
       if (
         command.type === "return" && e.status === "approved" && !e.legacy && e.billable &&
         !e.nonHourlyApproval && !policy.nonHourlyAgreement && !hasTimeEntryPrice(e)
       ) {
+        requireReviewer(state, e, actor);
         if (!command.reason) timeError("Give a reason for returning the unpriced approval.");
         const adjustments = state.adjustments ?? [];
         if (adjustments.some((a) => a.status === "pending" && appliesTimeAdjustment(e, a)))
@@ -589,60 +565,27 @@ function apply(
         }, command.type, command.reason);
         continue;
       }
-      if (e.status !== "submitted") timeError("Review a submitted revision.", 409);
-      status = command.type === "approve" ? "approved" : "confirmed";
-    } else {
-      if (e.workerId !== actor.userId)
-        timeError("Only the worker can confirm or submit this entry.", 403);
-      if (command.type === "submit" ? e.status !== "confirmed" : e.status !== "pending")
-        timeError("The entry is no longer at this stage.", 409);
-      if (command.type === "confirm") {
-        const slot = meetingSlot(e);
-        if (slot && booked.has(slot))
-          timeError("Your timesheet already has a meeting for this matter, client and time. Check the existing line.", 409);
-        if (slot) booked.add(slot);
-      }
-      status =
-        command.type === "submit" ? "submitted" : command.type === "confirm" ? "confirmed" : "declined";
+      validateReferences(state, e);
+      const result = changeTimeApproval(e, command, {
+        actorId: actor.userId, canReview: canReviewEntry(state, e, actor), policy, policyDigest: digest(policy),
+      });
+      if (!("entry" in result)) timeError(result.message, result.status);
+      writeEntry(store, scope, actor, e, result.entry, command.type, command.reason);
+      continue;
     }
-    if (e.billable && !e.clientId && status === "approved")
-      timeError("Choose the invoice recipient for this matter before approving billable time.");
-    if (
-      e.billable &&
-      (status === "submitted" || status === "approved") &&
-      policy.ambiguousAgreement
-    )
-      timeError(
-        "Several fee agreements apply. Link the intended agreement in Project details and choose that project before submitting.",
-        409,
-      );
-    if (["approved", "submitted", "confirmed"].includes(status) && command.type !== "return")
-      validateDraft(state, e, status === "approved");
-    const next: TimeEntry = {
-      ...e,
-      status,
-      suggestion: status === "submitted" ? suggestion(state, e) : undefined,
-      submittedNarrative: status === "submitted" ? e.narrative : e.submittedNarrative,
-    };
-    if (command.type === "submit" || command.type === "return") delete next.sharedOriginal;
-    if (status === "submitted" || status === "approved") {
-      const terms = snapshotRate(state, next, policy);
-      if (status === "approved") {
-        if (e.billable && policy.nonHourlyAgreement) {
-          next.nonHourlyApproval = true;
-          next.nonHourlyBasis = policy.nonHourlyBasis;
-        }
-        else if (e.billable && !hasTimeEntryPrice(terms))
-          timeError("Set an hourly rate and currency for the service date before approving this billable entry.", 409);
-        if (e.policyDigest !== terms.policyDigest)
-          timeError(
-            "The applicable billing terms changed. Review the entry again or return it for resubmission.",
-            409,
-          );
-      }
-      Object.assign(next, terms);
+
+    if (e.workerId !== actor.userId) timeError("Only the worker can confirm this entry.", 403);
+    if (e.status !== "pending") timeError("The entry is no longer at this stage.", 409);
+    if (command.type === "confirm") {
+      const slot = meetingSlot(e);
+      if (slot && booked.has(slot))
+        timeError("Your timesheet already has a meeting for this matter, client and time. Check the existing line.", 409);
+      if (slot) booked.add(slot);
+      validateDraft(state, e);
     }
-    writeEntry(store, scope, actor, e, next, command.type, command.reason);
+    writeEntry(store, scope, actor, e, {
+      ...e, status: command.type === "confirm" ? "confirmed" : "declined", suggestion: undefined,
+    }, command.type, command.reason);
   }
 }
 /** Execute on the directory's authoritative database. A team replica must use the platform route. */

@@ -3,13 +3,13 @@ import { formatTimeDuration } from "./time-duration";
 import { Textarea } from "@/components/ui/textarea";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Info, CopyPlus, History } from "lucide-react";
+import { Plus, Info, CopyPlus, History, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-actions";
 import { z, BackOfficeRecordSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import { draftRules, effectiveWorkdayGuidelines, workdayBillableMinutes } from "@legalwork/types/time-capture";
 import type { CaptureAction, CaptureProposal, CaptureState, PrivateDraftPatch } from "@legalwork/types/time-capture";
-import { proposedCharge, resolveTimePolicy, soleMatterClient, type TimesheetState } from "@legalwork/types/timesheet";
+import { proposedCharge, resolveTimePolicy, soleMatterClient, TimeDraftSchema, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { applySavedRecord, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState } from "./api";
@@ -24,7 +24,7 @@ import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, priva
 import { useBookingReceipt } from "./time-booking-receipt";
 import { periodTimeTotals } from "./timesheet-row";
 import { TimesheetWeekTotals } from "./timesheet-week-totals";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const memberPrefix = "member:";
 const memberSource = (id: string) => "eigenwelt-member:" + id;
@@ -50,7 +50,11 @@ export type TimeCaptureSheet = {
   visible?: boolean;
 };
 
-type Props = { onSaveView: SaveBackOfficeView; client: LegalworkServerClient; directory: BackOfficeState; state: TimesheetState; capture: TimeCaptureSheet; workspace: RenderTimeWorkspace };
+type Props = { onSaveView: SaveBackOfficeView; client: LegalworkServerClient; directory: BackOfficeState; state: TimesheetState; capture: TimeCaptureSheet; workspace: RenderTimeWorkspace;
+  firmCommand?: (command: TimesheetCommand) => Promise<TimesheetState>;
+  submit?: (ids: readonly string[]) => Promise<void>;
+  reviewLink?: string;
+};
 
 function RecordProposalField({ record, revision, field, disabled, errorId, onCommit }: {
   errorId?: string;
@@ -89,13 +93,17 @@ export function TimeRecordSheet(props: Props) {
   return <TimeRecordSheetGrid key={scope} scope={scope} {...props} edits={timeRecordEdits(scope)} />;
 }
 
-function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onSaveView, edits, scope }: Props & { scope: string; edits: ReturnType<typeof timeRecordEdits> }) {
+function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onSaveView, edits, scope, firmCommand, submit, reviewLink }: Props & { scope: string; edits: ReturnType<typeof timeRecordEdits> }) {
   const cache = useQueryClient();
   const durationFormat = useTimeDurationFormat();
   const navigate = useNavigate();
   useSyncExternalStore(edits.subscribe, edits.snapshot, () => 0);
   const [validationAttempts, setValidationAttempts] = useState<Set<string>>(() => new Set());
   const userId = directory.permissions.userId;
+  const latestState = useRef(state);
+  latestState.current = state;
+  const [submitting, setSubmitting] = useState(false);
+  const [submitNotice, setSubmitNotice] = useState<{ message: string; error?: boolean }>();
   const roster = useQuery({ queryKey: ["back-office", client.baseUrl, "time-members", directory.scope, directory.directoryId, userId, directory.permissions.principalKey],
     queryFn: async () => membersSchema.parse(await client.backOffice("/time-members")), retry: false, refetchInterval: 60000 });
   const [archived, setArchived] = useState(false);
@@ -202,9 +210,26 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     return record && !record.archivedAt && matchesPerson(record) && !capture.dates.includes(serviceDate(record.values));
   });
   currentAccess.current = { editable, rosterIds, contacts };
+  const ready = visible.filter(record => record.revision > 0 && isOwn(record) && record.values.status === "Draft");
+  async function submitPeriod() {
+    if (!submit) return;
+    setSubmitting(true);
+    setSubmitNotice(undefined);
+    try {
+      await submit(ready.map(record => record.id));
+      setSubmitNotice({ message: t("timesheets.ledger.submitted") });
+    } catch (error) {
+      setSubmitNotice({ message: errorMessage(error), error: true });
+    } finally {
+      setSubmitting(false);
+    }
+  }
   function canWrite(record: BackOfficeRecord, patch: TimeRecordValues = {}) {
     const access = currentAccess.current;
     if (!access?.editable) return false;
+    const workflow = firmCommand && latestState.current.entries.find(entry => entry.id === record.id && !entry.legacy);
+    if (workflow) return workflow.workerId === userId && ["confirmed", "submitted"].includes(workflow.status) &&
+      !("status" in patch) && !("timekeeper" in patch);
     const permitted = (value: BackOfficeValue | undefined) =>
       typeof value === "string" && access.rosterIds.has(access.contacts.get(value) ?? value);
     const assigned = record.values.timekeeper;
@@ -381,9 +406,29 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
       edits.saving.add(id);
       edits.changed();
       try {
-        const saved = responseSchema.parse(await writeBackOfficeRecord(client, directory, {
-          id, objectId: "timeEntries", revision: edit.base.revision, ...timeRecordBody(edit.values), expectedValues,
-        })).record;
+        const managed = latestState.current.entries.find(entry => entry.id === id && !entry.legacy);
+        let saved: BackOfficeRecord;
+        if (firmCommand && managed) {
+          const values = { ...current.values, ...edit.values };
+          const date = serviceDate(values);
+          const startAt = typeof values.startedAt === "string" && values.startedAt.includes("T") ? values.startedAt : undefined;
+          const endAt = startAt && typeof values.endedAt === "string" ? values.endedAt : undefined;
+          const draft = TimeDraftSchema.parse({
+            date, matterId: values.matter, clientId: values.client || "", projectId: managed.projectId,
+            startAt, endAt, activity: managed.activity, narrative: values.billingNarrative || values.name,
+            workedMinutes: values.recordedMinutes, billable: Number(values.billableMinutes) > 0,
+            billableMinutes: values.billableMinutes,
+          });
+          const next = await firmCommand({ type: "update", id, revision: edit.base.revision, entry: draft });
+          const entry = next.entries.find(item => item.id === id);
+          if (!entry) throw new Error(t("back_office.save_failed"));
+          saved = { ...current, revision: entry.revision, values: { ...values, status: "Draft",
+            name: entry.narrative, billingNarrative: entry.narrative } };
+        } else {
+          saved = responseSchema.parse(await writeBackOfficeRecord(client, directory, {
+            id, objectId: "timeEntries", revision: edit.base.revision, ...timeRecordBody(edit.values), expectedValues,
+          })).record;
+        }
         rememberMember(edit.values, saved);
         queue.shift();
         await acknowledge(saved);
@@ -672,6 +717,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     {roster.error && <p className="bo-error" role="alert">{t("timesheets.sheet.members_error")} <Button size="xs" variant="outline" onClick={() => void roster.refetch()}>{t("timesheets.retry")}</Button></p>}
     {archived && archiveQuery.isPending && <p role="status">{t("common.loading")}</p>}
     {archived && archiveQuery.error && <p role="alert" className="bo-error">{archiveQuery.error.message} <Button size="xs" variant="outline" onClick={() => void archiveQuery.refetch()}>{t("timesheets.retry")}</Button></p>}
+    {submitNotice && <p role={submitNotice.error ? "alert" : "status"} className={submitNotice.error ? "bo-error" : "px-3 py-1 text-sm"}>{submitNotice.message}</p>}
     <RecordGrid object={object} records={records} views={directory.views} editable={editable} finance={directory.permissions.finance}
       userId={directory.permissions.userId} columnScope={scope} archived={archived} onArchivedChange={setArchived} lockedSchema
       onSave={async (record, patch, archive) => {
@@ -680,18 +726,28 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         await enqueue(record.id, async () => {
           const latest = currentRecords.current.get(record.id) ?? record;
           if (!canWrite(latest) || edits.updates.has(record.id) || (archive && latest.revision !== record.revision)) throw new Error(t("back_office.save_failed"));
+          const managed = latestState.current.entries.find(entry => entry.id === latest.id && !entry.legacy);
+          if (managed && firmCommand) {
+            if (!archive) throw new Error(t("back_office.save_failed"));
+            await firmCommand({ type: "withdraw", id: latest.id, revision: latest.revision });
+            return;
+          }
           const { record: saved } = responseSchema.parse(await writeBackOfficeRecord(client, directory, {
             id: latest.id, objectId: latest.objectId, revision: latest.revision, values: {}, archived: archive,
           }));
           await acknowledge(saved);
         });
       }} onCreate={() => {}} onOpen={openRecord} onSaveView={onSaveView}
-      readOnlyFields={members.length <= 1 ? ["timekeeper"] : undefined}
+      readOnlyFields={firmCommand ? ["timekeeper", "status"] : members.length <= 1 ? ["timekeeper"] : undefined}
       sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
-        toolbarAction: editable && !archived && <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => {
+        toolbarAction: editable && !archived && <>
+          {reviewLink && <Button size="sm" variant="outline" nativeButton={false} render={<Link to={reviewLink} />}>{t("back_office.billing.detail")}</Button>}
+          {submit && ready.length > 0 && <Button size="sm" variant="outline" disabled={submitting || edits.saving.size > 0 || edits.updates.size > 0}
+            onClick={() => void submitPeriod()}><Send size={14} />{t("timesheets.ledger.submit")}</Button>}
+          <Button size="sm" variant="ghost" className="time-new-entry" onClick={() => {
           setComposerId(blankId);
           grid.current?.querySelector<HTMLElement>('[data-sheet-blank] [data-col="0"]')?.focus();
-        }}><Plus size={14} />{t("timesheets.ledger.new")}</Button>,
+        }}><Plus size={14} />{t("timesheets.ledger.new")}</Button></>,
         sumFields: ["recordedMinutes", "billableMinutes"],
         afterRows: archived ? undefined : render => <>
           {receipt((item, index) => {

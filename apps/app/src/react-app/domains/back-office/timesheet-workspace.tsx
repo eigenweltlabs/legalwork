@@ -3,7 +3,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight } from "lucide-react";
 import { calendarDay } from "../calendar/calendar-format";
-import type { TimePeriod } from "./timesheet-row";
+import { periodDates, type TimePeriod } from "./timesheet-row";
 import { Button as AppButton } from "@/components/ui/button";
 
 import {
@@ -24,6 +24,7 @@ import { backOfficeReadFailure, isBackOfficeAccessError, type BackOfficeReadFail
 import { timeRoutes } from "./time-routes";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
+import { FirmTimeReview } from "./firm-time-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
 import type { SaveBackOfficeView } from "./record-grid";
@@ -92,13 +93,17 @@ export function TimesheetWorkspace({
       identity.set("draftDate", draft.date);
       identity.set("draftRevision", String(draft.revision));
     }
-    const state = TimesheetStateSchema.parse(
-      await client.backOffice("/timesheet?" + identity, {
-        team,
-        timeoutMs: command?.type === "reviewInvoiceWording" ? 600_000 : command?.type === "issueInvoice" ? 90_000 : undefined,
-        ...(command ? { method: "POST", body: command } : {}),
-      }),
-    );
+    const fetchState = () => client.backOffice("/timesheet?" + identity, {
+      team,
+      timeoutMs: command?.type === "reviewInvoiceWording" ? 600_000 : command?.type === "issueInvoice" ? 90_000 : undefined,
+      ...(command ? { method: "POST", body: command } : {}),
+    });
+    const result = await fetchState().catch(error => {
+      // A directory refresh may retire the read cache during polling.
+      if (!command && error instanceof LegalworkServerError && error.code === "back_office_replica_changed") return fetchState();
+      throw error;
+    });
+    const state = TimesheetStateSchema.parse(result);
     if (state.userId !== userId || state.scope !== directory.scope)
       throw new LegalworkServerError(409, "back_office_account_changed", t("timesheets.account_changed"));
     return state;
@@ -119,6 +124,8 @@ export function TimesheetWorkspace({
   const timesheetError = query.error ?? blocked;
   const loadError = timesheetError ?? directoryRefresh?.error;
   const recordsOnly = state?.service === "records";
+  const firmReview = team && state?.service === "workflow";
+  const recordsGrid = team || recordsOnly;
   const queryFilter = { queryKey: key, exact: true };
   async function send(command: TimesheetCommand, draft?: PrivateBookingRevision) {
     const activeQuery = cache.getQueryCache().find(queryFilter);
@@ -144,14 +151,26 @@ export function TimesheetWorkspace({
   const workdayScope = JSON.stringify([...calendarClientScope(client), directory.directoryId,
     directory.scope, principalKey, userId, directory.captureProfileId]);
   const timekeepingPage = page !== "billing-settings";
-  const canOpenInvoices = state && (recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
+  const canOpenInvoices = state && (team || recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
-    recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
+    team || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
       <BillingReview canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
         workdayModels={workdayModels} client={client} state={state} onCommand={send} />
     </BackOfficeSurface>
   ) : undefined;
+  const review = firmReview && state?.canReview ? <FirmTimeReview state={state} directory={directory}
+    dates={periodDates(date, period)} onCommand={send} columnScope={workdayScope + ":review"} onSaveView={onSaveView} /> : undefined;
+  const requestedTab = page === "billing-review" ? (review ? "review" : !team && invoices ? "invoices" : "entries")
+    : location.state?.timeWorkspaceTab === "entries" ? "entries" : undefined;
+  const submit = !firmReview ? undefined : async (ids: readonly string[]) => {
+    await client.backOffice("/sync", { team: true, method: "POST", body: {} });
+    const latest = await request();
+    const idSet = new Set(ids);
+    const entries = latest.entries.filter(entry => idSet.has(entry.id) && entry.workerId === userId && entry.status === "confirmed");
+    if (!entries.length || entries.length !== idSet.size) throw new Error(t("back_office.conflict.title"));
+    await send({ type: "submit", entries: entries.map(({ id, revision }) => ({ id, revision })) });
+  };
   return (
     <>
       {loadError && (
@@ -183,9 +202,11 @@ export function TimesheetWorkspace({
         <div className="time-ledger-pane">
           <TimesheetWorkday key={workdayScope} visible={timekeepingPage} dateLocked={dateLocked}
             client={client} directory={directory} state={state} initialDate={date} initialPeriod={period} onDateChange={selectPeriod}
-            invoices={invoices} requestedTab={page === "billing-review" && canOpenInvoices ? "invoices" : location.state?.timeWorkspaceTab === "entries" ? "entries" : undefined}>
-            {(capture, workspace) => recordsOnly
-              ? <TimeRecordSheet onSaveView={onSaveView} client={client} directory={directory} state={state} capture={capture} workspace={workspace} />
+            invoices={invoices} review={review} requestedTab={requestedTab}>
+            {(capture, workspace) => recordsGrid
+              ? <TimeRecordSheet onSaveView={onSaveView} client={client} directory={directory} state={state} capture={capture} workspace={workspace}
+                  firmCommand={firmReview ? send : undefined} submit={submit}
+                  reviewLink={review && page !== "billing-review" ? timeRoutes["billing-review"] + "?" + params : undefined} />
               : workspace(
                 <TimesheetLedger visible={timekeepingPage} capture={capture}
                   onOriginal={isLoopbackLegalworkServerUrl(client.baseUrl) ? digest =>

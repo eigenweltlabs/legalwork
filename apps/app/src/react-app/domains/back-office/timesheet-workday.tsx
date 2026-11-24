@@ -72,14 +72,15 @@ function CommitProposalFocus({ apply }: { apply: () => void }) {
 
 export function TimesheetWorkday({
   client, directory, state, dateLocked = false, visible = true,
-  initialDate, initialPeriod, onDateChange, children, invoices, requestedTab,
+  initialDate, initialPeriod, onDateChange, children, invoices, review, requestedTab,
 }: {
   children: (capture: TimeCaptureSheet, workspace: RenderTimeWorkspace) => ReactNode;
   initialDate?: string;
   initialPeriod?: TimePeriod;
   onDateChange: (value: string, period?: TimePeriod) => void;
   invoices?: ReactNode;
-  requestedTab?: "entries" | "invoices";
+  review?: ReactNode;
+  requestedTab?: "entries" | "invoices" | "review";
   client: LegalworkServerClient;
   directory: BackOfficeState;
   state: TimesheetState;
@@ -405,7 +406,7 @@ export function TimesheetWorkday({
     const editors = selected ? [selected] : [];
     if (deciding && deciding.key !== selected?.key) editors.push(deciding);
     return <TimeWorkspacePanels conversation={conversation} visible={visible} scope={JSON.stringify([client.baseUrl, directory.directoryId, identity])}
-      chatBusy={chatBusy} entries={entries} invoices={invoices} requestedTab={requestedTab}
+      chatBusy={chatBusy} entries={entries} invoices={invoices} review={review} requestedTab={requestedTab}
       chat={(shown, sessionId, active) => <TimeWorkspaceChat sessionId={sessionId} active={active} client={client} identity={identity} date={date} visible={shown && visible} data={data} />}
       timeline={(view, choose, expanded, toggleExpanded) => (
         <>

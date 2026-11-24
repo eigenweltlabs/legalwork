@@ -1,4 +1,4 @@
-import type { TimeDraft, resolveTimePolicy } from "./timesheet.js";
+import type { TimeDraft, resolveTimePolicy } from "@legalwork/types/timesheet-core";
 
 const englishAction: Record<string, string> = {
   amended: "Amending",

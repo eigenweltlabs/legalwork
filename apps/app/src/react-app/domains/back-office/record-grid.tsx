@@ -126,7 +126,7 @@ export function RecordGrid({
   onSaveView,
   archived,
   sheet,
-  onArchivedChange, columnScope, lockedSchema = false, readOnlyFields,
+  onArchivedChange, columnScope, lockedSchema = false, readOnlyFields, selectionActions,
 }: {
   sheet?: {
     columns: string[];
@@ -146,6 +146,7 @@ export function RecordGrid({
   columnScope: string;
   lockedSchema?: boolean;
   readOnlyFields?: readonly string[];
+  selectionActions?: (records: BackOfficeRecord[], clear: () => void) => ReactNode;
   object: BackOfficeObject;
   records: BackOfficeRecord[];
   localRows?: BackOfficeRecord[];
@@ -164,7 +165,7 @@ export function RecordGrid({
   onCreate: (values?: Record<string, BackOfficeValue>) => void;
   onSaveView: SaveBackOfficeView;
   archived: boolean;
-  onArchivedChange: (archived: boolean) => void;
+  onArchivedChange?: (archived: boolean) => void;
 }) {
   const locale = useLocale();
   const durationFormat = useTimeDurationFormat();
@@ -728,10 +729,12 @@ export function RecordGrid({
                   {field.label}
                 </Dropdown.OptionItem>
               ))}
-            <Dropdown.Separator />
-            <Dropdown.ActionItem onClick={() => { setSelected([]); onArchivedChange(!archived); }}>
-              {archived ? t("back_office.show_active_records") : t("back_office.show_archive")}
-            </Dropdown.ActionItem>
+            {onArchivedChange && <>
+              <Dropdown.Separator />
+              <Dropdown.ActionItem onClick={() => { setSelected([]); onArchivedChange(!archived); }}>
+                {archived ? t("back_office.show_active_records") : t("back_office.show_archive")}
+              </Dropdown.ActionItem>
+            </>}
             {editable && (
               <Dropdown.ActionItem onClick={() => beginView()}>
                 {t("back_office.add_view")}
@@ -743,6 +746,7 @@ export function RecordGrid({
       {selectedCount > 0 && (
         <div className="bo-selection-bar">
           <span>{t("back_office.selected_count", { count: selectedCount })}</span>
+          {selectionActions?.(selectable.filter(record => selectedIds.has(record.id)), () => setSelected([]))}
           {editable && (
             <Button
               size="sm"

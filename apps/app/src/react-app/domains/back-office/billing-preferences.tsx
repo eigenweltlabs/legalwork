@@ -603,7 +603,7 @@ export function BillingPreferences({
             }}
           />
         )}
-        {scope === "firm" && state.canManage && (
+        {scope === "firm" && state.canManage && state.supportsInvoiceDrafts !== false && (
           <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
         )}
       </div>

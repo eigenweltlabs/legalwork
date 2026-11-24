@@ -89,6 +89,10 @@ export const RecordGridRow = memo(function RecordGridRow({
             onKeyDown={event => {
               if (event.target === event.currentTarget && (event.key === "Enter" || (!inline && event.key === " "))) {
                 if (canEdit) { event.preventDefault(); edit(event.currentTarget); }
+                else if (field.id === "name" && !record.objectId.startsWith("@")) {
+                  event.preventDefault();
+                  onOpen(record);
+                }
               } else if (event.target instanceof Node && event.currentTarget.contains(event.target)) {
                 onMove(event, index, column);
               }
