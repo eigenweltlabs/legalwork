@@ -103,18 +103,20 @@ test("turning time tracking off hides the idle control and lets a running timer 
 });
 
 test("opening the matter picker during a status poll still loads the directory", async () => {
-  const pending = Promise.withResolvers();
+  /** @type {() => void} */
+  let resolvePoll = () => {};
+  const pending = new Promise(resolve => { resolvePoll = () => resolve(undefined); });
   const reads = [];
   const state = { profileId: "p", active: null, lastStopped: null };
   const matter = { id: "matter", name: "Lease" };
   const watch = new HudStopwatch(async (_action, _profile, includeMatters) => {
     reads.push(includeMatters);
-    if (!includeMatters) await pending.promise;
+    if (!includeMatters) await pending;
     return includeMatters ? { ...state, matters: [matter] } : state;
   }, () => {});
   const status = watch.refresh();
   const first = watch.refresh(true), second = watch.refresh(true);
-  pending.resolve();
+  resolvePoll();
   await Promise.all([status, first, second]);
   assert.deepEqual(reads, [false, true]);
   assert.deepEqual(watch.state.matters, [matter]);

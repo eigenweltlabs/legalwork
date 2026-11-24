@@ -1,4 +1,4 @@
-import { changeTimeApproval, timeApprovalPrice } from "@legalwork/types/time-approval";
+import { changeTimeApproval, timeApprovalPrice } from "./timesheet-schema.js";
 import { adjustTime, decideAdjustment } from "./timesheet-adjustment.js";
 import { buildInvoiceDraft } from "./timesheet-invoice-draft.js";
 import type { InvoiceGuidelineContext } from "./timesheet-invoice-guidelines.js";

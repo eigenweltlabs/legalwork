@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./time-capture/workday-chat.test-support.js";
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 const LegalWorkStorageTools = (context = {}) => nativePluginTools({ ...LegalWorkStorageToolsDefinition,
   setup: ctx => LegalWorkStorageToolsDefinition.setup(new Proxy(ctx, { get(target, property, receiver) {
@@ -136,9 +137,8 @@ test("time tracking records explicit storage writes without counting reads or fa
     expect((await api("PUT", "/" + id + "/file", { path: name, version: first.version, dataBase64: bytes("failed edit") })).status).toBe(409);
     const owner = await captureProfile(config, await backOfficeAccess(config));
     const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
-    const query = new URLSearchParams({ date, user: owner.user, scope: owner.scope, principal: owner.principal, profileId: owner.profileId });
-    await fetch(base + "/private-timesheet/workday?" + query, { method: "POST", headers: { authorization: "Bearer " + config.token,
-      "x-legalwork-host-token": config.hostToken, "content-type": "application/json" }, body: JSON.stringify({ type: "suggest" }) });
+    const readDay = await workdayChatReader(config, owner.profileId, server.port);
+    await readDay(date);
     const journal = JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8"));
     expect(journal.observations.filter((row: { proposal: { narrative: string } }) => row.proposal.narrative === name)
       .map((row: { proposal: { changeSummary: string } }) => row.proposal.changeSummary).sort()).toEqual(["Saved " + name, "Uploaded " + name]);

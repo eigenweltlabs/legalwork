@@ -1,3 +1,4 @@
+import { workdayChatReader } from "./time-capture/workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -76,8 +77,8 @@ test("native task tools create, download, replace and remove attachments through
     }
     const owner = await captureProfile(config, await backOfficeAccess(config));
     const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
-    const query = new URLSearchParams({ profileId: owner.profileId, scope: owner.scope, user: owner.user, principal: owner.principal, date });
-    await fetch(process.env.LEGALWORK_SERVER_URL + "/private-timesheet/workday?" + query, { method: "POST", headers: { ...host, "content-type": "application/json" }, body: JSON.stringify({ type: "suggest" }) });
+    const readDay = await workdayChatReader(config, owner.profileId, server.port);
+    await readDay(date);
     const log = JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8"));
     expect(log.observations.map((row: {proposal: { changeSummary: string }}) => row.proposal.changeSummary).sort()).toEqual(
       ["Created task", "Attached file", "Updated task", "Added note", "Completed task"].sort());
