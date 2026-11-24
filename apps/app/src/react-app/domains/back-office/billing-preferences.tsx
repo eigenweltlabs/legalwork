@@ -27,7 +27,7 @@ import { reviewPeriod } from "./billing-amounts";
 import "./billing-review.css";
 
 type Scope = TimePolicy["scope"];
-const scopes = ["firm", "client", "matter", "project"] as const;
+const scopes = ["firm", "matter", "client", "project"] as const;
 
 function InheritableToggle({
   label,
