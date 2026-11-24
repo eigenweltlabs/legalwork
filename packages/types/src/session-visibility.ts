@@ -1,3 +1,9 @@
+export const TIMEKEEPING_PROJECT_PRESET_PREFIX = "private-timekeeping:";
+
+export function isTimekeepingProject(workspace: { preset?: string | null }) {
+  return workspace.preset?.startsWith(TIMEKEEPING_PROJECT_PRESET_PREFIX) === true;
+}
+
 export const LEGALMEMORY_INTERNAL_SESSION = "legalmemory";
 export const WORKDAY_INTERNAL_SESSION = "timesheet-wording";
 

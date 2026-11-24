@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ItemDialogContent } from "@/react-app/design-system/item-detail";
 import type { BackOfficeRecord } from "@legalwork/types/back-office";
-import { hasTimeEntryPrice, resolveTimePolicy, timeEntryError, timeEntryPrice, timePolicyError, type TimeEntry, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
+import { hasTimeEntryPrice, resolveTimePolicy,  timeEntryPrice, timePolicyError, type TimeEntry, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { BackOfficeState } from "./api";
@@ -94,7 +94,7 @@ export function FirmTimeReview({ client, state, directory, dates, onCommand, col
   const blocked = busy || stale;
   const proposal = editing && target ? { ...target, narrative: editing.narrative.trim(), billableMinutes: minutes } : undefined;
   const billableError = proposal ? Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440
-    ? timeEntryError(proposal, policyFor(proposal)) : t("back_office.billing.invalid_minutes") : "";
+    ? timePolicyError(proposal, policyFor(proposal)) : t("back_office.billing.invalid_minutes") : "";
   const editCommand = editing && target && proposal ? {
     type: "review" as const, id: target.id, revision: target.revision,
     narrative: proposal.narrative, billableMinutes: minutes, reason: editing.reason.trim() || undefined,
@@ -143,6 +143,15 @@ export function FirmTimeReview({ client, state, directory, dates, onCommand, col
             </label>
             {billableError && <p id={billableErrorId} className="text-sm text-destructive">{billableError}</p>}
           </div>
+          {!returning && target.suggestion && target.suggestion !== editing.narrative && (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <p className="text-xs font-medium text-muted-foreground">{t("back_office.billing.suggestion")}</p>
+              <p className="text-sm">{target.suggestion}</p>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing({ ...editing, narrative: target.suggestion ?? editing.narrative })}>
+                {t("back_office.billing.apply")}
+              </Button>
+            </div>
+          )}
           {(returning || (changed && minutes !== target.billableMinutes)) && <label className="grid gap-1 text-sm">
             {t(returning ? "back_office.billing.return_reason" : "timesheets.review_change_reason")}
             <Input value={editing.reason} readOnly={busy} maxLength={2000} onChange={e => setEditing({ ...editing, reason: e.target.value })} />

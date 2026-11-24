@@ -106,15 +106,18 @@ export function BillingReview({
   initialMatterId = "",
   workdayModels,
   initialMode = "submitted",
+  invoiceViews = false,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
   initialMatterId?: string;
   workdayModels?: WorkdayModelOption[];
   initialMode?: "submitted" | "invoices";
+  invoiceViews?: boolean;
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
+  const views: readonly Mode[] = invoiceViews ? ["invoices", "approved"] : ["submitted", "approved", "adjustments", "invoices", "costs"];
   const [mode, setMode] = useState<Mode>(initialMode);
   const [dates, setDates] = useState(() =>
     reviewPeriod(initialDate ? new Date(initialDate + "T12:00:00") : new Date()),
@@ -279,7 +282,7 @@ export function BillingReview({
           aria-label={t("back_office.billing.view")}
           value={mode}
           onChange={(e) => {
-            const next = (["submitted", "approved", "adjustments", "invoices", "costs"] as const).find(
+            const next = views.find(
               (v) => v === e.target.value,
             );
             if (next) {
@@ -288,7 +291,7 @@ export function BillingReview({
             }
           }}
         >
-          {(["submitted", "approved", "adjustments", "invoices", "costs"] as const).map((k) => (
+          {views.map((k) => (
             <option key={k} value={k}>
               {t(reviewViewKeys[k])}
             </option>
@@ -360,6 +363,9 @@ export function BillingReview({
             {t(invoiceScreen === "review" || state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button> : <span className="bo-billing-muted">{t("invoiceReview.firm_unavailable")}</span>
         )}
+        {invoiceViews && mode === "invoices" && <Link className="bo-time-secondary" to="/back-office/invoices">
+          {t("timesheets.invoice_record_add")}
+        </Link>}
         {mode === "submitted" && (
           <label>
             <input

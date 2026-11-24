@@ -78,6 +78,11 @@ const pendingChangesSchema = z.object({
   })),
 });
 
+function canEditDirectoryRecord(record: BackOfficeRecord, team: boolean, userId: string) {
+  return !team || record.objectId !== "timeEntries" || record.revision === 0 ||
+    (record.ownerId === userId && !["Submitted", "Approved", "Invoiced", "Written off"].includes(String(record.values.status)));
+}
+
 export function BackOfficePage({ client, embeddedObject, workdayModels, billingSettings }: {
   client: LegalworkServerClient;
   workdayModels?: WorkdayModelOption[];
@@ -224,6 +229,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
     archived?: boolean,
   ) => {
     if (!data) return;
+    if (!canEditDirectoryRecord(record, team, data.permissions.userId)) throw new Error(t("back_office.update_failed"));
     const localCopy = localDirectory?.localRows?.some(row => row.id === record.id) && !data.records.some(row => row.id === record.id);
     let base = record;
     if (record.revision === 0) {
@@ -565,6 +571,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                 localRows={team ? localDirectory?.localRows : undefined}
                 views={data.views}
                 editable={data.permissions.edit}
+                canEditRecord={record => canEditDirectoryRecord(record, team, data.permissions.userId)}
                 finance={data.permissions.finance}
                 userId={data.permissions.userId}
                 onSave={save}
@@ -615,7 +622,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
               onWidthChange={setDetailWidth}
               object={displayBackOfficeObject(detailObject)}
               records={pendingDetail ? localDirectory?.localChoices ?? [] : records}
-              editable={data.permissions.edit}
+              editable={data.permissions.edit && canEditDirectoryRecord(detail, team, data.permissions.userId)}
               onReviewLocal={pendingDetail ? () => { setError(""); setSyncDetailsOpen(true); } : undefined}
               finance={data.permissions.finance}
               userId={data.permissions.userId}

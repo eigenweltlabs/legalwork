@@ -9,6 +9,7 @@ import {
   requiresTimeAllocations,
   privateBookingRevisionSchema,
   TimesheetCommandSchema,
+  TimesheetStateSchema,
   type TimesheetState,
 } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
@@ -34,6 +35,7 @@ import {
 import { generateInvoiceWordingReview } from "./timesheet-invoice-wording.js";
 import {
   draftOutput,
+  issuedOutput,
   issuedArtifacts,
   invoiceAttachment,
 } from "./invoice-artifacts.js";
@@ -48,6 +50,7 @@ import {
   requiresInvoiceDrafts,
 } from "./timesheet-schema.js";
 import { commandTimesheet, currentInvoiceDraft, readTimesheetRequest } from "./timesheet.js";
+import { renderInvoice } from "./timesheet-schema.js";
 import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
@@ -428,7 +431,7 @@ export function registerTimesheetRoutes(
     if (!access.actor.finance || ctx.agentAccess || access.actor.agentId)
       timeError("Billing access is required.", 403);
     const template = invoiceTemplateSchema.parse(await input(ctx));
-    if (access.scope !== "local") {
+    if (access.scope !== "local" && !(await platformState(access, "GET")).supportsLocalInvoiceRendering) {
       const response = z
         .object({ format: z.literal("pdf"), contentBase64: z.string().min(4) })
         .parse(await platform(access, "POST", "/template-preview", template));
@@ -457,6 +460,23 @@ export function registerTimesheetRoutes(
             .enum(["docx", "pdf"])
             .parse(ctx.url.searchParams.get("format"));
         if (access.scope !== "local") {
+          const state = await platformState(access, "GET");
+          if (state.supportsLocalInvoiceRendering) {
+            const expected = revision ?? state.invoiceDraft?.revision;
+            if (!expected || state.invoiceDraft?.id !== id) timeError("The invoice draft is unavailable.", 404);
+            const query = new URLSearchParams({ draft: id, revision: expected });
+            const current = async () => {
+              await assertFinance(ctx, store, access);
+              const { invoiceDraft } = TimesheetStateSchema.parse(await platform(access, "GET", "?" + query));
+              if (!invoiceDraft || invoiceDraft.id !== id || invoiceDraft.revision !== expected)
+                timeError("The invoice draft changed. Open its preview again.", 409);
+              return invoiceDraft;
+            };
+            const word = renderWordInvoice(draftOutput(await current()));
+            const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
+            await current();
+            return invoiceAttachment(format, bytes, "Draft");
+          }
           const query = new URLSearchParams({ format });
           if (revision) query.set("revision", revision);
           const remote = z
@@ -534,6 +554,18 @@ export function registerTimesheetRoutes(
           .parse(ctx.url.searchParams.get("format") ?? "html");
         if (!isInvoice && format !== "html")
           timeError("This correction is available as HTML.", 404);
+        const firm = isInvoice && access.scope !== "local" ? await platformState(access, "GET") : undefined;
+        const renderLocally = firm?.supportsLocalInvoiceRendering;
+        const sharedInvoice = renderLocally ? firm?.invoices.find(item => item.id === id) : undefined;
+        if (renderLocally && !sharedInvoice) timeError("The issued document is unavailable.", 404);
+        if (sharedInvoice && format !== "html") {
+          const word = renderWordInvoice(issuedOutput(sharedInvoice));
+          const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
+          await assertFinance(ctx, store, access);
+          if (!(await platformState(access, "GET")).invoices.some(item => item.id === id))
+            timeError("The issued document is unavailable.", 404);
+          return invoiceAttachment(format, bytes, String(sharedInvoice.number));
+        }
         if (isInvoice && format !== "html" && access.scope !== "local") {
           const remote = z
             .object({
@@ -556,7 +588,15 @@ export function registerTimesheetRoutes(
           );
         }
         let document: string, number: string;
-        if (access.scope !== "local") {
+        if (sharedInvoice) {
+          const snapshot = sharedInvoice.snapshot;
+          if (!snapshot) timeError("The issued document is unavailable.", 404);
+          number = String(sharedInvoice.number);
+          document = renderInvoice(snapshot.template, {
+            ...snapshot, number: sharedInvoice.number, entries: sharedInvoice.entries,
+            currency: sharedInvoice.currency, billingMode: sharedInvoice.billingMode, showHours: sharedInvoice.showHours,
+          });
+        } else if (access.scope !== "local") {
           const result = z
             .object({
               number: z.union([

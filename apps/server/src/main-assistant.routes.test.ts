@@ -9,7 +9,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
   await writeFile(script, `
     import assert from "node:assert/strict";
     import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
-    import { join } from "node:path";
+    import { dirname, join } from "node:path";
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
     const { writeEigenweltConnection } = await import(${JSON.stringify(new URL("./eigenwelt-connection-store.ts", import.meta.url).href)});
@@ -66,6 +66,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
         control: async input => { recorderCalls.push(input); return { ok: true, recording: null }; },
       },
     };
+    // This fixture exercises manual hand-off even when it runs after 18:00.
+    const capture = await activeCaptureProfile(config);
+    await mkdir(dirname(capture.path), { recursive: true });
+    await writeFile(capture.path, JSON.stringify({ settings: { calendar: true, tasks: true }, days: {}, lastRun: 0, lastScheduledSlot: Date.now() }));
     const server = await startServer(config), base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="fixture") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const entitlement = { plan: "plus", subscriptionStatus: "active", trialEndsAt: null, features: [], seats: 1,
@@ -495,6 +499,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const opened = await (await hostCall(chatPath, "POST", {})).json();
       assert.equal(opened.workspace.id, today.workspaceId);
       assert.equal(opened.day.sessionId, today.sessionId);
+      const discovery = await (await hostCall("/assistant/projects")).json();
+      assert.ok(!discovery.projects.some(project => project.id === today.workspaceId));
+      const history = await (await hostCall(chatPath)).json();
+      assert.ok(history.days.some(item => item.sessionId === today.sessionId));
       const toolPath = "/workspace/" + today.workspaceId + "/timekeeping/workday";
       const readDay = { date: today.date, action: "read" };
       assert.equal((await call(toolPath, "POST", readDay)).status, 404);

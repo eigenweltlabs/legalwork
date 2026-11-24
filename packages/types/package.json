@@ -78,6 +78,8 @@
     "./time-capture": "./src/time-capture.ts",
     "./billing-narrative": "./src/billing-narrative.ts",
     "./time-approval": "./src/time-approval.ts",
+    "./time-policy-write": "./src/time-policy-write.ts",
+    "./timesheet-invoice-draft": "./src/timesheet-invoice-draft.ts",
     "./timesheet-core": "./src/timesheet-core.ts",
     "./timesheet": "./src/timesheet.ts",
     "./back-office": "./src/back-office.ts"

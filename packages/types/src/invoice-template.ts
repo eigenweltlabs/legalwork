@@ -43,9 +43,9 @@ type InvoiceFields = {
 
 /** Allocate integer currency units by descending fractional remainder, then stable entry ID. */
 export function allocateInvoiceMinor(target: number, weights: { id: string; weight: number }[]) {
-  const total = weights.reduce((sum, row) => sum + BigInt(row.weight), 0n);
+  const total = weights.reduce((sum, row) => sum + BigInt(row.weight), BigInt(0));
   if (target === 0) return new Map(weights.map(({ id }) => [id, 0]));
-  if (total === 0n) throw new Error("A positive target needs at least one positive line.");
+  if (total === BigInt(0)) throw new Error("A positive target needs at least one positive line.");
   const allocations = weights.map(({ id, weight }) => {
     const share = BigInt(target) * BigInt(weight);
     return { id, amount: Number(share / total), remainder: share % total };
@@ -60,7 +60,7 @@ export function allocateInvoiceMinor(target: number, weights: { id: string; weig
 
 /** A basis point is one hundredth of a percentage point. */
 export function reducedInvoiceMinor(amount: number, basisPoints: number) {
-  return Number((BigInt(amount) * BigInt(10_000 - basisPoints) + 5_000n) / 10_000n);
+  return Number((BigInt(amount) * BigInt(10_000 - basisPoints) + BigInt(5_000)) / BigInt(10_000));
 }
 
 export function currencyScale(currency: string) {
@@ -74,13 +74,13 @@ export function currencyScale(currency: string) {
 export function formatInvoiceMinor(locale: string, currency: string, minor: number) {
   const money = new Intl.NumberFormat(locale, { style: "currency", currency });
   const digits = money.resolvedOptions().maximumFractionDigits ?? 2;
-  const scale = 10n ** BigInt(digits);
+  const scale = BigInt(10) ** BigInt(digits);
   const value = BigInt(minor);
   const whole = value / scale;
   if (!digits) return money.format(whole);
-  const fraction = (value < 0n ? -value : value) % scale;
+  const fraction = (value < BigInt(0) ? -value : value) % scale;
   const decimals = new Intl.NumberFormat(locale, { useGrouping: false, minimumIntegerDigits: digits });
-  return money.formatToParts(value < 0n && whole === 0n ? -0 : whole)
+  return money.formatToParts(value < BigInt(0) && whole === BigInt(0) ? -0 : whole)
     .map(({ type, value }) => type === "fraction" ? decimals.format(fraction) : value).join("");
 }
 
@@ -94,9 +94,9 @@ export function timeFeeMinor(minutes: number, hourlyRate: number, scale: number)
   const [whole, fraction = ""] = decimal.split(".");
   const exponent = Number(power) - fraction.length;
   const numerator =
-    BigInt(whole + fraction) * BigInt(minutes) * BigInt(scale) * 10n ** BigInt(Math.max(0, exponent));
-  const denominator = 60n * 10n ** BigInt(Math.max(0, -exponent));
-  return Number((numerator + denominator / 2n) / denominator);
+    BigInt(whole + fraction) * BigInt(minutes) * BigInt(scale) * BigInt(10) ** BigInt(Math.max(0, exponent));
+  const denominator = BigInt(60) * BigInt(10) ** BigInt(Math.max(0, -exponent));
+  return Number((numerator + denominator / BigInt(2)) / denominator);
 }
 
 function escape(value: string) {

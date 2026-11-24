@@ -290,6 +290,10 @@ function PolicyForm({
                 onChange={(value) => update("stopwatchRoundUp", value)}
               />
             )}
+            <Rule name={t("timeWorkspace.minimumMinutes")}>
+              <Input type="number" min={1} max={1440} step={1} value={policy.minimumMinutes ?? ""}
+                placeholder={inherited.minimumMinutes?.toString()} onChange={event => update("minimumMinutes", rateValue(event.target.value), false)} />
+            </Rule>
             <Rule name={t("back_office.billing.maximum")}>
               <Input
                 type="number"

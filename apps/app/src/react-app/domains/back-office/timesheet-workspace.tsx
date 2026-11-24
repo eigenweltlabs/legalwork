@@ -163,8 +163,8 @@ export function TimesheetWorkspace({
 
   const canOpenInvoices = state && (team || recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
-    team || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
-      <BillingReview canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
+    (team && !state.supportsInvoiceDrafts) || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
+      <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
         workdayModels={workdayModels} client={client} state={state} onCommand={send} />
     </BackOfficeSurface>

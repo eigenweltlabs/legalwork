@@ -92,9 +92,12 @@ const savedSchema = z.object({
   bookingTargets: z.record(z.string(), z.enum(["workflow", "record"])).default({}),
 });
 type Saved = z.infer<typeof savedSchema>;
+const defaultCaptureSettings = {
+  enabled: true, calendar: true, tasks: true, documents: true, workspaceActivity: true, recordings: true, desktopActivity: false,
+} satisfies Saved["settings"];
 const defaults = (): Saved => ({
   stopwatch: emptyStopwatch(),
-  settings: { calendar: true, tasks: true, documents: true, workspaceActivity: true },
+  settings: { ...defaultCaptureSettings },
   settingsPatched: false,
   lastRun: 0,
   lastScheduledSlot: 0,
@@ -123,7 +126,15 @@ const defaults = (): Saved => ({
 });
 async function load(path: string): Promise<Saved> {
   try {
-    return savedSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    const saved = savedSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    const { settings } = saved;
+    // The first workday build initialized both sources off without recording a preference.
+    const originalDefaults = !saved.settingsPatched && settings.calendar === false && settings.tasks === false &&
+      settings.documents === undefined && settings.enabled === undefined;
+    return {
+      ...saved, settings: { ...defaultCaptureSettings, ...settings,
+        ...(originalDefaults ? { calendar: true, tasks: true } : {}) },
+    };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return defaults();
     throw error;

@@ -205,7 +205,7 @@ export function registerMainAssistantRoutes(options: {
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
     let referenceDirectory: ReturnType<typeof projectReferenceDirectory> | undefined;
     let backOfficeUnavailable = false;
-    const local = (await visibleTimekeepingProjects(config, ctx.actor)).filter(entry => assistant.canAccessProject(entry.id));
+    const local = (await visibleTimekeepingProjects(config, ctx.actor)).filter(entry => !isTimekeepingProject(entry) && assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
       const batch = await Promise.all(local.slice(offset, offset + 16).map(async entry => {

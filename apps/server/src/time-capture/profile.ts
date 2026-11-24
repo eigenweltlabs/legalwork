@@ -6,6 +6,7 @@ import { backOfficePrincipalKey } from "../back-office/principal.js";
 import { readEigenweltConnection, runtimeDbPath } from "../eigenwelt-connection-store.js";
 import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
+import { isTimekeepingProject, TIMEKEEPING_PROJECT_PRESET_PREFIX } from "../native-shared-values.js";
 import { digest } from "./private-workday.js";
 
 export async function captureProfile(
@@ -35,9 +36,8 @@ export async function activeCaptureProfile(config: ServerConfig) {
   return captureProfile(config, await backOfficeAccess(config));
 }
 
-const timekeepingPrefix = "private-timekeeping:";
-export const timekeepingPreset = (profileId: string) => timekeepingPrefix + profileId;
-export const isTimekeepingProject = (workspace: Pick<WorkspaceInfo, "preset">) => workspace.preset?.startsWith(timekeepingPrefix) === true;
+export { isTimekeepingProject };
+export const timekeepingPreset = (profileId: string) => TIMEKEEPING_PROJECT_PRESET_PREFIX + profileId;
 
 export async function timekeepingEnabled(path: string) {
   try {

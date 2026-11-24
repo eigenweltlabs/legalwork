@@ -46,6 +46,7 @@ export const TimeDraftSchema = z.strictObject({
   nonBillableMinutes: minutes.optional(),
   billable: z.boolean(),
   billableMinutes: minutes,
+  minimumBillableMinutes: minutes.min(1).optional(),
   createWorkProduct: z.literal(true).optional(),
   workProductId: id.optional(),
   workProductTitle: z.string().trim().min(1).max(240).optional(),
@@ -344,6 +345,9 @@ export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resol
     return "Billable and non-billable work must add up to the actual duration.";
   if (!draft.billable && draft.billableMinutes)
     return "Non-billable work must have zero chargeable minutes.";
+  const minimum = Math.max(policy.minimumMinutes ?? 0, draft.minimumBillableMinutes ?? 0);
+  if (draft.billable && draft.billableMinutes < minimum)
+    return `Chargeable time must be at least ${minimum} minutes.`;
   if (policy.enforceIncrement && draft.billableMinutes % policy.incrementMinutes)
     return `Chargeable time must be a multiple of ${policy.incrementMinutes} minutes.`;
   return "";

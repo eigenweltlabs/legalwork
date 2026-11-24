@@ -3,3 +3,6 @@ export * from "@legalwork/types/timesheet";
 export * from "@legalwork/types/time-capture";
 export * from "@legalwork/types/billing-narrative";
 export * from "@legalwork/types/invoice-template";
+export * from "@legalwork/types/time-approval";
+export * from "@legalwork/types/time-policy-write";
+export * from "@legalwork/types/timesheet-invoice-draft";

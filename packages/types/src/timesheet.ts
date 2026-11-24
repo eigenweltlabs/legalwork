@@ -219,7 +219,7 @@ export function requiresInvoiceDrafts(command: TimesheetCommand) {
   return command.type === "prepareInvoice" || command.type === "approveInvoice" || command.type === "issueInvoice" ||
     command.type === "reviewInvoiceWording";
 }
-const invoiceSchema = z.object({
+export const TimeInvoiceSchema = z.object({
   id,
   draftId: z.uuid().optional(),
   number: z.number().int().positive().safe(),
@@ -240,7 +240,7 @@ const invoiceSchema = z.object({
   issuedAt: z.iso.datetime(),
   clientId: id,
 });
-export type TimeInvoice = z.infer<typeof invoiceSchema>;
+export type TimeInvoice = z.infer<typeof TimeInvoiceSchema>;
 export const TimesheetStateSchema = z.object({
   service: z.enum(["workflow", "records"]).optional(),
   userId: id,
@@ -249,6 +249,7 @@ export const TimesheetStateSchema = z.object({
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
   supportsInvoiceDrafts: z.boolean().optional(),
+  supportsLocalInvoiceRendering: z.boolean().optional(),
   supportsBillingClientAssignment: z.boolean().optional(),
   supportsHourlyInvoiceCurrency: z.boolean().optional(),
   supportsInvoiceWordingReview: z.boolean().optional(),
@@ -273,6 +274,6 @@ export const TimesheetStateSchema = z.object({
   ),
   projects: z.array(entity.extend({ matterIds: z.array(id), agreementIds: z.array(id).optional() })),
   policies: z.array(TimePolicySchema),
-  invoices: z.array(invoiceSchema),
+  invoices: z.array(TimeInvoiceSchema),
 });
 export type TimesheetState = z.infer<typeof TimesheetStateSchema>;

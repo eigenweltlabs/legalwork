@@ -594,10 +594,8 @@ export class BackOfficeStore {
             typeof contact === "string" ? timeMemberUserId(scope, this.raw(scope, contact)) : undefined;
           const permitted = (worker: string | undefined) => worker === actor.userId || Boolean(worker && recordableWorkers?.has(worker));
           const owner = existing?.ownerId ?? actor.userId;
-          const invoiceLink = existing && actor.finance && parsed.archived === undefined && parsed.access === undefined && parsed.members === undefined &&
-            Object.keys(parsed.values).length === 1 && Object.hasOwn(parsed.values, "invoice");
           const changingWorker = Object.hasOwn(parsed.values, "timekeeper") && parsed.values.timekeeper !== existing?.values.timekeeper;
-          if ((existing && !invoiceLink && !permitted(memberFor(existing.values.timekeeper) ?? owner)) ||
+          if ((existing && (memberFor(existing.values.timekeeper) ?? owner) !== actor.userId) ||
               (changingWorker && !permitted(parsed.values.timekeeper == null ? owner : memberFor(parsed.values.timekeeper))))
             throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
         }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { visibleTimekeepingProjects } from "../time-capture/profile.js";
+import { isTimekeepingProject, visibleTimekeepingProjects } from "../time-capture/profile.js";
 import { ApiError } from "../errors.js";
 import { searchAssistantSessions, searchFingerprint } from "../assistant-session-search.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -37,7 +37,7 @@ export function registerAssistantSearchRoutes(options: {
 
       return { workspaces: [workspace], unavailable: [] };
     }
-    const candidates = visible.filter(workspace => options.canAccessProject?.(workspace.id) !== false);
+    const candidates = visible.filter(workspace => !isTimekeepingProject(workspace) && options.canAccessProject?.(workspace.id) !== false);
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });

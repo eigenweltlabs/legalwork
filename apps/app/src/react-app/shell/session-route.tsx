@@ -157,7 +157,7 @@ import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/
 import type { HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
 import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
-import { isInternalSession } from "@legalwork/types/session-visibility";
+import { isInternalSession, isTimekeepingProject } from "@legalwork/types/session-visibility";
 import { Button } from "@/components/ui/button";
 import { timeTrackingProfile } from "../domains/back-office/time-tracking-profile";
 import { useWorkdayRoute } from "./workday-activity";
@@ -848,24 +848,24 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
-  // Templates and wiki workspaces have their own navigation surfaces. Keep the
-  // full list for resolving their agent sessions, while project navigation
-  // shows only project folders.
+  // Templates, wikis and Time tracking have their own navigation. Keep their
+  // workspaces available to the session runtime while hiding them in Projects.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sessionActivityByWorkspaceId = useSessionActivityStore(state => state.statusesByWorkspaceId);
-  const observedAgents = useMemo(() => workspaces.flatMap(workspace => {
+  const projectPickerWorkspaces = useMemo(() => workspaces.filter(workspace => !isTimekeepingProject(workspace)), [workspaces]);
+  const observedAgents = useMemo(() => projectPickerWorkspaces.flatMap(workspace => {
     const projectId = workspaceServerId(workspace);
-    if (!projectId || workspace.preset?.startsWith("private-timekeeping:")) return [];
+    if (!projectId) return [];
     return (sessionsByWorkspaceId[workspace.id] ?? []).flatMap(session => {
       if (!session.id || isInternalSession(session)) return [];
       const activity = sessionActivityByWorkspaceId[projectId]?.[session.id];
       const running = activity ? ["thinking", "responding", "compacting"].includes(activity) : isActiveSessionStatus(getSessionStatus(session));
       return running ? [{ projectId, stream: session.id, title: session.title?.slice(0, 500) || t("session.default_title") }] : [];
     });
-  }), [workspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId]);
+  }), [projectPickerWorkspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId]);
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
-    [hiddenTemplateWorkspaceIds, workspaces],
+    () => projectPickerWorkspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    [hiddenTemplateWorkspaceIds, projectPickerWorkspaces],
   );
   useEffect(() => {
     if (sidebarWorkspaces.some(workspace => workspace.id === selectedWorkspaceId)) writeLastProjectId(selectedWorkspaceId);
@@ -2904,13 +2904,13 @@ export function SessionRoute() {
             }))) : []} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
-            projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
+            projects={[...projectPickerWorkspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
             openTaskId={new URLSearchParams(location.search).get("task")}
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
         ) : calendarPage ? (
           <CalendarView client={client}
-            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            projects={projectPickerWorkspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
             remoteSources={[]} />
         ) : homePage ? (
           <AppHome
@@ -2980,7 +2980,7 @@ export function SessionRoute() {
               name: workspace.displayNameResolved || workspace.name || workspace.id,
             }))}
             workspacePath={selectedWorkspace?.contentPath || selectedWorkspaceRoot || null}
-            workspaceTargets={workspaces
+            workspaceTargets={projectPickerWorkspaces
               .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,

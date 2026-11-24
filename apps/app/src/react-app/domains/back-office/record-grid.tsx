@@ -118,6 +118,7 @@ export function RecordGrid({
   localRows, localChoices, draft,
   views,
   editable,
+  canEditRecord,
   finance,
   userId,
   onSave,
@@ -154,6 +155,7 @@ export function RecordGrid({
   localChoices?: BackOfficeRecord[];
   views: BackOfficeView[];
   editable: boolean;
+  canEditRecord?: (record: BackOfficeRecord) => boolean;
   finance: boolean;
   userId: string;
   onSave: (
@@ -354,7 +356,7 @@ export function RecordGrid({
     if (archiving) return;
     setArchiving(true);
     const failures: string[] = [];
-    const selectedRecords = selectable.filter(row => selectedIds.has(row.id));
+    const selectedRecords = selectable.filter(row => selectedIds.has(row.id) && (canEditRecord?.(row) ?? true));
     try {
       if (object.id === "timeEntries" && !archived &&
           !await removal.confirm(selectedRecords.map(record => String(record.values.billingNarrative || record.values.name)))) return;
@@ -535,7 +537,7 @@ export function RecordGrid({
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
-      readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable && !archived} selected={selectedIds.has(record.id)}
+      readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable && !archived && (canEditRecord?.(record) ?? true)} selected={selectedIds.has(record.id)}
       allowedRelationIds={sheet?.allowedRelationIds}
       canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length + (sheet.appendedRowCount ?? 0) - 1 || column < visibleFields.length - 1 : undefined}
       editing={editing?.record === record.id ? editing : undefined}
@@ -544,7 +546,7 @@ export function RecordGrid({
   );
   const viewProps = {
     rows, records, localIds, localChoices, readOnlyFields, fields: visibleFields, editable: editable && !archived,
-    userId, onSave, onOpen, onCreate,
+    userId, onSave, onOpen, onCreate, canEditRecord,
   };
   return (
     <div className="bo-record-grid">

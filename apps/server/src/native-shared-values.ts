@@ -1,7 +1,7 @@
 // Build this shared runtime boundary to plain JavaScript for the unpacked server.
 // Consumers must never depend on workspace TypeScript being installed at runtime.
 export { inferNativeDefaultVariant, RETIRED_FREE_PROVIDER_IDS } from "@legalwork/types/native-model-display";
-export { isInternalSession, LEGALMEMORY_INTERNAL_SESSION, WORKDAY_INTERNAL_SESSION } from "@legalwork/types/session-visibility";
+export { isInternalSession, LEGALMEMORY_INTERNAL_SESSION, WORKDAY_INTERNAL_SESSION, isTimekeepingProject, TIMEKEEPING_PROJECT_PRESET_PREFIX } from "@legalwork/types/session-visibility";
 export { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
 export { LegalMemoryPermissionsSchema, LegalMemoryPermissionSchema, LegalMemoryPermissionReplySchema } from "@legalwork/types/legalmemory";
 export { ScheduledTaskMessageSchema } from "@legalwork/types/scheduled-tasks";

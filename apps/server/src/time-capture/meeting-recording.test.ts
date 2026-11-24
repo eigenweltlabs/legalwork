@@ -1,12 +1,13 @@
 import { workdayChatReader } from "./workday-chat.test-support.js";
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { dayInZone } from "../calendar/dates.js";
 import { startServer } from "../server.js";
 import { recordingEvidence } from "./meeting-recording.js";
+import { readCaptureSettings } from "./routes.js";
 import { activeCaptureProfile } from "./profile.js";
 import { type WorkdayEvidence } from "./private-workday.js";
 import { reconstructWorkday } from "./reconstruct-workday.js";
@@ -47,7 +48,8 @@ test("host-only recording ingest preserves consent, ignores duplicate delivery a
     const consent = "meeting-recording";
     const set = (field: string, value: boolean) => api(workday, { type: "settings-patch", change: { field, value } });
     expect((await api(consent, undefined, false)).status).toBe(401);
-    expect(await (await api(consent)).json()).toMatchObject({ enabled: false });
+    expect(await (await api(consent)).json()).toMatchObject({ enabled: true });
+    expect((await set("recordings", false)).status).toBe(200);
     expect((await set("recordings", true)).status).toBe(200);
     const { epoch } = await (await api(consent)).json();
     const row = { id: "rec-test-001", title: "Contract meeting", projectId: null, profileId, epoch, startedAt: epoch, stoppedAt: Date.now() };
@@ -66,4 +68,25 @@ test("host-only recording ingest preserves consent, ignores duplicate delivery a
     expect((await set("enabled", false)).status).toBe(200);
     expect(await (await api(consent)).json()).toMatchObject({ enabled: false });
   } finally { await server.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("fresh and upgrading profiles inherit capture defaults and keep existing opt-outs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-capture-defaults-"));
+  const path = join(root, "capture.json");
+  const expected = {
+    enabled: true, calendar: true, tasks: true, documents: true,
+    workspaceActivity: true, recordings: true, desktopActivity: false,
+  };
+  try {
+    expect(await readCaptureSettings(path)).toEqual(expected);
+    const old = { lastRun: 0, days: {}, settings: { calendar: false, tasks: false } };
+    await writeFile(path, JSON.stringify(old));
+    expect(await readCaptureSettings(path)).toEqual(expected);
+    await writeFile(path, JSON.stringify({
+      ...old, settingsPatched: true, settings: { ...old.settings, enabled: false, documents: false, recordings: false },
+    }));
+    expect(await readCaptureSettings(path)).toEqual({
+      ...expected, enabled: false, calendar: false, tasks: false, documents: false, recordings: false,
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
