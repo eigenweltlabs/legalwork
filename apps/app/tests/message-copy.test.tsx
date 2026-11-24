@@ -44,6 +44,23 @@ function copyButtonCount(html: string) {
   return html.match(/aria-label="Copy message"/g)?.length ?? 0;
 }
 
+test("a private text transcript shares the chat bubbles while leaving message contents inert", () => {
+  const link = workspaceAttachmentDisplayText(createWorkspaceAttachmentMention("Synthetic.docx", "Folder/Synthetic.docx"));
+  const html = renderToStaticMarkup(<MessageList plainText messages={[
+    { id: "private-question", role: "user", text: link },
+    { id: "private-answer", role: "assistant", text: "![image](https://example.invalid/private.png)" },
+  ]} />);
+  expect(html).toContain('data-message-role="user"');
+  expect(html).toContain("data-user-message-bubble");
+  expect(html).toContain('data-message-role="assistant"');
+  expect(html).toContain("data-assistant-message-bubble");
+  expect(html).toContain(link);
+  expect(html).toContain("![image](https://example.invalid/private.png)");
+  expect(html).not.toContain("<a ");
+  expect(html).not.toContain("<img ");
+  expect(html).not.toContain("<button ");
+});
+
 describe("message copying", () => {
   test.each(["Test Hallo Johann.docx", "Contracts/Prüfung [A] (final) #1.docx", ".legalwork/attachments/snapshot/Contract.docx"])("renders sent file references as clickable badges: %s", (path) => {
     const name = path.split("/").at(-1)!;

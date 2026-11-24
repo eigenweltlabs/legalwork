@@ -103,8 +103,12 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     if (!origin) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || url.hash) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
+    // Microsoft Search uses POST for a read-only query. Keep every mutation on the write permission path.
+    const graphSearch = (id === "onedrive" || id === "sharepoint-files") && options.method === "POST" &&
+      url.origin === "https://graph.microsoft.com" && url.pathname === "/v1.0/search/query";
+    const writing = Boolean(options.method && options.method !== "GET" && !graphSearch);
     const request = async () => {
-      await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+      await assertCurrent(writing, options.organize);
       if (options.method && options.method !== "GET") {
         if (options.send) {
           if (!authorization.assertSend) throw new ApiError(403, "forbidden", "This connection only authorizes storage.");
@@ -122,7 +126,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     let response = await request();
     // A rejected token has not executed the request. Retry exactly once with a refreshed token.
     if (response.status === 401) {
-      await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+      await assertCurrent(writing, options.organize);
       refresh ??= authorization.token(true).finally(() => { refresh = undefined; });
       accessToken = await refresh;
       response = await request();
@@ -133,6 +137,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);
       if (response.status === 404) throw new ApiError(404, "connector_item_not_found", "The requested item was not found.");
       if (response.status === 409) throw new ApiError(409, "connector_item_conflict", "An item with that name already exists. Choose another name.");
+      if (response.status === 410 && id === "onedrive-personal") throw new ApiError(410, "onedrive_cursor_expired", "OneDrive Personal’s change history expired.");
       if (response.status === 412) throw new ApiError(409, definition.kind === "mail" ? "connector_message_changed" : definition.kind === "calendar" ? "connector_calendar_changed" : "connector_file_changed", definition.kind === "mail" ? "This message changed. Preview its organization again before applying changes." : definition.kind === "calendar" ? "This event changed in Google Calendar. Prepare a new update card to review the latest version." : "This file changed since you read it. Read its details again before replacing it.");
       if (response.status === 429) throw new ApiError(429, "connector_api_rate_limited", `${definition.name} is receiving too many requests. Try again shortly.`);
       throw new ApiError(502, "connector_api_failed", `${definition.name} could not complete this request.`);

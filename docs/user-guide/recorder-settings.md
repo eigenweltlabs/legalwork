@@ -36,7 +36,7 @@ Cloud dictation uses smart transcription to clean up the dictated text.
 
 Use the microphone selector to choose the desired input, refresh devices after changing a headset and check the input level. **Overlay color** changes the floating control's appearance, not the recording source. **Start at login** keeps dictation available after sign-in; approve the OS login item when prompted.
 
-If the shortcut is unavailable, choose another registered key combination. Some Fn keys never reach applications. If insertion fails, recover the retained transcript from Recorder history. Successful system dictations are ephemeral rather than ordinary meeting recordings.
+In the mini bar, **Dictate** can start recording even when the shortcut cannot be registered. The transcription source and microphone permissions still need to be ready. If dictation is disabled, the button says **Set up dictation** and opens **Settings > Recorder > Dictate anywhere**. Hover over the bar and click the small arrow above the microphone to choose an input; right-click also opens that menu. If the shortcut is unavailable, choose another registered key combination. Some Fn keys never reach applications. If insertion fails, recover the retained transcript from Recorder history. Successful system dictations are ephemeral rather than ordinary meeting recordings.
 
 ## Meetings
 
@@ -46,8 +46,10 @@ If the shortcut is unavailable, choose another registered key combination. Some 
 
 **Meeting Summarisation** uses a cloud model to create a meeting title, summary and speaker names when identities are clear from the transcript. It runs after speaker processing and the final transcript save. Turn it on or off in this tab, choose an available model from the recording region, and add instructions if needed. The default is regional OpenAI Luna; if unavailable, choose an available regional model. Cloud summarisation counts toward your usage. It is unavailable for local transcription. To process a saved cloud transcript later, open it and select **Summarize**, even if automatic summarisation was off.
 
-Open the profile menu and choose **Show mini bar** or **Hide mini bar** to control the floating bar independently of recording or dictation.
+Open the profile menu and choose **Show mini bar** or **Hide mini bar** to control the floating bar independently of recording or dictation. Hover over the microphone to expand the bar. The third button, after **Dictate** and **Record meeting**, opens the stopwatch panel. Choose the Back Office matter you are working on, then click **Start stopwatch**. Open the panel again to change the matter for the whole interval or choose **Stop stopwatch and save time**. Stopping it adds a proposal in **Time tracking > Time entries** as a private suggestion row. See [Time tracking and billing](time-tracking.md).
 
 **Hide app** offers **Never**, **During recording** and **Always** where supported. It controls app visibility during screen sharing, not audio capture, model-provider access or whether a recording is being made.
 
 Related: [Recording and transcripts](audio.md), [Privacy](settings-privacy.md), [Troubleshooting](troubleshooting.md).
+
+Stopwatch invoice quantities round up to the applicable billing increment by default. In **Settings → Billing settings → Time rules**, select **Matter** and the matter, then turn off **Round stopwatch time up** to use the nearest increment. The switch saves automatically. Exact halves round up. The measured interval is preserved; see [Time tracking](time-tracking.md) for billing and effective-date details.

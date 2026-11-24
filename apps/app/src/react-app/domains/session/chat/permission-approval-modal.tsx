@@ -60,6 +60,7 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
 ];
 
 function readablePermissionLabel(permission: string): string {
+  if (permission === "timekeeping.entry.remove") return t("timesheets.remove.confirm");
   if (permission === "legalwork_project_set_instructions") return t("project_settings.writing");
   if (permission === "bash") return "Bash";
   if (permission === "edit") return t("session.permission_kind_edit");
@@ -73,6 +74,10 @@ function readablePermissionLabel(permission: string): string {
 }
 
 function permissionCopy(permission: string): Pick<PermissionPresentation, "title" | "message"> {
+  if (permission === "timekeeping.entry.remove") return {
+    title: t("timesheets.remove.title"),
+    message: t("timesheets.remove.chat_hint"),
+  };
   if (permission === "legalwork_project_set_instructions") return {
     title: t("session.project_instructions_approval_title"),
     message: t("session.project_instructions_approval_message"),

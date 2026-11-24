@@ -32,6 +32,15 @@ root = Stack([
   expect(html).toContain("Outstanding");
 });
 
+test("a dashboard table renders both exact and older directory amounts", () => {
+  const program = `rows = [{netTotal:{amountMinor:1235,currency:"KWD",exactAmount:{amountMinor:12345,minorUnitScale:1000}}},{netTotal:{amountMinor:1235,currency:"KWD"}},{netTotal:{amountMinor:400,currency:"JPY"}}]
+root = Table(rows,[{field:"netTotal",label:"Net total"}])`;
+  const html = renderToStaticMarkup(<OpenUIView locale="en-GB" program={program} />);
+  expect(html).toContain("12.345");
+  expect(html).toContain("12.350");
+  expect(html).toContain("JP¥4");
+});
+
 test("a live query can drive a standalone chart chosen by the agent", () => {
   const program = 'areas = Query("data", {name:"areas"}, {rows:[]})\nroot = RankedBars(areas.rows, "area", "count")';
   const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);

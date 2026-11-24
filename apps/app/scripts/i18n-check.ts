@@ -75,6 +75,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
   "projects.sessions",
+  "timeWorkspace.chat", "sidebar.backOffice",
   "composer.agent_label", "composer.agents_label", "composer.mcps_label", "composer.skill_source",
   "composer.app_kind", "session.permission_detail_agent", "session.permission_detail_tool",
   "session.permission_detail_diff", "session.permission_detail_url", "session.doom_loop_tool_label",

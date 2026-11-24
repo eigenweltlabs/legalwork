@@ -1,20 +1,20 @@
 const colors: Record<
   string,
-  "green" | "blue" | "yellow" | "gray" | "purple" | "orange" | "pink"
+  "green" | "blue" | "yellow" | "purple" | "orange" | "pink"
 > = {
   Active: "green",
   Intake: "blue",
   "On hold": "yellow",
-  Closed: "gray",
+  Closed: "purple",
   Submitted: "blue",
   Approved: "green",
-  Draft: "gray",
+  Draft: "blue",
   Invoiced: "purple",
   "Written off": "orange",
   Paid: "green",
   Issued: "blue",
   "Part paid": "yellow",
-  Cancelled: "gray",
+  Cancelled: "orange",
   "Corporate / M&A": "blue",
   Employment: "purple",
   Commercial: "green",

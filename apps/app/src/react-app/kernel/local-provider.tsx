@@ -1,8 +1,6 @@
 /** @jsxImportSource react */
 import {
-  createContext,
   useCallback,
-  use,
   useEffect,
   useMemo,
   useRef,
@@ -20,6 +18,9 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { readStoredDefaultModel } from "./model-config";
 import { initializeAssistantModel, type ModelSelection } from "./model-preferences";
+import { LocalContext, type LocalContextValue } from "./local-context";
+
+export { useLocal } from "./local-context";
 
 export type LocalUIState = {
   view: View;
@@ -99,16 +100,6 @@ export type LocalPreferences = {
    */
   fusionModels: ModelRef[];
 };
-
-type LocalContextValue = {
-  ui: LocalUIState;
-  setUi: (updater: (previous: LocalUIState) => LocalUIState) => void;
-  prefs: LocalPreferences;
-  setPrefs: (updater: (previous: LocalPreferences) => LocalPreferences) => void;
-  ready: boolean;
-};
-
-const LocalContext = createContext<LocalContextValue | undefined>(undefined);
 
 const UI_STORAGE_KEY = "legalwork.ui";
 const PREFS_STORAGE_KEY = "legalwork.preferences";
@@ -302,12 +293,4 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
 
   return <LocalContext.Provider value={value}>{children}</LocalContext.Provider>;
-}
-
-export function useLocal(): LocalContextValue {
-  const context = use(LocalContext);
-  if (!context) {
-    throw new Error("Local context is missing");
-  }
-  return context;
 }

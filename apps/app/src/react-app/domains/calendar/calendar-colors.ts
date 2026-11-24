@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { connectorCalendarColorSchema } from "@legalwork/types/connectors";
 
+export type CalendarColor = { card: string; accent: string; marker: string; style?: CSSProperties };
+
 const PROJECT_COLORS = [
   { card: "border-blue-6/70 bg-blue-3/60 hover:bg-blue-4/80", accent: "text-blue-11" },
   { card: "border-violet-6/70 bg-violet-3/60 hover:bg-violet-4/80", accent: "text-violet-11" },
@@ -24,9 +26,10 @@ export function calendarProjectColor(projectId: string | null) {
 
 
 /** Preserve the provider's marker color; keep text neutral for contrast in either theme. */
-export function calendarDisplayColor(identity: string | null, providerColor?: string | null) {
+export function calendarDisplayColor(identity: string | null, providerColor?: string | null): CalendarColor {
   const color = connectorCalendarColorSchema.parse(providerColor);
-  if (!color) {
+  const channels = color ? [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16)) : [];
+  if (!color || Math.max(...channels) === Math.min(...channels)) {
     const fallback = calendarProjectColor(identity);
     return { ...fallback, marker: fallback.accent, style: undefined };
   }

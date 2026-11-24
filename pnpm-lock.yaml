@@ -430,6 +430,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       '@aws-sdk/client-s3':
         specifier: ^3.1127.0
         version: 3.1127.0
@@ -642,6 +645,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       '@aws-sdk/client-s3':
         specifier: ^3.1127.0
         version: 3.1127.0
@@ -829,6 +835,9 @@ importers:
 
   packages/openui:
     dependencies:
+      '@legalwork/types':
+        specifier: workspace:*
+        version: link:../types
       '@openuidev/lang-core':
         specifier: 0.4.1
         version: 0.4.1(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)

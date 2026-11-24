@@ -151,6 +151,7 @@ test('critical indirect native subjects retain their actual contracts', () => {
     ['native-opencode-config.ts','scheduled-tasks/engine.test.ts'],
     ['native-command-control.ts','opencode-plugins/legalwork-sandbox.released.test.ts'],
     ['legacy-mcp-credentials.ts','legacy-mcp-lifecycle.released.test.ts'],
+    ['time-capture/guideline-rules.ts','time-capture/guideline-rules.e2e.test.ts'],
     ['routes/engine-project.ts','managed-engine-lifecycle.released.test.ts'],
     ['opencode-plugins/legalwork-storage-tools.ts','opencode-plugins/pdf-reading.integration.test.ts'],
   ]) {

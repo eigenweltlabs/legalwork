@@ -533,7 +533,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | "time" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -789,7 +789,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         className="group/project-sidebar mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="flex min-h-0 flex-1">
-        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} onOpenSettings={props.onOpenSettings} unreadTasks={unreadTasks}>
+        {(!customizingNavigation || collapsed) && <MainActionRail client={props.accountClient} actions={actions} onOpenWindow={props.onOpenNavWindow} onOpenSettings={props.onOpenSettings} unreadTasks={unreadTasks}>
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className={cn("lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden", props.assistantActive && "hidden")}>

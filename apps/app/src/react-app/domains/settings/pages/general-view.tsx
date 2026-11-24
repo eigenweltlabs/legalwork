@@ -9,6 +9,8 @@ import {
   KeyRound,
   Layout,
   Mic,
+  Timer,
+  ReceiptText,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -49,6 +51,8 @@ const globalItems = (): SettingsItem[] => [
   { tab: "assistant", title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: TableProperties, title: t("review.title"), desc: t("review.defaults_scope") },
+  { tab: "time-tracking", icon: Timer, title: t("timesheets.workspace_title"), desc: t("timeWorkspace.settingsDescription") },
+  { tab: "billing", icon: ReceiptText, title: t("timesheets.settings"), desc: t("timesheets.review_rules") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
     tab: "personalisation",

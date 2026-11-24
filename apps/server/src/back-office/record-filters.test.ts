@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
 import { localBackOfficeHistoryExport } from "./history.js";
-import { BackOfficeFilterCriteriaSchema, BackOfficeObjectSchema, BackOfficeRecordSchema, BackOfficeViewSchema, backOfficeFilterError, backOfficeViewFilters, matchesBackOfficeFilters, readableBackOfficeView, defaultBackOfficeModel, validateBackOfficeView, type BackOfficeFilterCriteria } from "./schema.js";
+import { BackOfficeFilterCriteriaSchema, BackOfficeObjectSchema, BackOfficeRecordSchema, BackOfficeViewSchema, backOfficeFilterError, backOfficeViewFilters, matchesBackOfficeFilters, readableBackOfficeView, defaultBackOfficeModel, validateBackOfficeView, type BackOfficeFilterCriteria, type BackOfficeMoney } from "./schema.js";
 
 const first = "11111111-1111-4111-8111-111111111111", second = "22222222-2222-4222-8222-222222222222";
 const object = BackOfficeObjectSchema.parse({ id: "test", label: "Record", plural: "Records", fields: [
@@ -63,6 +63,17 @@ test("legacy predicates preserve multiple fields and false/zero values and struc
   const view = BackOfficeViewSchema.parse({ id: crypto.randomUUID(), objectId: object.id, name: "Filtered", columns: ["name"], filterCriteria: legacy });
   expect(() => validateBackOfficeView(model, view)).not.toThrow();
   expect(() => validateBackOfficeView(model, { ...view, filterCriteria: criterion("missing", "empty") })).toThrow();
+});
+
+test("existing shared currency filters compare the precise record amount to their original thresholds", () => {
+  const kwd: BackOfficeMoney = { amountMinor: 1235, currency: "KWD", exactAmount: { amountMinor: 12345, minorUnitScale: 1000 } };
+  const invoice = BackOfficeRecordSchema.parse({ ...record, values: { ...record.values, amount: kwd } });
+  const matches = (operator: string, value: unknown) => matchesBackOfficeFilters(invoice, object, criterion("amount", operator, [value]));
+  expect(matches("gt", { amountMinor: 1234, currency: "KWD" })).toBe(true);
+  expect(matches("lt", { amountMinor: 1235, currency: "KWD" })).toBe(true);
+  expect(matches("is", { amountMinor: 1235, currency: "KWD" })).toBe(false);
+  expect(BackOfficeFilterCriteriaSchema.safeParse({ conditions: [{ fieldId: "amount", operator: "is", values: [kwd] }] }).success).toBe(false);
+  expect(backOfficeViewFilters({ filters: { amount: kwd } }).conditions[0].values).toEqual([{ amountMinor: 1235, currency: "KWD" }]);
 });
 
 test("shared view filtering withholds financial/private fields and inaccessible linked-record criteria", () => {

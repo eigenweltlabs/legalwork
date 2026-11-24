@@ -49,6 +49,12 @@ describe("calendar timetable", () => {
   test("places UTC and floating timestamps at the expected local wall-clock time", () => {
     expect(calendarDaySegments([event("utc", "2026-10-28T08:00:00Z", "2026-10-28T09:00:00Z"), event("floating", "2026-10-28T09:00:00", "2026-10-28T10:00:00")], "2026-10-28").map(({ start, end }) => [start, end])).toEqual([[540, 600], [540, 600]]);
   });
+  test("anchors late timekeeping suggestions to the actual minute with room for their controls", () => {
+    const layout = layoutCalendarDay([timed("late", "23:56", "23:59")], "2026-10-28", { minimumMinutes: 38, anchorAtActualStart: true });
+    expect(layout[0].displayStart).toBe(1436);
+    expect(layout[0].displayEnd - layout[0].displayStart).toBe(38);
+    expect(layout[0].end).toBe(1439);
+  });
   test("keeps meetings and point deadlines just before midnight fully clickable", () => {
     const layout = layoutCalendarDay([timed("late", "23:50", "23:55"), event("cutoff", "2026-10-28T23:59:00+01:00", null, { kind: "deadline" })], "2026-10-28");
     expect(layout.map(({ start, displayStart, displayEnd, columns }) => [start, displayStart, displayEnd, columns])).toEqual([[1430, 1420, 1440, 2], [1439, 1420, 1440, 2]]);

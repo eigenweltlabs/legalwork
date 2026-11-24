@@ -180,7 +180,7 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
 }
 
 function narrowWikiPath(method: string, pathname: string): boolean {
-  if (method === "POST" && /^\/assistant\/(?:delegate|follow-up|session-control|save-report|scratchpad|briefing)$/.test(pathname)) return true;
+  if (method === "POST" && /^\/assistant\/(?:delegate|follow-up|session-control|timekeeping-chat|save-report|scratchpad|briefing)$/.test(pathname)) return true;
   // Recording reads inherit the authenticated session's scope. The library
   // routes separately require owner access, including after a scope downgrade.
   if (method === "GET" && /^\/recorder\/recordings(?:\/[^/]+)?$/.test(pathname)) return true;
@@ -220,8 +220,8 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const route = match[2]!;
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
-    ? /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:view-previews|history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
-    : method === "POST" && /^(?:browser-connections\/[^/]+\/websites|pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders|transfer)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/.test(route));
+    ? /^(?:timekeeping\/billing|browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:view-previews|history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
+    : method === "POST" && /^(?:timekeeping\/(?:workday|billing)|browser-connections\/[^/]+\/websites|pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders|transfer)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 

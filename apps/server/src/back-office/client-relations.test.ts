@@ -21,7 +21,7 @@ test("client preview upgrade retires redundant type and view settings while reta
       store.db.run("INSERT INTO bo_views VALUES(?,?,?)", ["local", view.id, JSON.stringify(view)]);
     }, { action: "fixture.clients-v6" });
     const next = store.model("local");
-    expect(next.templateVersion).toBe(7);
+    expect(next.templateVersion).toBe(8);
     expect(next.objects.find(object => object.id === "clients")?.fields.some(field => field.id === "clientType")).toBe(false);
     expect(store.records("local", actor)[0].values).toEqual({ name: "Client", company, firmReference: "F-42" });
     expect(store.records("local", actor)[0].revision).toBe(2);

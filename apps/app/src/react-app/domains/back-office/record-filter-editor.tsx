@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, X, ChevronDown } from "lucide-react";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
-import { backOfficeFilterError, backOfficeFilterFields, backOfficeFilterOperators, compileBackOfficeFilters, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeFilterCondition, type BackOfficeFilterCriteria } from "@legalwork/types/back-office";
+import { backOfficeFilterError, backOfficeFilterFields, backOfficeFilterOperators, backOfficeMajorAmount, compileBackOfficeFilters, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeFilterCondition, type BackOfficeFilterCriteria } from "@legalwork/types/back-office";
 import { currentLocale, t } from "@/i18n";
 import { DirectoryEditorPopup, DirectorySelect } from "./twenty-controls";
 import { backOfficeOptionLabel } from "./labels";
@@ -15,7 +15,7 @@ export function recordFilterOperatorLabel(operator: BackOfficeFilterCondition["o
 export function recordFilterValueLabel(condition: BackOfficeFilterCondition, object: BackOfficeObject, records: BackOfficeRecord[]) {
   const field = object.fields.find(field => field.id === condition.fieldId);
   return new Intl.ListFormat(currentLocale(), { type: "disjunction" }).format(condition.values.map(value => typeof value === "object"
-    ? new Intl.NumberFormat(currentLocale(), { style: "currency", currency: value.currency }).format(value.amountMinor / 100)
+    ? new Intl.NumberFormat(currentLocale(), { style: "currency", currency: value.currency }).format(backOfficeMajorAmount(value))
     : typeof value === "boolean" ? t(value ? "projects.reference.filter_true" : "projects.reference.filter_false")
     : field?.type === "relation" ? String(records.find(record => record.id === value && (record.objectId === field.target || field.target === "@directory" && !record.objectId.startsWith("@")))?.values.name ?? t("projects.reference.unavailable")) : field?.type === "select" || field?.type === "multiselect" ? backOfficeOptionLabel(field, String(value)) : String(value)));
 }
@@ -70,7 +70,7 @@ function FilterValue({ field, condition, object, records, onChange }: {
   onChange: (values: BackOfficeFilterCondition["values"]) => void;
 }) {
   const first = condition.values[0];
-  const [text, setText] = useState(typeof first === "object" ? String(first.amountMinor / 100) : first === undefined ? "" : field.type === "datetime" && typeof first === "string" ? localDatetime(first) : String(first));
+  const [text, setText] = useState(typeof first === "object" ? String(backOfficeMajorAmount(first)) : first === undefined ? "" : field.type === "datetime" && typeof first === "string" ? localDatetime(first) : String(first));
   const [currency, setCurrency] = useState(typeof first === "object" ? first.currency : "EUR");
   const [open, setOpen] = useState(false);
   if (field.type === "boolean") return <DirectorySelect label={t("projects.reference.filter_value")} value={first === undefined ? "" : String(first)} onChange={value => onChange(value ? [value === "true"] : [])} options={[{ value: "", label: t("projects.reference.choose_filter_value") }, { value: "true", label: t("projects.reference.filter_true") }, { value: "false", label: t("projects.reference.filter_false") }]} />;

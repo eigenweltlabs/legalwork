@@ -417,7 +417,8 @@ export function NativeTable({
       ) : (
         <RecordGrid
           readOnlyFields={state.permissions.edit ? undefined : ["linked"]}
-          key={object.id}
+          key={JSON.stringify([object.id, client.baseUrl, state.directoryId, state.permissions.userId, state.permissions.principalKey])}
+          columnScope={JSON.stringify([client.baseUrl, state.scope, state.directoryId, state.permissions.userId, state.permissions.principalKey])}
           object={object}
           records={records}
           views={views}

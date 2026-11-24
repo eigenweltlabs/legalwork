@@ -1,3 +1,4 @@
+import { syncDesktopProfile } from "./time-capture/desktop-activity.js";
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { signOutBackOffice } from "./back-office/sync.js";
 import { withSignOutSync } from "./signout-sync.js";
@@ -164,6 +165,12 @@ import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
 import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts.js";
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
+import { backOfficeDirectoryIdentity } from "./back-office/access.js";
+import { backOfficeStore } from "./back-office/store.js";
+import { zoneValid } from "./calendar/dates.js";
+import { readActivityEvidence, observationBatch, recordWorkspaceObservations, beginTaskObservation, currentActivityProfile } from "./time-capture/activity-workday.js";
+import { requireTimekeepingOwner, isTimekeepingProject, canOpenTimekeeping, visibleTimekeepingProjects } from "./time-capture/profile.js";
+import { registerWorkdayRoutes, checkScheduledWorkday, readCaptureSettings } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
@@ -970,7 +977,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, assistantRuntime.startTimeReview);
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
@@ -1005,7 +1012,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       ]), domainRules(session.permissions ?? []).map(rule => ({ ...rule, session: true })));
     },
   });
+  const guardPrivateTimekeeping = async (actor: Actor | undefined, project?: WorkspaceInfo) => {
+    if (!project || !isTimekeepingProject(project)) return;
+    if (!canOpenTimekeeping(actor)) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    await requireTimekeepingOwner(config, project);
+  };
   const guardWikiWorkspace = async (actor: Actor | undefined, workspaceId: string, method: string, metadataOnly = false, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
+    await guardPrivateTimekeeping(actor, config.workspaces.find(workspace => workspace.id === workspaceId));
     const wiki = (await readWikis()).find((item) => item.workspaceId === workspaceId);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki && !metadataOnly) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
@@ -1014,7 +1027,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
     const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)), config.workspaces);
+    const canonical = await realpath(directory).catch(() => resolve(directory));
+    const accessibleFolder = config.workspaces.find(item => isTimekeepingProject(item) && (canonical === item.path || canonical.startsWith(item.path + sep)));
+    await guardPrivateTimekeeping(actor, accessibleFolder);
+    const wiki = wikiForDirectory(await readWikis(), canonical, config.workspaces);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1201,7 +1217,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
           : url.pathname === "/session-inbox" ? { field: "sessions", identity: "workspaceId" } : null;
         if (request.method === "GET" && workspaceList && response.ok) {
           const wikis = await readWikis();
-          const hidden = new Set<string>();
+          const visibleProjects = new Set((await visibleTimekeepingProjects(config, actor)).map(project => project.id));
+          const hidden = new Set(config.workspaces.filter(project => !visibleProjects.has(project.id)).map(project => project.id));
           for (const wiki of wikis) {
             if (!ownsWikis(actor) && !wiki.sync) hidden.add(wiki.workspaceId);
             else if (agentAccess && !await wikiAgentCanAccess(config, wikis, wiki, agentAccess.directory)) hidden.add(wiki.workspaceId);
@@ -1323,7 +1340,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     void scheduleFirmHubSync(config, { force: true });
     wikiSync.start();
     await assistantRuntime.start();
-    if (!config.readOnly) backgroundStops.push(scheduledRunner.start());
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(signal => checkScheduledWorkday(config, { signal, startChat: assistantRuntime.startTimeReview })));
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1929,6 +1946,7 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  startTimeReview: Awaited<ReturnType<typeof createAssistantRuntime>>["startTimeReview"],
 ): Route[] {
   const routes: Route[] = [];
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
@@ -1962,6 +1980,42 @@ function createRoutes(
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
+  registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace,startChat: startTimeReview});
+  for (const method of ["GET","POST"]) addRoute(routes, method, "/private-timesheet/activity", "host-token", async ctx => {
+    if (ctx.agentAccess || !["localhost","127.0.0.1","::1","[::1]"].includes(config.host)) throw new ApiError(403,"private_activity","Open your local desktop.");
+    if (method === "GET") {
+      const profile = await currentActivityProfile(config);
+      const { profileId, path, principal, user, scope } = profile;
+      if (ctx.url.searchParams.has("date")) {
+        if (ctx.url.searchParams.get("profileId") !== profileId) throw new ApiError(409, "profile_changed", "The active account changed.");
+        const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
+        const zone = ctx.url.searchParams.get("zone") ?? "UTC";
+        if (!zoneValid(zone)) throw new ApiError(400, "invalid_zone", "Invalid time zone.");
+        const evidence = await readActivityEvidence(config, profile, date, zone, ctx.request.signal);
+        if ((await currentActivityProfile(config)).profileId !== profileId) throw new ApiError(409, "profile_changed", "The active account changed.");
+        const settings = await readCaptureSettings(path);
+        const names = new Map(config.workspaces.map(w => [w.id, w.displayName || w.name]));
+        const rows = settings.enabled === false || settings.workspaceActivity === false ? [] : evidence
+          .filter(row => row.proposal.source === "workspace" || row.proposal.source === "agent")
+          .sort((a, b) => (a.proposal.startAt ?? a.proposal.observedAt ?? "").localeCompare(b.proposal.startAt ?? b.proposal.observedAt ?? ""))
+          .map(({ proposal }) => ({ ...proposal, projectName: proposal.projectId ? names.get(proposal.projectId) : undefined }));
+        const response = jsonResponse(rows);
+        response.headers.set("Cache-Control", "no-store");
+        return response;
+      }
+      syncDesktopProfile(config, path);
+      const [settings, directoryId] = await Promise.all([
+        readCaptureSettings(path), backOfficeStore(config).then(store => backOfficeDirectoryIdentity(config, scope, store)),
+      ]);
+      const response = jsonResponse({ profileId, directoryId, principal, user, scope,
+        enabled: settings.enabled !== false, workspaceActivity: settings.workspaceActivity !== false, desktopActivity: settings.desktopActivity === true });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
+    ensureWritable(config);
+    await recordWorkspaceObservations(config, observationBatch.parse(await readJsonBodyLimited(ctx.request, 128 * 1024)));
+    return jsonResponse({ok:true});
+  });
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
@@ -4008,7 +4062,9 @@ function createRoutes(
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
     const links = await prepareFormLinks(config, body.backOfficeLinks, "task", input.projectId ?? "");
+    const capture = input.id && store.getTask(input.id) ? undefined : await beginTaskObservation(config, ctx, actor.userId);
     const task = store.createTask(input, actor, undefined, links?.write);
+    await capture?.(task, "Created task");
     links?.committed();
     tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
@@ -4029,7 +4085,18 @@ function createRoutes(
     const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
     const patch = parseTaskPatch(body);
     if (patch.projectId) await resolveWorkspace(config, patch.projectId);
+    const before = store.getTask(ctx.params.taskId);
+    const capture = await beginTaskObservation(config, ctx, actor.userId);
     const task = store.patchTask(ctx.params.taskId, patch, actor);
+    if (capture && before) {
+      const edited = (["title", "description", "status", "priority", "tags", "dueDate", "assigneeUserId", "projectId"] as const)
+        .some(field => JSON.stringify(before[field]) !== JSON.stringify(task[field]));
+      if (edited) await capture(task, task.status === "done" && before.status !== "done" ? "Completed task" : "Updated task");
+      if (patch.note && patch.noteSource !== "agent") {
+        const note = store.listNotes(task.id).reverse().find(row => row.createdAt === task.updatedAt && row.authorUserId === actor.userId && row.body === patch.note?.trim());
+        if (note) await capture({ ...task, id: note.id, updatedAt: note.createdAt }, "Added note");
+      }
+    }
     tasksChanged();
     return jsonResponse({ ok: true, task });
   });
@@ -4108,12 +4175,14 @@ function createRoutes(
     }
     let task = store.getTask(ctx.params.taskId);
     if (!task) throw new ApiError(404, "task_not_found", "That task does not exist.");
+    const capture = await beginTaskObservation(config, ctx, (await localTaskConnection()).actor.userId);
     for (const file of files) {
       task = await store.addAttachment(ctx.params.taskId, {
         filename: file.name || "attachment",
         contentType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
       });
+      await capture?.({ ...task, id: task.id + ":" + file.name, title: task.title + " · " + file.name }, "Attached file");
     }
     tasksChanged();
     return jsonResponse({ ok: true, task });
@@ -4980,10 +5049,8 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [legalworkConfigPath(workspace.path)],
     });
-    const removedScopes = await removeMcp(config, workspace.id, name);
-    // A reload immediately after removal must also see the new shared config.
-    const primary = config.workspaces[0];
-    if (primary) await writeLegalworkRuntimeConfigFile(config, primary.id);
+    const removedScopes = await withPluginImportLock(() => publishRuntimeConfigChanges(config,
+      config.workspaces[0]?.id ?? workspace.id, () => removeMcp(config, workspace.id, name)));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5329,6 +5396,7 @@ function resolveWorkspaceMetadata(config: ServerConfig, id: string): WorkspaceIn
 
 async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
   const workspace = resolveWorkspaceMetadata(config, id);
+  if (isTimekeepingProject(workspace)) await requireTimekeepingOwner(config, workspace);
   const resolvedWorkspace = resolve(workspace.path);
   // A disconnected/moved project must not be silently recreated by bootstrap.
   try {
@@ -5612,34 +5680,33 @@ async function refreshManagedEngineLocation(config: ServerConfig, workspace: Wor
   // registered location and refreshes domains without resetting other projects.
   if (!configurationPublished) await writeLegalworkRuntimeConfigFile(config, workspace.id);
   const client = createEngineClient(config, workspace);
-  const refresh = async () => {
-    for (const delay of [0, 150, 300, 600]) {
-      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-      try { return await client.rpc.call({ rpcID: "legalwork.managed-settings", method: "refresh", input: {}, location: { directory } }); }
-      catch (error) {
-        let cause: unknown = error;
-        const seen = new Set<unknown>();
-        let refused = false;
-        while (cause instanceof Error && !seen.has(cause)) {
-          seen.add(cause);
-          if ("code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused")) refused = true;
-          cause = cause.cause;
-        }
-        // A refused socket cannot have admitted the refresh. Other failures
-        // may follow an accepted request, so do not repeat the mutation.
-        if (!refused || delay === 600) throw error;
+  const location = { directory };
+  for (const delay of [0, 150, 300, 600]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    try {
+      await client.rpc.call({ rpcID: "legalwork.managed-settings", method: "refresh", input: {}, location });
+      return;
+    } catch (error) {
+      if (delay === 600) throw error;
+      const api = findApiError(error);
+      const details = api?.details;
+      if (api?.status === 404 || (isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) {
+        // Catalog reads initialize native registrations. Wait for the handler to
+        // become available before treating an unopened project as a failure.
+        await client.model.list({ location });
+        continue;
       }
+      let cause: unknown = error;
+      const seen = new Set<unknown>();
+      let refused = false;
+      while (cause instanceof Error && !seen.has(cause)) {
+        seen.add(cause);
+        if ("code" in cause && (cause.code === "ECONNREFUSED" || cause.code === "ConnectionRefused")) refused = true;
+        cause = cause.cause;
+      }
+      // A refused socket and a missing handler cannot admit the refresh.
+      if (!refused) throw error;
     }
-  };
-  try { await refresh(); }
-  catch (error) {
-    const api = findApiError(error);
-    const details = api?.details;
-    if (api?.status !== 404 && !(isRecord(details) && isRpcError(details.detail) && details.detail.type === "rpc.unavailable")) throw error;
-    // Fresh locations activate external native registrations when their model
-    // catalog is read; public plugin/agent metadata alone does not do that.
-    await client.model.list({ location: { directory } });
-    await refresh();
   }
 }
 async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
@@ -5813,9 +5880,8 @@ async function disconnectSharedMcpFromOtherWorkspaces(
   );
 }
 
-// Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine
-// to drop the MCP's client so deleted MCPs stop serving tools immediately
-// instead of lingering until the next engine restart. Failures reach the UI.
+// Native configuration watching removes the saved definition after publication.
+// Close the cached connection immediately, including during OAuth sign-out.
 async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo, name: string): Promise<void> {
   if (await localWorkspaceUnavailable(workspace) || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return;
   await mcpRecovery(config).mutate(name, async () => {
@@ -5825,9 +5891,6 @@ async function disconnectMcpFromOpencodeEngine(config: ServerConfig, workspace: 
       const apiError = findApiError(error);
       if (apiError?.status !== 404) throw error;
     });
-    // Refresh removes the registered definition too; a stale dynamic entry must
-    // not reconnect after its managed source has been deleted.
-    await refreshManagedEngineLocation(config, workspace);
   });
 }
 

@@ -1,3 +1,4 @@
+import { useTimeEntryRemoval } from "./time-entry-removal";
 import { useRef, useState } from "react";
 import {
   Archive,
@@ -11,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Input } from "twenty-ui/primitives/input";
-import { Avatar } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Tabs } from "twenty-ui/primitives/navigation";
 import { Popover } from "twenty-ui/primitives/surfaces";
@@ -70,6 +71,13 @@ export function RecordDetail({
   ) => Promise<void>;
 }) {
   const locale = useLocale();
+  const removal = useTimeEntryRemoval();
+  const archive = async () => {
+    if (record.objectId === "timeEntries" && !record.archivedAt &&
+        !await removal.confirm([String(record.values.billingNarrative || record.values.name)])) return;
+    try { await onSave(record, {}, !record.archivedAt); }
+    catch (error) { setError(error instanceof Error ? error.message : t("back_office.save_failed")); }
+  };
   const [edit, setEdit] = useState<{ field: string; base: BackOfficeRecord } | null>(null),
     [error, setError] = useState("");
   const [tab, setTab] = useState<"home" | "history">("home");
@@ -270,7 +278,7 @@ export function RecordDetail({
                           />
                         }
                       >
-                        <ValueDisplay
+                        <ValueDisplay objectId={record.objectId}
                           field={field}
                           value={record.values[field.id]}
                           records={records}
@@ -340,11 +348,7 @@ export function RecordDetail({
                     <Archive size={14} />
                   )
                 }
-                onClick={() =>
-                  void onSave(record, {}, !record.archivedAt).catch((error) =>
-                    setError(error.message),
-                  )
-                }
+                onClick={() => void archive()}
               >
                 {record.archivedAt ? t("back_office.restore_record") : t("back_office.archive_record")}
               </Dropdown.ActionItem>
@@ -352,6 +356,7 @@ export function RecordDetail({
           </div>
         </>
       )}
+      {removal.dialog}
     </aside>
   );
 }

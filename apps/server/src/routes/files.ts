@@ -1,3 +1,4 @@
+import { beginDocumentCapture, beginFileAction } from "../time-capture/routes.js";
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { storageFilenameSearchSchema } from "../file-storage/schema.js";
 import { searchFilenames } from "../file-storage/filename-search.js";
@@ -689,6 +690,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [dest],
     });
 
+    const capture = await beginFileAction(config, ctx, workspace.id, relativePath, "workspace inbox", "Attached");
     await ensureDir(dirname(dest));
     const bytes = Buffer.from(await file.arrayBuffer());
     const tmp = `${dest}.tmp-${shortId()}`;
@@ -705,6 +707,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       timestamp: Date.now(),
     });
 
+    await capture?.();
     return jsonResponse({ ok: true, path: relativePath, bytes: file.size });
   });
 
@@ -1159,7 +1162,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       try { bytes = Buffer.from(copyViewFile(bytes)); }
       catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
     }
+    const capture = await beginFileAction(config, ctx, workspace.id, path, "workspace", "Imported");
     const result = await importProjectFile(workspaceFileRoot(workspace, path), path, bytes);
+    await capture?.();
     recordWorkspaceFileEvent(workspace.id, { type: "write", path });
     await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: resolveProjectFile(workspace, path), summary: source.data ? `Copied saved file from project ${source.data.projectId}: ${source.data.path}` : "Imported a local file", timestamp: Date.now() });
     return jsonResponse({ ok: true, ...result }, 201);
@@ -1317,6 +1322,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const target = normalizeProjectFileReference(workspace, typeof body.targetPath === "string" ? body.targetPath : "", { allowSubdirs: true });
     const from = resolveWorkspaceFile(workspace, source), to = resolveWorkspaceFile(workspace, target);
     await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [resolveProjectFile(workspace, target)] });
+    const capture = await beginFileAction(config, ctx, workspace.id, target, "workspace", "Copied");
     let result;
     try {
       if (isViewFile(source)) {
@@ -1326,6 +1332,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       } else result = await keepWorkspaceCopy(from.root, from.relativePath, to.relativePath, to.root);
     }
     catch (error) { throw providerError(error); }
+    await capture?.();
     recordWorkspaceFileEvent(workspace.id, { type: "write", path: target });
     await recordAudit(workspace.path, {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
@@ -1361,6 +1368,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
     const absPath = resolveProjectFile(workspace, relativePath);
+    const captureDocument = await beginDocumentCapture(config, ctx, workspace.id, relativePath);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1398,6 +1406,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         summary: `Wrote ${relativePath}`,
         timestamp: Date.now(),
       });
+      await captureDocument?.(before, after);
       return jsonResponse({ ok: true, path: relativePath, bytes: after.size, updatedAt: after.mtimeMs, revision });
     });
   });
@@ -1434,6 +1443,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const absPath = resolveProjectFile(workspace, relativePath);
 
+    const captureDocument = await beginDocumentCapture(config, ctx, workspace.id, relativePath);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1488,6 +1498,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         timestamp: Date.now(),
       });
 
+      await captureDocument?.(before, after);
       return jsonResponse({
         ok: true,
         path: relativePath,

@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "LegalWorkKeyMonitor",
             path: "Sources/KeyMonitor"
-        )
+        ),
+        .testTarget(name: "WorkdayForegroundTests", dependencies: ["LegalWorkKeyMonitor"])
     ]
 )

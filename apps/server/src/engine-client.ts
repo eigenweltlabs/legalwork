@@ -103,8 +103,8 @@ export function workspaceEngineLocation(workspace: WorkspaceInfo): { directory: 
 }
 
 /** A session ID alone is never proof that a caller can access its project. */
-export async function getWorkspaceEngineSession(client: OpenCodeClient, workspace: WorkspaceInfo, sessionID: string): Promise<SessionInfo> {
-  const session = await client.session.get({ sessionID }).catch(error => { throw findApiError(error) ?? error; });
+export async function getWorkspaceEngineSession(client: OpenCodeClient, workspace: WorkspaceInfo, sessionID: string, signal?: AbortSignal): Promise<SessionInfo> {
+  const session = await client.session.get({ sessionID }, { signal }).catch(error => { throw findApiError(error) ?? error; });
   const [expected, actual] = await Promise.all([
     canonicalFilePath(workspaceEngineLocation(workspace).directory),
     canonicalFilePath(session.location.directory),

@@ -170,6 +170,13 @@ type SessionError = {
 export type SessionSurfaceProps = {
   /** Only the focused chat handles window-wide composer and voice events. */
   active?: boolean;
+  timekeeping?: {
+    date?: string;
+    history?: LegalworkServerClient["mainAssistantHistory"];
+    model?: ModelRef & { workspaceId?: string };
+    modelChanged: (model: ModelRef, confirm?: boolean) => void;
+    context: string;
+  };
   assistantDate?: string;
   assistantName?: string;
   assistantHeader?: ReactNode;
@@ -963,7 +970,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const history = useSessionHistory({ client: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, snapshot, live: renderedMessages, containerRef: scrollRef, assistantDate: props.assistantDate });
+  const history = useSessionHistory({ client: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, snapshot, live: renderedMessages, containerRef: scrollRef, assistantDate: props.timekeeping?.date ?? props.assistantDate, dailyHistory: props.timekeeping?.history });
   const subscriptionEndedAccessoryVisible = subscriptionEndedNoticeVisible &&
     !isSubscriptionRecoveryError(error?.message ?? "") &&
     !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
@@ -977,7 +984,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   ), [props.assistantDate, history.messages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
   const pastSections = history.sections.filter(section => section.sessionId !== props.sessionId);
   const pastMessageIds = new Set(pastSections.flatMap(section => section.messages.map(message => message.id)));
-  const currentDisplayedMessages = props.assistantDate ? displayedMessages.filter(message => !pastMessageIds.has(message.id)) : displayedMessages;
+  const dailyDate = props.timekeeping?.date ?? props.assistantDate;
+  const currentDisplayedMessages = dailyDate ? displayedMessages.filter(message => !pastMessageIds.has(message.id)) : displayedMessages;
   useEffect(() => {
     const confirmed = new Set(renderedMessages.map(message => message.id));
     rememberAcceptedSteeringMessages(outgoingScope, sharedQueue.state, confirmed);
@@ -1850,7 +1858,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const emptyWelcome = !props.assistantDate && displayedMessages.length === 0 && effectiveActivityStatus === "idle";
   const sessionScroll = useSessionScrollController({
+    emptyWelcome,
     selectedSessionId: props.sessionId,
     renderedMessages: displayedMessages,
     containerRef: scrollRef,
@@ -2025,7 +2035,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
-          <div ref={contentRef} className="lw-session-column">
+          <div ref={contentRef} className={cn("lw-session-column", emptyWelcome && "flex min-h-full flex-col justify-center")}>
             {history.loading && <div role="status" className="pointer-events-none sticky top-0 z-10 h-0 overflow-visible text-center"><span className="inline-block rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">{t("assistant.loading_history")}</span></div>}
             {history.error && <div className="sticky top-0 z-10 h-0 overflow-visible text-center"><button type="button" className="rounded-full bg-background px-3 py-1 text-xs text-muted-foreground" onClick={history.retry}>{t("assistant.history_failed")} · {t("scheduled.retry")}</button></div>}
             <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
@@ -2090,8 +2100,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onForkAtMessage={handleForkAtMessage}
                       onEditUserMessage={handleEditUserMessage}
                     >
-                      {props.assistantDate && <AssistantHistory client={props.client} workspaceId={props.workspaceId} sections={pastSections} onboarding={props.assistantOnboarding?.state} />}
-                      {props.assistantDate && pastSections.length > 0 && currentDisplayedMessages.length > 0 && <AssistantDateDivider date={props.assistantDate} />}
+                      {dailyDate && <AssistantHistory assistantChat={Boolean(props.assistantDate)} client={props.client} workspaceId={props.workspaceId} sections={pastSections} onboarding={props.assistantOnboarding?.state} />}
+                      {dailyDate && pastSections.length > 0 && <AssistantDateDivider date={dailyDate} />}
                       <MessageList
                         showWelcome={!props.assistantDate}
                         eigenweltPlan={eigenweltPlan}

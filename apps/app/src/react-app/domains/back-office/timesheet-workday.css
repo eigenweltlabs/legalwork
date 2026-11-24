@@ -1,0 +1,79 @@
+.bo-workday {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bo-workday-controls,
+.bo-workday-controls label,
+.time-workspace-calendar-actions,
+.time-workspace-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bo-workday-controls {
+  flex-wrap: nowrap;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 4px;
+}
+.bo-workday-controls > * { -webkit-app-region: no-drag; }
+.time-workspace-timekeeper:empty { display: none; }
+.bo-workday-controls .time-sheet-period { align-items: center; }
+.time-workspace-field select {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: inherit;
+  background: var(--bo-bg, var(--background));
+}
+
+.time-workspace-panels { flex: 1; min-height: 0; min-width: 0; }
+.time-workspace-entry-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+.time-workspace-timeline { position: relative; isolation: isolate; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; background: var(--background); }
+.time-workspace-chat { height: 100%; min-height: 0; min-width: 0; }
+.time-workspace-calendar-actions { justify-content: flex-end; gap: 4px; min-width: 0; max-width: 100%; }
+.time-workspace-note,
+.time-workspace-status {
+  margin: 6px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.time-workspace-status { flex: none; padding-inline: 16px; }
+.time-workspace-status[role="alert"],
+.time-workspace-form [role="alert"] { color: var(--destructive); }
+.time-workspace-editor h3:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.time-workspace-editor :is(button, select)[aria-disabled="true"] { opacity: 0.5; }
+.time-workspace-form,
+.time-workspace-field { display: grid; gap: 8px; font-size: 12px; }
+.time-workspace-form > button { justify-self: start; }
+.time-proposal-decisions {
+  display: inline-flex;
+  flex: none;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.time-proposal-decisions > button { border-radius: inherit; }
+.time-proposal-decisions > button:focus-visible { z-index: 1; }
+.time-proposal-decisions[data-calendar-proposal-actions] { background: #fff; border-color: #d4d4d4; color: #242424; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button { width: 24px; height: 24px; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button:hover { color: #171717; background: #eee; }
+.time-proposal-decisions[data-calendar-proposal-actions] > button > svg { width: 14px; height: 14px; }
+.time-workspace-form label, [data-time-source-editor] label { min-width: 0; }
+.time-workspace-form label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.time-workspace-form [data-slot="select-trigger"], [data-time-source-editor] [data-slot="select-trigger"] { width: 100%; }
+.time-workspace-form :is(textarea, select, input) { width: 100%; }
+.time-workspace-form textarea { resize: vertical; }
+.time-workspace-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 680px) {
+  .bo-workday-controls { gap: 4px; padding-inline: 6px; }
+}

@@ -89,8 +89,13 @@ test("menu and call preloads preserve their sandboxed IPC bridges", () => {
 test("dictation preload exposes only its own controls and status subscriptions", () => {
   const { bridge, ipc, messages } = loadPreload("./audio/dictation-hud-preload.cjs", "dictationHud");
   bridge.action("cancel");
+  bridge.action("stopwatch-start", 2, "matter", "Review notes");
   bridge.pointer(true);
-  assert.deepEqual(messages, [["legalwork:dictation-hud:action", "cancel"], ["legalwork:dictation-hud:pointer", true]]);
+  assert.deepEqual(messages, [
+    ["legalwork:dictation-hud:action", "cancel", undefined, undefined, undefined],
+    ["legalwork:dictation-hud:action", "stopwatch-start", 2, "matter", "Review notes"],
+    ["legalwork:dictation-hud:pointer", true],
+  ]);
   const states = [];
   const levels = [];
   bridge.onState((state) => states.push(state));

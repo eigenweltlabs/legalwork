@@ -1,3 +1,4 @@
+import { beginTaskObservation } from "../time-capture/activity-workday.js";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
@@ -81,6 +82,7 @@ export async function writeNative(
   actor: BackOfficeActor,
   kind: "task" | "deadline",
   raw: unknown,
+  hostObservation = false,
 ) {
   const input = mutation.parse(raw),
     sources = await nativeSources(config);
@@ -94,6 +96,9 @@ export async function writeNative(
   const unavailable = () => new ApiError(404, "native_missing", "This record is unavailable.");
   if (kind === "task") {
     const author = taskActorOf(connection);
+    const before = sources.tasks.getTask(input.id);
+    const capture = hostObservation && !actor.agentId && (input.action === "create" || input.action === "edit")
+      ? await beginTaskObservation(config, { actor: { type: "host" } }, author.userId) : undefined;
     if (input.action === "create") {
       if (input.workspaceId && !sources.taskVisible({ projectId: input.workspaceId, sync: { orgId: null } }))
         throw unavailable();
@@ -128,6 +133,10 @@ export async function writeNative(
         checkFields(current, patch, patchFor(input.expected, taskFields));
         if (!unchanged(current, patch)) sources.tasks.patchTask(input.id, parseTaskPatch(patch), author);
       }
+    }
+    const changed = capture && sources.tasks.getTask(input.id);
+    if (capture && changed && (!before || changed.updatedAt !== before.updatedAt)) {
+      await capture(changed, changed.status === "done" && before?.status !== "done" ? "Completed task" : before ? "Updated task" : "Created task");
     }
     announceSyncChange(config, "tasks");
     scheduleTaskSync(config);

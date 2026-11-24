@@ -659,10 +659,36 @@
   max-width: calc(100vw - 40px);
 }
 
-.bo-dialog-close {
+.bo-dialog .bo-dialog-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bo .bo-dialog-viewport {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  inset: 0;
+  padding: 12px;
+  pointer-events: auto;
+}
+
+.bo-dialog-viewport > .bo-dialog {
+  max-block-size: 100%;
+  max-inline-size: 100%;
+  border: 1px solid var(--bo-border);
+  overflow: auto;
+}
+
+.bo-dialog-viewport > .bo-dialog[data-size="sm"] {
+  inline-size: min(26rem, 100%);
+}
+
+.bo-sync-assignment {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  overflow-wrap: anywhere;
 }
 
 .bo-form {

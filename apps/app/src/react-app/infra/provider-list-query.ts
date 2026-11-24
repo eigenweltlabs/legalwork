@@ -7,7 +7,7 @@ import { filterProviderList } from "../../app/utils/providers";
 import type { ProviderListView } from "../../app/types";
 import { ensureNativeCatalogReady, invalidateNativeCatalogReady } from "../../app/lib/opencode-catalog-ready";
 import { createCoalescedRefresh } from "../shell/coalesced-refresh";
-import type { NativeProviderDisplay } from "@legalwork/types/native-model-display";
+import { RETIRED_FREE_PROVIDER_IDS, type NativeProviderDisplay } from "@legalwork/types/native-model-display";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
 const PROVIDER_LIST_QUERY_ROOT = ["opencode-provider-list"] as const;
@@ -72,7 +72,9 @@ export async function fetchProviderList(input: {
       source: integration?.connections[0]?.type === "env" ? "env" : integration?.connections.length ? "api" : "config",
       settings: provider.settings, integrationID: provider.integrationID, hasCustomEndpoint: display.legalwork?.hasCustomEndpoint,
       env: integration?.methods.flatMap(method => method.type === "env" ? method.names : []) ?? [],
-      models: Object.fromEntries(models.data.filter(model => model.providerID === provider.id).map(model => [model.id, model])),
+      models: provider.activation === "disabled" ? {} : Object.fromEntries(
+        models.data.filter(model => model.enabled !== false && model.providerID === provider.id).map(model => [model.id, model]),
+      ),
     };
   });
   const known = new Set(all.map(provider => provider.id));
@@ -80,9 +82,11 @@ export async function fetchProviderList(input: {
     if (known.has(integration.id) || connectorIntegrations.has(integration.id)) continue;
     all.push({ id: integration.id, name: integration.name, source: "config", models: {}, env: integration.methods.flatMap(method => method.type === "env" ? method.names : []) });
   }
+  const nativeDefault = modelDefault.data;
   const value: ProviderListView = {
-    all, connected: providers.data.map(provider => provider.id),
-    default: modelDefault.data ? { [modelDefault.data.providerID]: modelDefault.data.id } : {},
+    all, connected: providers.data.filter(provider => provider.activation !== "disabled").map(provider => provider.id),
+    default: nativeDefault && all.some(provider => provider.id === nativeDefault.providerID && provider.models[nativeDefault.id])
+      ? { [nativeDefault.providerID]: nativeDefault.id } : {},
   };
   recordConnectedProviderSnapshot(input, value);
   return value;
@@ -93,7 +97,8 @@ export function getConnectedProviderItems(value: ProviderListView | null | undef
   return (value?.all ?? []).filter(
     (provider) =>
       connected.has(provider.id) &&
-      (provider.source !== "custom" || provider.id === "opencode" || Object.keys(provider.models ?? {}).length > 0),
+      !RETIRED_FREE_PROVIDER_IDS.has(provider.id.trim().toLowerCase()) &&
+      (provider.source !== "custom" || Object.keys(provider.models ?? {}).length > 0),
   );
 }
 
@@ -151,14 +156,6 @@ export function countConnectedProviders(
   if (!value) return 0;
   return getConnectedProviderItems(filterProviderList(value, disabledProviderIds)).length;
 }
-
-/** The built-in OpenCode Zen provider id. Retired as a fallback: the server
- * always disables it — no unauthenticated free models exist anymore. */
-export const OPENCODE_ZEN_PROVIDER_ID = "opencode";
-
-/** Retired free-tier provider id — kept only so old persisted selections can
- * be recognized and cleared (see the retirement migration in session-route). */
-export const RETIRED_FREE_PROVIDER_IDS = new Set(["eigenwelt-free", OPENCODE_ZEN_PROVIDER_ID]);
 
 export function getConnectedProviderSnapshotChange(input: {
   baseUrl?: string | null;

@@ -17,11 +17,29 @@ let animationFrame = 0;
 let previousFrameAt = 0;
 let meterStartedAt = 0;
 let meetingStartedAt = null;
+const stopwatchAction = document.getElementById("stopwatch-action");
+const stopwatchButton = document.getElementById("stopwatch");
+const stopwatchTime = document.getElementById("stopwatch-time");
+const stopwatchFeedback = document.getElementById("stopwatch-feedback");
+let stopwatch = null;
+let stopwatchLabels;
+const stopwatchPanel = document.getElementById("stopwatch-panel");
+const stopwatchMatters = document.getElementById("stopwatch-matters");
+const matterSearch = document.getElementById("stopwatch-search");
+const quickNote = document.getElementById("stopwatch-note");
+const stopwatchConfirm = document.getElementById("stopwatch-confirm");
+let selectedStopwatchMatter = null;
+let pendingStopwatchAction = null;
+let awaitingMatterContext = false;
+let matterListSignature = "";
 let idleNotice = "";
 let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
+    stopwatchTitle: "Stopwatch", stopwatchMatter: "Matter (optional)", quickNote: "Quick note", noMatches: "No matching matters", noMatters: "No matters available",
+    stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
+    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Time tracking",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
     copied: "Couldn’t insert text", copyInstructions: "Copied to clipboard. Select a text field and press {paste} to paste.",
     success: "Text inserted", cancelled: "Cancelled", error: "Dictation needs attention",
@@ -32,6 +50,9 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
+    stopwatchTitle: "Stoppuhr", stopwatchMatter: "Mandat (optional)", quickNote: "Kurznotiz", noMatches: "Keine passenden Mandate", noMatters: "Keine Mandate verfügbar",
+    stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
+    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit in der Zeiterfassung gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
     copied: "Text konnte nicht eingefügt werden", copyInstructions: "In die Zwischenablage kopiert. Wähle ein Textfeld und drücke {paste}, um den Text einzufügen.",
     success: "Text eingefügt", cancelled: "Abgebrochen", error: "Diktat braucht Aufmerksamkeit",
@@ -73,6 +94,97 @@ function animateMeter(now) {
   animationFrame = requestAnimationFrame(animateMeter);
 }
 
+function renderStopwatch() {
+  if (!stopwatch) return;
+  const started = stopwatch.startedAt;
+  const elapsed = started ? Math.max(0, Math.floor((Date.now() - Date.parse(started)) / 1000)) : 0;
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor(elapsed / 60) % 60;
+  const display = (hours ? hours + ":" + String(minutes).padStart(2, "0") : minutes) + ":" + String(elapsed % 60).padStart(2, "0");
+  if (started && stopwatchTime.textContent !== display) stopwatchTime.textContent = display;
+  document.getElementById("stopwatch-panel-time").textContent = started ? display : "";
+  const feedback = stopwatch.failed ? stopwatchLabels.stopwatchFailed : stopwatch.savedUntil > Date.now() ? stopwatchLabels.stopwatchSaved : "";
+  if (stopwatchFeedback.textContent !== feedback) stopwatchFeedback.textContent = feedback;
+}
+
+function closeStopwatchPanel() {
+  if (!stopwatchPanel.hidden) bridge.action("stopwatch-close");
+  stopwatchPanel.hidden = true;
+  setHover(null);
+}
+function renderStopwatchPanel() {
+  if (!stopwatch || !stopwatchLabels) return;
+  const matters = stopwatch.matters ?? [];
+  const filtered = matters.filter(matter => matter.name.toLocaleLowerCase().includes(matterSearch.value.trim().toLocaleLowerCase()));
+  matterSearch.placeholder = stopwatchLabels.stopwatchMatter;
+  matterSearch.setAttribute("aria-label", stopwatchLabels.stopwatchMatter);
+  document.getElementById("stopwatch-note-label").textContent = stopwatchLabels.quickNote;
+  stopwatchMatters.setAttribute("aria-label", stopwatchLabels.stopwatchMatter);
+  if (selectedStopwatchMatter && !matters.some(matter => matter.id === selectedStopwatchMatter)) selectedStopwatchMatter = null;
+  document.getElementById("stopwatch-heading").textContent = stopwatchLabels.stopwatchTitle;
+  document.getElementById("stopwatch-close").setAttribute("aria-label", stopwatchLabels.dismiss);
+  const signature = JSON.stringify([filtered, selectedStopwatchMatter, stopwatchLabels.noMatters, stopwatch.busy, stopwatch.unavailable, stopwatch.enabled]);
+  if (signature !== matterListSignature) {
+    matterListSignature = signature;
+    stopwatchMatters.replaceChildren(...filtered.map(matter => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = matter.name;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(matter.id === selectedStopwatchMatter));
+      button.disabled = stopwatch.busy || stopwatch.unavailable || (!stopwatch.enabled && Boolean(stopwatch.matterId));
+      button.setAttribute("aria-pressed", String(matter.id === selectedStopwatchMatter));
+      button.addEventListener("click", () => {
+        awaitingMatterContext = false;
+        selectedStopwatchMatter = matter.id;
+        matterSearch.value = matter.name;
+        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, matter.id);
+        renderStopwatchPanel();
+      });
+      return button;
+    }));
+  }
+  document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
+    ? stopwatchLabels.stopwatchFailed
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable : matterSearch.value.trim() && !filtered.length ? stopwatchLabels.noMatches : "";
+  stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
+    : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
+  const unmatchedSearch = !stopwatch.startedAt && matterSearch.value.trim() && !selectedStopwatchMatter;
+  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.unavailable && Boolean(unmatchedSearch));
+}
+matterSearch.addEventListener("input", () => {
+  if (!stopwatch?.startedAt) selectedStopwatchMatter = null;
+  renderStopwatchPanel();
+});
+matterSearch.addEventListener("keydown", event => {
+  const first = stopwatchMatters.querySelector("button:not(:disabled)");
+  if (first && (event.key === "ArrowDown" || event.key === "Enter")) {
+    event.preventDefault();
+    if (event.key === "Enter") first.click(); else first.focus();
+  }
+});
+document.getElementById("stopwatch-close").addEventListener("click", closeStopwatchPanel);
+stopwatchConfirm.addEventListener("click", () => {
+  if (!stopwatch || stopwatch.busy) return;
+  pendingStopwatchAction = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
+  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchMatter ?? undefined : undefined, quickNote.value);
+});
+stopwatchButton.addEventListener("click", () => {
+  if (!stopwatch || stopwatch.busy) return;
+  if (!stopwatchPanel.hidden) return closeStopwatchPanel();
+  awaitingMatterContext = true;
+  selectedStopwatchMatter = stopwatch.matterId ?? null;
+  matterSearch.value = "";
+  quickNote.value = stopwatch.note ?? "";
+  stopwatchPanel.hidden = false;
+  matterSearch.focus();
+  renderStopwatchPanel();
+  bridge.action("stopwatch-prepare", stopwatch.version);
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeStopwatchPanel();
+});
+
 bridge.onState((value) => {
   document.documentElement.dataset.theme = value.dark ? "dark" : "light";
   document.documentElement.dataset.appearance = value.appearance || "app";
@@ -90,10 +202,44 @@ bridge.onState((value) => {
   document.documentElement.dataset.theme = value.dark ? "dark" : "light";
   const shortcut = shortcutLabel(value.accelerator, value.platform);
   const labels = translations[value.locale] || translations.en;
+  const previousStopwatch = stopwatch;
+  stopwatch = value.stopwatch;
+  if (stopwatch && (awaitingMatterContext || previousStopwatch?.version !== stopwatch.version)) {
+    selectedStopwatchMatter = stopwatch.matterId ?? null;
+    awaitingMatterContext = false;
+  }
+  if (previousStopwatch?.startedAt !== stopwatch?.startedAt || (previousStopwatch && stopwatch && previousStopwatch.version !== stopwatch.version && !stopwatch.startedAt)) {
+    quickNote.value = stopwatch?.note ?? "";
+    matterSearch.value = "";
+  }
+  if (!stopwatch) closeStopwatchPanel();
+  if (pendingStopwatchAction && previousStopwatch?.busy && !stopwatch?.busy) {
+    if (!stopwatch?.failed && !stopwatch?.unavailable && pendingStopwatchAction !== "retry") closeStopwatchPanel();
+    pendingStopwatchAction = null;
+  }
+  stopwatchLabels = labels;
+  stopwatchButton.hidden = !stopwatch;
+  document.body.dataset.stopwatchAvailable = String(Boolean(stopwatch));
+  document.body.dataset.stopwatchRunning = String(Boolean(stopwatch?.startedAt));
+  if (stopwatch) {
+    const running = Boolean(stopwatch.startedAt);
+    const action = stopwatch.unavailable ? labels.stopwatchRetry : running ? labels.stopwatchStop : labels.stopwatchStart;
+    stopwatchButton.dataset.unavailable = String(stopwatch.unavailable);
+    stopwatchButton.disabled = stopwatch.busy;
+    stopwatchAction.textContent = stopwatch.unavailable ? labels.stopwatchUnavailable : action;
+    stopwatchButton.setAttribute("aria-pressed", String(running));
+    stopwatchButton.setAttribute("aria-label", action);
+    if (running) stopwatchButton.setAttribute("aria-describedby", "stopwatch-time");
+    else stopwatchButton.removeAttribute("aria-describedby");
+    stopwatchTime.hidden = !running;
+  }
+  renderStopwatch();
+  renderStopwatchPanel();
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
-  document.getElementById("start").disabled = !value.enabled || !value.registered;
+  document.getElementById("start").disabled = false;
+  document.getElementById("microphone-menu").setAttribute("aria-label", value.locale === "de" ? "Mikrofon auswählen" : "Choose microphone");
   const detected = value.state === "idle" ? value.meeting?.detected : null;
   document.getElementById("meeting-prompt").hidden = !detected;
   document.getElementById("meeting-title").textContent = detected ? `${labels.meetingDetected} · ${detected.app}` : "";
@@ -109,9 +255,9 @@ bridge.onState((value) => {
     const button = document.getElementById(action);
     const actionLabel = action === "stop" && value.state === "starting" ? labels.cancel : labels[action];
     button.setAttribute("aria-label", actionLabel);
-    button.title = action === "start" ? "" : actionLabel + (action === "cancel" ? " · Esc" : "");
+    button.title = action === "start" ? (value.enabled ? "" : value.locale === "de" ? "Diktieren einrichten" : "Set up dictation") : actionLabel + (action === "cancel" ? " · Esc" : "");
   }
-  startLabel.textContent = labels.dictate;
+  startLabel.textContent = value.enabled ? labels.dictate : value.locale === "de" ? "Diktieren einrichten" : "Set up dictation";
   label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? (value.dock !== "bottom" && value.message) || labels.error : value.message || labels[value.state] || "";
   const copyInstructions = labels.copyInstructions.replace("{paste}", value.platform === "darwin" ? "⌘V" : "Ctrl+V");
   document.getElementById("copy-instructions").textContent = copyInstructions;
@@ -156,6 +302,7 @@ for (const action of ["meeting-start", "meeting-stop", "meeting-open", "meeting-
 document.getElementById("meeting-record").addEventListener("click", () => bridge.action("meeting-start"));
 document.getElementById("meeting-close").addEventListener("click", () => bridge.action("meeting-dismiss"));
 setInterval(() => {
+  renderStopwatch();
   const seconds = meetingStartedAt ? Math.max(0, Math.floor((Date.now() - meetingStartedAt) / 1000)) : 0;
   document.getElementById("meeting-time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }, 250);
@@ -166,12 +313,12 @@ let interactive = false;
 let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
-  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
-  for (const id of ["start", "meeting-start"]) {
+  bar.dataset.hovered = String((Boolean(target?.closest("#bar")) || !stopwatchPanel.hidden) && !pointerDrag?.moving);
+  for (const id of ["start", "meeting-start", "stopwatch"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }
   if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;
-  const next = Boolean(pointerDrag || target?.closest("#bar, #meeting-prompt"));
+  const next = Boolean(pointerDrag || target?.closest("#bar, #meeting-prompt, #stopwatch-panel"));
   if (interactive !== next) { interactive = next; bridge.pointer(next); }
 }
 function updatePointer(x, y) {
@@ -234,4 +381,5 @@ document.getElementById("start").addEventListener("contextmenu", event => {
   event.preventDefault();
   if (currentState === "idle") bridge.action("microphone-menu");
 });
+document.getElementById("microphone-menu").addEventListener("click", () => bridge.action("microphone-menu"));
 bridge.action("ready");

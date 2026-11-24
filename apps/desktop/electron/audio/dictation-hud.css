@@ -2,6 +2,8 @@
 :root {
   color-scheme:light;
   --surface:rgba(255,255,255,.94);
+  --input-surface:#f4f4f6;
+  --input-border:#82828c;
   --ink:#0d0d0f;
   --muted:#6c6c76;
   --border:rgba(13,13,15,.1);
@@ -17,6 +19,8 @@
 :root[data-theme=dark] {
   color-scheme:dark;
   --surface:rgba(28,28,32,.96);
+  --input-surface:#39393f;
+  --input-border:#91919b;
   --ink:#f1f1f3;
   --muted:#b6b6bd;
   --border:rgba(255,255,255,.14);
@@ -419,7 +423,7 @@ html[lang=de] body[data-state=error] #bar {
   width:250px
 }
 
-#meeting-start,#meeting-open,#meeting-stop,#meeting-close,#meeting-time { display:none }
+#stopwatch,#meeting-start,#meeting-open,#meeting-stop,#meeting-close,#meeting-time { display:none }
 
 #meeting-prompt {
   display:grid;
@@ -441,63 +445,40 @@ html[lang=de] body[data-state=error] #bar {
 #meeting-description { display:block; margin-top:4px; font-size:11px; color:var(--muted) }
 #meeting-record { width:auto; height:28px; padding:0 10px; border-radius:7px; background:var(--primary); color:var(--primary-fg); font-size:11px; font-weight:600 }
 
-body[data-state=idle][data-meeting-available=true] #bar { gap:0 }
-body[data-state=idle][data-meeting-available=true] #start { flex:1; min-width:0; width:auto }
-body[data-state=idle][data-meeting-available=true] #meeting-start {
-  display:flex;
-  flex:none;
-  width:0;
-  height:26px;
-  padding:0;
-  opacity:0;
-  overflow:visible;
-  pointer-events:none;
-  transition:width 300ms var(--ease),margin 300ms var(--ease),opacity 140ms
+/* The timer stays beside the microphone. Only the meeting action expands on hover. */
+body[data-state=idle] #bar { --action-space:0px; gap:0 }
+body[data-state=idle][data-stopwatch-available=true] #bar { --action-space:32px }
+body[data-state=idle] #bar[data-hovered=true] { --action-space:32px }
+body[data-state=idle][data-stopwatch-available=true] #bar[data-hovered=true] { --action-space:64px }
+body[data-state=idle] #bar #start,
+body[data-state=idle] #bar #stopwatch:not([hidden]),
+body[data-state=idle] #bar[data-hovered=true] #meeting-start {
+  display:flex; flex:none; width:28px; height:26px; padding:0;
 }
-body[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meeting-start {
-  width:28px;
-  margin-left:4px;
-  opacity:1;
-  pointer-events:auto;
-  transition-delay:0ms,0ms,70ms
-}
-#meeting-start { gap:6px; border-radius:7px }
-#meeting-start-label { flex:none; font-size:11px; font-weight:500; white-space:nowrap }
-#meeting-start svg { flex:none; width:16px; height:16px }
+body[data-state=idle] #bar :is(#stopwatch,#meeting-start) { margin-inline-start:4px }
+:is(#meeting-start,#stopwatch) { gap:6px; border-radius:7px }
+.action-hint { flex:none; font-size:11px; font-weight:500; white-space:nowrap }
+:is(#meeting-start,#stopwatch) svg { flex:none; width:16px; height:16px }
 #meeting-start svg circle:last-child { fill:currentColor; stroke:none }
 
-/* Reveal only the second icon; keep both buttons compact and the mic anchored. */
-body[data-dock=bottom][data-state=idle][data-meeting-available=true] #start {
-  flex:none; width:28px;
+body[data-dock=bottom][data-state=idle] #bar {
+  width:calc(30px + var(--action-space)); transform:translateX(calc(var(--action-space) / 2));
 }
-body[data-dock=bottom][data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  width:62px; transform:translateX(16px);
-}
-
-/* Side docks keep the microphone anchored and reveal a vertical icon stack. */
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar {
+body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar {
   flex-direction:column; justify-content:flex-start; border-radius:999px;
+  height:calc(28px + var(--action-space)); margin-top:var(--action-space);
 }
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  height:62px; margin-top:34px; gap:4px;
+body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar :is(#meeting-start,#stopwatch:not([hidden])) {
+  margin:4px 0 0; height:28px; border-radius:50%;
 }
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar #start {
-  flex:none; width:28px; height:26px; border:0; background:transparent; box-shadow:none;
-}
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar #meeting-start {
-  width:28px; height:0; margin:0; overflow:visible; border-radius:50%; background:transparent; box-shadow:none;
-}
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meeting-start {
-  width:28px; height:28px; margin:0; border:0;
-}
-html body[data-state=idle][data-meeting-available=true] #bar :is(#start-label,#meeting-start-label) {
+#bar .action-hint {
   position:absolute; top:50%; max-width:none; margin:0; padding:7px 10px; border:1px solid var(--border); border-radius:9px;
   background:var(--surface); color:var(--ink); box-shadow:0 2px 8px rgba(16,24,40,.12); opacity:0; transform:translateY(-50%); pointer-events:none; transition:opacity 140ms;
 }
-body[data-dock=left][data-state=idle] #bar :is(#start-label,#meeting-start-label) { left:calc(100% + 8px) }
-body[data-dock=right][data-state=idle] #bar :is(#start-label,#meeting-start-label) { right:calc(100% + 8px) }
-html body[data-dock=bottom][data-state=idle] #bar :is(#start-label,#meeting-start-label) { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
-html body[data-state=idle][data-meeting-available=true] #bar button[data-hovered=true] :is(#start-label,#meeting-start-label) { opacity:1 }
+body[data-dock=left] #bar .action-hint { left:calc(100% + 8px) }
+body[data-dock=right] #bar .action-hint { right:calc(100% + 8px) }
+body[data-dock=bottom] #bar .action-hint { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
+#bar button[data-hovered=true] .action-hint { opacity:1 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #notice { display:none }
 body[data-dock=bottom][data-state=idle]:not([data-hint=true]) #notice { display:none }
 
@@ -528,6 +509,7 @@ html body[data-dock=bottom]:is([data-state=error],[data-state=meeting-error]) #b
   width:30px; height:28px; padding:0;
 }
 html body[data-dock=bottom]:is([data-state=error],[data-state=meeting-error]) #bar:not([data-hovered=true]) :is(#label,#dismiss,#meeting-close) { display:none }
+body[data-dock=bottom][data-stopwatch-available=true]:is([data-state=error],[data-state=meeting-error]) #bar:not([data-hovered=true]) { min-width:62px }
 body[data-state=meeting-error] #visual { display:block; width:8px; height:8px; border-radius:50%; background:var(--danger) }
 body[data-state=meeting-error] #waveform { display:none }
 
@@ -587,3 +569,75 @@ body[data-state=copied] #copy-instructions {
   color:var(--muted); font-size:12px; line-height:1.5;
 }
 body[data-state=copied] #dismiss { display:flex; grid-column:3; grid-row:1; align-self:start }
+
+/* Keep the timer accessible while the bar shows a recording or its result. */
+body:not([data-state=idle]) #bar #stopwatch:not([hidden]) {
+  position:relative; display:flex; order:1;
+}
+body[data-state=copied] #stopwatch { grid-column:1; grid-row:2 }
+body[data-dock=bottom][data-stopwatch-available=true]:not([data-state=idle],[data-state=copied],[data-state=error],[data-state=meeting-error]) #bar {
+  min-width:max-content;
+}
+html body:has(#bar #stopwatch[data-hovered=true]) #notice { opacity:0 }
+#stopwatch:disabled { cursor:wait }
+.watch-stop, #stopwatch-feedback:empty { display:none }
+#stopwatch[aria-pressed=true] { color:var(--success) }
+#stopwatch[aria-pressed=true] .watch-stop { display:block; fill:currentColor; stroke:none }
+#stopwatch[aria-pressed=true] .watch-hand { display:none }
+#stopwatch[data-unavailable=true] { color:var(--warning) }
+#stopwatch-time { padding-inline-start:5px; font-variant-numeric:tabular-nums }
+body[data-state=idle][data-stopwatch-running=true] #bar:not([data-hovered=true])::after {
+  content:""; position:absolute; top:2px; right:2px; width:5px; height:5px; border-radius:50%;
+  background:var(--success); pointer-events:none;
+}
+#stopwatch-feedback:not(:empty) { display:block; margin-top:3px; color:var(--muted) }
+
+/* Identical enabled hover treatment for all three idle actions. */
+body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch):not(:disabled)[data-hovered=true] {
+  background:var(--hover); color:var(--ink); box-shadow:none;
+}
+#stopwatch-panel {
+  position:absolute; z-index:3; width:296px; max-width:calc(100% - 56px); max-height:calc(100% - 12px); overflow:auto; padding:10px;
+  border:1px solid var(--border); border-radius:12px; background:var(--surface);
+  box-shadow:0 4px 12px rgba(16,24,40,.12); display:flex; flex-direction:column; gap:8px;
+}
+#stopwatch-panel[hidden] { display:none }
+body[data-dock=bottom] #stopwatch-panel { max-width:calc(100% - 16px); max-height:calc(100% - 48px); bottom:42px; left:50%; transform:translateX(-50%) }
+body[data-dock=left] #stopwatch-panel { left:44px; top:6px }
+body[data-dock=right] #stopwatch-panel { right:44px; top:6px }
+#stopwatch-panel header { flex:none; display:flex; align-items:center; gap:8px }
+#stopwatch-heading { flex:1; font-weight:600 }
+#stopwatch-panel-time { font-variant-numeric:tabular-nums; color:var(--muted) }
+#stopwatch-confirm, #stopwatch-matters button {
+  width:100%; height:auto; min-height:28px; padding:5px 8px; border-radius:6px; font:inherit; text-align:left;
+}
+#stopwatch-matters { overflow:auto; min-height:0; max-height:112px; flex-shrink:1 }
+#stopwatch-matters button { justify-content:flex-start; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+#stopwatch-matters button[aria-pressed=true] { background:var(--hover); color:var(--ink) }
+#stopwatch-confirm { background:var(--primary); color:var(--primary-fg) }
+#stopwatch-confirm:disabled { opacity:.45; cursor:default }
+#stopwatch-panel-error { margin:0; font-size:11px; line-height:1.4; color:var(--muted) }
+#stopwatch-panel-error:empty { display:none }
+body:has(#stopwatch-panel:not([hidden])) :is(#notice,.action-hint,#meeting-prompt) { visibility:hidden }
+
+/* Keep microphone selection beside dictation, including before shortcut setup. */
+#microphone-menu { display:none }
+body[data-state=idle] #bar[data-hovered=true] #microphone-menu {
+  display:flex; position:absolute; left:6px; bottom:calc(100% - 2px);
+  width:24px; height:22px; border:1px solid var(--border); border-radius:6px; background:var(--surface);
+}
+
+#stopwatch-panel input {
+  flex:none;
+  width:100%;
+  padding:5px 8px;
+  font:inherit;
+  color:var(--ink);
+  background:var(--input-surface);
+  border:1px solid var(--input-border);
+  border-radius:6px;
+  user-select:text;
+}
+#stopwatch-panel input::placeholder { color:var(--muted); opacity:1 }
+#stopwatch-panel input:focus-visible { outline:2px solid var(--ink); outline-offset:1px }
+#stopwatch-note-label { font-size: 11px; color: var(--muted); }
