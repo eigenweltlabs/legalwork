@@ -7,7 +7,7 @@ import { periodDates, type TimePeriod } from "./timesheet-row";
 import { Button as AppButton } from "@/components/ui/button";
 
 import {
-  TimesheetStateSchema,
+  assignedTimeReviewer, resolveTimePolicy, TimesheetStateSchema,
   type TimesheetCommand,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
@@ -177,7 +177,8 @@ export function TimesheetWorkspace({
     await client.backOffice("/sync", { team: true, method: "POST", body: {} });
     const latest = await request();
     const idSet = new Set(ids);
-    const entries = latest.entries.filter(entry => idSet.has(entry.id) && entry.workerId === userId && entry.status === "confirmed");
+    const entries = latest.entries.filter(entry => idSet.has(entry.id) && entry.workerId === userId && entry.status === "confirmed" &&
+      assignedTimeReviewer(resolveTimePolicy(latest.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId));
     if (!entries.length || entries.length !== idSet.size) throw new Error(t("back_office.conflict.title"));
     await send({ type: "submit", entries: entries.map(({ id, revision }) => ({ id, revision })) });
   };

@@ -8,6 +8,7 @@ import {
   TimeInvoiceDraftSchema,
   TimePolicySchema,
   TimesheetStateSchema,
+  assignedTimeReviewer,
   resolveTimePolicy,
   type TimePolicy,
   type TimeEntry,
@@ -316,7 +317,9 @@ export function readTimesheet(
   const draft = draftDoc?.kind === "invoiceDraft" ? draftDoc.value : undefined;
   const invoiceDraft = draft && draft.lines.every((line) => {
     const current = visible.find((e) => e.id === line.entry.id);
-    return current?.status === "approved" && current.revision === line.entry.revision;
+    return current?.revision === line.entry.revision && (current.status === "approved" ||
+      current.status === "confirmed" && current.workerId === actor.userId && !current.legacy &&
+      !assignedTimeReviewer(resolveTimePolicy(policies, current.clientId, current.matterId, current.date, current.projectId), current.workerId));
   }) ? {
     ...draft,
     snapshot: { ...draft.snapshot, template: { ...draft.snapshot.template, word: undefined } },

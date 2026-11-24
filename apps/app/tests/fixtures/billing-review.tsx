@@ -14,6 +14,8 @@ for (const [key, value] of Object.entries({
   HTMLInputElement: window.HTMLInputElement,
   Element: window.Element,
   Node: window.Node,
+  NodeFilter: window.NodeFilter,
+  HTMLTextAreaElement: window.HTMLTextAreaElement,
   Event: window.Event,
   PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver,
@@ -129,21 +131,37 @@ const draw = (state: TimesheetState, canEdit = true) =>
     workdayModels={[{ workspaceId: "fixture", providerID: "fixture", modelID: "proofreader", label: "Proofreader" }]} />);
 const match = (s: string) => {
   const el = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
-    (e) => e.textContent === s,
+    (e) => e.textContent?.trim() === s || e.getAttribute("aria-label") === s,
   );
   assert.ok(el, "Button " + s);
   return el;
 };
 const click = async (el: HTMLElement) => act(async () => el.click());
-const select = async (label: string, v: string) => {
+const select = async (label: string, value: string) => {
+  const trigger = host.querySelector<HTMLElement>(`[role="combobox"][aria-label="${label}"]`);
+  assert.ok(trigger, "Select " + label);
+  if (trigger instanceof window.HTMLInputElement) {
+    await act(async () => trigger.focus());
+    await key(trigger, "ArrowDown");
+    await write(trigger, value);
+  } else {
+    await click(trigger);
+  }
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+    .find(item => item.textContent?.trim() === value || item.firstElementChild?.textContent?.trim() === value);
+  assert.ok(option, "Option " + value);
   await act(async () => {
-    const el = host.querySelector<HTMLSelectElement>('select[aria-label="' + label + '"]') ??
-      [...host.querySelectorAll("label")].find((item) => item.firstChild?.textContent === label)?.querySelector("select");
-    assert.ok(el, "Select " + label);
-    el.value = v;
-    el.dispatchEvent(new window.Event("change", { bubbles: true }));
+    option.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    option.click();
   });
 };
+const checkbox = (label: string) => {
+  const control = host.querySelector<HTMLButtonElement>(`[data-slot="checkbox"][aria-label="${label}"]`);
+  assert.ok(control, "Checkbox " + label);
+  return control;
+};
+const save = () => [...host.querySelectorAll<HTMLButtonElement>(".bo-invoice-footer button")]
+  .find(button => /^(Save and preview|Preview invoice)$/.test(button.textContent ?? ""))!;
 const field = (sel: string) => {
   const el = host.querySelector<HTMLInputElement>(sel);
   assert.ok(el, "Input " + sel);
@@ -163,10 +181,10 @@ async function key(el: HTMLElement, key: string) {
 }
 try {
   await draw(actor, false);
-  assert.ok(field('input[aria-label="Select all eligible positions"]').disabled);
+  assert.equal(checkbox("Select all eligible positions").getAttribute("aria-disabled"), "true");
   await draw({ ...actor, canManage: false });
 
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   assert.match(host.textContent ?? "", /Selected: 1/);
   const changed = {
     ...actor,
@@ -174,10 +192,10 @@ try {
   };
   await draw(changed);
   assert.ok(!host.textContent?.includes("Selected: 1"), "stale revisions excluded");
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   await click(match("Approve selection"));
   assert.deepEqual(calls.at(-1), { type: "approve", entries: [{ id: "a", revision: 2 }] });
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   const charge = host.querySelector<HTMLButtonElement>('button[aria-label="Billable (min)"]');
   assert.ok(charge);
   await click(charge);
@@ -200,77 +218,77 @@ try {
   assert.ok(narrative);
   await click(narrative);
   const revisedText = field('input[aria-label="Narrative"]');
-  await write(revisedText, "New narrative");
-  await select("Client", "c");
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await write(revisedText, "");
+  await select("Client", "Acme");
+  await click(checkbox("Select all eligible positions"));
   assert.ok(match("Approve selection").disabled, "Filtering must keep a visible draft blocking approval");
   await draw({ ...actor, entries: [{ ...row, revision: 3, workedMinutes: 60 }] });
   await key(revisedText, "Enter");
   assert.equal(calls.length, 2, "Editing a superseded revision must not write to its replacement");
   await key(revisedText, "Escape");
-  await select("Client", "");
+  await select("Client", "All clients");
   await draw({ ...actor, entries: [{ ...row, status: "approved" }] });
 
-  await select("View", "approved");
+  await select("View", "Approved positions");
   const prior = { ...row, date: "2001-09-01", id: "earlier", narrative: "Earlier approved work", status: "approved" as const };
   await draw({ ...actor, entries: [prior, { ...prior, id: "issued", narrative: "Previously issued work", status: "invoiced" },
     { ...prior, id: "future", date: "2099-11-30", narrative: "After cutoff" }, { ...row, status: "approved" }] });
-  const unbilled = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All unbilled time"))?.querySelector("input");
+  const unbilled = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All unbilled time"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
   assert.ok(unbilled);
   assert.ok(!host.textContent?.includes(prior.narrative));
-  await click(unbilled);
+  await click(unbilled.closest("label")!.querySelector("input[type=checkbox]")!);
   assert.ok(host.textContent?.includes(prior.narrative));
   assert.ok(!host.textContent?.includes("Previously issued work"));
   assert.ok(!host.textContent?.includes("After cutoff"));
-  await click(unbilled);
+  await click(unbilled.closest("label")!.querySelector("input[type=checkbox]")!);
   assert.ok(!host.textContent?.includes(prior.narrative));
   await draw({ ...actor, supportsInvoiceDrafts: undefined, entries: [{ ...row, status: "approved" }] });
   assert.ok(!host.textContent?.includes("Create Invoice"));
   assert.match(host.textContent ?? "", /require support from the connected firm server/);
-  const open: TimesheetState = { ...actor, entries: [prior, { ...row, status: "approved" },
+  const open: TimesheetState = { ...actor, policies: [policy, { ...policy, scope: "project", targetId: "required-review", reviewerId: "lawyer" }], entries: [prior, { ...row, status: "approved" },
     { ...row, id: "usd", status: "approved", currency: "USD", narrative: "USD briefing" },
     { ...prior, id: "queued", narrative: "Waiting for historical review", status: "submitted", suggestion: undefined },
-    { ...prior, id: "own-open", workerId: actor.userId, narrative: "Booked earlier", status: "confirmed" },
+    { ...prior, id: "own-open", workerId: actor.userId, projectId: "required-review", narrative: "Booked earlier", status: "confirmed" },
   ] };
   await draw(open);
   await click(match("Create Invoice"));
-  assert.match(host.textContent ?? "", /Choose a matter/);
-  await select("Matter", "m");
+  assert.ok(host.querySelector('input[placeholder="Choose a matter"]'));
+  await select("Matter", "Alpha");
   assert.match(host.textContent ?? "", /Acme/);
   assert.ok(!host.textContent?.includes("Booked earlier"));
   assert.ok(!host.textContent?.includes(prior.narrative));
   assert.match(host.textContent ?? "", /Choose the currency for this hourly invoice/);
   await select("Currency", "EUR");
-  assert.ok(field('input[aria-label="Select entry: USD briefing"]').disabled);
+  assert.equal(host.querySelector('[data-slot="checkbox"][aria-label="Select entry: USD briefing"]'), null);
   assert.match(host.textContent ?? "", /Stays open in USD/);
-  const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector("input");
+  const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
   assert.ok(allOpen);
-  await click(allOpen);
+  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
   assert.ok(host.textContent?.includes(prior.narrative));
   const ownTimesheet = [...host.querySelectorAll("a")].find((link) => link.textContent?.includes("Open my timesheet"));
   assert.equal(ownTimesheet?.getAttribute("href"), "/time?date=2001-09-01");
   await click(match("Open submitted entries"));
   const submittedTable = host.querySelector(".bo-billing-body");
   assert.match(submittedTable?.textContent ?? "", /Waiting for historical review/);
-  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="View"]')?.value, "submitted");
-  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="Matter"]')?.value, "m");
-  assert.equal(host.querySelector<HTMLSelectElement>('select[aria-label="Client"]')?.value, "c");
+  assert.equal(host.querySelector('[role="combobox"][aria-label="View"] [data-slot="select-value"]')?.textContent, "Awaiting review");
+  assert.equal(host.querySelector('button[role="combobox"][aria-label="Matter"] [data-slot="select-value"]')?.textContent, "Alpha");
+  assert.equal(host.querySelector('button[role="combobox"][aria-label="Client"] [data-slot="select-value"]')?.textContent, "Acme");
   const reviewDates = [...host.querySelectorAll<HTMLInputElement>('input[type="date"]')].filter((el) => !el.closest("[hidden]"));
   assert.deepEqual(reviewDates.map((el) => el.value), [prior.date, prior.date]);
   await click(match("Continue invoice draft"));
-  assert.ok(allOpen.checked, "Returning from a historical review keeps the invoice selections");
+  assert.ok(allOpen.getAttribute("aria-checked") === "true", "Returning from a historical review keeps the invoice selections");
   await draw({ ...open, supportsHourlyInvoiceCurrency: undefined });
-  assert.ok(match("Preview invoice").disabled);
+  assert.ok(save().disabled);
   assert.match(host.textContent ?? "", /Choose a service period to invoice selected entries/);
   await draw(open);
-  await click(match("Preview invoice"));
+  await click(save());
   const cutoff = calls.at(-1);
   assert.ok(cutoff?.type === "prepareInvoice");
   assert.equal(cutoff.draft.pricing.currency, "EUR");
   assert.equal(cutoff.draft.period.from, undefined);
   assert.deepEqual(cutoff.draft.entries.map(({ id }) => id), [prior.id, row.id]);
-  await click(allOpen);
-  await click(match("Preview invoice"));
+  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
+  await click(save());
   assert.ok(!host.textContent?.includes("Issue numbered invoice"));
   const prepared = calls.at(-1);
   assert.ok(prepared?.type === "prepareInvoice");
@@ -285,7 +303,7 @@ try {
   // A previously prepared hourly invoice omitted the currency from its input.
   const legacy = { ...draft, input: { ...draft.input, pricing: { mode: "hourly" as const } } };
   await draw({ ...open, invoiceDraft: legacy, policies: [{ ...policy, actionFirst: true, actionWords: { MOD: "Amending" } }] });
-  assert.ok(match("Use all suggested wording").disabled, "Only the prepared server line decides whether to offer a correction");
+  assert.ok(!host.textContent?.includes("Use all suggested wording"), "Only the prepared server line decides whether to offer a correction");
   assert.equal(requests[0].revision, legacy.revision);
   assert.equal(requests[0].format, "pdf");
   assert.ok(match("Approve this invoice").disabled);
@@ -321,7 +339,7 @@ try {
   };
   await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: editedDraft });
   await click(match("Continue invoice draft"));
-  await select("Wording review model", JSON.stringify(["fixture", "fixture", "proofreader"]));
+  await select("Wording review model", "Proofreader");
   await click(match("Check wording with AI"));
   assert.deepEqual(calls.at(-1), {
     type: "reviewInvoiceWording", id: editedDraft.id, revision: editedDraft.revision,
@@ -331,10 +349,10 @@ try {
   const checked = { ...editedDraft, id: crypto.randomUUID(), revision: "d".repeat(64), modelWording: [advice],
     lines: [{ ...editedDraft.lines[0], suggestedNarrative: advice.narrative, modelRule: advice.rule }] };
   await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: checked });
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, "Manually amend the brief");
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, "Manually amend the brief");
   await click(match("Use all suggested wording"));
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, advice.narrative);
-  await click(match("Preview invoice"));
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, advice.narrative);
+  await click(save());
   const acceptedWording = calls.at(-1);
   assert.ok(acceptedWording?.type === "prepareInvoice");
   assert.deepEqual(acceptedWording.draft.expectedSuggestions, [{ id: row.id, narrative: advice.narrative }]);
@@ -348,10 +366,10 @@ try {
   const refreshed = { ...open, invoiceDraft: acceptedDraft, supportsInvoiceWordingReview: true,
     entries: open.entries.map((entry) => entry.id === row.id ? { ...entry, revision: row.revision + 1 } : entry) };
   await draw(refreshed);
-  const result = host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea");
+  const result = host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea");
   assert.ok(result);
   assert.equal(result.value, row.narrative, "A wording selection applies to its source revision only");
-  await click(match("Preview invoice"));
+  await click(save());
   const withoutOldWording = calls.at(-1);
   assert.ok(withoutOldWording?.type === "prepareInvoice");
   assert.deepEqual(withoutOldWording.draft.wording, []);
@@ -361,7 +379,7 @@ try {
   await draw({ ...refreshed, entries: refreshed.entries.map((entry) => entry.id === row.id
     ? { ...entry, revision: entry.revision + 1 } : entry) });
   assert.equal(result.value, row.narrative);
-  await click(match("Preview invoice"));
+  await click(save());
   const withoutOldEdit = calls.at(-1);
   assert.ok(withoutOldEdit?.type === "prepareInvoice");
   assert.equal(withoutOldEdit.draft.edits, undefined);
@@ -370,7 +388,7 @@ try {
     ...actor,
     entries: [row, { ...row, id: "b", workerId: "partner", billableMinutes: 20, hourlyRate: 240 }],
   });
-  await select("View", "costs");
+  await select("View", "Work products and fees");
   assert.match(host.textContent ?? "", /Reply brief/);
   assert.match(host.textContent ?? "", /280\.00/);
   await click(match("Reply brief"));
@@ -409,20 +427,20 @@ try {
     adjustments: [correction],
   };
   await draw(locked);
-  await select("View", "adjustments");
+  await select("View", "Corrections");
   assert.match(host.textContent ?? "", /Agreed fee cap/);
   assert.match(host.textContent ?? "", /100.00/);
   await click(match("Agreed fee cap"));
   assert.match(host.textContent ?? "", /Revised reply brief/);
   await click(match("Approve correction"));
   assert.deepEqual(calls.at(-1), { type: "decideAdjustment", id: "corr", revision: 1, approve: true });
-  await select("View", "approved");
+  await select("View", "Approved positions");
   await click(match("Create Invoice"));
-  await select("Matter", "m");
+  await select("Matter", "Alpha");
   const invoiceDates = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="date"]'));
   await write(invoiceDates[0], today);
   await write(invoiceDates[1], today);
-  assert.ok(match("Preview invoice").disabled, "an unreviewed delta blocks issuance");
+  assert.ok(save().disabled, "an unreviewed delta blocks issuance");
   const revised = {
     ...locked,
     adjustments: [
@@ -430,13 +448,13 @@ try {
     ],
   };
   await draw(revised);
-  await click(match("Preview invoice"));
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-table textarea")?.value, "Revised reply brief");
+  await click(save());
+  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, "Revised reply brief");
   const revisedInvoice = calls.at(-1);
   assert.ok(revisedInvoice?.type === "prepareInvoice");
   assert.deepEqual(revisedInvoice.draft.adjustmentVersions, [{ id: "corr", revision: 2 }]);
   await click(match("Back"));
-  await select("View", "costs");
+  await select("View", "Work products and fees");
   const totals = host.querySelector("tbody tr")?.textContent ?? "";
   assert.match(totals, /100.00/);
   assert.ok(!totals.includes("200.00"), "original charge is reduced once");
@@ -538,7 +556,7 @@ try {
   assert.ok(over);
   await click(over);
   assert.match(host.textContent ?? "", /permitted maximum is 120/i);
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   assert.ok(match("Approve selection").disabled);
   await click(host.querySelector<HTMLButtonElement>('button[aria-label="Billable (min)"]')!);
   await write(field('input[aria-label="Billable (min)"]'), "120");
@@ -579,7 +597,7 @@ try {
   });
   assert.match(host.textContent ?? "", /56 positions · €15,000\.00/);
   for (const i of [0, 1, 55])
-    await click(field('input[aria-label="Select entry: Review position ' + i + '"]'));
+    await click(checkbox(`Select entry: Review position ${i}`));
   assert.match(host.textContent ?? "", /Selected: 3 · €690\.00/);
   await click(match("Approve selection"));
   const sub = calls.at(-1);
@@ -598,7 +616,7 @@ try {
     policies: [{ ...policy, actionFirst: true, language: "English" }],
   };
   await draw(wordingState);
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   const previousCalls = calls.length;
   await click(match("Check billing text"));
   const previewRows = () => [...host.querySelectorAll(".bo-billing-wording-preview tbody tr")]
@@ -608,7 +626,7 @@ try {
   assert.equal(calls.length, previousCalls, "A wording preview is read-only");
   await draw({ ...wordingState, entries: [wordingEntries[0], { ...wordingEntries[1], revision: 2 }, wordingEntries[2]] });
   assert.equal(host.querySelector(".bo-billing-wording-preview"), null, "A changed revision invalidates the preview");
-  await click(field('input[aria-label="Select entry: Memo amended"]'));
+  await click(checkbox("Select entry: Memo amended"));
   await click(match("Check billing text"));
   await click(match("Apply previewed changes (2)"));
   assert.deepEqual(calls.at(-1), {
@@ -618,7 +636,7 @@ try {
       { id: "b", revision: 2, before: "Memo amended", after: "Amending Memo" },
     ],
   });
-  await click(field('input[aria-label="Select entry: Researching"]'));
+  await click(checkbox("Select entry: Researching"));
   await click(match("Check billing text"));
   assert.match(host.textContent ?? "", /No wording changes suggested/);
 
@@ -627,20 +645,20 @@ try {
   await draw({ ...actor, entries: [missingPrice], policies: [unpricedPolicy] });
   await click(match("Pricing"));
   assert.match(host.textContent ?? "", /Set an hourly rate and currency/);
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   assert.ok(match("Approve selection").disabled);
 
   const stalePrice = { ...row, id: "stale-price", suggestion: undefined };
   await draw({ ...actor, entries: [stalePrice], policies: [{ ...policy, hourlyRate: 350, currency: "USD" }] });
   await click(match("Pricing"));
   assert.match(host.textContent ?? "", /Pricing changed for this service date/);
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   assert.ok(match("Approve selection").disabled);
 
   const historical = { ...missingPrice, status: "approved" as const, revision: 5 };
   await draw({ ...actor, entries: [historical] });
-  await select("View", "approved");
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await select("View", "Approved positions");
+  await click(checkbox("Select all eligible positions"));
   const returnButton = match("Return for pricing review");
   assert.equal(returnButton.disabled, false);
   await write(field('input[aria-label="Reason for returning (optional)"]'), "Apply the agreed hourly rate");
@@ -652,7 +670,7 @@ try {
   await draw({ ...actor, entries: [{ ...historical, nonHourlyApproval: true }] });
   await click(match("Pricing"));
   assert.match(host.textContent ?? "", /tracks time separately from its fee/);
-  await click(field('input[aria-label="Select all eligible positions"]'));
+  await click(checkbox("Select all eligible positions"));
   assert.ok(!host.textContent?.includes("Return for pricing review"));
 
   await draw({ ...actor, entries: [{ ...row, status: "approved" }], policies: [{ ...policy, maxMinutes: 30 }] });
@@ -665,11 +683,17 @@ try {
     entries: [{ ...row, clientId: "", narrative: "Unassigned matter billing" }] };
   await draw(selectable);
   await click(match("Create Invoice"));
-  await select("Matter", "m");
-  await select("Client", "second");
+  await select("Matter", "Alpha");
+  await select("Client", "Second recipient");
   assert.ok(host.textContent?.includes("Unassigned matter billing"));
   await click(match("Assign to Second recipient"));
   assert.deepEqual(calls.at(-1), { type: "assignBillingClient", id: row.id, revision: row.revision, clientId: "second" });
+  await render(null);
+  const excludedDirect = { ...row, id: "excluded-direct", workerId: actor.userId, authorId: actor.userId,
+    narrative: "Saved without a reviewer", status: "confirmed" as const };
+  await draw({ ...open, entries: [...open.entries, excludedDirect], invoiceDraft: revisedDraft });
+  await click(match("Continue invoice draft"));
+  assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

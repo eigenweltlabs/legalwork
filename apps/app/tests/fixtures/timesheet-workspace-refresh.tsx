@@ -10,7 +10,7 @@ for (const [key, value] of Object.entries({
   window, document: window.document, navigator: window.navigator,
   localStorage: window.localStorage, sessionStorage: window.sessionStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
-  DOMRect: window.DOMRect, Element: window.Element, Node: window.Node, Event: window.Event, PointerEvent: window.PointerEvent,
+  DOMRect: window.DOMRect, Element: window.Element, Node: window.Node, NodeFilter: window.NodeFilter, Event: window.Event, PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver, getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window), cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -57,10 +57,23 @@ async function press(label: string) {
   await until(() => findButton(label) && !findButton(label)?.disabled);
   await act(async () => findButton(label)?.click());
 }
-async function selectNative(select: HTMLSelectElement, value: string) {
+async function selectOption(label: string, name: string) {
+  const trigger = document.querySelector<HTMLElement>(`[role="combobox"][aria-label="${label}"]`);
+  assert.ok(trigger, label);
+  if (trigger instanceof window.HTMLInputElement) {
+    await act(async () => {
+      trigger.focus();
+      trigger.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    await input(trigger, name);
+  } else {
+    await act(async () => trigger.click());
+  }
+  const option = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === name);
+  await until(option);
   await act(async () => {
-    select.value = value;
-    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    option()?.dispatchEvent(new window.PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    option()?.click();
   });
 }
 async function input(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
@@ -81,10 +94,11 @@ const reviewCache = new QueryClient({ defaultOptions: { queries: { retry: false,
 const reviewEntry: TimeEntry = { ...entry, narrative: "Fixture invoice line" };
 const ownHistorical: TimeEntry = {
   ...entry, id: "own-earlier", workerId: "anna", authorId: "anna", status: "confirmed",
-  date: "2026-11-18", narrative: "Own historical work",
+  date: "2026-11-18", projectId: "required-review", narrative: "Own historical work",
 };
 const reviewState = { ...state, supportsInvoiceDrafts: true, entries: [reviewEntry, ownHistorical],
-  policies: [{ scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "anna" }] };
+  policies: [{ scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "anna" },
+    { scope: "project", targetId: "required-review", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "ben" }] };
 const reviewDirectory: BackOfficeState = {
   scope: "local", directoryId: "invoice-fixture", model: defaultBackOfficeModel(),
   permissions: { finance: true, edit: true, model: true, userId: "anna" },
@@ -149,16 +163,12 @@ try {
     await until(invoiceTab);
     if (invoiceTab()?.getAttribute("aria-pressed") !== "true") await act(async () => invoiceTab()?.click());
     await press("Create Invoice");
-    const matter = invoiceEditor()?.querySelector("select");
-    assert.ok(matter);
-    await selectNative(matter, "matter");
-    const pricing = invoiceEditor()?.querySelector<HTMLSelectElement>('select:has(option[value="fixed"])');
-    assert.ok(pricing);
-    await selectNative(pricing, "fixed");
+    await selectOption("Matter", "Test matter");
+    await selectOption("Fee basis", "Fixed price");
   };
   await openInvoice();
   const allOpen = [...invoiceEditor()!.querySelectorAll("label")]
-    .find(label => label.textContent?.includes("All open entries through"))?.querySelector("input");
+    .find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
   assert.ok(allOpen);
   await act(async () => allOpen.click());
   const wording = invoiceWording(), fixedPrice = amount();
@@ -166,6 +176,7 @@ try {
   await input(wording, "Unsaved invoice narrative");
   await input(fixedPrice, "125.50");
 
+  await act(async () => { invoiceEditor()?.querySelector("details.bo-invoice-unavailable summary")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
   const openTimesheet = invoiceEditor()?.querySelector<HTMLAnchorElement>('a[href="/time?date=2026-11-18"]');
   assert.ok(openTimesheet);
   await act(async () => openTimesheet.click());

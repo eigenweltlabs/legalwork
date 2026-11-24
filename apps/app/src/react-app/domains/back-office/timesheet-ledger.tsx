@@ -29,7 +29,7 @@ import { Button } from "twenty-ui/primitives/input";
 import {
   nonBillableWork,
   requiresTimeAllocations,
-  resolveTimePolicy,
+  assignedTimeReviewer, resolveTimePolicy,
   timeActivities,
   type TimeDraft,
   type TimeEntry,
@@ -352,7 +352,8 @@ export function TimesheetLedger({
   const awaitingConfirmation = rows.filter(row => row.status === "pending");
   const { totals, byDate } = periodTimeTotals(countedRows);
   const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
-  const ready = rows.filter((e) => e.status === "confirmed");
+  const ready = rows.filter(entry => entry.status === "confirmed" && assignedTimeReviewer(
+    resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId));
   const editableRows = [...regularRows, ...createdRows, ...awaitingConfirmation];
   const copied = editableRows.find((e) => e.id === selected);
   const focus = (row: string, column: RowColumn) => {
@@ -1147,7 +1148,7 @@ export function TimesheetLedger({
       onPaste={clipboardPaste}
     >
       {canEdit && <div className="time-entry-actions">
-        <Button
+        {ready.length > 0 && <Button
           size="sm"
           variant="outline"
           disabled={busy || !ready.length}
@@ -1164,7 +1165,7 @@ export function TimesheetLedger({
           }}
         >
           {t("timesheets.ledger.submit")}
-        </Button>
+        </Button>}
         <Button size="sm" variant="solid" className="time-new-entry" startIcon={<Plus size={14} />} onClick={() => focus("new", "matter")}>
           {t("timesheets.ledger.new")}
         </Button>

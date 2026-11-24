@@ -120,7 +120,7 @@ export async function changeChatEntry(config: ServerConfig, state: TimesheetStat
     };
     const after = access.scope === "local"
       ? commandTimesheet(store, access.scope, actor, state.people, command, state.projects)
-      : await readPlatformTimesheet(config, access, "POST", command);
+      : await readPlatformTimesheet(config, { ...access, actor }, "POST", command);
     const changed = after.entries.find(item => item.id === row.id);
     if (!changed || (input.action === "remove_entry" && changed.status !== "declined")) throw stale();
     revision = changed.revision;

@@ -257,6 +257,7 @@ export const TimesheetStateSchema = z.object({
   unresolvedLegacyEntries: z.array(id).optional(),
   canManage: z.boolean(),
   canReview: z.boolean(),
+  canInvoice: z.boolean().optional(),
   entries: z.array(TimeEntrySchema),
   delegatedEntries: z.array(DelegatedTimeEntrySchema).optional(),
   adjustments: z.array(TimeAdjustmentSchema).optional(),

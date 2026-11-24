@@ -33,12 +33,14 @@ test("the private chat translates or removes saved records and workflow entries 
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = await ensureWikiAgentToken(config);
     plugin = await nativePluginTools(ProjectPlugin, { directory: config.workspaces[0].path, sessionID: "workday-source-test" });
     const workday = plugin.tool.legalwork_timekeeping_workday;
+    const billing = plugin.tool.legalwork_timekeeping_billing;
+    const applyBilling = async (command: Record<string, unknown>) => JSON.parse(await billing.execute({ action: "apply", command }));
     const hostHeaders = { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" };
     const base = "http://127.0.0.1:" + server.port;
     const pendingSchema = z.object({ items: z.array(z.object({ id: z.string(), sessionID: z.string(), workspaceId: z.string(),
       action: z.string(), canRemember: z.boolean(), description: z.string() })) });
     const pending = async () => pendingSchema.parse(await (await fetch(base + "/approvals", { headers: hostHeaders })).json()).items;
-    const withDecision = async <T>(operation: Promise<T>, reply: "allow" | "deny", before?: () => void) => {
+    const withDecision = async <T>(operation: Promise<T>, reply: "allow" | "deny", before?: () => void, action = "timekeeping.entry.remove") => {
       void operation.catch(() => {});
       let requests = await pending();
       for (let attempt = 0; !requests.length && attempt < 50; attempt++) {
@@ -47,8 +49,9 @@ test("the private chat translates or removes saved records and workflow entries 
       }
       expect(requests).toHaveLength(1);
       const request = requests[0];
-      expect(request).toMatchObject({ action: "timekeeping.entry.remove", sessionID: "workday-source-test", workspaceId: "time-review", canRemember: false });
-      expect(request.description).toContain("Recorded:");
+      expect(request).toMatchObject({ action, sessionID: "workday-source-test", workspaceId: "time-review", canRemember: false });
+      expect(request.description).toContain(action === "timekeeping.entry.remove" ? "Recorded:" :
+        action === "timekeeping.billing.policy" ? "Effective from" : "Review this revision");
       before?.();
       const body = { reply, sessionID: request.sessionID, workspaceId: request.workspaceId };
       // The agent cannot answer its own approval or create a permanent deletion grant.
@@ -60,7 +63,7 @@ test("the private chat translates or removes saved records and workflow entries 
       return operation;
     };
     const store = await backOfficeStore(config);
-    const client = store.saveRecord(scope, actor, { revision: 0, objectId: "clients", values: { name: "Example" } });
+    const client = store.saveRecord(scope, actor, { revision: 0, objectId: "clients", values: { name: "Example", billingAddress: "1 Test Square" } });
     const matter = store.saveRecord(scope, actor, { revision: 0, objectId: "matters", values: { name: "Lease", clients: [client.id] } });
     const date = "2025-10-13", list = () => chat({ date, action: "list_entries" });
     const original = "Reviewed the rent schedule.", translation = "Prüfung der Mietaufstellung.";
@@ -132,16 +135,34 @@ test("the private chat translates or removes saved records and workflow entries 
     expect(withdrawn?.kind === "entry" && withdrawn.value).toMatchObject({ status: "declined", history: expect.arrayContaining([expect.objectContaining({ action: "withdraw" })]) });
     expect((await list()).entries).toMatchObject([{ id: retained.id, revision: translated.revision, narrative: translation }]);
     const lockedDate = "2025-10-14";
-    const locked = command({ type: "create", requestId: randomUUID(), entry: { date: lockedDate, clientId: client.id,
-      matterId: matter.id, activity: "RES", narrative: original, workedMinutes: 19, billable: true, billableMinutes: 20 } })
-      .entries.find(entry => entry.date === lockedDate)!;
-    command({ type: "submit", entries: [{ id: locked.id, revision: locked.revision }] });
-    const [submitted] = (await chat({ date: lockedDate, action: "list_entries" })).entries;
-    expect(submitted).toMatchObject({ status: "submitted", removable: false });
-    await expect(chat({ date: lockedDate, action: "remove_entry", id: locked.id, revision: submitted.revision })).rejects.toThrow("(403)");
-    command({ type: "approve", entries: [{ id: locked.id, revision: submitted.revision }] });
+    const billingPolicy = { type: "policy", policy: { scope: "matter", targetId: matter.id,
+      effectiveFrom: lockedDate, revision: 0, minimumMinutes: 10 } };
+    await expect(withDecision(applyBilling(billingPolicy), "deny", undefined,
+      "timekeeping.billing.policy")).rejects.toThrow("did not approve");
+    const configured = await withDecision(applyBilling(billingPolicy), "allow", undefined, "timekeeping.billing.policy");
+    expect(configured.policies).toContainEqual(expect.objectContaining({ targetId: matter.id, revision: 1, minimumMinutes: 10 }));
+    const created = await applyBilling({ type: "create", requestId: randomUUID(), entry: { date: lockedDate, clientId: client.id,
+      matterId: matter.id, activity: "RES", narrative: original, workedMinutes: 19, billable: true, billableMinutes: 20 } });
+    const [locked] = JSON.parse(await billing.execute({ action: "read", from: lockedDate, to: lockedDate })).entries;
+    expect(locked).toMatchObject({ status: "confirmed", requiresReview: false, revision: 1 });
+    expect(created.entries).toContainEqual(expect.objectContaining({ id: locked.id }));
+    const saved = await applyBilling({ type: "submit", entries: [{ id: locked.id, revision: locked.revision }] });
+    expect(saved.entries).toContainEqual(expect.objectContaining({ id: locked.id, status: "confirmed", revision: locked.revision }));
+    const { invoiceDraft } = await applyBilling({ type: "prepareInvoice", draft: {
+      matterId: matter.id, clientId: client.id, period: { from: lockedDate, to: lockedDate },
+      entries: [{ id: locked.id, revision: locked.revision }], wording: [], adjustmentVersions: [], pricing: { mode: "hourly" },
+    } });
+    const invoiceRef = { id: invoiceDraft!.id, revision: invoiceDraft!.revision };
+    const approve = { type: "approveInvoice", ...invoiceRef };
+    await expect(withDecision(applyBilling(approve), "deny", undefined, "timekeeping.billing.approveInvoice")).rejects.toThrow("did not approve");
+    await withDecision(applyBilling(approve), "allow", undefined, "timekeeping.billing.approveInvoice");
+    const issue = { type: "issueInvoice", ...invoiceRef, requestId: randomUUID() };
+    const issued = await withDecision(applyBilling(issue), "allow", undefined, "timekeeping.billing.issueInvoice");
+    expect(issued.invoices).toMatchObject([{ number: 1, draftId: invoiceRef.id }]);
+    expect((await applyBilling(issue)).invoices).toEqual(issued.invoices);
+    expect(await pending()).toEqual([]);
     const [approved] = (await chat({ date: lockedDate, action: "list_entries" })).entries;
-    expect(approved).toMatchObject({ status: "approved", editable: false, removable: false });
+    expect(approved).toMatchObject({ status: "invoiced", editable: false, removable: false });
     for (const action of ["remove_entry", "update_entry"]) {
       await expect(chat({ date: lockedDate, action, id: locked.id, revision: approved.revision,
         ...(action === "update_entry" ? { changes: { narrative: translation } } : {}) })).rejects.toThrow("(403)");

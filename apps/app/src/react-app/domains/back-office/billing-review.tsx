@@ -1,8 +1,12 @@
 import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { formatInvoiceMinor } from "@legalwork/types/invoice-template";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { TimeSelect } from "./time-settings-controls";
+import { timeRoutes } from "./time-routes";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
   type TimeEntry,
@@ -25,7 +29,7 @@ import { BillingWordingCheck } from "./billing-wording-check";
 import { BillingEditCell } from "./billing-edit-cell";
 import { BillingAdjustments } from "./billing-adjustments";
 import { BillingCosts } from "./billing-costs";
-import { BillingOptions, feeSummary, useBillingAction, type BillingProps } from "./billing-components";
+import { feeSummary, useBillingAction, type BillingProps } from "./billing-components";
 import { formatFee, reviewPeriod } from "./billing-amounts";
 import "./billing-review.css";
 
@@ -117,6 +121,7 @@ export function BillingReview({
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
+  const navigate = useNavigate();
   const views: readonly Mode[] = invoiceViews ? ["invoices", "approved"] : ["submitted", "approved", "adjustments", "invoices", "costs"];
   const [mode, setMode] = useState<Mode>(initialMode);
   const [dates, setDates] = useState(() =>
@@ -249,18 +254,23 @@ export function BillingReview({
       setDownloadError(err instanceof Error ? err.message : t("back_office.billing.download_failed"));
     }
   }
-  const canCreate = state.canReview && canEdit && state.supportsInvoiceDrafts === true;
+  const canCreate = (state.canInvoice ?? state.canReview) && canEdit && state.supportsInvoiceDrafts === true;
   const invoiceEditing = invoiceScreen !== "closed" && canCreate;
   const invoiceVisible = invoiceScreen === "invoice" && canCreate;
   return (
     <>
       {invoiceEditing && (
-        <div hidden={!invoiceVisible}>
+        <div className="bo-invoice-editor-view" hidden={!invoiceVisible}>
           <section className="bo-billing">
             <BillingInvoiceDraft
               state={state} onCommand={onCommand} client={client} dates={dates} initialMatterId={matter} workdayModels={workdayModels}
               onCancel={() => setInvoiceScreen("closed")}
               onReviewSubmitted={(entry) => {
+                if (invoiceViews) {
+                  setInvoiceScreen("review");
+                  navigate(timeRoutes["billing-review"] + "?" + new URLSearchParams({ date: entry.date }));
+                  return;
+                }
                 reset();
                 setDates({ from: entry.date, to: entry.date });
                 setMatter(entry.matterId ?? "");
@@ -277,88 +287,40 @@ export function BillingReview({
       )}
       {!invoiceVisible && (
       <section className="bo-billing">
-      <div className="bo-view-toolbar">
-        <select
-          aria-label={t("back_office.billing.view")}
-          value={mode}
-          onChange={(e) => {
-            const next = views.find(
-              (v) => v === e.target.value,
-            );
-            if (next) {
-              setMode(next);
-              reset();
-            }
-          }}
-        >
-          {views.map((k) => (
-            <option key={k} value={k}>
-              {t(reviewViewKeys[k])}
-            </option>
-          ))}
-        </select>
+      <div className="bo-view-toolbar bo-invoice-index-toolbar">
+        <TimeSelect label={t("back_office.billing.view")} value={mode}
+          options={views.map(id => ({ id, name: t(reviewViewKeys[id]) }))}
+          onChange={value => {
+            const next = views.find(view => view === value);
+            if (next) { setMode(next); reset(); }
+          }} />
         <label>
           {t("back_office.billing.from")}
-          <input
-            type="date"
-            disabled={throughEndDate}
-            value={throughEndDate ? "" : dates.from}
-            onChange={(e) => {
-              setDates({ ...dates, from: e.target.value });
-              reset();
-            }}
-          />
+          <Input type="date" disabled={throughEndDate} value={throughEndDate ? "" : dates.from}
+            onChange={event => { setDates({ ...dates, from: event.target.value }); reset(); }} />
         </label>
         <label>
           {t("back_office.billing.to")}
-          <input
-            type="date"
-            value={dates.to}
-            onChange={(e) => {
-              setDates({ ...dates, to: e.target.value });
-              reset();
-            }}
-          />
+          <Input type="date" value={dates.to}
+            onChange={event => { setDates({ ...dates, to: event.target.value }); reset(); }} />
         </label>
         {mode === "approved" && <label>
-          <input type="checkbox" checked={allUnbilled} onChange={e => {
-            setAllUnbilled(e.target.checked);
-            reset();
-          }} />
+          <Checkbox checked={allUnbilled} onCheckedChange={checked => { setAllUnbilled(checked); reset(); }} />
           {t("back_office.billing.all_unbilled")}
         </label>}
-        <select
-          aria-label={t("back_office.billing.client")}
-          value={billTo}
-          onChange={(e) => {
-            setBillTo(e.target.value);
-            setMatter("");
-            reset();
-          }}
-        >
-          <option value="">{t("back_office.billing.all_clients")}</option>
-          <BillingOptions options={state.clients} />
-        </select>
-        <select
-          aria-label={t("back_office.billing.matter")}
-          value={matter}
-          onChange={(e) => {
-            setMatter(e.target.value);
-            reset();
-          }}
-        >
-          <option value="">{t("back_office.billing.all_matters")}</option>
-          <BillingOptions
-            options={state.matters.filter((m) => !billTo || m.clientIds.includes(billTo))}
-          />
-        </select>
+        <TimeSelect label={t("back_office.billing.client")} value={billTo}
+          options={[{ id: "", name: t("back_office.billing.all_clients") }, ...state.clients]}
+          onChange={value => { setBillTo(value); setMatter(""); reset(); }} />
+        <TimeSelect label={t("back_office.billing.matter")} value={matter}
+          options={[{ id: "", name: t("back_office.billing.all_matters") }, ...state.matters.filter(item => !billTo || item.clientIds.includes(billTo))]}
+          onChange={value => { setMatter(value); reset(); }} />
         {(matter || billTo) && (
           <Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({
             ...(matter ? { matter } : { client: billTo }),
             date: dates.from || reviewPeriod().to,
           })}>{t("timesheets.review_rules")}</Link>
         )}
-        {(mode === "submitted" || mode === "approved" || mode === "invoices") && state.canReview && canEdit && (
+        {(mode === "submitted" || mode === "approved" || mode === "invoices") && (state.canInvoice ?? state.canReview) && canEdit && (
           canCreate ? <Button size="sm" variant="outline" onClick={() => setInvoiceScreen("invoice")}>
             {t(invoiceScreen === "review" || state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button> : <span className="bo-billing-muted">{t("invoiceReview.firm_unavailable")}</span>
@@ -368,14 +330,7 @@ export function BillingReview({
         </Link>}
         {mode === "submitted" && (
           <label>
-            <input
-              type="checkbox"
-              checked={onlyIssues}
-              onChange={(e) => {
-                setOnlyIssues(e.target.checked);
-                reset();
-              }}
-            />
+            <Checkbox checked={onlyIssues} onCheckedChange={checked => { setOnlyIssues(checked); reset(); }} />
             {t("back_office.billing.only_issues", { count: issuesCount })}
           </label>
         )}
@@ -436,24 +391,11 @@ export function BillingReview({
               <thead>
                 <tr>
                   <th>
-                    <input
-                      type="checkbox"
-                      aria-label={t("back_office.billing.select_all")}
-                      disabled={pending || !eligibleRows.length}
+                    <Checkbox aria-label={t("back_office.billing.select_all")} disabled={pending || !eligibleRows.length}
                       checked={eligibleRows.length > 0 && eligibleRows.length === selected.length}
-                      ref={(node) => {
-                        if (node)
-                          node.indeterminate =
-                            selected.length > 0 && selected.length < eligibleRows.length;
-                      }}
-                      onChange={(e) => {
-                        setRevisionPick(
-                          e.target.checked
-                            ? new Map(eligibleRows.map((r) => [r.id, r.revision]))
-                            : new Map(),
-                        );
-                      }}
-                    />
+                      indeterminate={selected.length > 0 && selected.length < eligibleRows.length}
+                      onCheckedChange={checked => setRevisionPick(checked
+                        ? new Map(eligibleRows.map(row => [row.id, row.revision])) : new Map())} />
                   </th>
                   {[
                     "back_office.billing.date",
@@ -492,12 +434,11 @@ export function BillingReview({
                     <Fragment key={e.id}>
                       <tr>
                         <td>
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             aria-label={t("back_office.billing.select_line", { label: e.narrative })}
                             checked={revisionPick.get(e.id) === e.revision}
                             disabled={pending || !(mode === "approved" ? state.canReview && canEdit : canEditLine)}
-                            onChange={(v) => pick(e, v.target.checked)}
+                            onCheckedChange={checked => pick(e, checked)}
                           />
                         </td>
                         <td>{e.date}</td>
@@ -585,11 +526,10 @@ export function BillingReview({
                               </div>
                               {state.supportsBillingClientAssignment && e.billable && !e.clientId && info.eligible &&
                                 <label>{t("timesheets.sheet.bill_to")}
-                                  <select aria-label={t("timesheets.sheet.bill_to")} value="" disabled={pending}
-                                    onChange={event => { const clientId = event.target.value; if (clientId) void send({ type: "assignBillingClient", id: e.id, revision: e.revision, clientId }).catch(() => {}); }}>
-                                    <option value="">{t("timesheets.sheet.choose_bill_to")}</option>
-                                    <BillingOptions options={state.clients.filter(client => state.matters.find(m => m.id === e.matterId)?.clientIds.includes(client.id))} />
-                                  </select></label>}
+                                  <TimeSelect label={t("timesheets.sheet.bill_to")} value="" disabled={pending}
+                                    placeholder={t("timesheets.sheet.choose_bill_to")}
+                                    options={state.clients.filter(client => state.matters.find(matter => matter.id === e.matterId)?.clientIds.includes(client.id))}
+                                    onChange={clientId => void send({ type: "assignBillingClient", id: e.id, revision: e.revision, clientId }).catch(() => {})} /></label>}
                               {e.suggestion && (
                                 <>
                                   <div>
@@ -705,7 +645,7 @@ export function BillingReview({
                 ) : null}
                 {(mode === "submitted" || (canReturnUnpriced && !hasPendingCorrections)) && (
                   <>
-                    <input
+                    <Input className="w-auto"
                       aria-label={t("back_office.billing.return_reason")}
                       placeholder={t("back_office.billing.return_reason")}
                       value={reason}

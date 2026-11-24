@@ -90,7 +90,7 @@ export function registerBackOfficeRoutes(options: {
     addRoute(
       options.routes,
       method,
-      "/back-office" + path,
+      path.startsWith("/workspace/") ? path : "/back-office" + path,
       "client",
       async (ctx) => {
         options.requireClientScope(

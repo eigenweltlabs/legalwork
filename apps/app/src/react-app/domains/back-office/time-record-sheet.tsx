@@ -9,7 +9,7 @@ import { ProposalDecisionReceiver, TimeProposalActions } from "./time-proposal-a
 import { z, BackOfficeFieldSchema, BackOfficeRecordSchema, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import { draftRules, effectiveWorkdayGuidelines, workdayBillableMinutes } from "@legalwork/types/time-capture";
 import type { CaptureAction, CaptureProposal, CaptureState, PrivateBookingRevision, PrivateDraftPatch } from "@legalwork/types/time-capture";
-import { proposedCharge, resolveTimePolicy, soleMatterClient, timeActivities, timePolicyError, TimeDraftSchema, type TimeDraft, type TimeEntry, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
+import { assignedTimeReviewer, proposedCharge, resolveTimePolicy, soleMatterClient, timeActivities, timePolicyError, TimeDraftSchema, type TimeDraft, type TimeEntry, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { applySavedRecord, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState } from "./api";
@@ -222,6 +222,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   function fieldValue(record: BackOfficeRecord, id: string) {
     const value = record.values[id];
     if (id === "startedAt") return serviceDate(record.values);
+    if (id === "status" && firmCommand && record.revision > 0 && value === "Draft") {
+      const entry = state.entries.find(item => item.id === record.id);
+      if (entry?.status === "confirmed" && !assignedTimeReviewer(
+        resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId))
+        return t("timesheets.ledger.status.confirmed");
+    }
     if (id === "timekeeper") {
       if (typeof value === "string") return contacts.get(value) ?? value;
       const owner = memberPrefix + record.ownerId;
@@ -260,7 +266,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     return record && !record.archivedAt && matchesPerson(record) && !capture.dates.includes(serviceDate(record.values));
   });
   currentAccess.current = { editable, rosterIds, contacts };
-  const ready = visible.filter(record => record.revision > 0 && isOwn(record) && record.values.status === "Draft");
+  const selectedPeriodIds = new Set(visible.map(record => record.id));
+  const ready = state.entries.filter(entry => selectedPeriodIds.has(entry.id) && entry.workerId === userId &&
+    entry.status === "confirmed" && assignedTimeReviewer(
+      resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId));
+  const needsReview = state.policies.some(policy => assignedTimeReviewer(policy, userId));
+
   async function submitPeriod() {
     if (!submit) return;
     setSubmitting(true);
@@ -787,7 +798,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     {submitNotice && <p role={submitNotice.error ? "alert" : "status"} className={submitNotice.error ? "bo-error" : "px-3 py-1 text-sm"}>{submitNotice.message}</p>}
     {editable && !archived && <div className="time-entry-actions">
       {reviewLink && <Button size="sm" variant="ghost" nativeButton={false} render={<Link to={reviewLink} />}>{t("back_office.billing.detail")}</Button>}
-      {submit && <Button size="sm" variant="outline" disabled={!ready.length || submitting || edits.saving.size > 0 || edits.updates.size > 0}
+      {submit && (ready.length > 0 || needsReview && !visible.length) && <Button size="sm" variant="outline" disabled={!ready.length || submitting || edits.saving.size > 0 || edits.updates.size > 0}
         onClick={() => void submitPeriod()}><Send size={14} />{t("timesheets.ledger.submit")}</Button>}
       <Button size="sm" className="time-new-entry" onClick={() => {
         setComposerId(blankId);

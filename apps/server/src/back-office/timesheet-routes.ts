@@ -1,14 +1,18 @@
+import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { activeCaptureProfile, timekeepingEnabled, timekeepingPreset } from "../time-capture/profile.js";
+import { isTimekeepingBillingCommand } from "../time-capture/chat-billing-schema.js";
 import {
   acceptPrivateProposal,
   bookPrivateManualDraft,
   captureProfile,
+  readCaptureGuidelines,
   type BookingAuthority,
 } from "../time-capture/routes.js";
 import { z } from "zod";
 import {
   requiresTimeAllocations,
   privateBookingRevisionSchema,
-  TimesheetCommandSchema,
+  draftRules, soleMatterClient, TimesheetCommandSchema,
   TimesheetStateSchema,
   type TimesheetState,
 } from "./timesheet-schema.js";
@@ -50,7 +54,7 @@ import {
   requiresInvoiceDrafts,
 } from "./timesheet-schema.js";
 import { commandTimesheet, currentInvoiceDraft, readTimesheetRequest } from "./timesheet.js";
-import { renderInvoice } from "./timesheet-schema.js";
+import { currencyScale, renderInvoice } from "./timesheet-schema.js";
 import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
@@ -159,8 +163,8 @@ export function registerTimesheetRoutes(
     return { people, workspaces };
   }
   for (const method of ["GET", "POST"]) {
-    route(method, "/timesheet", async (ctx, store, access) => {
-      const command =
+    const timesheet: Handler = async (ctx, store, access) => {
+      const inputCommand =
         method === "POST"
           ? TimesheetCommandSchema.parse(await input(ctx))
           : undefined;
@@ -169,11 +173,74 @@ export function registerTimesheetRoutes(
         date: ctx.url.searchParams.get("draftDate"), revision: z.coerce.number().parse(draftRevision),
       });
       await assertIdentity(ctx, store, access);
-      if (command && (ctx.agentAccess || access.actor.agentId))
-        timeError(
-          "A person must save or confirm billing workflow changes.",
-          403,
-        );
+      let checkedCommand = inputCommand;
+      const billingAgent = ctx.agentAccess && await authenticateWikiAgentRequest(config, ctx.request);
+      if ((ctx.params.id || ctx.agentAccess) && !billingAgent) timeError("This Timekeeping chat no longer has access.", 403);
+      if (billingAgent) {
+        const profile = await activeCaptureProfile(config);
+        if (ctx.actor?.scope !== "owner" || ctx.params.id !== billingAgent.workspace?.id || billingAgent.workspace?.preset !== timekeepingPreset(profile.profileId) ||
+            (await captureProfile(config, access)).path !== profile.path || !await timekeepingEnabled(profile.path))
+          timeError("Use the private Timekeeping chat for billing workflow operations.", 403);
+        if (expectedDraft || checkedCommand && !isTimekeepingBillingCommand(checkedCommand))
+          timeError("This operation requires the corresponding Timekeeping tool or a person in the app.", 403);
+        access.actor = { ...access.actor, agentId: "timekeeping" };
+        const billingState = async () => {
+          if (access.scope !== "local") return platformState(access, "GET");
+          const { people, workspaces } = await localDirectory(store, access);
+          return readTimesheet(store, access.scope, access.actor, people, workspaces, true, profile.profileId);
+        };
+        if (checkedCommand?.type === "create") {
+          const { entry } = checkedCommand;
+          const state = await billingState();
+          const matter = state.matters.find(item => item.id === entry.matterId);
+          if (!matter) timeError("Choose an accessible matter.", 404);
+          const clientId = entry.clientId || soleMatterClient(matter, state.clients);
+          const rules = draftRules(state, await readCaptureGuidelines(profile.path), matter, entry.date, entry.projectId, clientId);
+          const minimumBillableMinutes = Math.max(entry.minimumBillableMinutes ?? 0, rules.minimumMinutes);
+          checkedCommand = { ...checkedCommand, entry: { ...entry, clientId, minimumBillableMinutes: minimumBillableMinutes || undefined } };
+        }
+        if (checkedCommand && ["policy", "approveInvoice", "issueInvoice"].includes(checkedCommand.type)) {
+          const state = await billingState();
+          let summary: string, description: string;
+          if (checkedCommand.type === "policy") {
+            if (!state.canManage) timeError("Billing configuration access is required.", 403);
+            const policy = checkedCommand.policy;
+            const target = [...state.matters, ...state.clients, ...state.projects].find(item => item.id === policy.targetId);
+            const reviewer = state.people.find(item => item.id === policy.reviewerId);
+            summary = "Save this billing policy?";
+            description = [target?.name ?? policy.targetId, "Effective from " + policy.effectiveFrom,
+              reviewer ? "Reviewer: " + reviewer.name : "Reviewer: inherited or unassigned",
+              JSON.stringify(policy, null, 2)].join("\n");
+          } else {
+            if (checkedCommand.type !== "approveInvoice" && checkedCommand.type !== "issueInvoice") throw new Error("Invalid billing approval.");
+            const { type, id, revision } = checkedCommand;
+            const draft = state.invoiceDraft;
+            if (type === "issueInvoice" && state.invoices.some(invoice => invoice.draftId === id &&
+                invoice.approval?.revision === revision && invoice.approval.actorId === state.userId)) return state;
+            if (!draft || draft.id !== id || draft.revision !== revision)
+              timeError("The invoice draft changed. Open its preview again.", 409);
+            summary = type === "approveInvoice" ? "Approve this invoice draft?" : "Issue this invoice?";
+            description = [draft.snapshot.client, draft.snapshot.date, draft.lines.length + " billing lines",
+              new Intl.NumberFormat("en", { style: "currency", currency: draft.currency }).format(draft.totalMinor / currencyScale(draft.currency)),
+              "Review this revision's PDF in Time tracking → Invoices before confirming."].join("\n");
+          }
+          const decision = await ctx.approvals.requestApproval({
+            action: "timekeeping.billing." + checkedCommand.type,
+            workspaceId: billingAgent.workspace.id, sessionID: billingAgent.sessionId,
+            actor: billingAgent.actor, summary, description, paths: [],
+          }, ctx.request.signal, true);
+          if (!decision.allowed) timeError("The user did not approve this billing change.", 403);
+          const current = await authenticateWikiAgentRequest(config, ctx.request);
+          if (!current || current.generation !== billingAgent.generation || current.actor.scope !== "owner" ||
+              (await activeCaptureProfile(config)).path !== profile.path || !await timekeepingEnabled(profile.path))
+            timeError("The timekeeping account changed while awaiting confirmation.", 409);
+          await assertFinance(ctx, store, access);
+          ctx.request.signal.throwIfAborted();
+        }
+      } else if (checkedCommand && access.actor.agentId) {
+        timeError("Use the private Timekeeping chat for billing workflow operations.", 403);
+      }
+      const command = checkedCommand;
       if (command?.type === "invoice")
         timeError("Prepare and approve the invoice before issuing.", 409);
       if (command?.type === "template" && command.template.word) {
@@ -301,7 +368,7 @@ export function registerTimesheetRoutes(
             template: undefined,
           };
         }
-        const privateContext = privateBilling(ctx, access);
+        const privateContext = privateBilling(ctx, access) || Boolean(billingAgent && access.scope === "local");
         const activeProfile = privateContext
           ? (await captureProfile(config, access)).profileId
           : undefined;
@@ -432,7 +499,9 @@ export function registerTimesheetRoutes(
         expectedDraft,
         authority,
       );
-    });
+    };
+    route(method, "/timesheet", timesheet);
+    route(method, "/workspace/:id/timekeeping/billing", timesheet);
   }
   route("POST", "/timesheet/template-preview", async (ctx, store, access) => {
     await assertFinance(ctx, store, access);

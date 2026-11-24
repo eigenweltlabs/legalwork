@@ -405,7 +405,9 @@ try {
     root.render(
       <MemoryRouter>
         <BackOfficeTheme>
-          <TimesheetLedger state={{ ...state, entries: [base, long] }} onCommand={send} />
+          <TimesheetLedger state={{ ...state, entries: [base, long], policies: [{
+            scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "ben",
+          }] }} onCommand={send} />
         </BackOfficeTheme>
       </MemoryRouter>,
     ),
@@ -1077,8 +1079,8 @@ try {
   await press("Compare with private proposal");
   assert.match(document.querySelector(".bo-time-original")?.textContent ?? "", new RegExp(capture.narrative));
   assert.equal(document.querySelector(".bo-time-original input"), null);
-  await press("Submit period");
-  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 4 }] });
+  assert.equal(button("Submit period"), undefined, "An unassigned entry saves without submission");
+  assert.ok(area(accepted.id).textContent?.includes("Recorded"));
   cache.clear();
   const nearestPolicy = {
     scope: "matter", targetId: "nearest", effectiveFrom: "2026-01-01", revision: 1, stopwatchRoundUp: false,

@@ -213,15 +213,6 @@ function PolicyForm({
                 onChange={(next) => update("reviewerId", next || undefined)}
               />
             </Rule>
-            {scope === "firm" && state.scope === "local" && (
-              <InheritableToggle
-                label={t("back_office.billing.solo")}
-                disabled={readOnly}
-                value={policy.soloApproval}
-                inherited={false}
-                onChange={(v) => update("soloApproval", v)}
-              />
-            )}
             {bindingException}
           </TimeSettingsGroup>}
           {!review && <TimeSettingsGroup title={t("back_office.billing.time_rules")}>

@@ -328,6 +328,11 @@ export function hasTimeEntryPrice(entry: Pick<TimeEntry, "hourlyRate" | "currenc
 export function isHourlyInvoiceLine(entry: TimeEntry): entry is TimeEntry & { currency: string; hourlyRate: number } {
   return !entry.nonHourlyApproval && hasTimeEntryPrice(entry);
 }
+/** A timekeeper listed as their own reviewer has no independent review step. */
+export function assignedTimeReviewer(policy: { reviewerId?: string }, workerId: string) {
+  return policy.reviewerId && policy.reviewerId !== workerId ? policy.reviewerId : undefined;
+}
+
 export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
   if (
     Boolean(draft.startAt) !== Boolean(draft.endAt) ||

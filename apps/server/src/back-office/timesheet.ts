@@ -1,4 +1,5 @@
-import { changeTimeApproval, timeApprovalPrice } from "./timesheet-schema.js";
+import { isTimekeepingBillingCommand } from "../time-capture/chat-billing-schema.js";
+import { assignedTimeReviewer, changeTimeApproval, timeApprovalPrice } from "./timesheet-schema.js";
 import { adjustTime, decideAdjustment } from "./timesheet-adjustment.js";
 import { buildInvoiceDraft } from "./timesheet-invoice-draft.js";
 import type { InvoiceGuidelineContext } from "./timesheet-invoice-guidelines.js";
@@ -185,7 +186,7 @@ function issue(
   });
   for (const ref of input.entries) {
     const e = requireEntry(state, ref);
-    writeEntry(store, scope, actor, e, { ...e, status: "invoiced" }, "invoice");
+    writeEntry(store, scope, actor, e, { ...e, ...(e.status === "confirmed" ? snapshotRate(state, e) : {}), status: "invoiced" }, "invoice");
     projectBillingRecord(store, scope, e.id, "timeEntries", e.workerId, {
       invoice: invoice.id,
     });
@@ -198,9 +199,25 @@ function requireInvoiceAuthority(state: TimesheetState, actor: BackOfficeActor) 
   if (!actor.finance || !actor.edit) timeError("Billing access is required.", 403);
 }
 
+function canInvoiceEntry(state: TimesheetState, entry: TimeEntry, actor: BackOfficeActor) {
+  const ownWithoutReviewer = actor.finance && actor.edit && entry.workerId === actor.userId &&
+    !assignedTimeReviewer(policyFor(state, entry), entry.workerId);
+  return entry.status === "confirmed" ? ownWithoutReviewer :
+    entry.status === "approved" && (ownWithoutReviewer || canReviewEntry(state, entry, actor));
+}
+
+function invoiceTimeState(state: TimesheetState): TimesheetState {
+  return { ...state, entries: state.entries.map(entry => entry.status === "confirmed"
+    ? { ...entry, ...snapshotRate(state, entry) } : entry) };
+}
+
 function validateInvoiceEntry(state: TimesheetState, actor: BackOfficeActor, entry: TimeEntry) {
-  requireReviewer(state, entry, actor);
+  if (!canInvoiceEntry(state, entry, actor)) timeError("Only the assigned reviewer or owner of time without review can invoice this entry.", 403);
   validateReferences(state, entry);
+  if (entry.status === "confirmed") {
+    const error = timePolicyError(entry, policyFor(state, entry));
+    if (error) timeError(error);
+  }
 }
 
 export function currentInvoiceDraft(
@@ -214,7 +231,7 @@ export function currentInvoiceDraft(
   const previous = readInvoiceDraft(store, state.scope, actor.userId, context?.profileId);
   if (!previous || previous.id !== ref.id || previous.revision !== ref.revision)
     timeError("The invoice draft changed. Open the current preview.", 409);
-  const draft = buildInvoiceDraft(state, previous.input, (entry) => canReviewEntry(state, entry, actor),
+  const draft = buildInvoiceDraft(invoiceTimeState(state), previous.input, (entry) => canInvoiceEntry(state, entry, actor),
     (entry) => validateInvoiceEntry(state, actor, entry), digest, previous, undefined, context);
   if (draft.revision !== ref.revision)
     timeError("The invoice content or template changed. Preview it again before approval.", 409);
@@ -231,7 +248,7 @@ function reviewInvoice(
 ) {
   requireInvoiceAuthority(state, actor);
   const build = (input: TimeInvoiceDraft["input"], prior?: TimeInvoiceDraft, modelWording?: InvoiceWordingSuggestion[]) =>
-    buildInvoiceDraft(state, input, (entry) => canReviewEntry(state, entry, actor),
+    buildInvoiceDraft(invoiceTimeState(state), input, (entry) => canInvoiceEntry(state, entry, actor),
       (entry) => validateInvoiceEntry(state, actor, entry), digest, prior, modelWording, context);
   let draft = command.type === "prepareInvoice"
     ? build(command.draft, readInvoiceDraft(store, state.scope, actor.userId, context?.profileId))
@@ -448,7 +465,7 @@ function apply(
         groupId: command.requestId,
         history: [],
       };
-      validateDraft(state, e);
+      validateDraft(state, e, !assignedTimeReviewer(policyFor(state, e), e.workerId));
       if (command.source === "suggestion" && workerId === actor.userId) {
         const slot = meetingSlot(e);
         if (slot && state.entries.some((row) => row.workerId === workerId && row.status !== "declined" && meetingSlot(row) === slot))
@@ -479,7 +496,7 @@ function apply(
       }
       return;
     }
-    validateDraft(state, assigned);
+    validateDraft(state, assigned, !assignedTimeReviewer(policyFor(state, { ...e, ...assigned }), e.workerId));
     const product = ensureProduct(store, scope, state, actor.userId, d);
     const { createWorkProduct: _create, ...billingFields } = assigned;
     const next: TimeEntry = {
@@ -569,6 +586,7 @@ function apply(
         actorId: actor.userId, canReview: canReviewEntry(state, e, actor), policy, policyDigest: digest(policy),
       });
       if (!("entry" in result)) timeError(result.message, result.status);
+      if (command.type === "submit" && !assignedTimeReviewer(policy, e.workerId)) continue;
       writeEntry(store, scope, actor, e, result.entry, command.type, command.reason);
       continue;
     }
@@ -599,7 +617,7 @@ export function commandTimesheet(
   context?: InvoiceGuidelineContext,
 ) {
   const command = TimesheetCommandSchema.parse(input);
-  if (actor.agentId && !(actor.agentId === "timekeeping" && (command.type === "update" || command.type === "withdraw")))
+  if (actor.agentId && !(actor.agentId === "timekeeping" && (command.type === "update" || command.type === "withdraw" || isTimekeepingBillingCommand(command))))
     timeError("A person must save or confirm billing workflow changes.", 403);
   return store.transaction(
     () => {

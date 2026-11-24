@@ -1,7 +1,7 @@
 import { checkBillingNarrative } from "@legalwork/types/billing-narrative";
 import { allocateInvoiceMinor, currencyScale, reducedInvoiceMinor, standardInvoice, timeFeeMinor } from "@legalwork/types/invoice-template";
 import {
-  hasTimeEntryPrice, isHourlyInvoiceLine, TimeDraftSchema, type resolveTimePolicy, type InvoiceDraftInput,
+  assignedTimeReviewer, resolveTimePolicy, hasTimeEntryPrice, isHourlyInvoiceLine, TimeDraftSchema, type InvoiceDraftInput,
   type InvoiceWordingSuggestion, type TimeEntry, type TimeInvoiceDraft, type TimesheetState, type TimeAdjustment,
 } from "@legalwork/types/timesheet";
 
@@ -28,16 +28,17 @@ function localDay() {
 function selectedLines(
   timeError: InvoiceDraftServices["timeError"],
   input: InvoiceDraftInput,
-  entries: TimeEntry[],
-  canReview: (entry: TimeEntry) => boolean,
+  state: TimesheetState,
+  canInvoice: (entry: TimeEntry) => boolean,
 ) {
   const { period, matterId, clientId, pricing } = input;
   const selectedCurrency = pricing.mode === "hourly" ? pricing.currency : undefined;
   if (period.from && period.from > period.to)
     timeError("Choose a valid service period.");
-  const eligible = entries.filter(
+  const eligible = state.entries.filter(
     (entry) =>
-      entry.status === "approved" &&
+      (entry.status === "approved" || entry.status === "confirmed" && entry.workerId === state.userId &&
+        !assignedTimeReviewer(resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId)) &&
       !entry.legacy &&
       entry.billable &&
       entry.matterId === matterId &&
@@ -53,7 +54,7 @@ function selectedLines(
     const entry = byId.get(ref.id);
     if (!entry || entry.revision !== ref.revision)
       timeError(
-        "An approved billing line changed or is no longer open. Refresh the invoice draft.",
+        "A billing line changed or is no longer open. Refresh the invoice draft.",
         409,
       );
     return entry;
@@ -61,8 +62,8 @@ function selectedLines(
   const matchesCurrency = (entry: TimeEntry) =>
     !selectedCurrency || (entry.currency === selectedCurrency && isHourlyInvoiceLine(entry));
   if (selected.some((entry) => !matchesCurrency(entry)))
-    timeError("Select approved, priced billing lines in the invoice currency.", 409);
-  if (!period.from && selected.length !== eligible.filter((entry) => matchesCurrency(entry) && canReview(entry)).length)
+    timeError("Select eligible, priced billing lines in the invoice currency.", 409);
+  if (!period.from && selected.length !== eligible.filter((entry) => matchesCurrency(entry) && canInvoice(entry)).length)
     timeError("The open entries through this date changed. Refresh and preview all open entries again.", 409);
   return selected;
 }
@@ -71,7 +72,7 @@ export function calculateInvoiceDraft(
   services: InvoiceDraftServices,
   state: TimesheetState,
   input: InvoiceDraftInput,
-  canReview: (entry: TimeEntry) => boolean,
+  canInvoice: (entry: TimeEntry) => boolean,
   validateEntry: (entry: TimeEntry) => void,
   digest: (data: unknown) => string,
   previous?: TimeInvoiceDraft,
@@ -84,7 +85,7 @@ export function calculateInvoiceDraft(
   const client = state.clients.find(({ id }) => id === clientId);
   if (!matter || !client || !matter.clientIds.includes(clientId))
     timeError("The selected matter or its billing client is unavailable.", 404);
-  const originals = selectedLines(timeError, input, state.entries, canReview);
+  const originals = selectedLines(timeError, input, state, canInvoice);
   const entries = invoiceLines(
     originals,
     state.adjustments ?? [],
@@ -101,7 +102,7 @@ export function calculateInvoiceDraft(
       ))
   )
     timeError(
-      "Hourly invoicing requires approved, priced billing lines in one currency.",
+      "Hourly invoicing requires eligible, priced billing lines in one currency.",
       409,
     );
   const scale = currencyScale(currency);

@@ -113,7 +113,7 @@ test.each(["Flat fee", "Flat fee with included time", "RVG"])("%s time remains a
   expect(approved.nonHourlyApproval).toBe(true);
   expect(approved.hourlyRate).toBeUndefined();
   store.saveRecord(scope, reviewer, { ...agreement, archived: true, values: {} });
-  expect(() => run(reviewer, prepareInvoice([approved]))).toThrow(/approved, priced/);
+  expect(() => run(reviewer, prepareInvoice([approved]))).toThrow(/eligible, priced/);
   expect(() => run(reviewer, { type: "return", entries: [entryRef(approved)], reason: "Review price" })).toThrow(/submitted/);
 });
 
@@ -155,7 +155,7 @@ test("a historical unpriced approval is returned and reviewed at a new revision,
   expect(correction.deltaAmount).toBeNull();
   run(reviewer, { type: "policy", policy: { ...policy, revision: 1, hourlyRate: 300, currency: "EUR" } });
   const invoice = prepareInvoice([oldApproval], [{ id: correction.id, revision: correction.revision }]);
-  expect(() => run(reviewer, invoice)).toThrow(/approved, priced/);
+  expect(() => run(reviewer, invoice)).toThrow(/eligible, priced/);
   run(reviewer, sendBack);
   const returned = read(worker, true).entries[0];
   expect(returned).toMatchObject({

@@ -52,8 +52,9 @@ export async function readPlatformTimesheet(
   method = "GET",
   body?: unknown,
 ) {
+  const origin = method === "POST" && access.actor.agentId === "timekeeping" ? "?origin=timekeeping" : "";
   const result = TimesheetStateSchema.safeParse(
-    await requestPlatformTimesheet(config, access, method, "", body),
+    await requestPlatformTimesheet(config, access, method, origin, body),
   );
   if (
     !result.success ||

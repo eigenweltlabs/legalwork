@@ -104,8 +104,9 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
       type: "approve",
       entries: selected(submitted.entries[0].revision),
     };
+    expect(submitted.entries[0]).toMatchObject({ status: "confirmed", revision: entry.revision });
     expect((await api(path, approve)).status).toBe(403);
-    await command({
+    const recorded = await command({
       type: "policy",
       policy: {
         scope: "firm",
@@ -117,24 +118,12 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
         hourlyRate: 300,
       },
     });
-    expect((await api(path, approve)).status).toBe(409);
-    const rechecked = await command({
-      type: "review",
-      id: entry.id,
-      revision: submitted.entries[0].revision,
-      narrative: "Client call",
-      billableMinutes: 10,
-    });
-    const approved = await command({
-      type: "approve",
-      entries: selected(rechecked.entries[0].revision),
-    });
     expect(
       (
         await api(path, {
           type: "invoice",
           requestId: crypto.randomUUID(),
-          entries: selected(approved.entries[0].revision),
+          entries: selected(recorded.entries[0].revision),
         })
       ).status,
     ).toBe(409);
@@ -146,13 +135,13 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     await command({ type: "template", template: { ...standardInvoice, word: {
       name: "Fixture letterhead.docx", contentBase64: Buffer.from(zipSync(customTemplate)).toString("base64"),
     } } });
-    const approval = async (entries: typeof approved.entries) => {
+    const approval = async (entries: typeof recorded.entries) => {
       const prepared = await command(prepareInvoice(entries));
       const draft = invoiceDraftRef(prepared);
       await command({ type: "approveInvoice", ...draft });
       return { type: "issueInvoice", ...draft, requestId: crypto.randomUUID() };
     };
-    const visibleDraft = await command(prepareInvoice([approved.entries[0]]));
+    const visibleDraft = await command(prepareInvoice([recorded.entries[0]]));
     expect(visibleDraft.invoices).toHaveLength(0);
     const previewRef = invoiceDraftRef(visibleDraft);
     const draftUrl =
@@ -175,7 +164,7 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     )!;
     const changed = await command({
       type: "policy",
-      policy: { ...policy, soloApproval: false },
+      policy: { ...policy, hourlyRate: 320 },
     });
     const revoked = await api(draftUrl + "&format=docx");
     expect([403, 409]).toContain(revoked.status);
@@ -192,7 +181,7 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
         soloApproval: true,
       },
     });
-    const issue = await approval([approved.entries[0]]);
+    const issue = await approval([recorded.entries[0]]);
     const issued = await command(issue),
       inv = issued.invoices[0];
     expect(inv.total).toBe(50);
@@ -290,13 +279,8 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     ]);
     const refs = rows.map(({ id, revision }) => ({ id, revision }));
     const sent = await command({ type: "submit", entries: refs });
-    const approvedBatch = await command({
-      type: "approve",
-      entries: sent.entries
-        .filter((e) => e.status === "submitted")
-        .map(({ id, revision }) => ({ id, revision })),
-    });
-    const open = approvedBatch.entries.filter((e) => e.status === "approved");
+    const open = sent.entries.filter((e) => e.status === "confirmed");
+    expect(open).toHaveLength(2);
     const second = await approval([open[0]]);
     await Promise.all([command(second), command(second)]);
     const third = await approval([open[1]]);
