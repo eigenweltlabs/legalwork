@@ -95,6 +95,14 @@ export function registerTimesheetRoutes(
   ) => requestPlatformTimesheet(config, access, method, path, body);
   const platformState = (access: Access, method: string, body?: unknown) =>
     readPlatformTimesheet(config, access, method, body);
+  async function platformDocumentState(access: Access) {
+    try {
+      return await platformState(access, "GET");
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "timesheet_service_unavailable") return undefined;
+      throw error;
+    }
+  }
   function privateBilling(ctx: RequestContext, access: Access) {
     return (
       access.scope === "local" &&
@@ -431,7 +439,7 @@ export function registerTimesheetRoutes(
     if (!access.actor.finance || ctx.agentAccess || access.actor.agentId)
       timeError("Billing access is required.", 403);
     const template = invoiceTemplateSchema.parse(await input(ctx));
-    if (access.scope !== "local" && !(await platformState(access, "GET")).supportsLocalInvoiceRendering) {
+    if (access.scope !== "local" && !(await platformDocumentState(access))?.supportsLocalInvoiceRendering) {
       const response = z
         .object({ format: z.literal("pdf"), contentBase64: z.string().min(4) })
         .parse(await platform(access, "POST", "/template-preview", template));
@@ -460,8 +468,8 @@ export function registerTimesheetRoutes(
             .enum(["docx", "pdf"])
             .parse(ctx.url.searchParams.get("format"));
         if (access.scope !== "local") {
-          const state = await platformState(access, "GET");
-          if (state.supportsLocalInvoiceRendering) {
+          const state = await platformDocumentState(access);
+          if (state?.supportsLocalInvoiceRendering) {
             const expected = revision ?? state.invoiceDraft?.revision;
             if (!expected || state.invoiceDraft?.id !== id) timeError("The invoice draft is unavailable.", 404);
             const query = new URLSearchParams({ draft: id, revision: expected });
@@ -554,7 +562,7 @@ export function registerTimesheetRoutes(
           .parse(ctx.url.searchParams.get("format") ?? "html");
         if (!isInvoice && format !== "html")
           timeError("This correction is available as HTML.", 404);
-        const firm = isInvoice && access.scope !== "local" ? await platformState(access, "GET") : undefined;
+        const firm = isInvoice && access.scope !== "local" ? await platformDocumentState(access) : undefined;
         const renderLocally = firm?.supportsLocalInvoiceRendering;
         const sharedInvoice = renderLocally ? firm?.invoices.find(item => item.id === id) : undefined;
         if (renderLocally && !sharedInvoice) timeError("The issued document is unavailable.", 404);
