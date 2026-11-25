@@ -6,7 +6,40 @@ import { z } from "zod";
 import { backOfficeAccess } from "../back-office/access.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { saveWorkdayLog } from "./day-log.js";
-import { captureProfile, checkScheduledWorkday } from "./routes.js";
+import { captureProfile, checkScheduledWorkday, prepareWorkday } from "./routes.js";
+
+test("Never skips automatic suggestions and still allows an explicit run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-workday-no-schedule-"));
+  try {
+    const config = backOfficeTestConfig(root);
+    const owner = await captureProfile(config, await backOfficeAccess(config));
+    const { path } = owner;
+    await mkdir(dirname(path), { recursive: true });
+    const saved = JSON.stringify({ days: {}, lastRun: 0, settings: {
+      calendar: false, tasks: false, documents: false, workspaceActivity: false,
+      intervalMinutes: 60, schedule: { frequency: "never" },
+    } });
+    await writeFile(path, saved);
+    const now = () => new Date(2030, 0, 10, 18, 30).getTime();
+    let reads = 0, chats = 0;
+    const options = { now, async readConnected() { reads++; return []; } };
+    await checkScheduledWorkday(config, options);
+    await checkScheduledWorkday(config, { ...options, async startChat() { chats++; } });
+    await prepareWorkday(config, owner, "2030-01-10", { type: "suggest" }, { ...options, scheduledSlot: now() });
+    expect(reads).toBe(0);
+    expect(chats).toBe(0);
+    expect(await readFile(path, "utf8")).toBe(saved);
+
+    await prepareWorkday(config, owner, "2030-01-10", { type: "suggest" }, options);
+    expect(reads).toBe(1);
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+      settings: { schedule: { frequency: "never" } },
+      reconstruction: { "2030-01-10": { status: { type: "ready" } } },
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("an unchanged scheduled source check advances the full interval without rerunning every minute", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-workday-schedule-"));

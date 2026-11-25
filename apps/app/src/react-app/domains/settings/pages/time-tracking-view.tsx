@@ -55,6 +55,11 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
   const { settings } = day.data;
   const enabled = settings.enabled !== false;
   const schedule = workdaySchedule(settings);
+  const scheduleHelp = {
+    hourly: t("timeWorkspace.hourlyHelp"),
+    daily: t("timeWorkspace.dailyHelp"),
+    never: t("timeWorkspace.neverHelp"),
+  }[schedule.frequency];
   const pending = update.isPending;
   const change = (change: Extract<CaptureAction, { type: "settings-patch" }>["change"]) => update.mutate({ type: "settings-patch", change });
   const saveTimes = (times: string[]) => change({ field: "schedule", value: { frequency: "daily", times: [...times].sort() } });
@@ -65,10 +70,14 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
     </TimeSettingsGroup>
     {enabled && <>
       <TimeSettingsGroup title={t("timeWorkspace.scheduleTitle")}>
-        <TimeSetting title={t("timeWorkspace.frequency")} description={t(schedule.frequency === "hourly" ? "timeWorkspace.hourlyHelp" : "timeWorkspace.dailyHelp")}>
+        <TimeSetting title={t("timeWorkspace.frequency")} description={scheduleHelp}>
           <TimeSelect label={t("timeWorkspace.frequency")} value={schedule.frequency} disabled={pending}
-            options={[{ id: "hourly", name: t("timeWorkspace.hourly") }, { id: "daily", name: t("scheduled.daily") }]}
-            onChange={frequency => { if (frequency === "hourly") change({ field: "schedule", value: { frequency } });
+            options={[
+              { id: "hourly", name: t("timeWorkspace.hourly") },
+              { id: "daily", name: t("scheduled.daily") },
+              { id: "never", name: t("timeWorkspace.never") },
+            ]}
+            onChange={frequency => { if (frequency === "hourly" || frequency === "never") change({ field: "schedule", value: { frequency } });
               if (frequency === "daily") saveTimes([defaultWorkdayRunTime]); }} />
         </TimeSetting>
         {schedule.frequency === "daily" && <TimeSetting title={t("timeWorkspace.runTimes")}>

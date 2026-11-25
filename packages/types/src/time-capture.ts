@@ -33,6 +33,7 @@ export type WorkdayModelOption = WorkdayModel & { label: string };
 export const localWorkdayModel: WorkdayModel = { workspaceId: "local", providerID: "local", modelID: "llama.cpp" };
 const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const workdayScheduleSchema = z.discriminatedUnion("frequency", [
+  z.strictObject({ frequency: z.literal("never") }),
   z.strictObject({ frequency: z.literal("hourly") }),
   z.strictObject({ frequency: z.literal("daily"), times: z.array(timeOfDaySchema).min(1).max(24)
     .refine(times => new Set(times).size === times.length, "Choose different run times.") }),

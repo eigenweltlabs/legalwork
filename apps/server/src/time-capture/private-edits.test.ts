@@ -44,6 +44,8 @@ test("two workday windows preserve disjoint settings and draft edits, and detect
     expect(settings).toMatchObject({ calendar: false, desktopActivity: true, schedule: { frequency: "daily", times: ["17:30"] } });
     expect((await request({ type: "settings", settings: second.settings })).status).toBe(409);
     expect((await read()).settings).toEqual(settings);
+    await read({ type: "settings-patch", change: { field: "schedule", value: { frequency: "never" } } });
+    expect((await read()).settings).toEqual({ ...settings, schedule: { frequency: "never" } });
 
     const status = () => fetch(new URL("/private-timesheet/activity", url), { headers: { "X-LegalWork-Host-Token": config.hostToken } }).then(response => response.json());
     await read({ type: "settings-patch", change: { field: "enabled", value: false } });

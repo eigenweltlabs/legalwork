@@ -1342,6 +1342,11 @@ try {
   assert.ok(enableSwitch);
   const scheduleTimes = () => Array.from(document.querySelectorAll<HTMLInputElement>('ul[aria-label="Run times"] li input[type="time"]')).map(input => input.value);
   assert.deepEqual(scheduleTimes(), ["18:00"]);
+  await selectPopup(t("timeWorkspace.frequency"), t("timeWorkspace.never"));
+  assert.deepEqual(workdaySettings.schedule, { frequency: "never" });
+  assert.equal(enableSwitch.getAttribute("aria-checked"), "true");
+  assert.deepEqual(scheduleTimes(), []);
+  assert.ok(document.body.textContent?.includes(t("timeWorkspace.neverHelp")));
   await selectPopup(t("timeWorkspace.frequency"), t("timeWorkspace.hourly"));
   assert.deepEqual(workdaySettings.schedule, { frequency: "hourly" });
   await act(async () => enableSwitch.click());
