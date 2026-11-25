@@ -9,7 +9,7 @@ import { hasTimeEntryPrice, type TimeEntry } from "@legalwork/types/timesheet";
 import type { BackOfficeState } from "./api";
 import { displayBackOfficeObject } from "./labels";
 import { RecordGrid, type SaveBackOfficeView } from "./record-grid";
-import { timeRoutes } from "./time-routes";
+import { timeEntryReviewPath, timeRoutes } from "./time-routes";
 import { TimeSelect } from "./time-settings-controls";
 
 type BillingRow = {
@@ -88,7 +88,7 @@ export function UnbilledTimeGrid({ directory, rows, columnScope, onInvoice, onHi
         {row.clients.length ? <TimeSelect label={t("timesheets.sheet.bill_to")} value="" disabled={pending}
           placeholder={t("timesheets.sheet.bill_to")} options={row.clients} onChange={clientId => onAssignClient(entry, clientId)} />
           : row.canReview ? <Link className={buttonVariants({ size: "xs", variant: "outline" })}
-          to={timeRoutes["billing-review"] + "?date=" + entry.date}>{t("back_office.billing.detail")}</Link>
+          to={timeEntryReviewPath(entry)}>{t("back_office.billing.detail")}</Link>
           : row.invoiceable ? <Button size="xs" variant="outline" onClick={() => onInvoice(entry)}>
             {t("invoiceReview.invoice_entry")}</Button>
           : entry.status === "confirmed" && entry.workerId === directory.permissions.userId &&

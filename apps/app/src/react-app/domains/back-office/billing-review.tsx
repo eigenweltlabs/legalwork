@@ -10,7 +10,7 @@ import { invoiceEntryAccess } from "./invoice-entry-access";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TimeSelect } from "./time-settings-controls";
-import { timeRoutes } from "./time-routes";
+import { timeEntryReviewPath, timeRoutes } from "./time-routes";
 import { ChevronDown, ChevronRight, History, Plus, SlidersHorizontal } from "lucide-react";
 import {
   type TimeEntry,
@@ -290,7 +290,7 @@ export function BillingReview({
               onReviewSubmitted={(entry) => {
                 if (invoiceViews) {
                   setInvoiceScreen("review");
-                  navigate(timeRoutes["billing-review"] + "?" + new URLSearchParams({ date: entry.date }));
+                  navigate(timeEntryReviewPath(entry));
                   return;
                 }
                 reset();

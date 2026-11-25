@@ -395,6 +395,7 @@ const de = {
   "timesheets.workday": "KI-Vorschläge",
   "timesheets.review_approve": "Freigeben",
   "timesheets.review_empty": "In diesem Zeitraum warten keine Einträge auf Prüfung.",
+  "timesheets.review_entry_unavailable": "Dieser Eintrag wartet nicht mehr auf Ihre Prüfung.",
   "timesheets.review_change_reason": "Grund für die Änderung der abrechenbaren Zeit (optional)",
   "timesheets.save_review": "Prüfung speichern",
   "timesheets.review": "Honorarprüfung",

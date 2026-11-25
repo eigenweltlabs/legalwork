@@ -1,10 +1,11 @@
-import { useId, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { History, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/sonner";
 import { ItemDialogContent } from "@/react-app/design-system/item-detail";
 import type { BackOfficeRecord } from "@legalwork/types/back-office";
 import { hasTimeEntryPrice, resolveTimePolicy,  timeEntryPrice, timePolicyError, type TimeEntry, type TimesheetCommand, type TimesheetState } from "@legalwork/types/timesheet";
@@ -18,7 +19,7 @@ import { TimeEntryInput } from "./time-duration-controls";
 
 type ReviewCommand = Extract<TimesheetCommand, { type: "review" | "approve" | "return" }>;
 
-export function FirmTimeReview({ client, state, directory, dates, onCommand, columnScope, onSaveView }: {
+export function FirmTimeReview({ client, state, directory, dates, onCommand, columnScope, onSaveView, reviewEntryId }: {
   client: LegalworkServerClient;
   state: TimesheetState;
   directory: BackOfficeState;
@@ -26,10 +27,12 @@ export function FirmTimeReview({ client, state, directory, dates, onCommand, col
   onCommand: (command: TimesheetCommand) => Promise<TimesheetState>;
   columnScope: string;
   onSaveView: SaveBackOfficeView;
+  reviewEntryId: string | null;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const billableErrorId = useId();
   const navigate = useNavigate();
+  const [, setParams] = useSearchParams();
   const [showHistory, setShowHistory] = useState(false);
   const [editing, setEditing] = useState<{ entry: TimeEntry; narrative: string; minutes: string; reason: string }>();
   const [returning, setReturning] = useState(false);
@@ -37,12 +40,30 @@ export function FirmTimeReview({ client, state, directory, dates, onCommand, col
   const busy = Boolean(pendingAction);
   const [error, setError] = useState("");
   const timeObject = directory.model.objects.find(object => object.id === "timeEntries" && !object.archived);
-  if (!timeObject) return <p role="status">{t("timesheets.unavailable")}</p>;
 
   const pending = state.entries.filter(entry =>
     entry.status === "submitted" && entry.workerId !== state.userId && dates.includes(entry.date) &&
     resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId).reviewerId === state.userId);
   const entries = new Map(pending.map(entry => [entry.id, entry]));
+  const requestedEntry = reviewEntryId ? entries.get(reviewEntryId) : undefined;
+  const openReview = useCallback((entry: TimeEntry) => {
+    setEditing({ entry, narrative: entry.narrative, minutes: String(entry.billableMinutes), reason: "" });
+    setError("");
+    setReturning(false);
+    setShowHistory(false);
+  }, []);
+  useEffect(() => {
+    if (!reviewEntryId || !timeObject) return;
+    if (requestedEntry) openReview(requestedEntry);
+    else toast.error(t("timesheets.review_entry_unavailable"));
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete("reviewEntry");
+      return next;
+    }, { replace: true });
+  }, [reviewEntryId, requestedEntry, timeObject, openReview, setParams]);
+  if (!timeObject) return <p role="status">{t("timesheets.unavailable")}</p>;
+
   const labeled = displayBackOfficeObject(timeObject);
   const columns = ["startedAt", "timekeeper", "matter", "name", "recordedMinutes", "billableMinutes"];
   const object = {
@@ -109,12 +130,7 @@ export function FirmTimeReview({ client, state, directory, dates, onCommand, col
       onSave={async () => {}} onCreate={() => {}} onSaveView={onSaveView}
       onOpen={record => {
         const entry = entries.get(record.id);
-        if (entry) {
-          setEditing({ entry, narrative: entry.narrative, minutes: String(entry.billableMinutes), reason: "" });
-          setError("");
-          setReturning(false);
-          setShowHistory(false);
-        }
+        if (entry) openReview(entry);
       }}
       selectionActions={(records, clear) => <Button size="sm" disabled={busy || records.some(record => approvalError(entries.get(record.id)!))}
         aria-busy={pendingAction === "approve"}

@@ -1,4 +1,5 @@
 import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CalendarDays, List, MessageSquare, ReceiptText, ClipboardCheck, Loader2 } from "lucide-react";
 import { BackOfficeSurface } from "./twenty-controls";
 import { z } from "@legalwork/types/back-office";
@@ -141,6 +142,8 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
   }
   const withInvoices = invoices != null;
   const withReview = review != null;
+  const [params] = useSearchParams();
+  const reviewEntry = requestedTab === "review" ? params.get("reviewEntry") : null;
   useLayoutEffect(() => {
     prepareLayout(sessionId, withInvoices, legacyKey);
     if (withReview) return;
@@ -155,7 +158,7 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
     const tab = tabFor(requestedTab);
     if (layout?.tabs.some(item => item.id === tab.id)) store.selectTab(sessionId, tab.id);
     else store.openTab(sessionId, tab, layout?.panes.find(pane => pane.tabIds.includes(idFor("entries")))?.id ?? layout?.panes[0]?.id);
-  }, [sessionId, requestedTab, withInvoices, withReview]);
+  }, [sessionId, requestedTab, reviewEntry, withInvoices, withReview]);
 
   const contents: Record<View, WorkspacePage["content"]> = {
     entries: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</BackOfficeSurface>,

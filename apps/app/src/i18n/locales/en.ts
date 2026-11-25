@@ -385,6 +385,7 @@ export default {
   "timesheets.workday": "AI suggestions",
   "timesheets.review_approve": "Approve",
   "timesheets.review_empty": "No entries awaiting review in this period.",
+  "timesheets.review_entry_unavailable": "This entry is no longer awaiting your review.",
   "timesheets.review_change_reason": "Reason for changing billable time (optional)",
   "timesheets.save_review": "Save review",
   "timesheets.review": "Billing review",

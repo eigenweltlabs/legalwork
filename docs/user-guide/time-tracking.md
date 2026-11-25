@@ -77,7 +77,7 @@ In a shared workspace, open **Review** and choose the service date or range. Cli
 4. Choose **Create Invoice** to save the numbered invoice in **All invoices** and mark the selected time as invoiced. For hourly work, LegalWork uses the saved rates. If a rate is missing, choose **Edit rate** and **Save rate**. For a flat-fee agreement, select **Use fixed price** and enter the agreed amount.
 5. For a document, ask the Timekeeping agent to create it from the saved invoice number. It can read the invoice’s recipient, amounts and time entries.
 
-In **Invoices → Unbilled time**, check **Status** to see which entries are waiting for approval. Select **Review** on a row assigned to you. Fees are shown only for entries you can invoice. Select **Show revision history** in the row to open the history sidebar.
+In **Invoices → Unbilled time**, check **Status** to see which entries are waiting for approval. Select **Review** on a row assigned to you to open that entry’s review form and approve it or return it to the timekeeper. Fees are shown only for entries you can invoice. Select **Show revision history** in the row to open the history sidebar.
 
 For an imported, recorded entry you own, follow the link to **Time entries**, edit and save it, then return to the invoice. An approved imported record cannot be added directly. If an entry needs a billing client, choose **Assign to [client]** when offered. Assigning a recipient to a previously approved entry returns it to review under that client's billing terms.
 
