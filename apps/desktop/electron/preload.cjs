@@ -87,6 +87,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   system: {
+    workdayDesktopStatus() { return ipcRenderer.invoke("legalwork:system:workdayDesktopStatus"); },
+    requestWorkdayDesktopPermission() { return ipcRenderer.invoke("legalwork:system:requestWorkdayDesktopPermission"); },
+    sampleWorkdayDesktopActivity() { return ipcRenderer.invoke("legalwork:system:sampleWorkdayDesktopActivity"); },
     getArchitectureInfo() {
       return ipcRenderer.invoke("legalwork:system:architecture");
     },

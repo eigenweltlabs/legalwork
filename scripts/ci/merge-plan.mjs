@@ -64,6 +64,7 @@ export function electronChecks(files) {
   const groups = new Set();
   for (const file of files) {
     if (/^apps\/(?:desktop\/(?:electron|scripts)\/|app\/).*(?:unsaved-change|workflow-editor|shutdown|updater-quit)/.test(file)) groups.add('renderer');
+    if (/^apps\/desktop\/(?:electron\/audio\/(?:dictation-hud[.-]|dictation-dock\.|hud-stopwatch\.)|scripts\/(?:run-dictation-hud|dictation-hud-regression)\.mjs$)/.test(file)) groups.add('stopwatch');
     if (/^apps\/desktop\/(?:electron|scripts)\/browser-autofill|^apps\/app\/.*browser-autofill/.test(file)) groups.add('autofill');
     else if (/^apps\/desktop\/(?:electron|scripts)\/(?:browser-|(?:run-)?preview-security)/.test(file)) groups.add('browser');
     if (/^apps\/(?:desktop\/(?:electron|scripts)\/(?:ris-pdf|browser-downloads|browser-project)|server\/src\/extensions\/ris-pdf)/.test(file)) groups.add('ris');

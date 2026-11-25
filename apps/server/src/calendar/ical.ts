@@ -134,7 +134,27 @@ function wireTime(time: ICAL.Time, c: ICAL.Component, fallback: string, property
   if (time.zone === ICAL.Timezone.localTimezone) return zonedInstant(time.toString(), fallback);
   return time.toJSDate().toISOString();
 }
-export function occurrences(item: CalendarItem, projectName: string, from: string, to: string): CalendarOccurrence[] {
+// Resolve personal participation while expanding an invitation. Keep addresses and
+// RSVP details out of the occurrence and workday log. An exception can change
+// the guest list for just one occurrence of a recurring meeting.
+export type CalendarWorker = { userId: string; email?: string | null };
+
+function invitationForWorker(event: ICAL.Component, series: ICAL.Component, worker: CalendarWorker, assigned: string | null) {
+  const email = worker.email?.trim().toLowerCase();
+  const address = (p: ICAL.Property | null) => String(p?.getFirstValue() ?? "").trim().replace(/^mailto:/i, "").toLowerCase();
+  const guests = (event.hasProperty("attendee") ? event : series).getAllProperties("attendee");
+  const organizer = event.getFirstProperty("organizer") ?? series.getFirstProperty("organizer");
+  const guest = email && guests.find(person => address(person) === email);
+  if (guest) {
+    const reply = String(guest.getParameter("partstat") ?? "").toLowerCase();
+    if (reply === "declined" || reply === "delegated" || String(guest.getParameter("role") ?? "").toLowerCase() === "non-participant") return false;
+    return true;
+  }
+  if (email && address(organizer) === email) return true;
+  if (assigned) return assigned === worker.userId;
+  return !guests.length && !organizer;
+}
+export function occurrences(item: CalendarItem, projectName: string, from: string, to: string, worker?: CalendarWorker): CalendarOccurrence[] {
   if (item.deletedAt || item.status === "cancelled") return [];
   const original = parseCalendar(item.ical), root = emptyCalendar(), todos = new Set<string>();
   for (const source of original.getAllSubcomponents()) {
@@ -171,24 +191,26 @@ export function occurrences(item: CalendarItem, projectName: string, from: strin
       if (++steps > MAX_STEPS) throw new ApiError(422, "calendar_expansion_limit", "This recurrence exceeds the expansion limit.");
       const details = event.getOccurrenceDetails(next);
       const todo = todos.has(item.uid);
-      emit(details.item.component, todo ? details.endDate : details.startDate, todo ? null : details.endDate, next.toString(), true, todo ? "dtend" : "dtstart");
+      emit(details.item.component, todo ? details.endDate : details.startDate, todo ? null : details.endDate, next.toString(), true, todo ? "dtend" : "dtstart", c);
       // A range override can move an occurrence; do not stop solely at its modified date.
       if (next.toString().slice(0, 10) > scanUntil) break;
       next = iterator.next();
     }
   }
   return result;
-  function emit(c: ICAL.Component, start: ICAL.Time, end: ICAL.Time | null, identity: string, recurring: boolean, property = "dtstart") {
+  function emit(c: ICAL.Component, start: ICAL.Time, end: ICAL.Time | null, identity: string, recurring: boolean, property = "dtstart", series = c) {
     if (c.getFirstPropertyValue("status") === "CANCELLED") return;
     const startValue = wireTime(start, c, item.timeZone, property), endValue = end ? wireTime(end, c, item.timeZone, "dtend") : null;
     const startDay = start.isDate ? startValue : dayInZone(startValue, item.timeZone);
     const endDay = end?.isDate ? endValue : endValue ? dayInZone(endValue, item.timeZone) : startDay;
     if (startDay >= to || (endDay && endDay < from) || (endValue && endValue > startValue && (end?.isDate ? endValue <= from : endValue <= zonedInstant(from, item.timeZone))) || (endValue === null && startDay < from)) return;
     if (result.length >= MAX_OCCURRENCES) throw new ApiError(422, "calendar_expansion_limit", "Too many occurrences in this range.");
+    if (worker && !invitationForWorker(c, series, worker, item.assigneeUserId)) return;
     const title = c.getFirstPropertyValue("summary");
     result.push({ id: `${item.id}:${identity}`, itemId: item.id, uid: item.uid, projectId: item.projectId, projectName, kind: item.kind,
       title: typeof title === "string" ? title : item.title, start: startValue, end: endValue, allDay: start.isDate, timeZone: item.timeZone,
-      status: item.status, assigneeUserId: item.assigneeUserId, provenance: item.provenance, verified: item.verified, recurring });
+      status: item.status, assigneeUserId: item.assigneeUserId, provenance: item.provenance, verified: item.verified, recurring,
+      ...(worker ? { participantUserId: worker.userId } : {}) });
   }
 }
 export function exportCalendar(items: CalendarItem[], profile: "calendar" | "native" = "calendar"): string {

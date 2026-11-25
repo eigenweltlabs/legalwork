@@ -46,6 +46,66 @@
       "source": "apps/app/src/components/chat/cost-indicator.tsx"
     },
     {
+      "id": "timesheet-workspace",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-workspace.tsx"
+    },
+    {
+      "id": "timesheet-record-sheet",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-record-sheet.tsx"
+    },
+    {
+      "id": "timesheet-workflow-proposal",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workflow-proposal.tsx"
+    },
+    {
+      "id": "timesheet-ledger",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-ledger.tsx"
+    },
+    {
+      "id": "time-workspace-tabs",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workspace-panels.tsx"
+    },
+    {
+      "id": "private-workday-chat",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workspace-chat.tsx"
+    },
+    {
+      "id": "private-workday",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-workday.tsx"
+    },
+    {
+      "id": "billing-guidelines",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workspace-guidelines.tsx"
+    },
+    {
+      "id": "workday-stopwatch",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-workspace-stopwatch.tsx"
+    },
+    {
+      "id": "invoice-draft-preview",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-invoice-pdf.tsx"
+    },
+    {
+      "id": "billing-review",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-review.tsx"
+    },
+    {
+      "id": "billing-preferences",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-preferences.tsx"
+    },
+    {
       "id": "project-field-editor",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
@@ -145,6 +205,11 @@
     {
       "path": "/tasks",
       "guide": "tasks-intake.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/time/*",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {
@@ -248,6 +313,12 @@
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {
+      "id": "billing",
+      "scope": "global",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
       "id": "debug",
       "scope": "global",
       "guide": "troubleshooting.md",
@@ -332,6 +403,12 @@
       "id": "tabular-review",
       "scope": "global",
       "guide": "reviews.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "time-tracking",
+      "scope": "global",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {

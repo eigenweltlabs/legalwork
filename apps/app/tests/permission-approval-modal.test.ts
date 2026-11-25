@@ -29,6 +29,22 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 }
 
 describe("permission approval modal helpers", () => {
+  test("time entry deletion shows the reviewed row and only one-time choices", () => {
+    const html = renderToStaticMarkup(React.createElement(PermissionApprovalPanel, {
+      permission: pendingPermission({ permission: "timekeeping.entry.remove", patterns: [], protocol: "host", host: {
+        id: "remove-1", workspaceId: "time-review", sessionID: "session-1", action: "timekeeping.entry.remove",
+        summary: "Remove this saved time entry?", description: "2026-11-23 · Lease · Reviewed clause · Recorded: 20 min",
+        paths: [], canRemember: false, createdAt: 1, actor: { type: "remote", scope: "owner" },
+      } }), respondPermission: () => {},
+    }));
+    expect(html).toContain("Remove time entries?");
+    expect(html).toContain("Reviewed clause");
+    expect(html).toContain("Recorded: 20 min");
+    expect(html).toContain("Deny");
+    expect(html).toContain("Allow once");
+    expect(html).not.toContain("Allow for this chat");
+  });
+
   test("folder approval explains chat scope and shows the native resolved destination", () => {
     const permission = permissionWithReceivedAt({
       id: "folder", sessionID: "session-1", action: "external_directory", resources: ["/shortcut/*"], save: ["/shortcut/*"],

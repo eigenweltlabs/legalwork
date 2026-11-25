@@ -202,6 +202,8 @@ export const SETTINGS_TAB_VALUES = [
   "office-addins",
   "recorder",
   "launcher",
+  "time-tracking",
+  "billing",
   "debug",
 ] as const;
 

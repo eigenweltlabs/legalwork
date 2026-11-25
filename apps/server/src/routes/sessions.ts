@@ -1,3 +1,5 @@
+import { beginChatObservation } from "../time-capture/activity-workday.js";
+import { isInternalSession } from "../native-shared-values.js";
 import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
 import { readSessionCosts } from "../session-costs.js";
 import { sessionDispatchSchema } from "../session-queue-schema.js";
@@ -100,11 +102,19 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // verified managed adapter, which applies normal sandbox permissions.
     }
   }
-  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false, fileReferences=false) {
+  async function queueConnection(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false, fileReferences=false) {
     const client = createEngineClient(config, workspace, { fileReferences });
-    if(allowUnresolved)await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID));
-    else await assertSessionHistoryReady(config,workspace,client,sessionID);
-    return client;
+    const { session } = allowUnresolved
+      ? await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID))
+      : await assertSessionHistoryReady(config,workspace,client,sessionID);
+    return { client, session };
+  }
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false, fileReferences=false) {
+    return (await queueConnection(workspace, sessionID, allowUnresolved, fileReferences)).client;
+  }
+  function observeComposer(ctx: RequestContext, workspace: WorkspaceInfo, session: Awaited<ReturnType<typeof getWorkspaceEngineSession>>, text: string) {
+    if (isInternalSession(session)) return;
+    return beginChatObservation(config, ctx, workspace, session.id, session.title ?? "Chat", text).catch(() => undefined);
   }
   const messageQueue = registerMessageQueue(config, nativeQueueTransport(config, {
     client: async (workspaceId, sessionID) => queueClient(await resolveWorkspace(config, workspaceId), sessionID),
@@ -119,7 +129,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     ensureWritable(config); requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id), sessionID = ctx.params.sessionId;
     await requireAssistantWorkspaceSubscription(config, workspace.id);
-    const client = await queueClient(workspace, sessionID);
+    const { client, session } = await queueConnection(workspace, sessionID);
     const parsed = sessionDispatchSchema.safeParse(await readJsonBody(ctx.request));
     if (!parsed.success) throw new ApiError(400, "invalid_session_dispatch", "Valid native message or command input is required.", { issues: parsed.error.issues });
     const input = parsed.data;
@@ -132,6 +142,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     await validateQueuedExecution(client, workspace, input);
     await grantWikiAgentSession(config, { sessionId: sessionID, workspaceId: workspace.id, directory: workspaceEngineLocation(workspace).directory,
       scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer" });
+    const visible = input.kind === "prompt" ? input.metadata?.legalworkPrompt : undefined;
+    const text = input.kind === "command" ? "/" + input.command + " " + input.args : input.draft?.text ??
+      (isRecord(visible) && typeof visible.visibleText === "string" ? visible.visibleText : undefined);
+    const observe = text === undefined ? undefined : await observeComposer(ctx, workspace, session, text);
     if (input.delivery === "steer" || input.kind === "prompt" && input.resume === false) {
       const messageID = await withSessionDispatch(config, sessionID, async () => {
         if (input.agent) await client.session.switchAgent({ sessionID, agent: input.agent });
@@ -144,6 +158,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         const { kind, model, agent, draft, waitForCompletion, ...prompt } = input;
         return (await client.session.prompt({ sessionID, ...prompt })).id;
       });
+      await observe?.(messageID ?? crypto.randomUUID()).catch(() => undefined);
       if (input.waitForCompletion && !(input.kind === "prompt" && input.resume === false)) await client.session.wait({ sessionID }, { signal: ctx.request.signal });
       return jsonResponse({ accepted: true, messageID, staged: false });
     }
@@ -151,6 +166,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const state = await messageQueue.act(workspace.id, sessionID, action);
     const entry = state.entries.find(entry => entry.id === action.id);
     if (entry?.status === "failed") throw new ApiError(409, "queue_preparation_failed", entry.error ?? "Could not prepare message delivery.", { entryId: action.id });
+    await observe?.(action.execution.kind === "prompt" ? action.execution.id ?? action.id : action.id).catch(() => undefined);
     if (input.waitForCompletion) await messageQueue.waitForEntry(workspace.id, sessionID, action.id, ctx.request.signal);
     return jsonResponse({ accepted: true, ...(action.execution.kind === "prompt" ? { messageID: action.execution.id } : {}), staged: true });
   });
@@ -166,7 +182,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
       if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
       // Reject stale/deleted or cross-workspace sessions before storing executable work.
-      const client = await queueClient(workspace, ctx.params.sessionId);
+      const { client, session } = await queueConnection(workspace, ctx.params.sessionId);
       if (parsed.data.type === "enqueue") await validateQueuedExecution(client, workspace, parsed.data.execution);
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
@@ -175,7 +191,13 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         directory: workspace.directory?.trim() || workspace.path,
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
-    return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
+    const action = parsed.data;
+    const observe = action.type === "enqueue" ? await observeComposer(ctx, workspace, session, action.draft.text) : undefined;
+    const state = await messageQueue.act(workspace.id, ctx.params.sessionId, action);
+    if (action.type === "enqueue" && action.execution.kind !== "shell" && !state.entries.some(e => e.id === action.id && e.status === "failed")) {
+      await observe?.(("id" in action.execution && action.execution.id) || action.id).catch(() => undefined);
+    }
+    return jsonResponse(state);
     });
   });
 

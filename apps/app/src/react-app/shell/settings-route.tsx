@@ -101,6 +101,8 @@ import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-vi
 import { McpView, type McpViewProps } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
+import { BackOfficePage } from "@/react-app/domains/back-office/back-office-page";
+import { TimeTrackingSettingsView } from "@/react-app/domains/settings/pages/time-tracking-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { LauncherSettingsView } from "@/react-app/domains/settings/pages/launcher-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
@@ -222,6 +224,8 @@ function parseSettingsPath(pathname: string): {
     case "updates":
     case "recovery":
     case "office-addins":
+    case "time-tracking":
+    case "billing":
     case "recorder":
     case "launcher":
     case "debug":
@@ -1895,11 +1899,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const target = selectedWorkspaceId
       ? workspaceSettingsRoute(selectedWorkspaceId, route.redirectPath)
       : `/settings/${route.redirectPath}`;
-    return <Navigate to={target} replace state={location.state} />;
+    return <Navigate to={{ pathname: target, search: location.search, hash: location.hash }} replace state={location.state} />;
   }
 
   if (!props.embedded && selectedWorkspaceId && (!routeWorkspaceId || (hasLoadedServerWorkspaces && routeWorkspaceId !== selectedWorkspaceId))) {
-    return <Navigate to={workspaceSettingsRoute(selectedWorkspaceId, settingsPathForRoute(route))} replace state={location.state} />;
+    return <Navigate to={{ pathname: workspaceSettingsRoute(selectedWorkspaceId, settingsPathForRoute(route)), search: location.search, hash: location.hash }} replace state={location.state} />;
   }
 
   const settingsView = (() => {
@@ -2382,6 +2386,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "office-addins":
         return <OfficeAddinsView />;
+      case "billing": {
+        const client = legalworkClient ?? legalworkServerSnapshot.legalworkServerClient;
+        return client ? <BackOfficePage client={client} billingSettings /> : <p role="status">{t("timesheets.loading")}</p>;
+      }
+      case "time-tracking":
+        return <TimeTrackingSettingsView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "recorder":
         return recorderOff ? <SettingsStack><OrgPolicyFeatureOff policyKey="recorder.allow" /></SettingsStack> : (
           <RecorderSettingsView

@@ -7,7 +7,8 @@ import {
   ChevronRight,
   Plus,
 } from "lucide-react";
-import { Avatar, Tag } from "twenty-ui/primitives/data-display";
+import { Tag } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import { Button } from "twenty-ui/primitives/input";
 import { Card, Popover } from "twenty-ui/primitives/surfaces";
 import { DatePicker } from "twenty-ui/components/input";
@@ -40,6 +41,7 @@ type Props = {
   records: BackOfficeRecord[];
   fields: BackOfficeField[];
   editable: boolean;
+  canEditRecord?: (record: BackOfficeRecord) => boolean;
   readOnlyFields?: readonly string[];
   userId: string;
   onOpen: (record: BackOfficeRecord) => void;
@@ -71,7 +73,7 @@ function Property({
         <span className="bo-muted">{field.label}</span>
       ) : null
     ) : (
-      <ValueDisplay
+      <ValueDisplay objectId={record.objectId}
         field={field}
         value={value}
         records={props.localIds?.has(record.id) ? props.localChoices ?? [] : props.records}
@@ -79,7 +81,7 @@ function Property({
       />
     );
   if (
-    !props.editable || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
+    !props.editable || props.canEditRecord?.(record) === false || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
     (field.visibility === "private" && record.ownerId !== props.userId)
   )
     return <span className="bo-record-property">{content}</span>;
@@ -261,7 +263,7 @@ export function RecordKanban(props: Props & { field: BackOfficeField }) {
       (group) => JSON.stringify(group.value) === target,
     );
     if (
-      !props.editable || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
+      !props.editable || props.canEditRecord?.(record) === false || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
       move ||
       !group ||
       !props.rows.some((row) => row.id === record.id) ||
@@ -307,7 +309,7 @@ export function RecordKanban(props: Props & { field: BackOfficeField }) {
                 key={record.id}
                 record={record}
                 props={props}
-                draggable={props.editable && !move}
+                draggable={props.editable && !move && props.canEditRecord?.(record) !== false}
                 drag={drag}
               />
             ))}
@@ -352,7 +354,7 @@ export function RecordCalendar({
     (field.type === "date" || field.type === "datetime");
   const drag = useRecordDrag((record, key) => {
     if (
-      !dateEditable ||
+      !dateEditable || props.canEditRecord?.(record) === false ||
       !field ||
       moving ||
       !props.rows.some((row) => row.id === record.id) ||
@@ -522,7 +524,7 @@ export function RecordCalendar({
                     key={record.id}
                     record={record}
                     props={props}
-                    draggable={Boolean(dateEditable) && !moving}
+                    draggable={Boolean(dateEditable) && !moving && props.canEditRecord?.(record) !== false}
                     drag={drag}
                   />
                 ))}

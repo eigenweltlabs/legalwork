@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useRef, useState, useSyncExternalStore, type ComponentPropsWithoutRef, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { ThemeProvider } from "twenty-ui/theme";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { ChevronDown, X } from "lucide-react";
@@ -38,11 +38,24 @@ export function BackOfficeTheme({ children }: { children: ReactNode }) {
   );
 }
 
+export const DirectoryDialogContainer = createContext<HTMLElement | null>(null);
+
+export function BackOfficeSurface({ className = "", ...props }: ComponentPropsWithoutRef<"div">) {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  return (
+    <BackOfficeTheme>
+      <DirectoryDialogContainer.Provider value={container}>
+        <div ref={setContainer} className={`bo ${className}`} {...props} />
+      </DirectoryDialogContainer.Provider>
+    </BackOfficeTheme>
+  );
+}
+
 export function DirectoryEditorPopup({ children, className = "", style, finalFocus, id }: {
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
-  finalFocus?: RefObject<HTMLElement | null>;
+  finalFocus?: RefObject<HTMLElement | null> | false;
   id?: string;
 }) {
   const popup = useRef<HTMLDivElement>(null);
@@ -156,30 +169,22 @@ export function DirectoryDialog({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const container = useContext(DirectoryDialogContainer);
   return (
-    <Dialog.Root
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Viewport>
+    <Dialog.Root open modal={!container} onOpenChange={(open, details) => {
+      if (open) return;
+      if (container && (details.reason === "focus-out" ||
+          ((details.reason === "outside-press" || details.reason === "escape-key") &&
+            (!(details.event.target instanceof Node) || !container.contains(details.event.target))))) return;
+      onClose();
+    }}>
+      <Dialog.Portal container={container ?? undefined}>
+        {!container && <Dialog.Backdrop />}
+        <Dialog.Viewport className={container ? "bo-dialog-viewport" : undefined}>
           <Dialog.Popup size={wide ? "lg" : "sm"} className="bo-dialog">
-            <Dialog.Close
-              className="bo-dialog-close"
-              render={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={t("markdown.dialog.close")}
-                  startIcon={<X size={16} />}
-                />
-              }
-            />
-            <Dialog.Header>
+            <Dialog.Header className="bo-dialog-header">
               <Dialog.Title>{title}</Dialog.Title>
+              <Dialog.Close render={<Button size="sm" variant="ghost" aria-label={t("markdown.dialog.close")} startIcon={<X size={16} />} />} />
             </Dialog.Header>
             <Dialog.Body>{children}</Dialog.Body>
           </Dialog.Popup>

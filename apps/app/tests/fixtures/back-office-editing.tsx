@@ -6,7 +6,7 @@ import type { BackOfficeRecord, BackOfficeValue, BackOfficeView } from "@legalwo
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
-  window, document: window.document, navigator: window.navigator,
+  window, document: window.document, navigator: window.navigator, localStorage: window.localStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement,
   Element: window.Element, Node: window.Node, Event: window.Event,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
@@ -40,9 +40,9 @@ const onSave = async (record: BackOfficeRecord, values: Record<string, BackOffic
   saved.push({ record, values });
   if (fail) throw new Error("Save failed; draft must survive");
 };
-function Row({ record, popup = false }: { record: BackOfficeRecord; popup?: boolean }) {
+function Row({ record, popup = false, sheet = false }: { record: BackOfficeRecord; popup?: boolean; sheet?: boolean }) {
   const [editing, setEditing] = useState<EditingCell | null>(null);
-  return <RecordGridRow record={record} index={0} template="32px 200px" fields={[popup ? nameField : field]}
+  return <RecordGridRow sheet={sheet} record={record} index={0} template="32px 200px" fields={[popup ? nameField : field]}
     records={[record]} recordById={new Map([[record.id, record]])} editable userId="owner" selected={false}
     editing={editing ?? undefined} onEdit={setEditing} onError={message => { failure = message; }}
     onSelect={() => {}} onMove={() => {}} onOpen={() => {}} onSave={onSave} />;
@@ -131,10 +131,40 @@ try {
   assert.equal(input("Matter name").value, "Name draft");
 
   await reset();
+  const timeObject = defaultBackOfficeModel().objects.find(item => item.id === "timeEntries");
+  assert.ok(timeObject);
+  const timeRecord = { ...original, objectId: "timeEntries", values: { name: "Saved entry", billingNarrative: "Reviewed a clause" } };
+  const archives: BackOfficeRecord[] = [];
+  const timeDetail = (record: BackOfficeRecord) => <RecordDetail client={client} team={false} historyAccessKey="local" record={record}
+    object={timeObject} records={[record]} editable finance userId="owner" width={400} onWidthChange={() => {}}
+    onClose={() => {}} onOpen={() => {}} onSave={async (entry, _values, archive) => { if (archive) archives.push(entry); }} />;
+  await render(timeDetail(timeRecord));
+  const archiveDetail = async () => {
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Record options"]')!.click());
+    const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === "Archive record");
+    assert.ok(action);
+    await act(async () => action.click());
+  };
+  const removalButton = (label: string) => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(item => item.textContent?.trim() === label);
+    assert.ok(button);
+    return button;
+  };
+  await archiveDetail();
+  assert.equal(archives.length, 0);
+  await act(async () => removalButton("Cancel").click());
+  assert.equal(archives.length, 0);
+  await archiveDetail();
+  await render(timeDetail({ ...timeRecord, revision: 2, values: { ...timeRecord.values, name: "Changed elsewhere" } }));
+  await act(async () => removalButton("Remove").click());
+  assert.equal(archives.length, 1);
+  assert.equal(archives[0].revision, 1, "deletion stays bound to the reviewed version for the server's revision check");
+
+  await reset();
   const view = BackOfficeViewSchema.parse({ id: crypto.randomUUID(), objectId: "matters", name: "Original view", columns: ["name"] });
   const viewWrites: { view: BackOfficeView; expected: BackOfficeView | null }[] = [];
-  const grid = (current: BackOfficeView) => <MemoryRouter initialEntries={[`/?viewId=${view.id}`]}>
-    <RecordGrid object={object} records={[original]} views={[current]} editable finance userId="owner" archived={false}
+  const grid = (current: BackOfficeView, scope = "editing-fixture") => <MemoryRouter initialEntries={[`/?viewId=${view.id}`]}>
+    <RecordGrid columnScope={scope} object={object} records={[original]} views={[current]} editable finance userId="owner" archived={false}
       onArchivedChange={() => {}} onOpen={() => {}} onCreate={() => {}} onSave={onSave}
       onSaveView={async (next, expected) => { viewWrites.push({ view: next, expected }); throw new Error("View conflict"); }} />
   </MemoryRouter>;
@@ -151,6 +181,55 @@ try {
   assert.deepEqual(viewWrites[0].expected, view, "A refresh must not silently advance the settings' base");
   assert.equal(viewWrites[0].view.query, "My filter");
   assert.equal(input("Search records").value, "My filter", "A view conflict must preserve unsaved settings");
+  await reset();
+  await render(grid(view));
+  const toggle = [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === "Options");
+  assert.ok(toggle);
+  await act(async () => toggle.click());
+  const fieldLabel = object.fields.find(field => field.id === "fileNumber")!.label;
+  const extra = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(item => item.textContent?.trim() === fieldLabel);
+  assert.ok(extra);
+  await act(async () => extra.click());
+  const hasFileNumber = () => Boolean(host.querySelector('[role="columnheader"][data-field="fileNumber"]'));
+  assert.ok(hasFileNumber());
+  await reset();
+  await render(grid(view));
+  assert.ok(hasFileNumber(), "A named view retains the person's column choices");
+  await reset();
+  await render(grid(view, "another-account"));
+  assert.equal(hasFileNumber(), false);
+  await reset();
+  await render(grid({ ...view, columns: ["name", "status"] }));
+  assert.equal(hasFileNumber(), false, "A changed shared layout supersedes the previous personal overlay");
+  await reset();
+  fail = false;
+  function Sheet() {
+    const [record, setRecord] = useState(original);
+    return <MemoryRouter><RecordGrid columnScope="editing-fixture" object={{ ...object!, fields: [nameField, field] }} records={[record]} views={[]}
+      sheet={{ columns: ["name", "notes"], blankId: "new" }} editable finance userId="owner" archived={false}
+      onArchivedChange={() => {}} onOpen={() => {}} onCreate={() => {}}
+      onSave={async (base, patch) => { await onSave(base, patch); setRecord(current => ({ ...current, values: { ...current.values, ...patch }, revision: current.revision + 1 })); }}
+      onSaveView={async view => view} /></MemoryRouter>;
+  }
+  await render(<Sheet />);
+  await openCell();
+  await type("Name", "Keyboard edit");
+  await act(async () => input("Name").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  assert.equal(saved.at(-1)?.values.name, "Keyboard edit");
+  assert.equal(document.activeElement, input("Notes"), "Tab commits then opens the cell to the right");
+  await type("Notes", "Reverse navigation");
+  await act(async () => input("Notes").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  assert.equal(saved.at(-1)?.values.notes, "Reverse navigation");
+  assert.equal(document.activeElement, input("Name"), "Shift+Tab opens the preceding cell");
+  assert.equal(input("Name").value, "Keyboard edit");
+  await reset();
+  await render(<Row sheet record={{ ...original, revision: 0 }} />);
+  await openCell();
+  await act(async () => input("Notes").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  assert.equal(saved.length, 1, "Tab confirms a copied private row even when its cell is unchanged");
+  assert.equal(saved[0].values.notes, original.values.notes);
   console.log("All editing regressions passed");
 } finally {
   await act(async () => root.unmount());

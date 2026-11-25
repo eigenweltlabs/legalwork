@@ -38,12 +38,24 @@ export class ScheduledTaskRunner {
       }
     } finally { this.ticking = false; }
   }
-  start() {
-    const tick = () => { void this.tick().catch(error => console.warn("[scheduled-tasks]", error)); };
+  start(onMinute?: (signal: AbortSignal) => Promise<void>) {
+    const controller = new AbortController();
+    let lastMinute = Math.floor(this.now() / 60_000);
+    let checking = false;
+    const tick = () => {
+      void this.tick().catch(error => console.warn("[scheduled-tasks]", error));
+      const minute = Math.floor(this.now() / 60_000);
+      if (onMinute && !checking && minute !== lastMinute) {
+        lastMinute = minute;
+        checking = true;
+        // Private jobs can await a model. They must never block due scheduled chats.
+        void onMinute(controller.signal).catch(() => {}).finally(() => { checking = false; });
+      }
+    };
     const timer = setInterval(tick, 15000);
     timer.unref();
     // Check persisted due times immediately on reopening, including overdue one-time tasks.
     tick();
-    return () => { this.stopped = true; clearInterval(timer); };
+    return () => { this.stopped = true; controller.abort(); clearInterval(timer); };
   }
 }

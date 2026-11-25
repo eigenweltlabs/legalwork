@@ -22,9 +22,8 @@
  * loading: nothing is shown then, so the screen never flashes over a working
  * app while the engine starts.
  *
- * Pure and dependency-free apart from the entitlement status list, so the
- * route and the tests share it.
  */
+import { RETIRED_FREE_PROVIDER_IDS } from "@legalwork/types/native-model-display";
 import { isEigenweltEntitledStatus } from "./eigenwelt-trial";
 
 export type AiAccessState = "unknown" | "ready" | "new" | "signed-out" | "ended" | "no-models";
@@ -38,12 +37,7 @@ export function isAiPlansVariant(state: AiAccessState): state is AiPlansVariant 
 
 const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
-/**
- * Providers that never count as "your own model": the retired free tiers
- * (mirror of RETIRED_FREE_PROVIDER_IDS in react-app/infra/provider-list-query,
- * which this layer may not import).
- */
-const NOT_OWN_PROVIDER_IDS = new Set([EIGENWELT_PROVIDER_ID, "eigenwelt-free", "opencode"]);
+const NOT_OWN_PROVIDER_IDS = new Set([EIGENWELT_PROVIDER_ID, ...RETIRED_FREE_PROVIDER_IDS]);
 
 type ConnectedProvider = {
   id: string;

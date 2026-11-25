@@ -1,3 +1,4 @@
+import { beginFileAction } from "../time-capture/routes.js";
 import { isBackOfficeQuery } from "../views/schema.js";
 import { isViewFile, copyViewFile } from "../views/schema.js";
 import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
@@ -377,7 +378,9 @@ export function registerWikiRoutes(options: Options): WikiStore {
     if (!parsed.success) throw new ApiError(400, "invalid_wiki_page", "Provide a path, Markdown content and optional base revision.");
     const path = queryPath(ctx, parsed.data.path);
     await authorize(ctx, wiki, "wiki.write", [path], parsed.data);
+    const capture = await beginFileAction(config, ctx, wiki.workspaceId, path, "wiki:" + wiki.id, "Saved");
     const document = await store.write(wiki.id, path, parsed.data.content, parsed.data.baseRevision ?? "");
+    if (document.revision !== parsed.data.baseRevision) await capture?.();
     change(wiki.id);
     return jsonResponse(document);
   });
@@ -404,7 +407,9 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const parsed = restoreSchema.safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_wiki_revision", "Provide a page path and revision to restore.");
     await authorize(ctx, wiki, "wiki.restore", [parsed.data.path]);
+    const capture = await beginFileAction(config, ctx, wiki.workspaceId, parsed.data.path, "wiki:" + wiki.id, "Saved");
     const document = await store.restore(wiki.id, parsed.data.path, parsed.data.revisionId, parsed.data.baseRevision ?? "");
+    if (document.revision !== parsed.data.baseRevision) await capture?.();
     change(wiki.id);
     return jsonResponse(document);
   });
@@ -427,7 +432,9 @@ export function registerWikiRoutes(options: Options): WikiStore {
       try { bytes = Buffer.from(copyViewFile(bytes)); }
       catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
     }
+    const capture = await beginFileAction(config, ctx, wiki.workspaceId, parsed.data.path, "wiki:" + wiki.id, parsed.data.baseRevision ? "Saved" : "Attached");
     const result = await store.writeAsset(wiki.id, parsed.data.path, bytes, parsed.data.baseRevision ?? "");
+    await capture?.();
     change(wiki.id);
     return jsonResponse(result);
   });

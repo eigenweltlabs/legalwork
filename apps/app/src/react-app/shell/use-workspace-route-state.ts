@@ -57,6 +57,7 @@ import {
 import { isSessionIndexRoute, legacySessionRoute, wikiWorkspaceRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
+  pageWorkspace?: RouteWorkspace | null;
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local legalwork-server host info discovered during refresh. */
@@ -99,13 +100,13 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
   // An explicit route may point at a wiki just created on the server. Never
   // borrow another workspace's tabs, connection or agent directory while loading it.
-  const selectedWorkspaceId = routeWorkspaceId || (hasLoadedServerWorkspaces
+  const selectedWorkspaceId = routeWorkspaceId || input.pageWorkspace?.id || (hasLoadedServerWorkspaces
     ? resolveRouteWorkspaceId(workspaces, [legacySelectedWorkspaceId])
     : legacySelectedWorkspaceId);
   const selectedWorkspaceRemoving = useProjectRemoving(selectedWorkspaceId);
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
-    [selectedWorkspaceId, workspaces],
+    () => (input.pageWorkspace?.id === selectedWorkspaceId ? input.pageWorkspace : undefined) ?? workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
+    [selectedWorkspaceId, workspaces, input.pageWorkspace],
   );
   // Workspace-scoped API calls (sessions, events, activate, opencode/*) must
   // hit the worker that owns the workspace, not the user's local server. The
@@ -684,7 +685,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       }
       return;
     }
-    if (pathname.startsWith("/back-office")) return;
+    if (pathname.startsWith("/back-office") || pathname === "/time" || pathname.startsWith("/time/")) return;
     if (["/home", "/scheduled", "/calendar", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });

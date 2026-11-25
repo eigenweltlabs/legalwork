@@ -1,3 +1,4 @@
+import { visibleTimekeepingProjects } from "../time-capture/profile.js";
 import { risStatus, saveRisSettings, testRisConnection } from "../extensions/ris.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -345,9 +346,10 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     return jsonResponse(await googleWorkspaceRunScopeSmokeTest(config));
   });
 
-  addRoute(routes, "GET", "/workspaces", "client", async () => {
-    const active = config.workspaces[0] ?? null;
-    const items = config.workspaces.map(serializeWorkspace);
+  addRoute(routes, "GET", "/workspaces", "client", async ctx => {
+    const visible = await visibleTimekeepingProjects(config, ctx.actor);
+    const active = visible[0] ?? null;
+    const items = visible.map(serializeWorkspace);
     return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null, warnings: config.workspaceWarnings ?? [] });
   });
 

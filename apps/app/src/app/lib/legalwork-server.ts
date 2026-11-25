@@ -39,6 +39,7 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { DesktopActivitySample, CaptureAction, CaptureState, CaptureProposal, GuidelineRuleSuggestions, WorkdayModel, StopwatchAction, StopwatchState } from "@legalwork/types/time-capture";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -1361,6 +1362,12 @@ export class LegalworkServerError extends Error {
   }
 }
 
+export class LegalworkTransportError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 function buildHeaders(
   token?: string,
   hostToken?: string,
@@ -1516,7 +1523,7 @@ async function readJsonText(response: Response, progress: () => void): Promise<s
 async function requestJson<T>(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; binaryBody?: Blob; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; binaryBody?: Blob; timeoutMs?: number; signal?: AbortSignal; readOnly?: boolean; identifyTransportError?: boolean } = {},
 ): Promise<T> {
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
@@ -1534,7 +1541,9 @@ async function requestJson<T>(
       }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
       if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
     } catch (error) {
-      if (options.signal?.aborted || !readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) throw error;
+      if (options.signal?.aborted) throw error;
+      if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId))
+        throw options.identifyTransportError ? new LegalworkTransportError(error) : error;
     }
     // An earlier read can return a 404 after the server unregisters the
     // project. Do not publish it as a project error during removal. Retry
@@ -1557,13 +1566,16 @@ async function requestJson<T>(
     }
   }
   const response = await pending;
-  const json = response.text ? JSON.parse(response.text) : null;
   if (!response.ok) {
-    const code = typeof json?.code === "string" ? json.code : "request_failed";
-    const message = typeof json?.message === "string" ? json.message : response.statusText;
-    throw new LegalworkServerError(response.status, code, message, json?.details);
+    let json: unknown;
+    try { json = JSON.parse(response.text); } catch { /* Keep the HTTP status for non-JSON failures. */ }
+    const payload = json && typeof json === "object" ? json : undefined;
+    const code = payload && "code" in payload && typeof payload.code === "string" ? payload.code : "request_failed";
+    const message = payload && "message" in payload && typeof payload.message === "string"
+      ? payload.message : response.statusText || `HTTP ${response.status}`;
+    throw new LegalworkServerError(response.status, code, message, payload && "details" in payload ? payload.details : undefined);
   }
-  return json as T;
+  return (response.text ? JSON.parse(response.text) : null) as T;
 }
 
 async function requestStorageUpload(baseUrl: string, path: string, body: Blob | ArrayBuffer, contentType: string, token?: string, hostToken?: string, method = "POST"): Promise<{ ok: true; version: string }> {
@@ -1638,7 +1650,7 @@ async function requestMultipartRaw(
 async function requestBinary(
   baseUrl: string,
   path: string,
-  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number } = {},
+  options: { method?: string; token?: string; hostToken?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<{ data: ArrayBuffer; contentType: string | null; filename: string | null; updatedAt: number | null }>{
   const url = `${baseUrl}${path}`;
   const fetchImpl = resolveFetch(url);
@@ -1651,6 +1663,7 @@ async function requestBinary(
         ? buildHeaders(options.token, options.hostToken)
         : buildAuthHeaders(options.token, options.hostToken),
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     },
     options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS,
   );
@@ -1681,6 +1694,7 @@ async function requestBinary(
 }
 
 let legalMemoryClientSequence = 0;
+const credentialScopes = new Map<string, string>();
 
 export const LEGALWORK_DRAFT_ACCOUNT_EVENT = "legalwork:draft-account-changed";
 
@@ -1710,6 +1724,10 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
   const hostToken = options.hostToken;
+  // Scope sensitive read caches without placing either credential in a query key.
+  const credentialKey = JSON.stringify([token, hostToken]);
+  const credentialScope = credentialScopes.get(credentialKey) ?? crypto.randomUUID();
+  credentialScopes.set(credentialKey, credentialScope);
 
   const timeouts = {
     health: 3_000,
@@ -1777,7 +1795,17 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
   };
 
   return {
-    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: timeouts.binary }),
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean; timeoutMs?:number } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: options.timeoutMs ?? timeouts.binary, identifyTransportError: true }),
+    downloadTimesheetAdjustment: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/adjustments/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    previewBillingTemplate: (template:import("@legalwork/types/invoice-template").InvoiceTemplate,scope:string) => requestBinary(baseUrl,`/back-office/timesheet/template-preview?scope=${encodeURIComponent(scope)}`,{token,hostToken,method:"POST",body:template,timeoutMs:90_000}),
+    downloadTimesheetDraft: (id: string, scope: string, format: "docx" | "pdf", options?: { revision?: string; signal?: AbortSignal }) => {
+      const query = new URLSearchParams({ scope, format });
+      if (options?.revision) query.set("revision", options.revision);
+      return requestBinary(baseUrl, `/back-office/timesheet/drafts/${encodeURIComponent(id)}/document?${query}`, {
+        token, hostToken, timeoutMs: 90_000, signal: options?.signal,
+      });
+    },
+    downloadTimesheetInvoice: (id: string, scope: string, format:"docx"|"pdf"|"html" = "html") => requestBinary(baseUrl, `/back-office/timesheet/invoices/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}&format=${format}`, { token, hostToken, timeoutMs: timeouts.binary }),
     downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
     uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
 
@@ -1787,6 +1815,7 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
       Boolean(options.managedDesktop && runtime.running && hostToken && hostToken === runtime.hostToken && runtime.baseUrl &&
         normalizeLegalworkServerUrl(runtime.baseUrl) === baseUrl && instanceId && instanceId === runtime.instanceId),
     draftProfile: JSON.stringify([options.managedDesktop && hostToken ? "managed-desktop" : baseUrl, token ?? "", hostToken ?? "", options.draftAccount ?? ""]),
+    credentialScope,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
     wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),
@@ -1874,6 +1903,42 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    activityProfile: () => requestJson<{ profileId: string; directoryId: string; scope: string; user: string; principal: string; enabled: boolean; workspaceActivity: boolean; desktopActivity?: boolean }>(baseUrl, "/private-timesheet/activity", {token,hostToken}),
+    recordDesktopTimeActivity: (context: { profileId: string; scope: string; principal: string; user: string }, sample: DesktopActivitySample, signal?: AbortSignal) =>
+      requestJson<{ ok: boolean }>(baseUrl, "/private-timesheet/desktop-activity?" + new URLSearchParams(context), {
+        token, hostToken, method: "POST", body: sample, signal,
+      }),
+    workdayAppActivity: (profileId: string, date: string, zone: string, signal?: AbortSignal) =>
+      requestJson<(CaptureProposal & { projectName?: string })[]>(baseUrl, "/private-timesheet/activity?" + new URLSearchParams({ profileId, date, zone }), { token, hostToken, signal }),
+    observeActivity: (profileId:string, observations: {projectId:string|null;stream:string;kind:"foreground"|"passive"|"agent"|"window";title?:string;surface?:"chat"|"document"|"view";sessionId?:string;watching?:boolean;agentVisibility?:"foreground"|"background";start:number;end:number}[]) =>
+      requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
+    privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
+      requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId ? "?profileId=" + encodeURIComponent(profileId) : ""), {
+        token, hostToken, method: action ? "POST" : "GET", body: action,
+      }),
+    privateTimeConversation: (profileId: string, signal?: AbortSignal) =>
+      requestJson<{ workspace: LegalworkWorkspaceInfo; day: { sessionId: string; date: string } }>(baseUrl,
+        "/private-timesheet/conversation?" + new URLSearchParams({ profileId }), { token, hostToken, method: "POST", signal, timeoutMs: 90_000 }),
+    privateTimeHistory: (profileId: string, before?: string, limit = 1, after?: string) =>
+      requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl,
+        "/private-timesheet/conversation?" + new URLSearchParams({ profileId, limit: String(limit), ...(before && { before }), ...(after && { after }) }), { token, hostToken }),
+    privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string;profileId?:string}) =>
+      requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"estimatedMinutes"|"digest">>(baseUrl,
+        "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),
+    privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction, signal?: AbortSignal) =>
+      requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
+        token, hostToken, method: action ? "POST" : "GET", body: action, signal, timeoutMs: 180_000,
+      }),
+    privateGuidelineText: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, file: Blob, signal: AbortSignal) =>
+      requestJson<{ text: string; textlessPages: number[] }>(baseUrl,
+        "/private-timesheet/workday?" + new URLSearchParams({ ...context, preview: "guideline-pdf" }), {
+          token, hostToken, method: "POST", binaryBody: file, signal, timeoutMs: 360_000,
+        }),
+    privateGuidelineRules: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, text: string, model: WorkdayModel | undefined, signal: AbortSignal) =>
+      requestJson<GuidelineRuleSuggestions>(baseUrl,
+        "/private-timesheet/workday?" + new URLSearchParams({ ...context, preview: "guideline-rules" }), {
+          token, hostToken, method: "POST", body: { text, model }, signal, timeoutMs: 180_000,
+        }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),

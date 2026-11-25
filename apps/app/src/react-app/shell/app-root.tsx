@@ -24,6 +24,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
+import { DesktopTimeActivityListener } from "./desktop-time-activity";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { AssistantNotificationsListener } from "./assistant-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
@@ -78,6 +79,7 @@ export function AppRoot() {
           <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
           <LegalMemoryPermissions />
+          <DesktopTimeActivityListener />
           <Routes>
               <Route
                 path="/welcome"
@@ -139,6 +141,7 @@ export function AppRoot() {
               <Route path="/scheduled" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workspace/:workspaceId/calendar" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/time/*" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/back-office/*" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/projects" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route path="/workflows" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />

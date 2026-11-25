@@ -1122,7 +1122,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
 
     startSystemDictation: async () => {
       const { systemDictation, recording } = get();
-      if (!systemDictation?.enabled || !systemDictation.registered) return;
+      if (!systemDictation?.enabled) return;
       if (get().finalizing || meetingStartPending || recordingStartPending || get().dictationState === "starting") return;
       // Guard against a runaway restart loop: a start that lands within a beat
       // of the previous dictation ending is usually key bounce. Keep the last

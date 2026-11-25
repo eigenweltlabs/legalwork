@@ -1,4 +1,4 @@
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema } from "../native-shared-values.js";
+import { isTimekeepingProject, AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema } from "../native-shared-values.js";
 import { workspaceContentPath, workspaceFileRoot } from "../project-storage-paths.js";
 import { assistantSubscriptionAvailable } from "../assistant-subscription.js";
 import { existingLauncherFiles } from "../launcher-file-visibility.js";
@@ -170,7 +170,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       revision: `${file.info.mtimeMs}:${file.info.size}`, sourceLabel: `${file.folder.name} · ${input.path}` } }, 201);
   });
   const accessible = async (ctx: RequestContext, sourceKind?: z.infer<typeof LauncherFileSourceKindSchema>) => {
-    const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace) && (!sourceKind || sourceKind === (workspace.preset === "wiki" ? "wiki" : "project")));
+    const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace) && !isTimekeepingProject(workspace) && (!sourceKind || sourceKind === (workspace.preset === "wiki" ? "wiki" : "project")));
     const results = await Promise.allSettled(candidates.map(workspace => workspaceFor(ctx, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else if (!(result.reason instanceof ApiError && [403, 404].includes(result.reason.status))) unavailable.push(candidates[index].id); });

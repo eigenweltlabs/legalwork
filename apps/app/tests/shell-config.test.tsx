@@ -33,7 +33,7 @@ test("Assistant is placed below Home in new and existing navigation orders", () 
   const savedOrder = ["navProjects", "navCalendar", "navHome", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
   const config = readConfig({ navOrder: savedOrder });
   expect(config?.navAssistant).toBe(true);
-  expect(config?.navOrder.filter(key => key !== "navAssistant")).toEqual(savedOrder);
+  expect(config?.navOrder.filter(key => key !== "navAssistant")).toEqual([...savedOrder, "navTimeTracking", "navBackOffice"]);
   expect(config?.navOrder.slice(2, 4)).toEqual(["navHome", "navAssistant"]);
 });
 
@@ -67,7 +67,7 @@ test("older sidebar preferences gain Wiki without changing existing choices", ()
   const savedOrder = ["navHome", "navAssistant", "navRecorder", "navEvaluations", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows"];
   const config = readConfig({ navOrder: savedOrder, navRecorder: false, navTasks: false });
   expect(config?.navWikis).toBe(true);
-  expect(config?.navOrder.filter(key => key !== "navWikis")).toEqual(savedOrder);
+  expect(config?.navOrder.filter(key => key !== "navWikis")).toEqual([...savedOrder, "navTimeTracking", "navBackOffice"]);
   expect(config?.navOrder.indexOf("navWikis")).toBe((config?.navOrder.indexOf("navRecorder") ?? -1) + 1);
   expect(config?.navRecorder).toBe(false);
   expect(config?.navTasks).toBe(false);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -6,9 +6,10 @@ import {
   ChevronDown,
   Download,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
-import { Avatar } from "twenty-ui/primitives/data-display";
+import { RecordAvatar as Avatar } from "./record-colors";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import {
   BackOfficeHistoryPageSchema,
@@ -27,6 +28,7 @@ import {
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import type { BackOfficeState } from "./api";
 import { ValueDisplay } from "./record-values";
 
 function HistoryValue({
@@ -303,6 +305,41 @@ export function HistoryEntries({
       ))}
     </div>
   );
+}
+
+export function RecordHistorySidebar({ client, directory, record, onClose, onOpen }: {
+  client: LegalworkServerClient;
+  directory: BackOfficeState;
+  record: Pick<BackOfficeRecord, "id" | "revision">;
+  onClose: () => void;
+  onOpen: (record: BackOfficeRecord) => void;
+}) {
+  const title = useId();
+  const dismiss = useRef<HTMLButtonElement>(null);
+  const origin = useRef<HTMLElement>(null);
+  const { userId, principalKey, replicaId, model, finance } = directory.permissions;
+  useLayoutEffect(() => {
+    if (document.activeElement instanceof HTMLElement) origin.current = document.activeElement;
+    dismiss.current?.focus({ preventScroll: true });
+  }, []);
+  function close() {
+    onClose();
+    origin.current?.focus({ preventScroll: true });
+  }
+  return <aside aria-labelledby={title} className="absolute inset-y-0 end-0 z-[60] flex min-h-0 w-full max-w-96 flex-col border-s border-border bg-background shadow-lg @min-[42rem]/time-history:static @min-[42rem]/time-history:shrink-0 @min-[42rem]/time-history:shadow-none"
+    onKeyDown={event => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.stopPropagation();
+      close();
+    }}>
+    <header className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+      <h3 id={title} className="text-sm font-medium">{t("back_office.history.tab")}</h3>
+      <Button ref={dismiss} size="sm" variant="ghost" aria-label={t("common.close")} onClick={close} startIcon={<X size={16} />} />
+    </header>
+    <HistoryPanel client={client} team={directory.scope !== "local"} target={{ type: "record", id: record.id }}
+      revision={record.revision} accessKey={JSON.stringify([directory.directoryId, principalKey ?? userId, replicaId, model, finance])}
+      records={directory.records} userId={userId} onOpen={onOpen} />
+  </aside>;
 }
 
 export function HistoryPanel({

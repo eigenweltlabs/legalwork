@@ -29,6 +29,7 @@ type AssistantEngine = {
 /** One server-owned project, with one independent engine context per local day. */
 export class MainAssistant {
   private pending: Promise<{ workspace: WorkspaceInfo; day: AssistantDay }> | null = null;
+  private dailySessions = new Map<string, Promise<{ workspace: WorkspaceInfo; day: AssistantDay }>>();
   private workspacePending: Promise<WorkspaceInfo> | null = null;
   private onboardingWrite: Promise<unknown> = Promise.resolve();
   private constructor(
@@ -186,7 +187,7 @@ export class MainAssistant {
   }
 
   current() {
-    if (!this.pending) this.pending = this.ensureDay().finally(() => { this.pending = null; });
+    if (!this.pending) this.pending = this.workspace().then(workspace => this.projectDay(workspace)).finally(() => { this.pending = null; });
     return this.pending;
   }
 
@@ -214,11 +215,19 @@ export class MainAssistant {
     return row ? { date: String(row.date), sessionId: String(row.session_id) } : null;
   }
 
-  private async ensureDay() {
-    if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
-    const workspace = await this.workspace();
-    if (await projectChatMigrationPending(this.config, workspace)) throw new ApiError(503, "project_storage_migrating", "The Assistant's saved chats are moving to local storage. Keep this conversation; it will be available when migration finishes.");
+  projectDay(workspace: WorkspaceInfo) {
     const date = assistantDate(this.now());
+    const key = workspace.id + ":" + date;
+    const active = this.dailySessions.get(key);
+    if (active) return active;
+    const next = this.ensureDay(workspace, date).finally(() => this.dailySessions.delete(key));
+    this.dailySessions.set(key, next);
+    return next;
+  }
+
+  private async ensureDay(workspace: WorkspaceInfo, date: string) {
+    if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
+    if (await projectChatMigrationPending(this.config, workspace)) throw new ApiError(503, "project_storage_migrating", "The Assistant's saved chats are moving to local storage. Keep this conversation; it will be available when migration finishes.");
     const engine = this.engine(workspace);
     const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);
     let session = row ? await engine.get(String(row.session_id)) : null;

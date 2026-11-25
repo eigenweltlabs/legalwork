@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { activeCaptureProfile } from "./time-capture/profile.js";
+import { openTimekeepingProject } from "./time-capture/chat-project.js";
 import { StoredViewSchema, ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwork/types/views";
 import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
@@ -44,6 +46,19 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+
+  test("launcher discovery does not present the private timekeeping workspace as a project", async () => {
+    const { request, config } = await fixture();
+    const profile = await activeCaptureProfile(config);
+    const workspace = await openTimekeepingProject(config, profile.profileId, () => {});
+    expect(config.workspaces.some(item => item.id === workspace.id)).toBe(true);
+    for (const query of ["", "Timekeeping"]) {
+      const response = await request("/launcher/search?kinds=projects&q=" + query);
+      expect(response.status).toBe(200);
+      const result = z.object({ items: z.array(z.object({ id: z.string() })) }).parse(await response.json());
+      expect(result.items.some(item => item.id === workspace.id)).toBe(false);
+    }
+  });
 
   test("launcher search and preview apply private wiki visibility to projects and search folders", async () => {
     const { request } = await fixture();
@@ -143,6 +158,27 @@ describe("Wiki HTTP API", () => {
     expect((await request(pending, "owner", "POST")).status).toBe(404);
   });
 
+  test("human page saves and asset attachments provide filename-only workday evidence", async () => {
+    const { request, config } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "host", "POST", { name: "Synthetic wiki", template: "blank" })).json());
+    const profile = await activeCaptureProfile(config);
+    const send = (content: string, baseRevision?: string) => request(`/wikis/${wiki.id}/page`, "host", "PUT", { path: "Research.md", content, baseRevision });
+    const created = documentSchema.parse(await (await send("Synthetic page body")).json());
+    expect((await send("Synthetic page body", created.revision)).status).toBe(200);
+    expect((await send("Conflicting body", "wrong-revision")).status).toBe(409);
+    const edited = documentSchema.parse(await (await send("Changed synthetic page body", created.revision)).json());
+    expect(edited.revision).not.toBe(created.revision);
+    expect((await request(`/wikis/${wiki.id}/asset`, "host", "POST", { path: "Receipt.txt", dataBase64: Buffer.from("Synthetic attachment bytes").toString("base64") })).status).toBe(200);
+    const text = await readFile(profile.path, "utf8");
+    const { documentSaves } = z.object({ documentSaves: z.record(z.string(), z.record(z.string(),
+      z.object({ projectId: z.string(), narrative: z.string(), documentId: z.string(), workedMinutes: z.null(), changeSummary: z.string() }))) }).parse(JSON.parse(text));
+    const events = Object.values(documentSaves).flatMap(Object.values);
+    expect(events.map(event => event.changeSummary).sort()).toEqual(["Attached Receipt.txt", "Saved Research.md", "Saved Research.md"]);
+    expect(events.every(event => event.projectId === wiki.workspaceId)).toBe(true);
+    expect(new Set(events.filter(event => event.narrative === "Research.md").map(event => event.documentId)).size).toBe(1);
+    expect(text).not.toContain("page body");
+    expect(text).not.toContain("Synthetic attachment bytes");
+  });
   test("imported dashboard snapshots get new IDs while edits keep identity and revision protection", async () => {
     const { request } = await fixture();
     const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Imports", template: "blank" })).json());
@@ -194,6 +230,11 @@ describe("Wiki HTTP API", () => {
     expect((await request(`/workspace/${b.id}/wiki-suggestions/${second.id}/save`, "owner", "POST", { revision: second.revision })).status).toBe(200);
     expect(inbox.parse(await (await request(endpoint, "owner")).json()).items).toEqual([]);
     expect(documentSchema.parse(await (await request(`/wikis/${wiki.id}/page?path=Second.md`)).json()).content).toBe(input.content);
+    const evidence = await readFile((await activeCaptureProfile(config)).path, "utf8");
+    expect(evidence).toContain("Saved Second.md");
+    expect(evidence).toContain(b.id);
+    expect(evidence).not.toContain("Draft.md");
+    expect(evidence).not.toContain("Confidential draft");
   });
 
   test("historical content is read-only, path-bound and protected by wiki permissions", async () => {

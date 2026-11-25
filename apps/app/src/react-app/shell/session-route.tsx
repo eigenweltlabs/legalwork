@@ -5,7 +5,9 @@ import { useLauncherStore } from "@/react-app/launcher/launcher-store";
 import { draftCacheScope } from "@/react-app/launcher/draft-profile";
 import { loadStagedCaptureParts } from "@/react-app/launcher/context-capture";
 import { usePublishLauncherContext, type LauncherViewedProject } from "@/react-app/launcher/workspace-context";
+import { RETIRED_FREE_PROVIDER_IDS } from "@legalwork/types/native-model-display";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { timePage } from "../domains/back-office/time-routes";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
@@ -41,7 +43,7 @@ import { savedAssistantQuery } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
-import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
+import { sessionMainPage, workdayProjectForRoute, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import { useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
@@ -54,7 +56,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -168,6 +170,10 @@ import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/
 import type { HomeDraftAttachment } from "@/react-app/domains/session/home/home-attachments";
 import { seedSubmittedMessage, snapshotKey } from "@/react-app/domains/session/sync/session-sync";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
+import { isInternalSession, isTimekeepingProject } from "@legalwork/types/session-visibility";
+import { Button } from "@/components/ui/button";
+import { timeTrackingProfile } from "../domains/back-office/time-tracking-profile";
+import { useWorkdayRoute } from "./workday-activity";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildLegalworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
@@ -267,7 +273,6 @@ import {
   getConnectedProviderItems,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
-  RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
 
@@ -422,7 +427,8 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
-  const backOfficePage = location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
+  const timeSection = timePage(location.pathname);
+  const backOfficePage = Boolean(timeSection) || location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -485,6 +491,10 @@ export function SessionRoute() {
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
   const reloadCoordinator = useReloadCoordinator();
+  const [timeChatWorkspace, setTimeChatWorkspace] = useState<import("./route-workspaces").RouteWorkspace | null>(null);
+  const selectEmbeddedWorkspace = useCallback((workspace: import("@/app/lib/legalwork-server").LegalworkWorkspaceInfo | null) => {
+    setTimeChatWorkspace(current => current?.id === workspace?.id ? current : workspace ? { ...workspace, displayNameResolved: workspace.displayName || workspace.name } : null);
+  }, []);
   const [legalworkServerHostInfoState, setLegalworkServerHostInfoState] = useState<LegalworkServerInfo | null>(null);
   const [legalworkServerSettingsVersion, setLegalworkServerSettingsVersion] = useState(0);
   const {
@@ -535,6 +545,7 @@ export function SessionRoute() {
     handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    pageWorkspace: timeSection ? timeChatWorkspace : null,
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -868,13 +879,24 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
-  // Templates and wiki workspaces have their own navigation surfaces. Keep the
-  // full list for resolving their agent sessions, while project navigation
-  // shows only project folders.
+  // Templates, wikis and Time tracking have their own navigation. Keep their
+  // workspaces available to the session runtime while hiding them in Projects.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
+  const sessionActivityByWorkspaceId = useSessionActivityStore(state => state.statusesByWorkspaceId);
+  const projectPickerWorkspaces = useMemo(() => workspaces.filter(workspace => !isTimekeepingProject(workspace)), [workspaces]);
+  const observedAgents = useMemo(() => projectPickerWorkspaces.flatMap(workspace => {
+    const projectId = workspaceServerId(workspace);
+    if (!projectId) return [];
+    return (sessionsByWorkspaceId[workspace.id] ?? []).flatMap(session => {
+      if (!session.id || isInternalSession(session)) return [];
+      const activity = sessionActivityByWorkspaceId[projectId]?.[session.id];
+      const running = activity ? ["thinking", "responding", "compacting"].includes(activity) : isActiveSessionStatus(getSessionStatus(session));
+      return running ? [{ projectId, stream: session.id, title: session.title?.slice(0, 500) || t("session.default_title") }] : [];
+    });
+  }), [projectPickerWorkspaces, sessionsByWorkspaceId, sessionActivityByWorkspaceId]);
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
-    [hiddenTemplateWorkspaceIds, workspaces],
+    () => projectPickerWorkspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    [hiddenTemplateWorkspaceIds, projectPickerWorkspaces],
   );
   useEffect(() => {
     if (sidebarWorkspaces.some(workspace => workspace.id === selectedWorkspaceId)) writeLastProjectId(selectedWorkspaceId);
@@ -889,7 +911,6 @@ export function SessionRoute() {
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
-  const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
   useEffect(() => {
     for (const group of workspaceSessionGroups) {
@@ -1279,6 +1300,7 @@ export function SessionRoute() {
   // Expiry stays in the conversation with role-aware inline renewal actions.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
+    !location.pathname.startsWith("/time") && !location.pathname.startsWith("/back-office") &&
     location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const assistantPlansOpen = assistantUpgrade === "plans" && !assistantIncluded;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible || assistantPlansOpen;
@@ -1548,12 +1570,16 @@ export function SessionRoute() {
   }, [engineReloadVersion, opencodeClient,selectedWorkspaceRoot]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
-    const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
+    // Settings uses a standard project connection, independent of the private chat workspace.
+    const settingsWorkspaceId = workspaces.some(workspace => workspace.id === workspaceId && isTimekeepingProject(workspace))
+      ? sidebarWorkspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id ?? sidebarWorkspaces[0]?.id ?? ""
+      : workspaceId;
+    const sessionId = settingsWorkspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
     const tab = route.replace(/^\/settings\/?/, "").replace(/^\/+|\/+$/g, "") || "general";
-    const target = workspaceId ? workspaceSettingsRoute(workspaceId, tab) : route;
-    writeActiveWorkspaceId(workspaceId || null);
-    navigate(target, { state: { workspaceId, sessionId } });
-  }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
+    const target = settingsWorkspaceId ? workspaceSettingsRoute(settingsWorkspaceId, tab) : route;
+    writeActiveWorkspaceId(settingsWorkspaceId || null);
+    navigate(target, { state: { workspaceId: settingsWorkspaceId, sessionId } });
+  }, [navigate, selectedSessionId, selectedWorkspaceId, sidebarActiveWorkspaceId, sidebarWorkspaces, workspaces]);
 
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !opencodeBaseUrl || !token || !opencodeClient) {
@@ -2016,7 +2042,8 @@ export function SessionRoute() {
 
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
-    const workspace = workspaces.find((item) => item.id === workspaceId);
+    const embedded = Boolean(timeSection && timeChatWorkspace?.id === workspaceId);
+    const workspace = embedded ? timeChatWorkspace : workspaces.find((item) => item.id === workspaceId);
     if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
       setNewChatOpen(true);
       return;
@@ -2051,8 +2078,10 @@ export function SessionRoute() {
         source: "new_task",
         surface: analyticsSurface(),
       });
-      setLegacySelectedWorkspaceId(workspaceId);
-      writeActiveWorkspaceId(workspaceId || null);
+      if (!embedded) {
+        setLegacySelectedWorkspaceId(workspaceId);
+        writeActiveWorkspaceId(workspaceId || null);
+      }
       writeLastSessionFor(workspaceId, session.id);
       rememberPendingCreatedSession(workspaceId, session.id);
       setSessionsByWorkspaceId((current) => {
@@ -2078,7 +2107,7 @@ export function SessionRoute() {
           id: `chat:${session.id}`, type: "chat", sessionId: session.id, label: session.title || t("session.default_title"),
         }, options.paneId);
       }
-      navigateToWorkspaceSession(workspaceId, session.id);
+      if (!embedded) navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
       return session.id;
@@ -2104,7 +2133,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, assistant.data?.workspace.id]);
+  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, timeChatWorkspace, timeSection, assistant.data?.workspace.id]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2453,6 +2482,21 @@ export function SessionRoute() {
     ?? sidebarWorkspaces[0]?.id ?? null;
   const homeInitialProjectId = homeEntryProjectId ?? (new URLSearchParams(location.search).get("assistant") === "1" ? null : homeDefaultProjectId);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeInitialProjectId);
+  const interactionKey = useMemo(() => interactionSessionsKey(selectedWorkspaceId), [selectedWorkspaceId]);
+  const interactionSessions = useQueryCacheState<InteractionSessions>(interactionKey, emptyInteractionSessions);
+  const selectedSessionInfo = selectedSessionId ? interactionSessions[selectedSessionId]
+    ?? sessionsByWorkspaceId[selectedWorkspaceId]?.find(session => session.id === selectedSessionId) : undefined;
+  const visibleWorkdayProject = workdayProjectForRoute(location.pathname, {
+    homeProjectId: homePage ? homeProjectId : undefined,
+    routeWorkspaceId,
+    chatOwnerId: selectedSessionInfo ? selectedWorkspaceId : undefined,
+  });
+  const observedWorkspace = workspaces.find(workspace => workspace.id === visibleWorkdayProject);
+  const timeProfile = useQuery(timeTrackingProfile(hostToken ? client : null));
+  useEffect(() => {
+    useWorkdayRoute.setState({ mounted: true, workspace: workspaceServerId(observedWorkspace) || null, agents: observedAgents });
+  }, [observedWorkspace, observedAgents]);
+  useEffect(() => () => useWorkdayRoute.setState({ mounted: false, workspace: null }), []);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const viewedProject = homePage ? sidebarWorkspaces.find(project => project.id === homeProjectId)
     : location.pathname.startsWith("/workspace/") && selectedWorkspace?.id === routeWorkspaceId ? selectedWorkspace : null;
@@ -2743,6 +2787,8 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      selectEmbeddedWorkspace={selectEmbeddedWorkspace}
+      timeWorkspaceId={timeChatWorkspace?.id}
       fileWorkspaceGroups={fileWorkspaceGroups}
       workflowLibraryView={workflowLibraryView}
       homePage={homePage}
@@ -2877,16 +2923,28 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        backOfficePage ? (client ? <BackOfficePage client={client} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+        timeSection === "billing-settings" ? <Navigate replace to={"/settings/billing" + location.search + location.hash} />
+        : timeSection && timeProfile.isLoading ? <PageLoading><PageLoadingSpinner /></PageLoading>
+        : timeSection && timeProfile.data?.enabled === false ? (
+          <div className="m-auto grid justify-items-center gap-3 p-6 text-sm">
+            <p>{t("timeWorkspace.trackingOff")}</p>
+            <Button variant="outline" size="sm" onClick={() => navigate("/settings/time-tracking")}>{t("timesheets.ai_settings")}</Button>
+          </div>
+        ) : backOfficePage ? (client ? <BackOfficePage client={client}
+          workdayModels={selectedWorkspaceId ? (accessProviders ?? []).flatMap(provider =>
+            Object.entries(provider.models ?? {}).map(([modelID, model]) => ({
+              workspaceId: selectedWorkspaceId, providerID: provider.id, modelID,
+              label: model.name || modelID,
+            }))) : []} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
-            projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
+            projects={[...projectPickerWorkspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
             openTaskId={new URLSearchParams(location.search).get("task")}
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
         ) : calendarPage ? (
           <CalendarView client={client}
-            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            projects={projectPickerWorkspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
             remoteSources={[]} />
         ) : homePage ? (
           <AppHome
@@ -2956,7 +3014,7 @@ export function SessionRoute() {
               name: workspace.displayNameResolved || workspace.name || workspace.id,
             }))}
             workspacePath={selectedWorkspace?.contentPath || selectedWorkspaceRoot || null}
-            workspaceTargets={workspaces
+            workspaceTargets={projectPickerWorkspaces
               .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
@@ -2995,7 +3053,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
+        activeNav: timeSection ? "time" : backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

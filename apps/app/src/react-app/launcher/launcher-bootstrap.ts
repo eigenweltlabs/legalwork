@@ -1,5 +1,6 @@
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { draftCacheScope } from "./draft-profile";
+import { isTimekeepingProject } from "@legalwork/types/session-visibility";
 
 /** Search and project navigation must load independently of Assistant access. */
 export function launcherBootstrapQueries(client: Pick<LegalworkServerClient, "baseUrl" | "assistantConversationCurrent" | "listWorkspaces"> & Partial<Pick<LegalworkServerClient, "draftProfile">> | null) {
@@ -14,7 +15,7 @@ export function launcherBootstrapQueries(client: Pick<LegalworkServerClient, "ba
     workspaces: { ...shared, queryKey: ["launcher-workspaces", client?.baseUrl ?? "", draftCacheScope(client?.draftProfile)], queryFn: async () => {
       if (!client) throw new Error("LegalWork is not connected.");
       const list = await client.listWorkspaces();
-      return (list.items ?? list.workspaces ?? []).filter(workspace => workspace.preset !== "main-assistant" && workspace.preset !== "wiki");
+      return (list.items ?? list.workspaces ?? []).filter(workspace => workspace.preset !== "main-assistant" && workspace.preset !== "wiki" && !isTimekeepingProject(workspace));
     } },
   };
 }

@@ -1,0 +1,118 @@
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Plus, X } from "lucide-react";
+import { defaultWorkdayRunTime, workdaySchedule, type CaptureAction } from "@legalwork/types/time-capture";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { t } from "@/i18n";
+import { isLoopbackLegalworkServerUrl, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { calendarDay } from "../../calendar/calendar-format";
+import { calendarClientScope } from "../../calendar/calendar-cache";
+import { timeTrackingProfile } from "../../back-office/time-tracking-profile";
+import { sourceKeys } from "../../back-office/timesheet-labels";
+import { TimeSettingsGroup, TimeSelect, TimeSetting, TimeSwitch } from "../../back-office/time-settings-controls";
+import { LayoutStack } from "../settings-layout";
+import { DesktopActivitySetting } from "./desktop-activity-setting";
+
+type SettingAction = Extract<CaptureAction, { type: "settings-patch" }>;
+
+export function TimeTrackingSettingsView({ client }: { client: LegalworkServerClient | null }) {
+  const [params] = useSearchParams();
+  const cache = useQueryClient();
+  const local = client && isLoopbackLegalworkServerUrl(client.baseUrl);
+  const date = calendarDay(new Date());
+  const directory = useQuery(timeTrackingProfile(client));
+  const profile = directory.data;
+  const identity = profile && { scope: profile.scope, user: profile.user, principal: profile.principal, profileId: profile.profileId };
+  const key = ["back-office", ...calendarClientScope(client), "workday", profile?.directoryId, identity];
+  const dayKey = [...key, "day", date];
+  const day = useQuery({ queryKey: dayKey, enabled: Boolean(local && identity), retry: false,
+    queryFn: ({ signal }) => client!.privateWorkday({ ...identity!, date }, undefined, signal) });
+  const update = useMutation({
+    mutationFn: async (action: SettingAction) => {
+      if (!client || !profile || !identity) throw new Error(t("timesheets.account_changed"));
+      const result = await client.privateWorkday({ ...identity, date }, action);
+      return { result, profile, key, dayKey, profileKey: timeTrackingProfile(client).queryKey };
+    },
+    onSuccess: async ({ result, profile, key, dayKey, profileKey }) => {
+      await cache.cancelQueries({ queryKey: key });
+      cache.setQueryData(dayKey, result);
+      cache.setQueryData(profileKey, current => current?.profileId === profile.profileId ? {
+        ...current, enabled: result.settings.enabled !== false, desktopActivity: result.settings.desktopActivity === true, workspaceActivity: result.settings.workspaceActivity !== false,
+      } : current);
+      await cache.invalidateQueries({ queryKey: key });
+    },
+  });
+  if (params.has("directory") && (params.has("matter") || params.has("client"))) {
+    const next = new URLSearchParams(params);
+    next.set("tab", "guidelines");
+    return <Navigate replace to={"/settings/billing?" + next} />;
+  }
+  if (!local) return <p>{t("timesheets.local_only")}</p>;
+  const error = directory.error || day.error;
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!day.data || !profile || !identity) return <p role="status">{t("timesheets.loading")}</p>;
+  const { settings } = day.data;
+  const enabled = settings.enabled !== false;
+  const schedule = workdaySchedule(settings);
+  const scheduleHelp = {
+    hourly: t("timeWorkspace.hourlyHelp"),
+    daily: t("timeWorkspace.dailyHelp"),
+    never: t("timeWorkspace.neverHelp"),
+  }[schedule.frequency];
+  const pending = update.isPending;
+  const change = (change: Extract<CaptureAction, { type: "settings-patch" }>["change"]) => update.mutate({ type: "settings-patch", change });
+  const saveTimes = (times: string[]) => change({ field: "schedule", value: { frequency: "daily", times: [...times].sort() } });
+  return <LayoutStack>
+    <TimeSettingsGroup>
+      <TimeSwitch label={t("timeWorkspace.suggestionsEnabled")} description={t("timeWorkspace.suggestionsDescription")}
+        checked={enabled} disabled={pending} onChange={value => change({ field: "enabled", value })} />
+    </TimeSettingsGroup>
+    {enabled && <>
+      <TimeSettingsGroup title={t("timeWorkspace.scheduleTitle")}>
+        <TimeSetting title={t("timeWorkspace.frequency")} description={scheduleHelp}>
+          <TimeSelect label={t("timeWorkspace.frequency")} value={schedule.frequency} disabled={pending}
+            options={[
+              { id: "hourly", name: t("timeWorkspace.hourly") },
+              { id: "daily", name: t("scheduled.daily") },
+              { id: "never", name: t("timeWorkspace.never") },
+            ]}
+            onChange={frequency => { if (frequency === "hourly" || frequency === "never") change({ field: "schedule", value: { frequency } });
+              if (frequency === "daily") saveTimes([defaultWorkdayRunTime]); }} />
+        </TimeSetting>
+        {schedule.frequency === "daily" && <TimeSetting title={t("timeWorkspace.runTimes")}>
+          <ul className="grid gap-2" aria-label={t("timeWorkspace.runTimes")}>
+            {schedule.times.map((time, index) => <li className="flex items-center gap-2" key={time}>
+              <Input type="time" className="w-30" aria-label={t("timeWorkspace.runAt", { time })} disabled={pending}
+                defaultValue={time} onBlur={event => {
+                  const value = event.currentTarget.value;
+                  if (value && value !== time && !schedule.times.includes(value))
+                    saveTimes(schedule.times.map((old, n) => n === index ? value : old));
+                  else event.currentTarget.value = time;
+                }} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              {schedule.times.length > 1 && <Button variant="ghost" size="icon-xs" disabled={pending}
+                aria-label={t("timeWorkspace.removeTime", { time })} onClick={() => saveTimes(schedule.times.filter(value => value !== time))}><X /></Button>}
+            </li>)}
+            {schedule.times.length < 24 && <li><Button size="sm" variant="outline" disabled={pending} onClick={() => {
+              const next = Array.from({ length: 24 }, (_, i) => String((8 + i) % 24).padStart(2, "0") + ":00").find(value => !schedule.times.includes(value));
+              if (next) saveTimes([...schedule.times, next]);
+            }}><Plus />{t("timeWorkspace.addTime")}</Button></li>}
+          </ul>
+        </TimeSetting>}
+      </TimeSettingsGroup>
+      <TimeSettingsGroup title={t("timesheets.sources")}>
+        {(["calendar", "tasks", "documents", "workspaceActivity", "recordings"] as const).map(source => <TimeSwitch key={source}
+          label={t(source === "workspaceActivity" ? "timeWorkspace.workspaceActivity" : sourceKeys[source])}
+          description={source === "workspaceActivity" ? t("timeWorkspace.workspaceDescription") : source === "recordings" ? t("timesheets.source.recordingsDescription") : undefined}
+          checked={source === "workspaceActivity" ? settings.workspaceActivity !== false : Boolean(settings[source])}
+          disabled={pending} onChange={value => change({ field: source, value })} />)}
+        <DesktopActivitySetting profileId={profile.profileId} checked={settings.desktopActivity === true} disabled={pending}
+          onChange={value => change({ field: "desktopActivity", value })} />
+        <TimeSetting title={t("timesheets.connected_integrations")} description={t("timesheets.connector_context")}>
+          <Link className="text-sm underline" to="/settings/extensions">{t("catalog.manage_integrations")}</Link>
+        </TimeSetting>
+      </TimeSettingsGroup>
+    </>}
+    {update.error && <p role="alert">{update.error.message}</p>}
+  </LayoutStack>;
+}

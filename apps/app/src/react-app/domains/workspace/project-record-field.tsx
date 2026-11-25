@@ -10,7 +10,6 @@ import { matchesProjectReferenceFilters, type ProjectField, type ProjectRecordRe
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { t } from "@/i18n";
-import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
 import { loadBackOfficeState, type BackOfficeState } from "../back-office/api";
 import { rememberMatter } from "./matter-picker-options";
@@ -21,10 +20,6 @@ import { displayBackOfficeObject } from "../back-office/labels";
 
 export function useProjectBackOffice(client?: LegalworkServerClient | null) {
   const cache = useQueryClient();
-  useEffect(() => onSyncPoke(poke => {
-    if (poke.backOffice || poke.resync || poke.policy || poke.reload)
-      void cache.invalidateQueries({ queryKey: ["back-office", client?.baseUrl] }, { cancelRefetch: Boolean(poke.policy || poke.reload) });
-  }), [cache, client?.baseUrl]);
   const query = useQuery({ queryKey: ["back-office", client?.baseUrl, "auto"], queryFn: async ({signal}) => {
     if (!client) throw new Error("Back Office is unavailable.");
     return loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(["back-office", client.baseUrl, "auto"]), signal);

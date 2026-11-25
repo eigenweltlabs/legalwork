@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { BackOfficeField, BackOfficeObject, BackOfficeRecord, BackOfficeValue } from "./back-office.js";
+import { BackOfficeCentMoneySchema, compareBackOfficeMoney } from "./back-office-money.js";
 
-const money = z.object({ amountMinor: z.number().int().safe(), currency: z.string().regex(/^[A-Z]{3}$/) }).strict();
+// Keep the shared view criteria readable by clients using the original strict schema.
+const money = BackOfficeCentMoneySchema.strict();
 export const BackOfficeFilterConditionSchema = z.object({
   fieldId: z.string().min(1).max(100).regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
   operator: z.enum(["is", "is_not", "contains", "not_contains", "gt", "gte", "lt", "lte", "empty", "not_empty"]),
@@ -68,16 +70,16 @@ export function compileBackOfficeFilters(object: BackOfficeObject, criteria: Bac
       return condition.operator === "contains" ? found : !found;
     }
     const equal = values.some(value => condition.values.some(expected => {
-      if (field.type === "currency") return typeof value === "object" && value && "amountMinor" in value && typeof expected === "object" && value.currency === expected.currency && value.amountMinor === expected.amountMinor;
+      if (field.type === "currency") return typeof value === "object" && value && "amountMinor" in value && typeof expected === "object" && value.currency === expected.currency && compareBackOfficeMoney(value, expected) === 0;
       if (field.type === "datetime") return typeof value === "string" && typeof expected === "string" && Date.parse(value) === Date.parse(expected);
       if (["text", "email"].includes(field.type)) return typeof value === "string" && typeof expected === "string" && normalized(value) === normalized(expected);
       return value === expected;
     }));
     if (condition.operator === "is") return equal;
     if (condition.operator === "is_not") return !equal;
-    const left = field.type === "currency" ? typeof actual === "object" && !Array.isArray(actual) && "amountMinor" in actual && typeof expected === "object" && actual.currency === expected.currency ? actual.amountMinor : undefined
+    const left = field.type === "currency" ? typeof actual === "object" && !Array.isArray(actual) && "amountMinor" in actual && typeof expected === "object" && actual.currency === expected.currency ? compareBackOfficeMoney(actual, expected) : undefined
       : field.type === "datetime" && typeof actual === "string" ? Date.parse(actual) : actual;
-    const right = typeof expected === "object" ? expected.amountMinor : field.type === "datetime" && typeof expected === "string" ? Date.parse(expected) : expected;
+    const right = typeof expected === "object" ? 0 : field.type === "datetime" && typeof expected === "string" ? Date.parse(expected) : expected;
     if (!(typeof left === "number" && typeof right === "number" || typeof left === "string" && typeof right === "string")) return false;
     if (condition.operator === "gt") return left > right;
     if (condition.operator === "gte") return left >= right;
@@ -95,7 +97,10 @@ export function backOfficeViewFilters(view?: { filterCriteria?: BackOfficeFilter
   if (view?.filterCriteria) return view.filterCriteria;
   return { mode: "all", conditions: Object.entries(view?.filters ?? {}).flatMap(([fieldId, value]): BackOfficeFilterCondition[] => {
     if (value === null || value === "" || Array.isArray(value) && !value.length) return [{ fieldId, operator: "empty" satisfies "empty", values: [] }];
-    const values = (Array.isArray(value) ? value : [value]).flatMap(value => typeof value === "object" && "name" in value ? [] : [value]);
+    const values = (Array.isArray(value) ? value : [value]).flatMap<BackOfficeFilterCondition["values"][number]>(value => {
+      if (typeof value !== "object") return [value];
+      return "name" in value ? [] : [{ amountMinor: value.amountMinor, currency: value.currency }];
+    });
     return [{ fieldId, operator: "is" satisfies "is", values }];
   }) };
 }

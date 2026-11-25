@@ -75,6 +75,32 @@ describe("calendar storage and RFC5545", () => {
     expect(() => db.patch("project", edited.id, { revision: edited.revision, start: "2026-09-02" })).toThrow();
     expect(() => db.import("project", text, "retry")).toThrow();
   });
+  test("personal workday respects organizers, RSVP and recurring exceptions without changing the project calendar", async () => {
+    const db = await store();
+    const times = "DTSTART:20260901T100000Z\r\nDTEND:20260901T110000Z";
+    const guest = "ATTENDEE;PARTSTAT=ACCEPTED:mailto:Worker@Example.test";
+    const invite = fixture([times, "RRULE:FREQ=DAILY;COUNT=3", guest].join("\r\n")).replace("END:VCALENDAR",
+      ["BEGIN:VEVENT", "UID:series@test", "RECURRENCE-ID:20260902T100000Z", "DTSTART:20260902T110000Z", "DTEND:20260902T120000Z",
+        "ATTENDEE;PARTSTAT=DECLINED:mailto:worker@example.test", "END:VEVENT", "END:VCALENDAR"].join("\r\n"));
+    const [series] = db.import("project", invite, "meeting.ics");
+    const worker = { userId: "me", email: "worker@example.test" };
+    const forMe = (item: typeof series) => occurrences(item, "Project", "2026-09-01", "2026-09-04", worker);
+    const shared = { ...series, assigneeUserId: "another-person" };
+    expect(occurrences(shared, "Project", "2026-09-01", "2026-09-04")).toHaveLength(3);
+    const mine = forMe(shared);
+    expect(mine.map(event => event.start.slice(0, 10))).toEqual(["2026-09-01", "2026-09-03"]);
+    expect(JSON.stringify(mine)).not.toContain("example.test");
+    const { workdayEvidence } = await import("../time-capture/private-workday.js");
+    expect(workdayEvidence(mine, "2026-09-01", { calendar: true, tasks: false }, "me", "UTC")).toHaveLength(1);
+    const [individual] = db.import("project", fixture(times + "\r\nORGANIZER:mailto:worker@example.test").replaceAll("series@test", "one@test"), "meeting.ics");
+    expect(forMe(individual)).toHaveLength(1);
+    const other = { ...individual, ical: individual.ical.replaceAll("worker@example.test", "other@example.test") };
+    expect(forMe(other)).toHaveLength(0);
+    expect(forMe({ ...other, assigneeUserId: "me" })).toHaveLength(1);
+    const ordinary = db.create("project", { title: "Work block", kind: "event", start: "2026-09-01T10:00:00Z" });
+    expect(forMe(ordinary)).toHaveLength(1);
+    expect(forMe({ ...ordinary, assigneeUserId: "another-person" })).toHaveLength(0);
+  });
   test("recalculation edits the same deadline with immutable receipts and rejects foreign or mismatched dates", async () => {
     const db = await store();
     const input = { rule: "de-zpo-period", region: "BE", triggerDate: "2026-01-30", duration: 4, unit: "weeks", source: "DeadlineBench DB-DE-01 service record" };

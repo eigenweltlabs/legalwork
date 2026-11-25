@@ -7,10 +7,10 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navAssistant" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
-export type ShellWindowNavKey = Exclude<ShellNavKey, "navAssistant">;
+export type ShellNavKey = "navHome" | "navAssistant" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations" | "navBackOffice" | "navTimeTracking";
+export type ShellWindowNavKey = Exclude<ShellNavKey, "navAssistant" | "navBackOffice" | "navTimeTracking">;
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navAssistant", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navAssistant", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations", "navTimeTracking", "navBackOffice"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -46,6 +46,8 @@ export type ShellConfig = {
   navRecorder: boolean;
   navWikis: boolean;
   navEvaluations: boolean;
+  navBackOffice: boolean;
+  navTimeTracking: boolean;
   /** Display name shown in the title bar, sidebar, and welcome page. */
   appName: string;
   /** Brand name shown at the top of the left sidebar. */
@@ -103,6 +105,8 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navWorkflows: true,
   navRecorder: true,
   navWikis: true,
+  navBackOffice: true,
+  navTimeTracking: true,
   navEvaluations: true,
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",

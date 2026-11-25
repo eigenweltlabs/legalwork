@@ -24,13 +24,15 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
 
 function DialogOverlay({
   className,
+  scoped = false,
   ...props
-}: DialogPrimitive.Backdrop.Props) {
+}: DialogPrimitive.Backdrop.Props & { scoped?: boolean }) {
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "lw-overlay fixed inset-0 isolate z-50 bg-[var(--lw-overlay)] backdrop-blur-[3px] transition-opacity duration-[var(--lw-duration-slow)] ease-[var(--lw-ease-out)] data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none",
+        "inset-0 isolate z-50",
+        scoped ? "absolute" : "lw-overlay fixed bg-[var(--lw-overlay)] backdrop-blur-[3px] transition-opacity duration-[var(--lw-duration-slow)] ease-[var(--lw-ease-out)] data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none",
         className
       )}
       {...props}
@@ -41,6 +43,8 @@ function DialogOverlay({
 function DialogContent({
   className,
   portalClassName,
+  keepMounted,
+  container,
   children,
   showCloseButton = true,
   ...props
@@ -48,14 +52,18 @@ function DialogContent({
   showCloseButton?: boolean
   /** Styles the portal container, including nested popups. */
   portalClassName?: string
+  keepMounted?: boolean
+  /** Constrain the backdrop and popup to a positioned workspace pane. */
+  container?: DialogPrimitive.Portal.Props["container"]
 }) {
   return (
-    <DialogPortal className={portalClassName}>
-      <DialogOverlay />
+    <DialogPortal className={portalClassName} keepMounted={keepMounted} container={container}>
+      <DialogOverlay scoped={Boolean(container)} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
           "lw-popover fixed top-1/2 start-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 gap-6 overflow-hidden rounded-[var(--lw-radius-3xl)] border border-border bg-[var(--lw-glass-strong)] p-6 text-sm text-popover-foreground outline-none transition-[opacity,transform,scale] duration-[var(--lw-duration-slow)] ease-[var(--lw-ease-out)] sm:max-w-md data-starting-style:opacity-0 data-starting-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:scale-[0.98] motion-reduce:transition-none",
+          container && "absolute",
           className
         )}
         {...props}

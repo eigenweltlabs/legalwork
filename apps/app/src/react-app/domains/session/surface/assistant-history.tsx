@@ -13,15 +13,16 @@ export function AssistantDateDivider({ date }: { date: string }) {
 }
 
 /** Old daily contexts share the bounded history window and remain read-only. */
-export function AssistantHistory({ client, workspaceId, sections, onboarding }: {
+export function AssistantHistory({ client, workspaceId, sections, onboarding, assistantChat = true }: {
   client: LegalworkServerClient; workspaceId: string;
   sections: { sessionId: string; date?: string; messages: UIMessage[] }[];
   onboarding?: AssistantOnboardingState;
+  assistantChat?: boolean;
 }) {
   return <>{sections.map(day => <section key={day.sessionId} aria-label={day.date}>
     {day.date && <AssistantDateDivider date={day.date} />}
     {onboarding?.step === "complete" && onboarding.sessionId === day.sessionId && <AssistantOnboardingConversation workspaceId={workspaceId} state={onboarding} />}
-    <MessageListProvider assistantChat legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
+    <MessageListProvider assistantChat={assistantChat} legalworkClient={client} workspaceId={workspaceId} sessionId={day.sessionId} readOnly showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}
       dispatchAction={() => {}} setPrompt={() => {}} onRevertToUserMessage={() => {}} onForkAtMessage={() => {}} onEditUserMessage={() => {}}>
       <MessageList messages={day.messages} status="ready" showWelcome={false} />
     </MessageListProvider>

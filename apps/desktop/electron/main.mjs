@@ -33,14 +33,18 @@ import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermiss
 import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
+import { requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
+import { createWorkdayRecordingReporter } from "./workday-recordings.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { requestRecorderServer } from "./audio/recorder-server-request.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
 import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
+import { createWorkdayDesktopCollector, desktopActivityOwner, macWorkdayAccessibility, readMacWorkdayForeground } from "./workday-desktop-activity.mjs";
+import { createWindowsForegroundReader } from "./workday-windows-foreground.mjs";
 import { AppTray } from "./tray.mjs";
 import { createLauncherDraftStore } from "./launcher/draft-store.mjs";
 import { LauncherService } from "./launcher/launcher-service.mjs";
@@ -787,11 +791,17 @@ const appAudioTap = new AppAudioTap({
 // merely armed for the hotkey.
 const powerSessions = new PowerSessions({ powerSaveBlocker });
 
+const workdayRecordings = createWorkdayRecordingReporter({
+  directory: path.join(app.getPath("userData"), "workday-recording-outbox"),
+  serverInfo: () => runtimeManager.legalworkServerInfo(),
+});
+
 /** @type {RecorderService | null} */
 let recorderServiceInstance = null;
 function recorderService() {
   if (!recorderServiceInstance) {
     recorderServiceInstance = new RecorderService({
+      workdayRecordings,
       userDataDir: app.getPath("userData"),
       appAudioAvailable: () => appAudioTap.isAvailable(),
       powerSessions,
@@ -817,7 +827,15 @@ const callOverlay = new CallOverlay({
 });
 
 const dictationHud = new DictationHud({
+  stopwatchRequest: async (action, profileId, includeMatters) =>
+    requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId, includeMatters),
   onStart: () => systemDictation.toggleHandsFree(),
+  onSetup: () => {
+    void createMainWindow().then(window => {
+      window.show(); window.focus();
+      return window.webContents.executeJavaScript("window.location.hash = '/settings/recorder?tab=dictation'");
+    }).catch(error => console.warn("[dictation-setup]", error.message));
+  },
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
   onCancel: () => systemDictation.cancel(),
   onMeetingStart: () => {
@@ -1040,7 +1058,7 @@ function trayShortcutLabel(status) {
 }
 
 function keepAliveOnClose() {
-  if (systemDictation.status().enabled) return true;
+  if (systemDictation.status().enabled || dictationHud.stopwatchState?.startedAt) return true;
   // The launcher's own background presence keeps the shortcut and tray entry alive after the window closes.
   if (launcherService.backgroundPresence()) return true;
   const meeting = meetingMonitor.status();
@@ -3255,6 +3273,35 @@ ipcMain.handle("legalwork:system:architecture-download", async () => findArchite
   arch: resolveSystemArch(),
   feeds: [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL],
 }));
+const foregroundExecutable = process.platform === "darwin" ? resolveKeyMonitorPath(app)
+  : path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+const windowsForeground = process.platform === "win32" ? createWindowsForegroundReader(foregroundExecutable) : undefined;
+app.on("will-quit", () => windowsForeground?.close());
+const workdayDesktop = createWorkdayDesktopCollector({
+  platform: process.platform,
+  available: () => existsSync(foregroundExecutable),
+  trusted: () => systemPreferences.isTrustedAccessibilityClient(false),
+  helperTrusted: () => macWorkdayAccessibility(foregroundExecutable),
+  requestPermission: async () => {
+    if (systemPreferences.isTrustedAccessibilityClient(false)) {
+      if (await macWorkdayAccessibility(foregroundExecutable, true)) return;
+    } else if (systemPreferences.isTrustedAccessibilityClient(true)) {
+      if (await macWorkdayAccessibility(foregroundExecutable)) return;
+    }
+    await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility");
+  },
+  owner: async () => desktopActivityOwner(await runtimeManager.legalworkServerInfo()),
+  power: powerMonitor,
+  readForeground: withDocument => windowsForeground ? windowsForeground.read() : readMacWorkdayForeground(foregroundExecutable, withDocument),
+});
+function requireWorkdayMainFrame(event) {
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.sender.getURL()))
+    throw new Error("Open Timekeeping in the desktop app.");
+}
+for (const [channel, method] of Object.entries({
+  workdayDesktopStatus: workdayDesktop.status, requestWorkdayDesktopPermission: workdayDesktop.requestPermission,
+  sampleWorkdayDesktopActivity: workdayDesktop.sample,
+})) ipcMain.handle("legalwork:system:" + channel, event => { requireWorkdayMainFrame(event); return method(); });
 ipcMain.handle("legalwork:system:microphoneStatus", async () => {
   if (process.platform !== "darwin") return { platform: process.platform, status: "not-mac" };
   return { platform: process.platform, status: systemPreferences.getMediaAccessStatus("microphone") };
@@ -3426,6 +3473,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    void workdayRecordings.flush();
+    setInterval(() => { void workdayRecordings.flush(); }, 60_000).unref();
     await prepareActaportMcpRuntime().catch(() => console.warn("Actaport MCP bundle unavailable. Rebuild LegalWork to enable Actaport."));
     // Recreate the private token bridge before workspace engines reconnect saved MCP entries.
     await getActaportConnection().environment();

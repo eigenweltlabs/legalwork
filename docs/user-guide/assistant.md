@@ -30,7 +30,7 @@ signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
 and appearance you choose for the Assistant.
 
-Open **Customize navigation** using the gear at the top of the chat sidebar.
+Open **Customize navigation** using the gear at the top of the chat sidebar. Under **Main actions**, you can show, hide or reorder **Back Office** and **Time tracking**.
 Under **Main actions**, toggle **Your assistant** to show or hide it, or drag
 its handle to move it in the rail. Choose **Done** when finished.
 To change its name or avatar, click the assistant at the top of its conversation, or open
@@ -119,7 +119,11 @@ Press **Command+Shift+Space** on macOS or **Ctrl+F8** on Windows to
 open the floating mini-bar. Existing profiles keep their saved shortcut. To change it, open **Settings** and select **Assistant launcher** under **Global** in the overview or sidebar. On Windows, use **Ctrl+Enter** to confirm a form. A Command key mapped to Meta also works when Windows delivers it to LegalWork. Press the shortcut again or **Esc** from its start
 screen to close it. You can also hover over the microphone bar and
 choose its Assistant launcher button. Use **Show mini bar** or **Hide mini bar**
-in the profile menu to control this bar. Under **Settings > Assistant launcher**,
+in the profile menu. When time tracking is enabled, the stopwatch remains beside
+the microphone; hover over the bar to reveal the meeting and Assistant actions.
+The private Timekeeping workspace is kept out of the launcher's project picker
+and ordinary project, file and chat search; open it through **Time** in the app.
+Under **Settings > Assistant launcher**,
 **Show pending requests on the microphone bar** controls its count of open
 questions and approvals. LegalWork must be running; **Settings >
 Assistant launcher > Keep the Assistant available in the background** keeps

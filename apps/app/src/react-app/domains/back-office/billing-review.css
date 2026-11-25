@@ -1,0 +1,479 @@
+.bo-billing {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  color: var(--bo-text);
+  font-variant-numeric: tabular-nums;
+}
+.bo-billing .bo-view-toolbar {
+  min-height: 40px;
+  height: auto;
+  padding-block: 5px;
+  flex-wrap: wrap;
+}
+.bo-billing .bo-view-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--bo-muted);
+}
+.bo-billing input:not([type="checkbox"], [data-slot="input"]),
+.bo-billing select,
+.bo-billing textarea:not([data-slot="textarea"]) {
+  font: inherit;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  background: var(--bo-bg);
+  color: var(--bo-text);
+  min-width: 0;
+}
+.bo-billing button:not([data-slot]):focus-visible,
+.bo-billing input:not([data-slot]):focus-visible,
+.bo-billing select:focus-visible,
+.bo-billing textarea:not([data-slot]):focus-visible {
+  outline: 2px solid var(--bo-blue);
+  outline-offset: -1px;
+}
+.bo-billing select {
+  max-width: 220px;
+}
+.bo-billing-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.bo-billing table {
+  width: 100%;
+  border-spacing: 0;
+  border-collapse: separate;
+  font-size: 12px;
+}
+.bo-billing th,
+.bo-billing td {
+  padding: 4px 8px;
+  height: 32px;
+  text-align: left;
+  border-bottom: 1px solid var(--bo-border);
+}
+.bo-billing th {
+  background: var(--bo-bg);
+  color: var(--bo-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.bo-billing td.bo-billing-number,
+.bo-billing th.bo-billing-number {
+  text-align: right;
+  white-space: nowrap;
+}
+.bo-billing tr:hover td {
+  background: var(--bo-hover);
+}
+.bo-billing td input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 40px;
+}
+.bo-billing input[type="checkbox"] {
+  accent-color: var(--bo-blue);
+}
+.bo-billing-cell {
+  width: 100%;
+  text-align: inherit;
+  border-radius: 3px;
+}
+.bo-billing-cell:hover {
+  background: var(--bo-surface);
+  outline: 1px solid var(--bo-border);
+}
+.bo-billing-muted {
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-billing-footer {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 7px 14px;
+  min-height: 32px;
+  border-top: 1px solid var(--bo-border);
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-billing-subrow {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.bo-billing-subrow strong,
+.bo-billing-rules h2 {
+  font-weight: 600;
+}
+.bo-billing-subrow small {
+  display: block;
+  color: var(--bo-muted);
+}
+.bo-billing-notice {
+  padding: 12px 16px;
+  color: var(--bo-muted);
+}
+.bo-billing-error {
+  color: var(--destructive, var(--t-color-red11));
+  white-space: normal;
+}
+.bo-billing td small.bo-billing-error {
+  display: block;
+}
+.bo-billing-cell-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+.bo-billing-rules {
+  max-width: 750px;
+  display: grid;
+  padding: 8px 16px 24px;
+  gap: 4px;
+}
+.bo-billing-rules fieldset {
+  border: 0;
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+.bo-billing-rule {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-billing-rule > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bo-billing-rules .bo-billing-multiline {
+  display: grid;
+  align-items: start;
+  gap: 4px;
+}
+.bo-billing-rules .bo-billing-multiline textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+}
+.bo-billing-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--bo-border);
+  min-height: 38px;
+}
+.bo-billing-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: auto;
+}
+.bo-billing-error[role="alert"] {
+  padding: 4px;
+}
+
+.bo-invoice-template {
+  padding: 12px 16px;
+}
+.bo-invoice-template summary {
+  cursor: pointer;
+}
+.bo-invoice-template label {
+  display: grid;
+  gap: 4px;
+}
+.bo-invoice-preview {
+  width: 100%;
+  min-height: 280px;
+  background: white;
+  border: 1px solid var(--border);
+  grid-column: 1/-1;
+  flex-basis: 100%;
+}
+
+.bo-billing-cap {
+  color: var(--t-color-red11);
+  font-weight: 600;
+}
+.bo-billing-binding {
+  display: grid;
+  gap: 4px;
+  background: var(--muted);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.bo-billing-binding label {
+  display: grid;
+  gap: 3px;
+}
+.bo-billing-rules details {
+  padding-block: 4px;
+}
+
+.bo-billing-wording-preview {
+  order: 1;
+  flex: 1 0 100%;
+  max-height: 30vh;
+  overflow: auto;
+}
+.bo-billing-wording-preview td {
+  overflow-wrap: anywhere;
+}
+
+.bo-time-policy {
+  display: grid;
+  width: 100%;
+  gap: 16px;
+  color: var(--foreground);
+}
+.bo-time-policy fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.bo-time-policy summary { cursor: pointer; font-size: 14px; font-weight: 500; }
+.bo-time-policy details[open] > summary { margin-bottom: 12px; }
+.bo-time-policy [data-slot="item-header-actions"] :is(input, textarea, select) { width: min(210px, 50vw); }
+.bo-time-policy [data-slot="item-header-actions"] input[type="number"] { width: 96px; }
+.bo-time-preferences .bo-billing-subrow { padding: 0; }
+
+
+.bo-invoice-editor-view:not([hidden]), .bo-invoice-draft {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.bo-invoice-draft {
+  container-type: inline-size;
+  font-size: 13px;
+}
+.bo-invoice-header, .bo-invoice-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  flex: none;
+}
+.bo-invoice-header {
+  padding-inline-start: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-invoice-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.bo-invoice-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
+.bo-invoice-draft fieldset {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+.bo-invoice-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr));
+  gap: 12px;
+  padding: 16px 16px 0;
+}
+.bo-invoice-parties {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+}
+.bo-invoice-settings > label, .bo-invoice-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+.bo-invoice-settings [data-slot="select-trigger"] {
+  width: 100%;
+  justify-content: space-between;
+}
+.bo-invoice-client {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-weight: 500;
+}
+.bo-invoice-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 13px 16px;
+}
+.bo-invoice-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bo-invoice-line-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 16px 8px;
+}
+.bo-invoice-line-table {
+  table-layout: fixed;
+}
+.bo-invoice-line-table :is(th, td) {
+  padding: 10px 12px;
+}
+.bo-invoice-line-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.bo-invoice-line-table th {
+  white-space: normal;
+  background: var(--background);
+}
+.bo-invoice-line-table .bo-invoice-include {
+  width: 44px;
+  padding-inline-start: 16px;
+}
+.bo-invoice-line-table .bo-invoice-include [role="checkbox"] {
+  margin-block-start: 8px;
+}
+.bo-invoice-service {
+  width: 145px;
+}
+.bo-invoice-amount {
+  width: 110px;
+}
+.bo-invoice-line-table small, .bo-invoice-unavailable small {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+.bo-invoice-wording-suggestion {
+  margin-block-start: 6px;
+  padding: 8px 10px;
+  background: var(--muted);
+  border-radius: var(--lw-radius-lg);
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.bo-invoice-line-details summary, .bo-invoice-unavailable summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+.bo-invoice-line-details[open] summary > svg, .bo-invoice-unavailable[open] summary > svg {
+  transform: rotate(90deg);
+}
+.bo-invoice-line-details {
+  margin-top: 6px;
+}
+.bo-invoice-line-details p {
+  padding: 5px 0;
+}
+.bo-invoice-unselected {
+  color: var(--muted-foreground);
+  padding-block: 6px;
+}
+.bo-invoice-unavailable {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-invoice-unavailable li {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bo-invoice-unavailable li:last-child {
+  border-bottom: 0;
+}
+.bo-invoice-unavailable li > :last-child {
+  display: grid;
+  justify-items: end;
+  text-align: right;
+  gap: 3px;
+}
+.bo-invoice-reduction {
+  padding-block-end: 16px;
+}
+.bo-invoice-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+.bo-invoice-footer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.bo-invoice-footer-actions > :empty {
+  display: none;
+}
+.bo-invoice-save-status {
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bo-invoice-save-status p {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.bo-invoice-draft-preview {
+  padding: 0 16px 16px;
+}
+.bo-invoice-index-toolbar {
+  gap: 8px;
+}
+.bo-invoice-index-toolbar label :is([data-slot="input"], [data-slot="select-trigger"]) {
+  width: auto;
+}
+@container (max-width: 620px) {
+  .bo-invoice-service { width: 105px; }
+  .bo-invoice-amount { width: 74px; }
+  .bo-invoice-line-table :is(th, td) { padding-inline: 7px; }
+  .bo-invoice-line-table .bo-invoice-include { width: 32px; padding-inline-start: 10px; }
+}
+.bo-invoice-pdf-frame {
+  width: 100%;
+  height: clamp(18rem, 68dvh, 52rem);
+  border: 1px solid var(--border);
+  background: white;
+}
+.bo-invoice-link {
+  text-decoration: underline;
+  color: var(--bo-blue);
+}

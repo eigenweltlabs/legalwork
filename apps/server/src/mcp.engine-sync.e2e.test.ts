@@ -361,6 +361,9 @@ describe("runtime MCP engine sync", () => {
       );
       expect(disconnectRequest).toBeDefined();
       expect(disconnectRequest?.search).toContain(`location%5Bdirectory%5D=${encodeURIComponent(workspaceRoot)}`);
+      expect(mock.requests.some(entry => entry.pathname === "/api/rpc/legalwork.managed-settings/refresh")).toBe(false);
+      const settings = await readManagedEngineSettings(join(workspaceRoot, "runtime-opencode-settings.json"), workspaceRoot);
+      expect(settings.configuration.mcp?.servers?.posthog).toBeUndefined();
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;

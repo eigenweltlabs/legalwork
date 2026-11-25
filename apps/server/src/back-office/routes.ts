@@ -1,3 +1,8 @@
+import { timeMemberContactId } from "./time-member-identity.js";
+import { ownTimeMember, timeMembers, timeMemberContact } from "./time-members.js";
+import { acceptPrivateProposal, bookPrivateManualDraft, captureProfile, type BookingAuthority } from "../time-capture/routes.js";
+import { privateBookingRevisionSchema } from "./timesheet-schema.js";
+import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
 import { nativeRows } from "./native-rows.js";
 import { changeNativeLinks, linkChangesSchema, nativeSources, sourceSchema, visibleNativeLinks } from "./native-links.js";
@@ -85,7 +90,7 @@ export function registerBackOfficeRoutes(options: {
     addRoute(
       options.routes,
       method,
-      "/back-office" + path,
+      path.startsWith("/workspace/") ? path : "/back-office" + path,
       "client",
       async (ctx) => {
         options.requireClientScope(
@@ -137,6 +142,7 @@ export function registerBackOfficeRoutes(options: {
       },
     );
   };
+  registerTimesheetRoutes(options.config, route, input);
   // Verifying an existing export remains available when the local database
   // cannot be opened. It does not read or mutate the Back Office store.
   addRoute(
@@ -176,7 +182,8 @@ export function registerBackOfficeRoutes(options: {
       }
     },
   );
-  route("GET", "", async (ctx, store, { scope, actor }) => {
+  route("GET", "", async (ctx, store, access) => {
+    const { scope, actor } = access;
     if (scope !== "local" && ctx.url.searchParams.has("manifest")) {
       scheduleBackOfficeSync(options.config);
     } else if (scope !== "local") {
@@ -185,6 +192,7 @@ export function registerBackOfficeRoutes(options: {
     }
     const metadata = {
       scope,
+      captureProfileId: (await captureProfile(options.config, access)).profileId,
       directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
       permissions: actor,
@@ -358,14 +366,73 @@ export function registerBackOfficeRoutes(options: {
       });
     },
   );
+  route("GET", "/time-members", async (_ctx, _store, { scope, actor }) => ({ members: await timeMembers(options.config, scope, actor) }));
   route("POST", "/records", async (ctx, store, { scope, actor }) => {
-    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, ...body } = await input(ctx);
+    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, privateDraft, timekeeperUserId, ...body } = await input(ctx);
     if ((expectedUserId !== undefined && actor.userId !== expectedUserId) ||
         (expectedPrincipalKey !== undefined && actor.principalKey !== expectedPrincipalKey) ||
         (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store)))
       throw new ApiError(409, "back_office_directory_changed", "These changes could not be saved with the current account.");
     if (expectedReplicaId !== undefined && actor.replicaId !== expectedReplicaId)
       throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
+    const memberId = timekeeperUserId === undefined ? undefined : z.string().min(1).max(200).parse(timekeeperUserId);
+    const existing = body.objectId === "timeEntries" && typeof body.id === "string" ? store.raw(scope, body.id) : null;
+    if (body.objectId === "timeEntries" && body.archived === true) {
+      if (ctx.agentAccess || actor.agentId)
+        throw new ApiError(403, "time_entry_confirmation_required", "Remove saved time entries through the Timekeeping chat's remove_entry action. Each removal requires user confirmation.");
+      if (existing && body.revision !== existing.revision)
+        throw new ApiError(409, "time_entry_changed", "This time entry changed. Review it again before removing it.");
+    }
+    const timekeeper = z.object({ timekeeper: z.string().optional().nullable() }).safeParse(body.values);
+    const ownContact = timeMemberContactId(scope, actor.userId);
+    const needsRoster = (memberId !== undefined && memberId !== actor.userId) || (existing?.values.timekeeper && existing.values.timekeeper !== ownContact)
+      || (existing && !existing.values.timekeeper && existing.ownerId !== actor.userId)
+      || (timekeeper.success && timekeeper.data.timekeeper && timekeeper.data.timekeeper !== ownContact);
+    const canAssignMember = body.objectId === "timeEntries" && actor.edit && !ctx.agentAccess && !actor.agentId;
+    const roster = canAssignMember && needsRoster
+      ? await timeMembers(options.config, scope, actor) : [];
+    const member = canAssignMember && memberId === actor.userId
+      ? await ownTimeMember(options.config, scope, actor) : roster.find(person => person.userId === memberId);
+    if (memberId && !member) throw new ApiError(403, "time_member", "Your firm has not delegated time entry for this person.");
+    const recordableWorkers = new Set(roster.map(person => person.userId));
+    const save = (record: unknown) => {
+      if (existing && body.archived === true && store.raw(scope, existing.id)?.revision !== body.revision)
+        throw new ApiError(409, "time_entry_changed", "This time entry changed. Review it again before removing it.");
+      if (!member) return store.saveRecord(scope, actor, record, undefined, recordableWorkers);
+      const value = z.object({ values: z.record(z.string(), BackOfficeValueSchema) }).passthrough().parse(record);
+      return store.transaction(() => store.saveRecord(scope, actor, { ...value,
+        values: { ...value.values, timekeeper: timeMemberContact(store, scope, actor, member) } }, undefined, recordableWorkers));
+    };
+    if (privateProposal !== undefined || privateDraft !== undefined) {
+      if (ctx.actor?.type !== "host" || ctx.agentAccess || actor.agentId)
+        throw new ApiError(403, "private_workday", "Confirm the private draft on its local device.");
+      const record = z.strictObject({ id: z.uuid(), create: z.literal(true), revision: z.literal(0),
+        objectId: z.literal("timeEntries"), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body);
+      const publish = async () => ({ record: save(record) });
+      const identity = { user: actor.userId, scope, principal: actor.principalKey ?? "" };
+      const authority: BookingAuthority<{ record: BackOfficeRecord }> = {
+        request: { record, timekeeperUserId: memberId },
+        resolve: async () => {
+          store.requireAccount(scope, actor);
+          const current = store.raw(scope, record.id);
+          if (!current) return "uncommitted";
+          const object = store.model(scope).objects.find(item => item.id === record.objectId && !item.archived);
+          if (object && current.objectId === record.objectId && current.ownerId === actor.userId && store.canRead(scope, current, actor))
+            return { booked: { record: readableBackOfficeRecord(current, object, actor) } };
+        },
+      };
+      if (privateDraft !== undefined) {
+        if (privateProposal !== undefined) throw new ApiError(400, "private_workday", "Choose one private draft to confirm.");
+        const draft = privateBookingRevisionSchema.extend({ profileId: z.string() }).parse(privateDraft);
+        return bookPrivateManualDraft(options.config, { ...identity, profileId: draft.profileId }, record.id, draft, publish, "record", authority);
+      }
+      const proposal = z.strictObject({ key: z.literal(record.id), digest: z.string().regex(/^[a-f0-9]{64}$/), profileId: z.string(),
+        draftRevision: privateBookingRevisionSchema.shape.revision.optional() }).parse(privateProposal);
+      // Reuse directory persistence, permissions, audit and sync. Only the confirmed
+      // record fields and stable row ID are shared; the original and digest stay private.
+      return acceptPrivateProposal(options.config, { ...identity, profileId: proposal.profileId }, proposal.key, proposal.digest,
+        publish, "record", proposal.draftRevision === undefined ? undefined : { revision: proposal.draftRevision }, authority);
+    }
     if (body.localSource !== undefined) {
       const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);
       return createLocalRelated(store, scope, actor, source, z.object({ id: z.string().uuid(), objectId: z.string(), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body));
@@ -374,7 +441,8 @@ export function registerBackOfficeRoutes(options: {
       id: z.string().uuid(), objectId: z.string(), revision: z.number().int().positive(),
       values: z.record(z.string(), BackOfficeValueSchema), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(), archived: z.boolean().optional(),
     }).parse(body));
-    return { record: store.saveRecord(scope, actor, body) };
+    const record = save(body);
+    return { record };
   });
   route("POST", "/records/batch", async (ctx, store, { scope, actor }) => {
     const { directoryId, records } = BackOfficeCreateBatchSchema.parse(await input(ctx));
@@ -703,7 +771,7 @@ export function registerBackOfficeRoutes(options: {
     await refreshBackOfficeActor(options.config, scope, actor);
     return store.syncState(scope, actor);
   });
-  route("POST", "/native/:kind", async (ctx, store,{scope,actor}) => writeNative(options.config,store,scope,actor,z.enum(["task","deadline"]).parse(ctx.params.kind),await input(ctx)));
+  route("POST", "/native/:kind", async (ctx, store,{scope,actor}) => writeNative(options.config,store,scope,actor,z.enum(["task","deadline"]).parse(ctx.params.kind),await input(ctx),ctx.actor?.type === "host" && !ctx.agentAccess));
   route("GET", "/native/:kind", async (ctx, store, { scope, actor }) => {
     const kind = z.enum(["task","deadline"]).parse(ctx.params.kind);
     return nativeRows(options.config, store, scope, actor, kind, ctx.url.searchParams.get("archived")==="true",ctx.url.searchParams.get("project"));

@@ -1,11 +1,14 @@
+import { chatBillingAction } from "../time-capture/chat-billing-schema.js";
+import { assignedTimeReviewer, resolveTimePolicy, TimesheetStateSchema } from "../back-office/timesheet-schema.js";
+import { chatWorkdayAction } from "../time-capture/chat-workday-schema.js";
 import { BackOfficeQueryPageSchema } from "../views/schema.js";
 import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
-import { serverToken, serverUrl } from "./office-plugin-shared.js";
+import { serverToken, serverUrl, resolveWorkspaceId, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
 
-export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. For fees, time, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
+export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. In the private Timekeeping chat, use legalwork_timekeeping_workday for activity evidence, private suggestions and revisions to your own open entries. Use legalwork_timekeeping_billing for new saved entries, submission, assigned reviews, billing policies and real invoice drafts. For other fees, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
 When mentioning a Back Office record in a reply, link its readable name using its returned url (or $url on query rows).
 Back Office is LegalWork's structured CRM and metadata data store: clients, matters, people, organisations and user-defined objects. Project metadata links to those records; do not maintain parallel CRM lists in notes, text fields or internal databases.
 The Legal Matter template supports matter links and optional direct project clients. Resolve clients of a linked matter through its relationships. Keep matter reference, subject, practice area, status, opening date and other matter-owned facts on the Back Office matter or its related records, never duplicate them as project metadata. Follow the linked-record context and discovered relations for those details. Add project-specific fields only when the user's workflow needs them; do not expand the default schema to mirror record fields.
@@ -38,6 +41,56 @@ async function call(path: string, method = "GET", body?: unknown, timeoutMs = 30
 }
 export function backOfficeTools(ctx: Plugin.Context) {
   return [
+    nativeTool(ctx, {
+      name: "legalwork_timekeeping_workday",
+      description: "Manage the selected date in the private Timekeeping workspace, including previous days. For existing timesheet rows, list_entries returns their IDs, revisions and allowed actions. Use update_entry to edit or translate the requested rows and remove_entry to request removal with history. Each removal waits for the user’s one-time confirmation in the chat; never bypass it through Back Office or repeat a denied request. Pass the exact row revision and only the requested changes. Read back the entries to verify. For suggested work use read, guidelines and publish. Use update_suggestion to change an unaccepted suggestion, including one already edited, with its key, digest, draftRevision and only the requested changes. Unaccepted suggestions can be revised without removal confirmation. Keep its identity and evidence; do not accept it or create a duplicate to edit it. Read returns removable separately from replaceable. Use publish.remove to remove an unaccepted suggestion marked removable, including agent-only amendments. User edits and accepted entries remain protected. A suggestion run publishes private drafts.",
+      schema: chatWorkdayAction,
+      execute: async (input, context) => {
+        const id = await resolveWorkspaceId(context, { requireDirectory: true });
+        const response = await fetch(serverUrl() + "/workspace/" + encodeURIComponent(id) + "/timekeeping/workday", {
+          method: "POST", body: JSON.stringify(input), headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" }, signal: nativeToolSignal(180_000),
+        });
+        if (!response.ok) throw new Error(z.object({ message: z.string() }).parse(await response.json()).message);
+        return response.text();
+      },
+    }),
+    nativeTool(ctx, {
+      name: "legalwork_timekeeping_billing",
+      description: "Read, create and submit saved time, review assigned entries, and prepare, approve or issue a real invoice in the private Timekeeping chat. First read entries by period or matter for exact IDs, current revisions and reviewer requirements. Save directly when requiresReview is false. Only the assigned reviewer can review someone else's submitted entries. Use prepareInvoice to save the draft in the Invoices tab, then approveInvoice and issueInvoice only if the user requests each action. The app asks for confirmation and the PDF should be reviewed before approval. Use the same create or issue requestId when retrying. Read back results. For activity logs, private suggestions, guidelines and changing one's own saved entries, use legalwork_timekeeping_workday.",
+      schema: chatBillingAction,
+      execute: async (input, context) => {
+        const command = input.action === "apply" ? input.command : undefined;
+        const id = await resolveWorkspaceId(context, { requireDirectory: true });
+        const response = await fetch(serverUrl() + "/workspace/" + encodeURIComponent(id) + "/timekeeping/billing", {
+          method: command ? "POST" : "GET", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
+          body: command ? JSON.stringify(command) : undefined, signal: nativeToolSignal(180_000),
+        });
+        if (!response.ok) throw new Error(z.object({ message: z.string() }).parse(await response.json()).message);
+        const state = TimesheetStateSchema.parse(await response.json());
+        const matches = (row: { date: string; matterId: string }) => input.action !== "read" ||
+          ((!input.from || row.date >= input.from) && (!input.to || row.date <= input.to) && (!input.matterId || row.matterId === input.matterId));
+        const entries = state.entries.filter(matches);
+        return JSON.stringify({
+          service: state.service, userId: state.userId, canManage: state.canManage, canReview: state.canReview,
+          canInvoice: state.canInvoice ?? state.canReview, supportsInvoiceDrafts: state.supportsInvoiceDrafts,
+          entries: entries.slice(0, 200).map(({ history, sharedOriginal, proposalDigest, ...entry }) => {
+            const policy = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
+            const reviewerId = assignedTimeReviewer(policy, entry.workerId);
+            return { ...entry, reviewerId, requiresReview: Boolean(reviewerId),
+              canReview: reviewerId === state.userId && entry.status === "submitted" && state.canReview };
+          }),
+          entryCount: entries.length, matters: state.matters, clients: state.clients, people: state.people,
+          projects: state.projects, policies: state.policies,
+          invoiceDraft: state.invoiceDraft && {
+            id: state.invoiceDraft.id, revision: state.invoiceDraft.revision, input: state.invoiceDraft.input,
+            client: state.invoiceDraft.snapshot.client, totalMinor: state.invoiceDraft.totalMinor,
+            currency: state.invoiceDraft.currency, approval: state.invoiceDraft.approval,
+          },
+          invoices: state.invoices.slice(-100).map(({ id, draftId, number, issuedAt, clientId, currency, totalMinor }) =>
+            ({ id, draftId, number, issuedAt, clientId, currency, totalMinor })),
+        });
+      },
+    }),
     nativeTool(ctx, {
       name: "legalwork_back_office_discover",
       description:

@@ -19,6 +19,9 @@ test('bundled help, ordinary SDK consumers and typed UI are portable; engine pol
   assert.deepEqual(electronChecks(['apps/desktop/electron/browser-autofill.mjs']), ['autofill']);
   assert.deepEqual(electronChecks(['apps/desktop/electron/browser-panel.mjs', 'apps/desktop/scripts/browser-autofill-regression.mjs']), ['browser']);
   assert.deepEqual(electronChecks(['apps/app/tests/fixtures/workflow-editor-dirty.tsx']), ['renderer']);
+  for (const path of ['electron/audio/hud-stopwatch.mjs', 'electron/audio/dictation-hud-renderer.js', 'scripts/run-dictation-hud.mjs', 'scripts/dictation-hud-regression.mjs']) {
+    assert.deepEqual(electronChecks(['apps/desktop/' + path]), ['stopwatch']);
+  }
   assert.deepEqual(hostChecks(['apps/server/scripts/dev-node.test.mjs', 'apps/app/scripts/e2e.mjs']), ['app', 'dev-node']);
   assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
   assert.deepEqual(portableJobs(['apps/server/package.json']), ['server-1', 'server-2']);

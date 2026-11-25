@@ -1,0 +1,466 @@
+import { z } from "zod";
+
+const id = z.string().trim().min(1).max(200);
+const text = z.string().trim().min(1).max(2000);
+const minutes = z.number().int().min(0).max(1440);
+const rate = z.number().finite().min(0).max(1_000_000);
+const wordingMap = (limit: number) =>
+  z
+    .record(id, z.string().trim().min(1).max(limit))
+    .refine((values) => Object.keys(values).length <= 100, "Use up to 100 wording rules per level.");
+const currency = z.string().regex(/^[A-Z]{3}$/);
+const date = z.iso.date();
+
+export const timeActivities: Record<string, string> = {
+  RES: "Research",
+  CF: "Case file study",
+  EXM: "External meeting",
+  INM: "Internal meeting",
+  EML: "Short external email",
+  EMX: "Long external email",
+  EMI: "Internal email",
+  DFT: "Drafting",
+  MOD: "Amending",
+  PLE: "Pleading",
+  LS: "Short letter",
+  LL: "Long letter",
+  STR: "Strategy",
+  TEL: "Telephone call",
+  DR: "Data room review",
+  DDR: "Drafting due diligence report",
+};
+export const workProductTypes = ["document", "email", "pleading", "memo", "letter", "report"] as const;
+const productType = z.enum(workProductTypes);
+const productReference = z.string().trim().max(1000);
+
+export const TimeDraftSchema = z.strictObject({
+  date,
+  matterId: id,
+  clientId: z.string().max(200).default(""),
+  startAt: z.iso.datetime({ offset: true }).optional(),
+  endAt: z.iso.datetime({ offset: true }).optional(),
+  projectId: id.optional(),
+  activity: z.string().trim().min(1).max(100),
+  narrative: text,
+  workedMinutes: minutes.min(1),
+  nonBillableMinutes: minutes.optional(),
+  billable: z.boolean(),
+  billableMinutes: minutes,
+  minimumBillableMinutes: minutes.min(1).optional(),
+  createWorkProduct: z.literal(true).optional(),
+  workProductId: id.optional(),
+  workProductTitle: z.string().trim().min(1).max(240).optional(),
+});
+export type TimeDraft = z.infer<typeof TimeDraftSchema>;
+
+/** A shared matter can be recorded before a billing recipient is chosen. */
+export function soleMatterClient(matter: { clientIds: readonly string[] } | undefined, clients: readonly { id: string }[]) {
+  if (matter?.clientIds.length !== 1) return "";
+  const [id] = matter.clientIds;
+  return clients.some(client => client.id === id) ? id : "";
+}
+// Strip the review, pricing and workflow fields on a creation snapshot before returning it to its author.
+export const DelegatedTimeEntrySchema = z.object({
+  ...TimeDraftSchema.omit({ createWorkProduct: true }).shape,
+  id,
+  workerId: id,
+  groupId: id,
+  createdAt: z.iso.datetime(),
+});
+export type DelegatedTimeEntry = z.infer<typeof DelegatedTimeEntrySchema>;
+/** Older entries assigned all actual time to one category; invoice rounding never changes actual time. */
+export function nonBillableWork(entry: Pick<TimeDraft, "workedMinutes" | "billable" | "nonBillableMinutes">) {
+  return entry.nonBillableMinutes ?? (entry.billable ? 0 : entry.workedMinutes);
+}
+const bindingTermSchema = z.strictObject({
+  clientId: id,
+  effectiveFrom: date,
+  revision: z.number().int().nonnegative(),
+  incrementMinutes: minutes.min(1),
+});
+export type BindingTimeTerm = z.infer<typeof bindingTermSchema>;
+const incrementExceptionSchema = z.strictObject({
+  reason: text,
+  authorizedBy: id,
+  authorizedAt: z.iso.datetime(),
+  terms: z.array(bindingTermSchema).min(1).max(1000),
+});
+type IncrementException = z.infer<typeof incrementExceptionSchema>;
+export const roundingModes = ["choose", "up", "down", "nearest"] as const;
+export const TimePolicySchema = z.strictObject({
+  scope: z.enum(["firm", "client", "matter", "project"]),
+  targetId: id,
+  effectiveFrom: date,
+  revision: z.number().int().nonnegative(),
+  incrementMinutes: minutes.min(1).optional(),
+  enforceIncrement: z.boolean().optional(),
+  rounding: z.enum(roundingModes).optional(),
+  stopwatchRoundUp: z.boolean().optional(),
+  bindingIncrement: z.boolean().optional(),
+  agreementClientId: id.optional(),
+  agreementId: id.optional(),
+  agreementProjects: z.array(id).optional(),
+  allocationUnavailable: z.boolean().optional(),
+  nonHourlyAgreement: z.literal(true).optional(),
+  nonHourlyBasis: z.enum(["fixed", "tariff"]).optional(),
+  incrementExceptionReason: text.optional(),
+  incrementException: incrementExceptionSchema.optional(),
+  minimumMinutes: minutes.min(1).optional(),
+  maxMinutes: minutes.min(1).optional(),
+  activityLimits: z.record(id, minutes.min(1)).optional(),
+  activityLabels: wordingMap(80).optional(),
+  language: z.string().min(1).max(60).optional(),
+  actionWords: wordingMap(80).optional(),
+  narrativeCorrections: wordingMap(200).optional(),
+  narrativeExample: z.string().trim().max(500).optional(),
+  actionFirst: z.boolean().optional(),
+  reviewerId: id.optional(),
+  soloApproval: z.boolean().optional(),
+  hourlyRate: rate.optional(),
+  workerRates: z.record(id, rate).optional(),
+  currency: currency.optional(),
+});
+export type TimePolicy = z.infer<typeof TimePolicySchema>;
+/** Legacy hourly agreements supply individual defaults beneath an explicitly dated policy. */
+export function appliedTimePolicies(
+  policies: TimePolicy[],
+  scope: TimePolicy["scope"],
+  target: string | undefined,
+  date: string,
+  billingClient?: string,
+  projectId?: string,
+): TimePolicy[] {
+  const candidates = policies.filter(
+    (p) =>
+      p.scope === scope &&
+      p.targetId === target &&
+      p.effectiveFrom <= date &&
+      (!p.agreementClientId || p.agreementClientId === billingClient),
+  );
+  const legacy = (p: TimePolicy) =>
+    p.revision === 0 && p.effectiveFrom === "0001-01-01" && (scope === "matter" || scope === "client");
+  const agreements = candidates.filter(legacy);
+  const applicable: TimePolicy[] = [];
+  for (const targeted of [false, true]) {
+    const group = agreements.filter((p) => Boolean(p.agreementClientId) === targeted);
+    const linked = projectId ? group.filter((p) => p.agreementProjects?.includes(projectId)) : [];
+    const choices = linked.length ? linked : group;
+    if (choices.length === 1) applicable.push(choices[0]);
+    if (choices.length > 1)
+      applicable.push({
+        scope,
+        targetId: choices[0].targetId,
+        effectiveFrom: "0001-01-01",
+        revision: 0,
+        allocationUnavailable: true,
+        agreementClientId: targeted ? billingClient : undefined,
+      });
+  }
+  const policy = candidates
+    .filter((p) => !legacy(p))
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom) || b.revision - a.revision)[0];
+  return policy ? [...applicable, policy] : applicable;
+}
+export function activeTimePolicy(
+  policies: TimePolicy[],
+  scope: TimePolicy["scope"],
+  target: string | undefined,
+  date: string,
+  billingClient?: string,
+) {
+  return appliedTimePolicies(policies, scope, target, date, billingClient).at(-1);
+}
+export function bindingTimeTerm(
+  policies: TimePolicy[],
+  clientId: string,
+  date: string,
+  projectId?: string,
+): BindingTimeTerm | undefined {
+  const layers = appliedTimePolicies(policies, "client", clientId, date, clientId, projectId);
+  const binding = layers.filter((p) => p.bindingIncrement !== undefined).at(-1);
+  if (!binding?.bindingIncrement) return undefined;
+  const issuer = layers.at(-1)!;
+  return {
+    clientId,
+    effectiveFrom: issuer.effectiveFrom,
+    revision: issuer.revision,
+    incrementMinutes:
+      layers.filter((p) => p.incrementMinutes !== undefined).at(-1)?.incrementMinutes ??
+      activeTimePolicy(policies, "firm", "firm", date)?.incrementMinutes ??
+      10,
+  };
+}
+export function projectRelaxesTerm(
+  project: Pick<TimePolicy, "enforceIncrement" | "incrementMinutes">,
+  term: BindingTimeTerm,
+) {
+  return (
+    project.enforceIncrement === false ||
+    (project.incrementMinutes !== undefined && project.incrementMinutes % term.incrementMinutes !== 0)
+  );
+}
+export function resolveTimePolicy(
+  policies: TimePolicy[],
+  clientId: string,
+  matterId: string,
+  date: string,
+  projectId?: string,
+  bindingPolicies: TimePolicy[] = policies,
+) {
+  const baseline = {
+    bindingClientTerm: bindingTimeTerm(bindingPolicies, clientId, date, projectId),
+    incrementException: undefined as IncrementException | undefined,
+    incrementMinutes: 10,
+    enforceIncrement: true,
+    rounding: "choose" as (typeof roundingModes)[number],
+    stopwatchRoundUp: true,
+    minimumMinutes: undefined as number | undefined,
+    maxMinutes: 120,
+    activityLimits: {} as Record<string, number>,
+    activityLabels: {} as Record<string, string>,
+    workerRates: {} as Record<string, number>,
+    language: "",
+    actionFirst: false,
+    narrativeExample: "",
+    actionWords: {} as Record<string, string>,
+    narrativeCorrections: {} as Record<string, string>,
+    reviewerId: "",
+    soloApproval: false,
+    hourlyRate: undefined as number | undefined,
+    currency: "",
+  };
+  let unavailable = false,
+    ambiguous = false,
+    nonHourlyAgreement = false,
+    nonHourlyBasis: TimePolicy["nonHourlyBasis"];
+  const targets = {
+    firm: "firm",
+    client: clientId,
+    matter: matterId,
+    project: projectId,
+  };
+  for (const scope of ["firm", "client", "matter", "project"] as const) {
+    for (const policy of appliedTimePolicies(
+      policies,
+      scope,
+      targets[scope],
+      date,
+      clientId,
+      projectId,
+    )) {
+      const {
+        scope: _scope,
+        targetId: _id,
+        effectiveFrom: _from,
+        revision: _revision,
+        activityLimits,
+        activityLabels,
+        workerRates,
+        actionWords,
+        narrativeCorrections,
+        agreementClientId: _agreementClient,
+        agreementId,
+        agreementProjects: _agreementProjects,
+        allocationUnavailable,
+        nonHourlyAgreement: nonHourly,
+        nonHourlyBasis: basis,
+        bindingIncrement: _binding,
+        incrementExceptionReason: _reason,
+        incrementException,
+        ...values
+      } = policy;
+      if (allocationUnavailable && !agreementId) ambiguous = true;
+      if (agreementId) {
+        unavailable = Boolean(allocationUnavailable);
+        nonHourlyAgreement = Boolean(nonHourly);
+        nonHourlyBasis = basis;
+      }
+      Object.assign(baseline, values);
+      Object.assign(baseline.activityLimits, activityLimits);
+      Object.assign(baseline.activityLabels, activityLabels);
+      Object.assign(baseline.workerRates, workerRates);
+      Object.assign(baseline.actionWords, actionWords);
+      Object.assign(baseline.narrativeCorrections, narrativeCorrections);
+      const term = baseline.bindingClientTerm;
+      if (term) {
+        const valid =
+          scope === "project" &&
+          projectRelaxesTerm(policy, term) &&
+          incrementException?.terms.some(
+            (ref) =>
+              ref.clientId === clientId &&
+              ref.revision === term.revision &&
+              ref.effectiveFrom === term.effectiveFrom &&
+              ref.incrementMinutes === term.incrementMinutes,
+          );
+        if (valid) baseline.incrementException = incrementException;
+        else {
+          baseline.enforceIncrement = true;
+          if (scope === "client" || baseline.incrementMinutes % term.incrementMinutes !== 0)
+            baseline.incrementMinutes = term.incrementMinutes;
+        }
+      }
+    }
+  }
+  if (unavailable || ambiguous) {
+    baseline.hourlyRate = undefined;
+    baseline.workerRates = {};
+  }
+  return {
+    ...baseline,
+    ...(ambiguous ? { ambiguousAgreement: true } : {}),
+    ...(nonHourlyAgreement && !ambiguous ? { nonHourlyAgreement: true } : {}),
+    ...(nonHourlyBasis && !ambiguous ? { nonHourlyBasis } : {}),
+  };
+}
+export function timeEntryPrice(policy: ReturnType<typeof resolveTimePolicy>, workerId: string) {
+  return {
+    hourlyRate: policy.workerRates[workerId] ?? policy.hourlyRate,
+    currency: policy.currency || undefined,
+  };
+}
+export function hasTimeEntryPrice(entry: Pick<TimeEntry, "hourlyRate" | "currency">): entry is {
+  hourlyRate: number;
+  currency: string;
+} {
+  return entry.hourlyRate !== undefined && Boolean(entry.currency);
+}
+export function isHourlyInvoiceLine(entry: TimeEntry): entry is TimeEntry & { currency: string; hourlyRate: number } {
+  return !entry.nonHourlyApproval && hasTimeEntryPrice(entry);
+}
+/** A timekeeper listed as their own reviewer has no independent review step. */
+export function assignedTimeReviewer(policy: { reviewerId?: string }, workerId: string) {
+  return policy.reviewerId && policy.reviewerId !== workerId ? policy.reviewerId : undefined;
+}
+
+export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
+  if (
+    Boolean(draft.startAt) !== Boolean(draft.endAt) ||
+    (draft.startAt && draft.endAt && Date.parse(draft.endAt) <= Date.parse(draft.startAt))
+  )
+    return "Choose a valid start and end together.";
+  if (
+    draft.startAt &&
+    draft.endAt &&
+    Math.round((Date.parse(draft.endAt) - Date.parse(draft.startAt)) / 60000) !== draft.workedMinutes
+  )
+    return "Worked minutes must match the recorded start and end.";
+  const nonBillable = nonBillableWork(draft);
+  if (nonBillable > draft.workedMinutes || draft.billable !== (draft.workedMinutes > nonBillable))
+    return "Billable and non-billable work must add up to the actual duration.";
+  if (!draft.billable && draft.billableMinutes)
+    return "Non-billable work must have zero chargeable minutes.";
+  const minimum = Math.max(policy.minimumMinutes ?? 0, draft.minimumBillableMinutes ?? 0);
+  if (draft.billable && draft.billableMinutes < minimum)
+    return `Chargeable time must be at least ${minimum} minutes.`;
+  if (policy.enforceIncrement && draft.billableMinutes % policy.incrementMinutes)
+    return `Chargeable time must be a multiple of ${policy.incrementMinutes} minutes.`;
+  return "";
+}
+export function timeCapWarning(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
+  const maximum = policy.activityLimits[draft.activity] ?? policy.maxMinutes;
+  if (draft.billableMinutes > maximum)
+    return `This activity allows up to ${maximum} chargeable minutes per entry.`;
+  return "";
+}
+export function proposedCharge(
+  minutes: number,
+  policy: Pick<
+    ReturnType<typeof resolveTimePolicy>,
+    "enforceIncrement" | "incrementMinutes" | "rounding"
+  >,
+): number {
+  if (!policy.enforceIncrement || policy.rounding === "choose") return minutes;
+  const scale = minutes / policy.incrementMinutes;
+  const units =
+    policy.rounding === "nearest"
+      ? Math.round(scale)
+      : policy.rounding === "down"
+        ? Math.floor(scale)
+        : Math.ceil(scale);
+  return units * policy.incrementMinutes;
+}
+
+/** Stopwatch proposals use the billing increment even when arbitrary invoice quantities are allowed. */
+export function proposedStopwatchCharge(
+  minutes: number,
+  policy: Pick<ReturnType<typeof resolveTimePolicy>, "incrementMinutes" | "stopwatchRoundUp">,
+) {
+  const units = minutes / policy.incrementMinutes;
+  return (policy.stopwatchRoundUp ? Math.ceil(units) : Math.round(units)) * policy.incrementMinutes;
+}
+
+export function timePolicyError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
+  return timeEntryError(draft, policy) || timeCapWarning(draft, policy);
+}
+const status = z.enum(["pending", "confirmed", "submitted", "approved", "invoiced", "declined"]);
+const source = z.enum(["manual", "suggestion"]);
+const snapshot = TimeDraftSchema.extend({
+  activityLabel: z.string().max(100).optional(),
+  status,
+  policyDigest: z.string().length(64).optional(),
+  nonHourlyApproval: z.literal(true).optional(),
+  nonHourlyBasis: TimePolicySchema.shape.nonHourlyBasis,
+  adjustmentBaselineRevision: z.number().int().positive().optional(),
+  hourlyRate: rate.optional(),
+  currency: currency.optional(),
+});
+const history = z.object({
+  revision: z.number(),
+  actorId: id,
+  agentId: id.optional(),
+  action: z.string(),
+  at: z.iso.datetime(),
+  reason: z.string().optional(),
+  before: snapshot.nullable(),
+  after: snapshot,
+});
+const sharedOriginal = z.strictObject({
+  activity: z.string().trim().max(100),
+  narrative: text,
+  workedMinutes: minutes.nullable(),
+  submittedRevision: z.number().int().positive(),
+});
+export const TimeEntrySchema = TimeDraftSchema.extend({
+  activityLabel: z.string().max(100).optional(),
+  id,
+  revision: z.number().int().positive(),
+  workerId: id,
+  authorId: id,
+  status,
+  source,
+  history: z.array(history),
+  hourlyRate: rate.optional(),
+  currency: currency.optional(),
+  policyDigest: z.string().length(64).optional(),
+  nonHourlyApproval: z.literal(true).optional(),
+  nonHourlyBasis: TimePolicySchema.shape.nonHourlyBasis,
+  adjustmentBaselineRevision: z.number().int().positive().optional(),
+  legacy: z.boolean().optional(),
+  submittedNarrative: z.string().optional(),
+  sharedOriginal: sharedOriginal.optional(),
+  suggestion: z.string().optional(),
+  groupId: id.optional(),
+  proposalDigest: z
+    .string()
+    .regex(/^[a-f\d]{64}$/)
+    .optional(),
+});
+export type TimeEntry = z.infer<typeof TimeEntrySchema>;
+// Used by the command and invoice schemas layered on this contract.
+export const timeSchemaFields = { id, text, minutes, date, currency, source, productType, productReference };
+
+const approvalRef = z.strictObject({ id, revision: z.number().int().positive() });
+export const reviewTimeCommandSchema = approvalRef.extend({
+  type: z.literal("review"), narrative: text, billableMinutes: minutes, reason: text.optional(), approve: z.literal(true).optional(),
+});
+export const submitTimeCommandSchema = z.strictObject({
+  type: z.literal("submit"), entries: z.array(approvalRef.extend({
+    shareOriginal: z.strictObject({ digest: z.string().regex(/^[a-f0-9]{64}$/), key: z.uuid() }).optional(),
+  })).min(1).max(1000), reason: text.optional(),
+});
+export const decideTimeCommandSchema = z.strictObject({
+  type: z.enum(["approve", "return"]),
+  entries: z.array(approvalRef).min(1).max(1000),
+  reason: text.optional(),
+});

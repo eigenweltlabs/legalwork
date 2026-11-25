@@ -1,8 +1,12 @@
+import { workdayChatReader } from "./time-capture/workday-chat.test-support.js";
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { captureProfile } from "./time-capture/profile.js";
+import { backOfficeAccess } from "./back-office/access.js";
+import { dayInZone } from "./calendar/dates.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import pluginDefinition from "./opencode-plugins/legalwork-task-tools.js";
@@ -60,6 +64,26 @@ test("native task tools create, download, replace and remove attachments through
     expect((await details(taskId)).attachments.map(file => file.filename)).toEqual(["notes.txt"]);
     expect(await readFile(join(directory, "sources/revised.pdf"), "utf8")).toBe("Edited agreement");
     expect(JSON.parse(await plugin.tool.legalwork_task_download_attachment.execute({ taskId, attachmentId: original.id, path: "removed.pdf" }))).toMatchObject({ ok: false, error: "That attachment does not exist." });
+    const host = { Authorization: "Bearer " + config.token, "X-LegalWork-Host-Token": config.hostToken };
+    const api = process.env.LEGALWORK_SERVER_URL + "/workspace/attachment-project/tasks";
+    const create = await fetch(api, { method: "POST", headers: { ...host, "content-type": "application/json" }, body: JSON.stringify({ title: "Witness preparation" }) });
+    const createdByWorker = resultSchema.parse(await create.json()).task;
+    const taskUrl = api + "/" + createdByWorker.id;
+    const attached = new FormData();
+    attached.append("files", new File(["confidential content"], "Chronology.pdf"));
+    expect((await fetch(taskUrl + "/attachments", { method: "POST", headers: host, body: attached })).status).toBe(200);
+    for (const patch of [{ title: "Prepare interview" }, { note: "confidential note" }, { status: "done" }]) {
+      expect((await fetch(taskUrl, { method: "PATCH", headers: { ...host, "content-type": "application/json" }, body: JSON.stringify(patch) })).status).toBe(200);
+    }
+    const owner = await captureProfile(config, await backOfficeAccess(config));
+    const date = dayInZone(new Date().toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+    const readDay = await workdayChatReader(config, owner.profileId, server.port);
+    await readDay(date);
+    const log = JSON.parse(await readFile(join(owner.path + ".day-log", date + ".json"), "utf8"));
+    expect(log.observations.map((row: {proposal: { changeSummary: string }}) => row.proposal.changeSummary).sort()).toEqual(
+      ["Created task", "Attached file", "Updated task", "Added note", "Completed task"].sort());
+    expect(JSON.stringify(log)).not.toContain("Review agreement");
+    expect(JSON.stringify(log)).not.toContain("confidential");
   } finally {
     await plugin.close();
     await server.stop();

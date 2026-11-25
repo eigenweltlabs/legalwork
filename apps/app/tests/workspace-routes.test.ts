@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { isSessionIndexRoute, parseWorkspaceSessionLink, sessionMainPage, wikiWorkspaceRoute } from "../src/react-app/shell/workspace-routes";
+import { isSessionIndexRoute, parseWorkspaceSessionLink, sessionMainPage, wikiWorkspaceRoute, workdayProjectForRoute } from "../src/react-app/shell/workspace-routes";
+
+test("workday activity follows the displayed Home project and explicit chat or project context", () => {
+  const last = { chatOwnerId: "A", routeWorkspaceId: "A" };
+  expect(workdayProjectForRoute("/workspace/A/files", last)).toBe("A");
+  expect(workdayProjectForRoute("/home", { ...last, homeProjectId: null })).toBeNull();
+  expect(workdayProjectForRoute("/home", { ...last, homeProjectId: "B" })).toBe("B");
+  expect(workdayProjectForRoute("/workspace/A/session", { ...last, homeProjectId: null })).toBeNull();
+  expect(workdayProjectForRoute("/session/known", { chatOwnerId: "B" })).toBe("B");
+  expect(workdayProjectForRoute("/session/unknown", {})).toBeNull();
+  for (const page of ["/tasks", "/projects", "/time", "/settings/general", "/workspace/A/evals"])
+    expect(workdayProjectForRoute(page, last)).toBeNull();
+});
 
 test("returned chat links navigate internally and reject external or non-chat destinations", () => {
   const route = "/workspace/ws_project-1/session/ses_review-1";

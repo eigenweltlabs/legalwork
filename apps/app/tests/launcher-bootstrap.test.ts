@@ -10,7 +10,7 @@ test("Assistant access failure leaves project navigation available and can be re
   const queries = launcherBootstrapQueries({
     baseUrl: "http://localhost:1234",
     assistantConversationCurrent: async () => { assistantCalls++; throw failure; },
-    listWorkspaces: async () => ({ items: [project, { ...project, id: "wiki", preset: "wiki" }, { ...project, id: "assistant", preset: "main-assistant" }] }),
+    listWorkspaces: async () => ({ items: [project, { ...project, id: "wiki", preset: "wiki" }, { ...project, id: "assistant", preset: "main-assistant" }, { ...project, id: "private-time", preset: "private-timekeeping:profile" }] }),
   });
   const cache = new QueryClient();
   try {

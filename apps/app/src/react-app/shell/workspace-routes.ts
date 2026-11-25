@@ -24,6 +24,18 @@ export function homeProjectIdFromSearch(search: string) {
   return new URLSearchParams(search).get("project")?.trim() || null;
 }
 
+/** Home owns its project selection. A legacy chat URL needs a known session owner. */
+export function workdayProjectForRoute(pathname: string, context: {
+  homeProjectId?: string | null;
+  routeWorkspaceId?: string | null;
+  chatOwnerId?: string | null;
+}): string | null {
+  if (context.homeProjectId !== undefined) return context.homeProjectId;
+  if (pathname.startsWith("/workspace/") && !sessionMainPage(pathname)) return context.routeWorkspaceId ?? null;
+  if (/^\/session\/[^/]+\/?$/.test(pathname)) return context.chatOwnerId ?? null;
+  return null;
+}
+
 export function workspaceSessionRoute(workspaceId: string, sessionId?: string | null) {
   const workspace = encodeURIComponent(workspaceId.trim());
   const session = sessionId?.trim();
