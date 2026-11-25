@@ -2,7 +2,7 @@ import { draftRules } from "@legalwork/types/time-capture";
 import { TimeEntryInput, useTimeDurationFormat } from "./time-duration-controls";
 import { formatTimeDuration, isTimeAmountColumn } from "./time-duration";
 import { Textarea } from "@/components/ui/textarea";
-import { TimeSelect } from "./time-settings-controls";
+import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { useId, useRef, useState } from "react";
 import { isUntitledStopwatch, proposalAssignment } from "./time-record-values";
 import { Button } from "@/components/ui/button";
@@ -249,7 +249,7 @@ export function TimeWorkflowProposal({ proposal, state, capture, onCommand, canE
                 options={[{ id: "", name: t("timeWorkspace.noActivity") }, ...activityOptions(policy.activityLabels, values.activity)]}
                 onChange={value => { change(column, value); }} />
             : column === "matter"
-            ? <TimeSelect label={t(ledgerColumnKeys.matter)} value={values.matter} placeholder={t("timesheets.workday.choose")}
+            ? <TimeRecordPicker label={t(ledgerColumnKeys.matter)} value={values.matter} placeholder={t("timesheets.workday.choose")}
                 disabled={!canEdit || busy} options={matters.filter(item => !item.clientId || state.matters.find(m => m.id === item.matterId)?.clientIds.length === 1 || item.label === values.matter)
                   .map(({ label }) => ({ id: label, name: label }))}
                 onChange={value => change(column, value)} />

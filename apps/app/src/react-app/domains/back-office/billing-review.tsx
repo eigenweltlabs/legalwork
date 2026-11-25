@@ -1,13 +1,17 @@
-import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
+import { entryStatusKeys, historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { formatInvoiceMinor } from "@legalwork/types/invoice-template";
 import { Link, useNavigate } from "react-router-dom";
-import { Fragment, useCallback, useMemo, useState } from "react";
-import { Button } from "twenty-ui/primitives/input";
+import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { HubTabs } from "../settings/segmented-tabs";
+import { invoiceEntryAccess } from "./invoice-entry-access";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TimeSelect } from "./time-settings-controls";
 import { timeRoutes } from "./time-routes";
-import { ChevronDown, ChevronRight, Download } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, History, Plus, SlidersHorizontal } from "lucide-react";
 import {
   type TimeEntry,
   type TimesheetState,
@@ -110,7 +114,7 @@ export function BillingReview({
   initialMatterId = "",
   workdayModels,
   initialMode = "submitted",
-  invoiceViews = false,
+  invoiceViews = false, renderRecordHistory,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
@@ -118,6 +122,7 @@ export function BillingReview({
   workdayModels?: WorkdayModelOption[];
   initialMode?: "submitted" | "invoices";
   invoiceViews?: boolean;
+  renderRecordHistory?: (entry: TimeEntry, close: () => void) => ReactNode;
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
@@ -128,12 +133,16 @@ export function BillingReview({
     reviewPeriod(initialDate ? new Date(initialDate + "T12:00:00") : new Date()),
   );
   const [allUnbilled, setAllUnbilled] = useState(false);
+  const unbilledView = invoiceViews && mode === "approved";
   const throughEndDate = mode === "approved" && allUnbilled;
   const [matter, setMatter] = useState(initialMatterId);
   const [billTo, setBillTo] = useState("");
   const [onlyIssues, setOnlyIssues] = useState(false);
   const [revisionPick, setRevisionPick] = useState(new Map<string, number>());
   const [detail, setDetail] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(Boolean(initialMatterId));
+  const [invoiceEntry, setInvoiceEntry] = useState<TimeEntry>();
+  const [historyId, setHistoryId] = useState("");
   const [reason, setReason] = useState("");
   const [draftCells, setDraftCells] = useState(new Set<string>());
   const editCell = useCallback((key: string, active: boolean) => {
@@ -158,7 +167,7 @@ export function BillingReview({
   const all = state.entries.filter(
     (e) =>
       (throughEndDate || !dates.from || dates.from <= e.date) &&
-      (!throughEndDate || (e.billable && !e.legacy)) &&
+      (!throughEndDate || (e.billable && (unbilledView || !e.legacy))) &&
       (!dates.to || e.date <= dates.to) &&
       (!matter || matter === e.matterId) &&
       (!billTo || billTo === e.clientId || (!e.clientId && state.matters.some(m => m.id === e.matterId && m.clientIds.includes(billTo)))),
@@ -191,7 +200,7 @@ export function BillingReview({
   );
   const issues = (e: TimeEntry) => e.suggestion || reviewInfo.get(e.id)?.error || reviewInfo.get(e.id)?.priceIssue;
   const rows = all
-    .filter((e) => e.status === mode && (mode !== "submitted" || !onlyIssues || issues(e)))
+    .filter((e) => (unbilledView ? e.billable && ["confirmed", "approved", "submitted"].includes(e.status) : e.status === mode) && (mode !== "submitted" || !onlyIssues || issues(e)))
     .sort((a, b) => {
       const priority =
         mode === "submitted"
@@ -200,12 +209,20 @@ export function BillingReview({
       return priority || a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
     });
   const eligibleRows = rows.filter((e) =>
-    mode === "approved" ? state.canReview && canEdit : reviewInfo.get(e.id)?.eligible,
+    mode === "approved" ? state.canReview && canEdit && (!unbilledView ||
+      (e.status === "approved" && !e.legacy && !hasTimeEntryPrice(e) && !e.nonHourlyApproval &&
+        reviewInfo.get(e.id)?.eligible && !reviewInfo.get(e.id)?.policy.nonHourlyAgreement)) : reviewInfo.get(e.id)?.eligible,
   );
+  const showSelection = !unbilledView || eligibleRows.length > 0;
   const selected = eligibleRows.filter((e) => revisionPick.get(e.id) === e.revision);
   const adjustments = state.adjustments ?? [];
   const effective = (line: TimeEntry) =>
     mode === "approved" ? adjustedTimeEntry(line, adjustments) : line;
+  const pricedEntry = (entry: TimeEntry) => {
+    const line = effective(entry);
+    return entry.status === "confirmed" && invoiceEntryAccess(state, entry).direct
+      ? { ...line, ...timeEntryPrice(policyFor(state, entry), entry.workerId) } : line;
+  };
   const linkedAdjustments = adjustments.filter((a) => selected.some((line) => appliesTimeAdjustment(line, a)));
   const hasPendingCorrections = linkedAdjustments.some((a) => a.status === "pending");
   const canReturnUnpriced = mode === "approved" && selected.length > 0 && selected.every((e) =>
@@ -225,6 +242,7 @@ export function BillingReview({
     setRevisionPick(new Map());
     setDetail("");
     setReason("");
+    setHistoryId("");
     setDownloadError("");
   };
   const invoices = state.invoices
@@ -255,6 +273,11 @@ export function BillingReview({
     }
   }
   const canCreate = (state.canInvoice ?? state.canReview) && canEdit && state.supportsInvoiceDrafts === true;
+  const historyEntry = rows.find(entry => entry.id === historyId);
+  const draftMatter = invoiceEntry?.matterId || matter;
+  const draftClient = invoiceEntry?.clientId || billTo;
+  const resume = !invoiceEntry && (invoiceScreen === "review" || (state.invoiceDraft &&
+    (!matter || state.invoiceDraft.input.matterId === matter) && (!billTo || state.invoiceDraft.input.clientId === billTo)));
   const invoiceEditing = invoiceScreen !== "closed" && canCreate;
   const invoiceVisible = invoiceScreen === "invoice" && canCreate;
   return (
@@ -263,8 +286,9 @@ export function BillingReview({
         <div className="bo-invoice-editor-view" hidden={!invoiceVisible}>
           <section className="bo-billing">
             <BillingInvoiceDraft
-              state={state} onCommand={onCommand} client={client} dates={dates} initialMatterId={matter} workdayModels={workdayModels}
-              onCancel={() => setInvoiceScreen("closed")}
+              state={state} onCommand={onCommand} client={client} dates={invoiceEntry && throughEndDate ? { from: invoiceEntry.date, to: dates.to } : dates}
+              initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient} throughEndDate={throughEndDate} workdayModels={workdayModels}
+              onCancel={() => { setInvoiceEntry(undefined); setInvoiceScreen("closed"); }}
               onReviewSubmitted={(entry) => {
                 if (invoiceViews) {
                   setInvoiceScreen("review");
@@ -280,20 +304,35 @@ export function BillingReview({
                 setMode("submitted");
                 setInvoiceScreen("review");
               }}
-              onIssued={() => { reset(); setDates({ from: "", to: "" }); setInvoiceScreen("closed"); setMode("invoices"); }}
+              onIssued={() => { setInvoiceEntry(undefined); reset(); setDates({ from: "", to: "" }); setInvoiceScreen("closed"); setMode("invoices"); }}
             />
           </section>
         </div>
       )}
       {!invoiceVisible && (
-      <section className="bo-billing">
-      <div className="bo-view-toolbar bo-invoice-index-toolbar">
-        <TimeSelect label={t("back_office.billing.view")} value={mode}
-          options={views.map(id => ({ id, name: t(reviewViewKeys[id]) }))}
-          onChange={value => {
-            const next = views.find(view => view === value);
-            if (next) { setMode(next); reset(); }
-          }} />
+      <section className="bo-billing @container/time-history relative isolate">
+      <header className="bo-billing-topbar">
+        {invoiceViews ? <HubTabs label={t("back_office.billing.view")} value={mode}
+          items={[{ id: "invoices", label: t("back_office.billing.view_invoices") }, { id: "approved", label: t("invoiceReview.unbilled_time") }]}
+          onChange={next => { setMode(next); reset(); }} /> :
+          <TimeSelect label={t("back_office.billing.view")} value={mode}
+            options={views.map(id => ({ id, name: t(reviewViewKeys[id]) }))}
+            onChange={value => { const next = views.find(view => view === value); if (next) { setMode(next); reset(); } }} />}
+        <div className="ms-auto flex flex-wrap items-center gap-2">
+          {invoiceViews && <Button size="sm" variant="ghost" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>
+            <SlidersHorizontal />{t("invoiceReview.filters")}</Button>}
+          {invoiceViews && mode === "invoices" && <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/back-office/invoices">
+            {t("timesheets.invoice_record_add")}</Link>}
+          {["approved", "invoices", "submitted"].includes(mode) && state.supportsInvoiceDrafts && <Button size="sm"
+            disabled={!canCreate} onClick={() => { setInvoiceEntry(undefined); setInvoiceScreen("invoice"); }}>
+            <Plus />{t(resume ? "invoiceReview.resume" : "invoiceReview.create")}
+          </Button>}
+        </div>
+      </header>
+      {["approved", "invoices", "submitted"].includes(mode) && !canCreate && <p className="px-4 py-2 text-sm text-muted-foreground" role="status">
+        {t(!state.supportsInvoiceDrafts ? "invoiceReview.firm_unavailable" : !canEdit ? "invoiceReview.read_only" : "invoiceReview.no_invoice_access")}
+      </p>}
+      {(!invoiceViews || filtersOpen) && <div className="bo-view-toolbar bo-invoice-index-toolbar">
         <label>
           {t("back_office.billing.from")}
           <Input type="date" disabled={throughEndDate} value={throughEndDate ? "" : dates.from}
@@ -320,21 +359,13 @@ export function BillingReview({
             date: dates.from || reviewPeriod().to,
           })}>{t("timesheets.review_rules")}</Link>
         )}
-        {(mode === "submitted" || mode === "approved" || mode === "invoices") && (state.canInvoice ?? state.canReview) && canEdit && (
-          canCreate ? <Button size="sm" variant="outline" onClick={() => setInvoiceScreen("invoice")}>
-            {t(invoiceScreen === "review" || state.invoiceDraft && (!matter || state.invoiceDraft.input.matterId === matter) ? "invoiceReview.resume" : "invoiceReview.create")}
-          </Button> : <span className="bo-billing-muted">{t("invoiceReview.firm_unavailable")}</span>
-        )}
-        {invoiceViews && mode === "invoices" && <Link className="bo-time-secondary" to="/back-office/invoices">
-          {t("timesheets.invoice_record_add")}
-        </Link>}
         {mode === "submitted" && (
           <label>
             <Checkbox checked={onlyIssues} onCheckedChange={checked => { setOnlyIssues(checked); reset(); }} />
             {t("back_office.billing.only_issues", { count: issuesCount })}
           </label>
         )}
-      </div>
+      </div>}
       {mode === "adjustments" ? (
         <BillingAdjustments
           rows={all}
@@ -347,23 +378,23 @@ export function BillingReview({
         <BillingCosts rows={all} state={state} onCommand={onCommand} />
       ) : mode === "invoices" ? (
         <div className="bo-billing-body">
-          <table>
-            <thead>
-              <tr>
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {["back_office.billing.invoice_number", "back_office.billing.issued", "back_office.billing.client", "back_office.billing.positions", "back_office.billing.fees", "back_office.billing.document"].map((k) => (
-                  <th key={k}>{t(k)}</th>
+                  <TableHead key={k}>{t(k)}</TableHead>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {invoices.map((i) => (
-                <tr key={i.id}>
-                  <td>{i.number}</td>
-                  <td>{new Date(i.issuedAt).toLocaleDateString(locale)}</td>
-                  <td>{groups.clients.get(i.clientId) || i.clientId}</td>
-                  <td>{i.entries.length}</td>
-                  <td>{i.totalMinor === undefined ? formatFee(locale, i.total, i.currency) : formatInvoiceMinor(locale, i.currency, i.totalMinor)}</td>
-                  <td>
+                <TableRow key={i.id}>
+                  <TableCell>{i.number}</TableCell>
+                  <TableCell>{new Date(i.issuedAt).toLocaleDateString(locale)}</TableCell>
+                  <TableCell>{groups.clients.get(i.clientId) || i.clientId}</TableCell>
+                  <TableCell>{i.entries.length}</TableCell>
+                  <TableCell>{i.totalMinor === undefined ? formatFee(locale, i.total, i.currency) : formatInvoiceMinor(locale, i.currency, i.totalMinor)}</TableCell>
+                  <TableCell>
                     {i.snapshot ? (["docx", "pdf"] as const).map((format) => (
                       <Button key={format} size="sm" variant="ghost" onClick={() => void download(i.id, i.number, format)}>
                         {format.toUpperCase()}
@@ -375,43 +406,35 @@ export function BillingReview({
                     >
                       <Download size={15} />
                     </button>}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           {!invoices.length && (
-            <p className="bo-billing-notice">{t("back_office.billing.no_invoices")}</p>
+            <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("back_office.billing.no_invoices")}</EmptyTitle></EmptyHeader></Empty>
           )}
         </div>
       ) : (
         <>
           <div className="bo-billing-body">
-            <table>
-              <thead>
-                <tr>
-                  <th>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {showSelection && <TableHead className="w-10">
                     <Checkbox aria-label={t("back_office.billing.select_all")} disabled={pending || !eligibleRows.length}
                       checked={eligibleRows.length > 0 && eligibleRows.length === selected.length}
                       indeterminate={selected.length > 0 && selected.length < eligibleRows.length}
                       onCheckedChange={checked => setRevisionPick(checked
                         ? new Map(eligibleRows.map(row => [row.id, row.revision])) : new Map())} />
-                  </th>
-                  {[
-                    "back_office.billing.date",
-                    "back_office.billing.matter",
-                    "back_office.billing.worker",
-                    "back_office.billing.activity_code",
-                    "back_office.billing.narrative",
-                    "back_office.billing.charge",
-                    "back_office.billing.fees",
-                    "back_office.billing.detail",
-                  ].map((k) => (
-                    <th key={k}>{t(k)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>}
+                  <TableHead>{t("native.description")}</TableHead>
+                  <TableHead className="bo-billing-number">{t("back_office.billing.charge")}</TableHead>
+                  <TableHead className="bo-billing-number">{t("back_office.billing.fees")}</TableHead>
+                  <TableHead><span className="sr-only">{t("back_office.billing.details")}</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {rows.map((e) => {
                   const info = reviewInfo.get(e.id)!;
                   const canEditLine = info.eligible && mode === "submitted",
@@ -424,28 +447,26 @@ export function BillingReview({
                   const overCap = mode === "submitted" && info.overCap;
                   const policyError = mode === "submitted" ? info.error : "";
                   const priceIssue = mode === "submitted" ? info.priceIssue : undefined;
-                  const unpriced = mode === "approved" && e.billable && !e.legacy && !hasTimeEntryPrice(e);
+                  const unpriced = e.status === "approved" && mode === "approved" && e.billable && !e.legacy && !hasTimeEntryPrice(e);
                   const priceNotice = unpriced
                     ? e.nonHourlyApproval || currentPolicy.nonHourlyAgreement
                       ? "back_office.billing.non_hourly"
                       : "back_office.billing.price_return_help"
                     : priceIssue;
+                  const access = invoiceEntryAccess(state, e);
+                  const invoiceable = canCreate && access.authorized;
+                  const billedLine = effective(e);
+                  const pricedLine = pricedEntry(e);
+                  const openEntry = () => { setInvoiceEntry(e); setInvoiceScreen("invoice"); };
                   return (
                     <Fragment key={e.id}>
-                      <tr>
-                        <td>
-                          <Checkbox
-                            aria-label={t("back_office.billing.select_line", { label: e.narrative })}
+                      <TableRow>
+                        {showSelection && <TableCell>
+                          <Checkbox aria-label={t("back_office.billing.select_line", { label: e.narrative })}
                             checked={revisionPick.get(e.id) === e.revision}
-                            disabled={pending || !(mode === "approved" ? state.canReview && canEdit : canEditLine)}
-                            onCheckedChange={checked => pick(e, checked)}
-                          />
-                        </td>
-                        <td>{e.date}</td>
-                        <td>{groups.matters.get(e.matterId) || e.matterId}</td>
-                        <td>{groups.people.get(e.workerId) || e.workerId}</td>
-                        <td>{e.activity}</td>
-                        <td>
+                            disabled={pending || !eligibleRows.includes(e)} onCheckedChange={checked => pick(e, checked)} />
+                        </TableCell>}
+                        <TableCell className="bo-billing-description">
                           <BillingEditCell
                             cellId={e.id + "/text"}
                             revision={e.revision}
@@ -463,8 +484,9 @@ export function BillingReview({
                               }).then(() => undefined)
                             }
                           />
-                        </td>
-                        <td className="bo-billing-number">
+                          <small>{groups.matters.get(e.matterId) || e.matterId} · {groups.people.get(e.workerId) || e.workerId} · {new Date(e.date + "T12:00:00").toLocaleDateString(locale)}</small>
+                        </TableCell>
+                        <TableCell className="bo-billing-number">
                           <BillingEditCell
                             cellId={e.id + "/minutes"}
                             revision={e.revision}
@@ -485,11 +507,15 @@ export function BillingReview({
                               }).then(() => undefined)
                             }
                           />
-                        </td>
-                        <td className="bo-billing-number">{feeSummary([effective(e)])}</td>
-                        <td>
-                          <button
-                            type="button"
+                        </TableCell>
+                        <TableCell className="bo-billing-number">{!e.billable ? t("timesheets.ledger.nonbillable") :
+                          e.nonHourlyApproval || access.policy.nonHourlyAgreement ? t("invoiceReview.fixed_agreement") :
+                          hasTimeEntryPrice(pricedLine) ? feeSummary([pricedLine]) : t("invoiceReview.no_rate")}</TableCell>
+                        <TableCell>
+                          <div className="bo-billing-entry-actions">
+                          {invoiceable && mode === "approved" && <Button size="sm" variant="outline" onClick={openEntry}>
+                            {t("invoiceReview.invoice_entry")}</Button>}
+                          <Button size="sm" variant="ghost"
                             aria-label={
                               overCap
                                 ? t("back_office.billing.over_cap", {
@@ -500,7 +526,7 @@ export function BillingReview({
                                   : detailLabel
                             }
                             aria-expanded={open}
-                            className={"bo-billing-cell-action" + (overCap ? " bo-billing-cap" : "")}
+                            className={overCap ? "bo-billing-cap" : undefined}
                             onClick={() => setDetail(open ? "" : e.id)}
                           >
                             {overCap
@@ -513,17 +539,22 @@ export function BillingReview({
                                     ? t("back_office.billing.suggestion")
                                     : null}
                             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </button>
-                        </td>
-                      </tr>
+                          </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
                       {open && (
-                        <tr>
-                          <td colSpan={9}>
+                        <TableRow>
+                          <TableCell colSpan={showSelection ? 5 : 4}>
                             <div className="bo-billing-subrow">
-                              <div>
-                                <small>{t("back_office.billing.submitted_text")}</small>
-                                {e.submittedNarrative ?? e.narrative}
-                              </div>
+                              <span>{t(entryStatusKeys[e.status])}</span>
+                              {e.activity && <span>{t("back_office.billing.activity_code")} · {currentPolicy.activityLabels[e.activity] || e.activity}</span>}
+                              {e.submittedNarrative && e.submittedNarrative !== billedLine.narrative && <div>
+                                <small>{t("back_office.billing.submitted_text")}</small>{e.submittedNarrative}
+                              </div>}
+                              {e.legacy && (e.status === "confirmed" && e.workerId === state.userId ?
+                                <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }} to={timeRoutes.timesheets + "?date=" + e.date}>
+                                  {t("invoiceReview.imported_edit")}</Link> : <span>{t("invoiceReview.imported_locked")}</span>)}
                               {state.supportsBillingClientAssignment && e.billable && !e.clientId && info.eligible &&
                                 <label>{t("timesheets.sheet.bill_to")}
                                   <TimeSelect label={t("timesheets.sheet.bill_to")} value="" disabled={pending}
@@ -586,22 +617,23 @@ export function BillingReview({
                               )}
                               {priceNotice && <span className="bo-billing-error">{t(priceNotice)}</span>}
                             </div>
-                            <BillingHistory e={e} state={state} />
-                          </td>
-                        </tr>
+                            {renderRecordHistory ? <Button size="sm" variant="ghost" onClick={() => setHistoryId(e.id)}>
+                              <History />{t("timesheets.ledger.history")}</Button> : <BillingHistory e={e} state={state} />}
+                          </TableCell>
+                        </TableRow>
                       )}
                     </Fragment>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             {!rows.length && <p className="bo-billing-notice">{t("back_office.billing.no_entries")}</p>}
           </div>
           <footer className="bo-billing-footer">
             <span>
               {t("back_office.billing.total", {
                 count: rows.length,
-                fee: feeSummary(rows.map(effective)),
+                fee: feeSummary(rows.map(pricedEntry)),
               })}
             </span>
             {selected.length > 0 && (
@@ -609,7 +641,7 @@ export function BillingReview({
                 <strong>
                   {t("back_office.billing.selection", {
                     count: selected.length,
-                    fee: feeSummary(selected.map(effective)),
+                    fee: feeSummary(selected.map(pricedEntry)),
                   })}
                 </strong>
                 {mode === "submitted" ? (
@@ -666,6 +698,7 @@ export function BillingReview({
           </footer>
         </>
       )}
+      {historyEntry && renderRecordHistory?.(historyEntry, () => setHistoryId(""))}
       {(error || downloadError) && (
         <div className="bo-billing-error" role="alert">
           {error || downloadError}

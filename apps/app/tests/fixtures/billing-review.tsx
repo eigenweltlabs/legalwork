@@ -694,6 +694,27 @@ try {
   await draw({ ...open, entries: [...open.entries, excludedDirect], invoiceDraft: revisedDraft });
   await click(match("Continue invoice draft"));
   assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
+  await render(null);
+  const fresh = { ...excludedDirect, id: "new-direct", narrative: "Call with client" };
+  const emptyMatter = { id: "kestrel", name: "Kestrel", clientIds: ["c"] };
+  const directState: TimesheetState = { ...actor, canReview: false, canInvoice: true,
+    matters: [emptyMatter, ...actor.matters], entries: [excludedDirect, fresh] };
+  await render(<BillingReview state={directState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  assert.equal(field('input[aria-label="Matter"]').value, "Alpha");
+  await click(match("Back"));
+  await click(match("Unbilled time"));
+  const ownRow = [...host.querySelectorAll("tbody tr")].find(item => item.textContent?.includes(fresh.narrative));
+  const invoiceThisEntry = ownRow?.querySelector<HTMLButtonElement>("button");
+  assert.equal(invoiceThisEntry?.textContent, "Invoice this entry");
+  assert.ok(invoiceThisEntry);
+  await click(invoiceThisEntry);
+  assert.equal(checkbox("Select entry: Call with client").getAttribute("aria-checked"), "true");
+  assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
+  await click(save());
+  const preparedSingle = calls.at(-1);
+  assert.ok(preparedSingle?.type === "prepareInvoice");
+  assert.deepEqual(preparedSingle.draft.entries, [{ id: fresh.id, revision: fresh.revision }]);
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

@@ -15,7 +15,7 @@ import { t } from "@/i18n";
 import { applySavedRecord, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState } from "./api";
 import { displayBackOfficeObject } from "./labels";
 import { TimeHeaderContent, TimekeeperControlTarget } from "./time-workspace-header";
-import { TimeSelect } from "./time-settings-controls";
+import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { RecordHistorySidebar } from "./history-panel";
 import { RecordGrid, type SaveBackOfficeView } from "./record-grid";
 import { ValueDisplay } from "./record-values";
@@ -224,9 +224,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     if (id === "startedAt") return serviceDate(record.values);
     if (id === "status" && firmCommand && record.revision > 0 && value === "Draft") {
       const entry = state.entries.find(item => item.id === record.id);
-      if (entry?.status === "confirmed" && !assignedTimeReviewer(
-        resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId), entry.workerId))
+      if (entry?.status === "confirmed" && !entry.legacy) {
+        const policy = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
+        if (assignedTimeReviewer(policy, entry.workerId)) return t("invoiceReview.ready_to_submit");
+        if (entry.billable) return t("invoiceReview.no_review_needed");
         return t("timesheets.ledger.status.confirmed");
+      }
     }
     if (id === "timekeeper") {
       if (typeof value === "string") return contacts.get(value) ?? value;
@@ -826,7 +829,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         });
       }} onCreate={() => {}} onOpen={openRecord} onSaveView={onSaveView}
       readOnlyFields={firmCommand ? ["timekeeper", "status"] : members.length <= 1 ? ["timekeeper"] : undefined}
-      sheet={{ columns: firmCommand ? [...columnIds.slice(0, 3), "project", "activity", ...columnIds.slice(3)] : columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
+      sheet={{ columns: columnIds, blankId, fieldValue, appendedRowCount: receiptBookings.length,
         sumFields: ["recordedMinutes", "billableMinutes"],
         afterRows: archived ? undefined : render => <>
           {receipt((item, index) => {
@@ -908,7 +911,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
       <div key={proposal.digest} className="time-workspace-form">
         <ProposalDecisionReceiver proposal={proposal} accept={() => accept(record, proposal)} dismiss={dismiss} />
         <label>{t("timesheets.workday.matter")}
-          <TimeSelect errorId={errorId("matter")} label={t("timesheets.workday.matter")} value={typeof values.matter === "string" ? values.matter : ""}
+          <TimeRecordPicker errorId={errorId("matter")} label={t("timesheets.workday.matter")} value={typeof values.matter === "string" ? values.matter : ""}
             disabled={!editable || busy} placeholder={t("timesheets.workday.choose")}
             options={proposal.source === "stopwatch" ? state.matters : [{ id: "", name: t("timesheets.workday.unassigned") }, ...state.matters]}
             onChange={matterId => {

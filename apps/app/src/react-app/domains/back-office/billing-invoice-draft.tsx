@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Check, ChevronRight, Loader2 } from "lucide-react";
@@ -20,7 +20,6 @@ import {
 import {
   InvoiceDraftInputSchema,
   adjustedTimeEntry,
-  assignedTimeReviewer,
   appliesTimeAdjustment,
   isHourlyInvoiceLine,
   resolveTimePolicy,
@@ -38,6 +37,9 @@ import {
 import { reviewPeriod } from "./billing-amounts";
 import { BillingInvoicePdf } from "./billing-invoice-pdf";
 import { entryStatusKeys, labelForCode } from "./timesheet-labels";
+import { invoiceEntryAccess } from "./invoice-entry-access";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import { SectionHeading, Surface } from "../../design-system/surface";
 import { timeRoutes } from "./time-routes";
 
 const invoiceWordingRules = {
@@ -53,6 +55,9 @@ const invoiceWordingRules = {
 type DraftProps = BillingProps & {
   client: Pick<LegalworkServerClient, "downloadTimesheetDraft">;
   initialMatterId: string;
+  initialClientId: string;
+  initialEntry?: TimeEntry;
+  throughEndDate: boolean;
   workdayModels?: WorkdayModelOption[];
   dates: { from: string; to: string };
   onCancel: () => void;
@@ -88,7 +93,7 @@ export function BillingInvoiceDraft({
   onCommand,
   client,
   dates,
-  initialMatterId,
+  initialMatterId, initialClientId, initialEntry, throughEndDate,
   workdayModels,
   onCancel,
   onReviewSubmitted,
@@ -96,28 +101,34 @@ export function BillingInvoiceDraft({
 }: DraftProps) {
   const locale = useLocale();
   const initial = state.invoiceDraft?.input;
-  const saved =
-    !initialMatterId || initialMatterId === initial?.matterId
-      ? initial
-      : undefined;
-  const [matterId, setMatter] = useState(saved?.matterId ?? initialMatterId);
-  const matter = state.matters.find((item) => item.id === matterId);
-  const clients = state.clients.filter((item) =>
-    matter?.clientIds.includes(item.id),
-  );
-  const [chosenClient, setClient] = useState(saved?.clientId ?? "");
-  const soleClient =
-    matter?.clientIds.length === 1 && clients.length === 1
-      ? clients[0]
-      : undefined;
-  const clientId = soleClient?.id ?? chosenClient;
-  const [from, setFrom] = useState(
-    () => saved?.period.from ?? (dates.from || reviewPeriod().from),
-  );
-  const [to, setTo] = useState(
-    () => saved?.period.to ?? (dates.to || reviewPeriod().to),
-  );
-  const [allOpen, setAllOpen] = useState(Boolean(saved && !saved.period.from));
+  const saved = !initialEntry && (!initialMatterId || initialMatterId === initial?.matterId) &&
+    (!initialClientId || initialClientId === initial?.clientId) ? initial : undefined;
+  const [from, setFrom] = useState(() => saved?.period.from ?? (dates.from || reviewPeriod().from));
+  const [to, setTo] = useState(() => saved?.period.to ?? (dates.to || reviewPeriod().to));
+  const [allOpen, setAllOpen] = useState(saved ? !saved.period.from : !initialEntry && throughEndDate);
+  const candidates = useMemo(() => {
+    const result = new Set<string>();
+    const matters = new Map(state.matters.map(matter => [matter.id, matter]));
+    const clientIds = new Set(state.clients.map(client => client.id));
+    for (const entry of state.entries) {
+      if (!entry.clientId || (initialClientId && entry.clientId !== initialClientId) ||
+        !clientIds.has(entry.clientId) || !matters.get(entry.matterId)?.clientIds.includes(entry.clientId) ||
+        entry.date > to || (!allOpen && entry.date < from) ||
+        !invoiceEntryAccess(state, entry).authorized) continue;
+      result.add(entry.matterId);
+    }
+    return result;
+  }, [state, from, to, allOpen, initialClientId]);
+  const orderedMatters = useMemo(() => [...state.matters]
+    .sort((a, b) => Number(candidates.has(b.id)) - Number(candidates.has(a.id))), [state.matters, candidates]);
+  const withWork = orderedMatters.filter(item => candidates.has(item.id));
+  const [matterId, setMatter] = useState(() => saved?.matterId || initialMatterId || (withWork.length === 1 ? withWork[0].id : ""));
+  const matter = state.matters.find(item => item.id === matterId);
+  const clients = state.clients.filter(item => matter?.clientIds.includes(item.id));
+  const [chosenClient, setClient] = useState(saved?.clientId || initialClientId);
+  const soleClient = matter?.clientIds.length === 1 && clients.length === 1 ? clients[0] : undefined;
+  const clientId = soleClient?.id ?? (clients.some(item => item.id === chosenClient) ? chosenClient : "");
+  const [onlyEntries, setOnlyEntries] = useState<Set<string> | undefined>(() => initialEntry ? new Set([initialEntry.id]) : undefined);
   const [excluded, setExcluded] = useState<Set<string>>(
     () =>
       new Set(
@@ -161,7 +172,7 @@ export function BillingInvoiceDraft({
   );
   const [fixed, setFixed] = useState(saved?.pricing.mode === "fixed");
   const [chosenHourlyCurrency, setHourlyCurrency] = useState(
-    saved?.pricing.mode === "hourly" ? saved.pricing.currency ?? state.invoiceDraft?.currency ?? "" : "",
+    saved?.pricing.mode === "hourly" ? saved.pricing.currency ?? state.invoiceDraft?.currency ?? "" : initialEntry?.currency ?? "",
   );
   const [currency, setCurrency] = useState(
     saved?.pricing.mode === "fixed" ? saved.pricing.currency : "",
@@ -228,24 +239,7 @@ export function BillingInvoiceDraft({
   const draft = state.invoiceDraft;
   const adjustments = state.adjustments ?? [];
   const authorizedRows = rows.map((entry) => {
-    const policy = resolveTimePolicy(
-      state.policies,
-      clientId,
-      matterId,
-      entry.date,
-      entry.projectId,
-    );
-    const solo = state.scope === "local" && policy.soloApproval;
-    const reviewer =
-      (policy.reviewerId === state.userId || (solo && !policy.reviewerId)) &&
-      (entry.workerId !== state.userId || solo);
-    const ownWithoutReviewer = entry.workerId === state.userId && !assignedTimeReviewer(policy, entry.workerId);
-    const direct = entry.status === "confirmed" && ownWithoutReviewer;
-    const authorized =
-      (entry.status === "approved" && (reviewer || ownWithoutReviewer) || direct) &&
-      !entry.legacy &&
-      entry.billable &&
-      entry.clientId === clientId;
+    const { policy, direct, authorized } = invoiceEntryAccess(state, entry, clientId);
     const currentReview = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
     const currentSolo = state.scope === "local" && currentReview.soloApproval;
     const canAssign = entry.status === "confirmed" ? entry.workerId === state.userId :
@@ -263,7 +257,7 @@ export function BillingInvoiceDraft({
   const checks = authorizedRows.map(({ entry, policy, authorized, canAssign, direct }) => {
     const line = adjustedTimeEntry(entry, adjustments);
     const eligible = authorized && (fixed || (isHourlyInvoiceLine(entry) && entry.currency === hourlyCurrency));
-    const picked = eligible && (allOpen || !excluded.has(entry.id));
+    const picked = eligible && (allOpen || (onlyEntries ? onlyEntries.has(entry.id) : !excluded.has(entry.id)));
     const decision = decisions.get(entry.id);
     const edited = decision?.type === "edit" && decision.revision === entry.revision
       ? decision.narrative
@@ -393,6 +387,7 @@ export function BillingInvoiceDraft({
     resetSelection();
   }
   function resetSelection() {
+    setOnlyEntries(undefined);
     setExcluded(new Set());
     setDecisions(new Map());
     setScopeIds(new Set());
@@ -432,7 +427,7 @@ export function BillingInvoiceDraft({
       preview.current?.scrollIntoView({ block: "start" });
       return;
     }
-    if (!input.success) return;
+    if (!input.success || !to || (!allOpen && (!from || from > to))) return;
     revealPreview.current = true;
     setSaving(true);
     try {
@@ -456,12 +451,13 @@ export function BillingInvoiceDraft({
         <h2>{t("invoiceReview.create")}</h2>
       </header>
       <div className="bo-invoice-scroll">
-      <fieldset disabled={pending}>
+      <fieldset disabled={pending} className="bo-invoice-content">
+        <Surface className="bo-invoice-setup">
         <div className="bo-invoice-settings bo-invoice-parties">
           <label>
             {t("back_office.billing.matter")}
             <TimeRecordPicker label={t("back_office.billing.matter")} placeholder={t("invoiceReview.choose_matter")}
-              value={matterId} options={state.matters} disabled={pending} onChange={changeMatter} />
+              value={matterId} options={orderedMatters} disabled={pending} onChange={changeMatter} />
           </label>
           {matter && (soleClient ? (
             <div className="bo-invoice-field">
@@ -517,13 +513,28 @@ export function BillingInvoiceDraft({
               {t("invoiceReview.show_hours")}
             </label>}
           </div>
+        </>}
+        </Surface>
+        {(!matter || (clientId && !rows.length)) && withWork.some(item => item.id !== matterId) && (
+          <div className="mt-5 space-y-2">
+            <SectionHeading title={t("invoiceReview.matters_with_time")} />
+            {withWork.filter(item => item.id !== matterId).map(item => (
+              <Button key={item.id} variant="outline" size="sm" className="me-2 h-auto whitespace-normal py-1.5 text-start"
+                onClick={() => changeMatter(item.id)}>{item.name}</Button>
+            ))}
+          </div>
+        )}
+        {matter && clientId && <>
           {!fixed && !hourlyCurrency && hourlyCurrencies.length > 1 && (
             <p role="status" className="bo-billing-subrow">{t("invoiceReview.hourly_currency_help")}</p>
           )}
           {legacyCutoffUnavailable && (
             <p role="status" className="bo-billing-subrow">{t("invoiceReview.legacy_currency_cutoff")}</p>
           )}
-          {!eligibleRows.length && <p className="bo-billing-notice">{t(rows.length ? "invoiceReview.none_ready" : "invoiceReview.no_entries")}</p>}
+          {!!to && !allOpen && from > to ? <p className="text-sm text-destructive" role="alert">{t("invoiceReview.date_order")}</p> :
+            !rows.length && <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("invoiceReview.no_entries")}</EmptyTitle>
+              <EmptyDescription>{t("invoiceReview.change_period")}</EmptyDescription></EmptyHeader></Empty>}
+          {eligibleRows.length > 0 && <SectionHeading className="mt-6 mb-2" title={t("timeWorkspace.entries")} />}
           {eligibleRows.length > 0 && <>
             {suggestedWording.length > 0 && <div className="bo-invoice-line-actions">
               <Button size="sm" variant="outline"
@@ -549,7 +560,10 @@ export function BillingInvoiceDraft({
                   return <tr key={entry.id}>
                     {!allOpen && <td className="bo-invoice-include">
                       <Checkbox aria-label={t("back_office.billing.select_line", { label: line.narrative })} checked={picked}
-                        disabled={pending} onCheckedChange={checked => setExcluded(previous => updateCheck(previous, entry.id, !checked))} />
+                        disabled={pending} onCheckedChange={checked => {
+                          if (onlyEntries) setOnlyEntries(updateCheck(onlyEntries, entry.id, checked));
+                          else setExcluded(previous => updateCheck(previous, entry.id, !checked));
+                        }} />
                     </td>}
                     <td className="bo-invoice-service">
                       <time dateTime={entry.date}>{serviceDate.format(new Date(entry.date + "T00:00:00"))}</time>
@@ -596,30 +610,37 @@ export function BillingInvoiceDraft({
               </tbody>
             </table>
           </>}
-          {unavailableRows.length > 0 && <details className="bo-invoice-unavailable">
+          {unavailableRows.length > 0 && <details key={eligibleRows.length === 0 ? "all" : "some"} className="bo-invoice-unavailable" open={eligibleRows.length === 0 || undefined}>
             <summary><ChevronRight size={15} />{t("invoiceReview.excluded_entries", { count: unavailableRows.length })}</summary>
             <ul>{unavailableRows.map(({ entry, policy, authorized, canAssign, direct }) => <li key={entry.id}>
               <div>{entry.narrative}<small>{serviceDate.format(new Date(entry.date + "T00:00:00"))} · {people.get(entry.workerId) ?? entry.workerId}</small></div>
               <div>
                 {t(entryStatusKeys[entry.status])}
-                {state.supportsBillingClientAssignment && entry.billable && !entry.clientId && canAssign ? (
+                {entry.legacy ? <small>{entry.workerId === state.userId && entry.status === "confirmed" ?
+                  <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }} to={timeRoutes.timesheets + "?date=" + entry.date}>
+                    {t("invoiceReview.imported_edit")}</Link> : t("invoiceReview.imported_locked")}</small>
+                : !entry.billable ? <small>{t("timesheets.ledger.nonbillable")}</small>
+                : state.supportsBillingClientAssignment && entry.billable && !entry.clientId && canAssign ? (
                   <Button size="xs" variant="outline" disabled={pending}
                     onClick={() => void send({ type: "assignBillingClient", id: entry.id, revision: entry.revision, clientId }).catch(() => {})}>
                     {t("invoiceReview.assign_recipient", { client: currentClient?.name ?? "" })}
                   </Button>
-                ) : entry.status === "submitted" ? (
+                ) : !entry.clientId ? <small>{t("invoiceReview.missing_recipient")}</small>
+                : entry.status === "submitted" && canAssign ? (
                   <Button size="xs" variant="outline" onClick={() => onReviewSubmitted(entry)}>{t("invoiceReview.review_open")}</Button>
-                ) : entry.status === "confirmed" && !direct ? (
+                ) : entry.status === "submitted" ? <small>{t("invoiceReview.await_review")}</small>
+                : entry.status === "confirmed" && !direct ? (
                   <small>{entry.workerId === state.userId ? <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }}
                     to={timeRoutes.timesheets + "?date=" + entry.date}>{t("invoiceReview.submit_open")}</Link> : t("invoiceReview.await_submission")}</small>
                 ) : <small>{!fixed && authorized ? (
                   isHourlyInvoiceLine(entry) ? t("invoiceReview.open_currency_line", { currency: entry.currency })
                     : t(entry.nonHourlyApproval || policy.nonHourlyAgreement ? "back_office.billing.non_hourly" : "back_office.billing.price_missing")
-                ) : t("invoiceReview.unavailable_line")}</small>}
+                ) : t("invoiceReview.other_reviewer")}</small>}
               </div>
             </li>)}</ul>
           </details>}
-          {eligibleRows.length > 0 && <div className="bo-invoice-reduction">
+          {eligibleRows.length > 0 && <details className="bo-invoice-reduction" open={reduction ? true : undefined}>
+            <summary>{t("invoiceReview.reduction")}</summary>
             <div className="bo-invoice-settings">
               <label>
                 {t("invoiceReview.reduction")}
@@ -652,7 +673,7 @@ export function BillingInvoiceDraft({
                 {scope === "people" ? people.get(id) ?? id : included.find(entry => entry.id === id)?.narrative}
               </label>)}
             </div>}
-          </div>}
+          </details>}
         </>}
       </fieldset>
       {visibleDraft && (
@@ -747,11 +768,13 @@ export function BillingInvoiceDraft({
             pendingAdjustments ? <p role="status">{t("back_office.billing.invoice_correction_pending")}</p> :
             visibleDraft ? <p role="status"><Check size={14} />{t(visibleDraft.approval ? "invoiceReview.approved" : "invoiceReview.saved")}
               {!visibleDraft.snapshot.clientAddress && <span>{t("invoiceReview.address_required")}</span>}</p> :
-            included.length > 0 && <p>{t("invoiceReview.selected_entries", { count: included.length })}</p>}
+            included.length ? <p>{t("invoiceReview.selected_entries", { count: included.length })}
+              {!input.success && <span>{t("invoiceReview.check_terms")}</span>}</p> :
+            eligibleRows.length > 0 && <p>{t("invoiceReview.choose_entry")}</p>}
         </div>
         <div className="bo-invoice-footer-actions">
           <Button size="sm" variant={visibleDraft ? "outline" : "default"}
-            disabled={!input.success || pending || pendingAdjustments || legacyCutoffUnavailable} onClick={() => void saveDraft()}>
+            disabled={!input.success || (!allOpen && (!from || from > to)) || pending || pendingAdjustments || legacyCutoffUnavailable} onClick={() => void saveDraft()}>
             {saving && <Loader2 size={14} className="animate-spin" />}
             {t(visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
           </Button>

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, ClipboardCheck, FileText, SlidersHorizontal } from "lucide-react";
 import { calendarDay } from "../calendar/calendar-format";
@@ -24,6 +24,7 @@ import { backOfficeReadFailure, isBackOfficeAccessError, type BackOfficeReadFail
 import { timeRoutes } from "./time-routes";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
+import { RecordHistorySidebar } from "./history-panel";
 import { FirmTimeReview } from "./firm-time-review";
 import { BillingGuidelinesSettings } from "./billing-guidelines-settings";
 import { BillingPreferences } from "./billing-preferences";
@@ -55,6 +56,7 @@ export function TimesheetWorkspace({
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const { userId, principalKey, replicaId } = directory.permissions;
   const team = directory.scope !== "local";
   const key = [
@@ -164,8 +166,11 @@ export function TimesheetWorkspace({
   const canOpenInvoices = state && (team || recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
     (team && !state.supportsInvoiceDrafts) || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
-      <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={page === "billing-review" ? "submitted" : "invoices"}
+      <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={!team && page === "billing-review" ? "submitted" : "invoices"}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
+        renderRecordHistory={team ? (entry, close) => <RecordHistorySidebar key={entry.id}
+          client={client} directory={directory} record={entry} onClose={close}
+          onOpen={record => navigate("/back-office/" + record.objectId + "?record=" + encodeURIComponent(record.id))} /> : undefined}
         workdayModels={workdayModels} client={client} state={state} onCommand={send} />
     </BackOfficeSurface>
   ) : undefined;

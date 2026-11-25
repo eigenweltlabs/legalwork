@@ -118,8 +118,9 @@ export function TimeSelect({
 }
 
 /** Search names and references while keeping record IDs as the only committed values. */
-export function TimeRecordPicker({ id, label, value, options, placeholder, disabled, onChange, inputRef }: {
+export function TimeRecordPicker({ id, errorId, label, value, options, placeholder, disabled, onChange, inputRef }: {
   id?: string;
+  errorId?: string;
   label: string;
   value: string;
   options: { id: string; name: string; reference?: string | null }[];
@@ -139,7 +140,7 @@ export function TimeRecordPicker({ id, label, value, options, placeholder, disab
       if (details.reason === "item-press") { onChange(next); setQuery(null); }
       else if (details.reason === "input-change" || details.reason === "input-clear") setQuery(next);
     }}>
-    <AutocompleteInput id={id} ref={inputRef} aria-label={label} placeholder={placeholder} showTrigger
+    <AutocompleteInput id={id} ref={inputRef} aria-label={label} aria-invalid={errorId ? true : undefined} aria-describedby={errorId} placeholder={placeholder} showTrigger
       triggerProps={{ "aria-label": label }} onFocus={event => event.currentTarget.select()} />
     <AutocompletePopup className="w-(--anchor-width)">
       <AutocompleteEmpty>{t("content_search.no_results")}</AutocompleteEmpty>
