@@ -120,6 +120,7 @@ const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: Requ
   const url = new URL(resource instanceof Request ? resource.url : resource.toString());
   if (url.origin !== reviewOrigin) return realFetch(resource, init);
   if (url.pathname === "/back-office/projects") return Response.json({ projects: [] });
+  if (url.pathname === "/back-office/time-members") return Response.json({ members: [] });
   if (url.pathname.endsWith("/document")) {
     const format = url.searchParams.get("format") ?? "";
     invoiceDocumentsRead.push(format);
@@ -284,24 +285,25 @@ try {
   </QueryClientProvider>));
   store.openTab(scope, { id: "timekeeping:invoice-approval", type: "workspace-page", label: "Invoice approval" }, "side");
   await mountRecords();
-  await until(() => !usePanelTabStore.getState().sessions[scope]?.tabs.some(tab => tab.id === "timekeeping:invoice-approval"));
-  await until(invoiceTab);
+  await until(() => !usePanelTabStore.getState().sessions[scope]?.tabs.some(tab => tab.id === "timekeeping:invoice-approval"), "retired invoice approval tab is removed");
+  await until(invoiceTab, "saved workspace gets the invoices tab");
   const migrated = usePanelTabStore.getState().sessions[scope];
   assert.deepEqual(migrated.panes.find(pane => pane.id === "main")?.tabIds, ["timekeeping:entries", "timekeeping:invoices"]);
   assert.equal(migrated.sizes.workday.main, 55, "introducing Invoices keeps a saved split");
   await act(async () => invoiceTab()?.click());
   await until(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-tab="invoices"] button'))
-    .some(button => button.textContent?.trim() === "Record existing invoice" && !button.disabled));
+    .some(button => button.textContent?.trim() === "Record existing invoice" && !button.disabled), "records-only mode opens the invoice register");
   assert.equal(document.querySelector(".bo-invoice-draft"), null, "the records service does not open the approval workflow");
   recordsMode = false;
   creationSupported = false;
   await refreshReview("timesheet");
-  await until(() => document.body.textContent?.includes("update the connected firm service"));
+  await until(() => document.body.textContent?.includes("update the connected firm service"), "the workflow explains why invoice creation is unavailable");
   assert.equal(findButton("Create Invoice"), undefined);
   assert.equal(document.querySelector('[data-panel-tab-id="timekeeping:invoice-approval"]'), null);
+  recordsMode = true;
   finance = false;
   await refreshReview("directory");
-  await until(() => !invoiceTab());
+  await until(() => !invoiceTab(), "revoking finance access removes the invoices tab");
   assert.equal(document.querySelector('[data-workspace-tab="invoices"]'), null);
 
 } finally {

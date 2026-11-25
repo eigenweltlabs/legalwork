@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
+import { defaultBackOfficeModel } from "@legalwork/types/back-office";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
@@ -36,7 +37,7 @@ import type {
 const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
-const { BillingReview } = await import("../../src/react-app/domains/back-office/billing-review");
+const { BillingReview: BillingReviewView } = await import("../../src/react-app/domains/back-office/billing-review");
 const { BillingPreferences } = await import(
   "../../src/react-app/domains/back-office/billing-preferences"
 );
@@ -95,6 +96,13 @@ const actor: TimesheetState = {
   policies: [policy],
   invoices: [],
 };
+function BillingReview(props: Omit<ComponentProps<typeof BillingReviewView>, "directory" | "columnScope" | "onSaveView">) {
+  return <BillingReviewView {...props} columnScope="billing-fixture" onSaveView={async view => view} directory={{
+    scope: props.state.scope, model: defaultBackOfficeModel(), records: [], views: [],
+    permissions: { userId: props.state.userId, edit: true, model: true, finance: true },
+    sync: { enabled: false, cursor: 0, pending: 0, error: null },
+  }} />;
+}
 const host = document.createElement("div");
 document.body.append(host);
 const calls: TimesheetCommand[] = [];
@@ -588,8 +596,9 @@ try {
   assert.equal(field('input[aria-label="Matter"]').value, "Alpha");
   await click(match("Back"));
   await click(match("Unbilled time"));
-  const ownRow = [...host.querySelectorAll("tbody tr")].find(item => item.textContent?.includes(fresh.narrative));
-  const invoiceThisEntry = ownRow?.querySelector<HTMLButtonElement>("button");
+  const ownRow = host.querySelector('[data-record-id="' + fresh.id + '"]');
+  const invoiceThisEntry = [...(ownRow?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+    .find(button => button.textContent === "Invoice this entry");
   assert.equal(invoiceThisEntry?.textContent, "Invoice this entry");
   assert.ok(invoiceThisEntry);
   await click(invoiceThisEntry);
