@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { ApiError } from "./errors.js";
 import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 
@@ -227,6 +228,8 @@ export async function intakeFetch(
   path: string,
   init: IntakeFetchInit = {},
 ): Promise<Response> {
+  const timesheet = path === "/api/back-office/timesheet" || path.startsWith("/api/back-office/timesheet?");
+  const requestId = timesheet ? randomUUID() : undefined;
   let response: Response;
   try {
     response = await fetch(`${client.platformURL}${path}`, {
@@ -238,6 +241,7 @@ export async function intakeFetch(
       headers: {
         Authorization: `Bearer ${client.platformToken}`,
         Accept: init.accept ?? "application/json",
+        ...(requestId ? { "X-Request-Id": requestId } : {}),
         ...(init.contentType === undefined ? {} : { "Content-Type": init.contentType }),
       },
       body: init.body,
@@ -253,7 +257,17 @@ export async function intakeFetch(
       "The Eigenwelt intake service redirected the request instead of answering it.",
     );
   }
-  if (!response.ok) throw await intakeFailure(response, path);
+  if (!response.ok) {
+    if (requestId && response.status >= 500) {
+      const upstreamId = response.headers.get("x-request-id");
+      console.warn("[back-office] Model API timesheet request failed", {
+        requestId, status: response.status,
+        ...(upstreamId && upstreamId !== requestId && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(upstreamId)
+          ? { upstreamRequestId: upstreamId } : {}),
+      });
+    }
+    throw await intakeFailure(response, path);
+  }
   return response;
 }
 
@@ -347,10 +361,7 @@ async function intakeFailure(response: Response, path: string): Promise<ApiError
       return new ApiError(429, "intake_rate_limited", message || "Too many intake requests. Please try again shortly.");
     default:
       if (path === "/api/back-office" || path.startsWith("/api/back-office/")) {
-        const requestId = response.headers.get("x-request-id");
-        if (code === "timesheet_internal_error" && requestId && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(requestId))
-          console.warn("[back-office] Model API timesheet request failed", { requestId, status: response.status });
-        return new ApiError(502, "back_office_sync_failed", `Back Office could not sync with the firm (HTTP ${response.status}).`);
+        return new ApiError(502, "back_office_sync_failed", `Back Office could not sync with the firm (HTTP ${response.status}).`, response.status);
       }
       return new ApiError(502, "intake_request_failed", message || `The intake request failed (HTTP ${response.status}).`);
   }

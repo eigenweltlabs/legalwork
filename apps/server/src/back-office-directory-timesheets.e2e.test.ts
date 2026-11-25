@@ -76,6 +76,7 @@ test.each([400, 422])("firm workflow unfreezes an HTTP %i replay only after reso
     projects: [], policies: [], invoices: [] });
   type ResponseMode = "timeout" | "commit-timeout" | "reject" | "save";
   let mode: ResponseMode = "timeout", readAvailable = true, reads = 0, writes = 0;
+  let failNextRead = false;
   const entries = new Map<string, z.infer<typeof TimeEntrySchema>>();
   const platform = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
@@ -86,6 +87,10 @@ test.each([400, 422])("firm workflow unfreezes an HTTP %i replay only after reso
     if (path !== "/api/back-office/timesheet") return new Response(null, { status: 404 });
     if (request.method === "GET") {
       reads++;
+      if (failNextRead) {
+        failNextRead = false;
+        return new Response("<html>Temporary error</html>", { status: 500 });
+      }
       return readAvailable ? Response.json({ ...state, entries: [...entries.values()] }) : new Response(null, { status: 503 });
     }
     writes++;
@@ -135,12 +140,19 @@ test.each([400, 422])("firm workflow unfreezes an HTTP %i replay only after reso
       return { patch, command, url, revision };
     }
 
+    failNextRead = true;
+    const refreshed = await api("/back-office/timesheet?scope=team");
+    expect(refreshed.status).toBe(200);
+    expect(TimesheetStateSchema.parse(await refreshed.json()).service).toBe("workflow");
+    expect(reads).toBe(2);
+
     const missing = await draft(crypto.randomUUID());
     expect((await api(missing.url, missing.command)).status).toBeGreaterThanOrEqual(500);
+    expect(writes).toBe(1);
     mode = "reject";
     readAvailable = false;
     expect((await api(missing.url, missing.command)).status).toBe(validationStatus);
-    expect(reads).toBe(1);
+    expect(reads).toBe(4);
     const edit = { ...missing.patch, revision: missing.revision, changes: { narrative: "Corrected work" } };
     expect((await api(workday, edit)).status).toBe(409);
     expect((await api(workday, { ...edit, changes: null })).status).toBe(409);
@@ -152,7 +164,7 @@ test.each([400, 422])("firm workflow unfreezes an HTTP %i replay only after reso
     const rejected = await api(missing.url, missing.command);
     expect(rejected.status).toBe(validationStatus);
     expect(await rejected.json()).toMatchObject({ message: "The selected matter is closed. Choose another." });
-    expect(reads).toBe(2);
+    expect(reads).toBe(5);
     const correction = await api(workday, edit);
     expect(correction.status).toBe(200);
     const updated = captureStateSchema.parse(await correction.json()).drafts[missing.command.requestId];

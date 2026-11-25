@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
@@ -23,16 +24,20 @@ export async function requestPlatformTimesheet(
       "Sign in to the firm to use shared timesheets.",
     );
   await ensureFreshPlatformToken(config);
-  const client = requireIntakeClient(
-    await requireBackOfficePrincipal(config, principal),
-  );
+  const request = async () => {
+    const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
+    return intakeRequest(client, method, "/api/back-office/timesheet" + path, body);
+  };
   try {
-    const value = await intakeRequest(
-      client,
-      method,
-      "/api/back-office/timesheet" + path,
-      body,
-    );
+    const value = await request().catch(async (error: unknown) => {
+      // Keep the existing write recovery path. A failed response may follow a committed write.
+      const upstreamStatus = error instanceof ApiError && error.code === "back_office_sync_failed"
+        ? error.details : undefined;
+      if (method !== "GET" || path || typeof upstreamStatus !== "number" || ![500, 502, 503, 504].includes(upstreamStatus))
+        throw error;
+      await delay(250);
+      return request();
+    });
     await requireBackOfficePrincipal(config, principal);
     return value;
   } catch (error) {

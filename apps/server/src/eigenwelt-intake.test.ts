@@ -175,7 +175,11 @@ describe("platform answers that are not intake answers", () => {
         status: 502,
         code: "back_office_sync_failed",
       });
-      expect(warn.mock.calls).toEqual([["[back-office] Model API timesheet request failed", { requestId, status: 500 }]]);
+      const outboundId = headerOf(calls[0], "X-Request-Id");
+      expect(outboundId).toMatch(/^[a-f0-9-]{36}$/);
+      expect(warn.mock.calls).toEqual([["[back-office] Model API timesheet request failed", {
+        requestId: outboundId, status: 500, upstreamRequestId: requestId,
+      }]]);
     } finally {
       warn.mockRestore();
     }
