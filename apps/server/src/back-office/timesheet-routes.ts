@@ -13,7 +13,6 @@ import {
   requiresTimeAllocations,
   privateBookingRevisionSchema,
   draftRules, soleMatterClient, TimesheetCommandSchema,
-  TimesheetStateSchema,
   type TimesheetState,
 } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
@@ -203,15 +202,8 @@ export function registerTimesheetRoutes(
       const command = checkedCommand;
       if (command?.type === "prepareInvoice" || command?.type === "approveInvoice" ||
           command?.type === "issueInvoice" || command?.type === "reviewInvoiceWording" ||
-          command?.type === "template")
+          command?.type === "template" || command?.type === "invoice")
         timeError("Use Create Invoice to save the invoice record.", 409);
-      if (command?.type === "invoice")
-        timeError("Prepare and approve the invoice before issuing.", 409);
-      if (command?.type === "template" && command.template.word) {
-        if (!access.actor.finance)
-          timeError("Billing access is required.", 403);
-        validateWordTemplate(command.template);
-      }
       if (
         command?.type === "submit" &&
         command.entries.some((entry) => entry.shareOriginal)
