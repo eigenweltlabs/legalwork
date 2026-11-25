@@ -16,22 +16,18 @@ import { resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-poli
 import { acceptPrivateProposal, captureProfile } from "./time-capture/routes.js";
 import { proposalCommitment } from "./time-capture/original.js";
 
-test("firm invoice draft documents preserve the requested revision through the proxy", async () => {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-firm-invoice-revision-"));
+test("the desktop no longer proxies firm invoice draft documents", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-firm-invoice-document-"));
   const config = backOfficeTestConfig(root);
-  const draftId = crypto.randomUUID(), revision = "a".repeat(64), obsolete = "b".repeat(64);
-  const requests: Array<{ format: string | null; revision: string | null }> = [];
-  const documentPath = `/api/back-office/timesheet/drafts/${draftId}/document`;
+  const draftId = crypto.randomUUID();
+  let documentRequests = 0;
   const platform = Bun.serve({ port: 0, fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/api/desktop/policy") return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Test firm", revision: 1, role: "admin", updatedAt: null,
       entries: { "backOffice.sync": { mode: "enforced", value: { enabled: true, modelEditors: ["reviewer"], directoryEditors: ["reviewer"], billingMembers: ["reviewer"] } } } });
     if (url.pathname === "/api/desktop/policy/secrets") return Response.json({ schemaVersion: 1, revision: 1, secrets: {} });
-    if (url.pathname !== documentPath || request.method !== "GET") return new Response(null, { status: 404 });
-    const format = url.searchParams.get("format"), requested = url.searchParams.get("revision");
-    requests.push({ format, revision: requested });
-    if (requested !== revision) return Response.json({ message: "Draft revision required or changed" }, { status: 409 });
-    return Response.json({ format, contentBase64: Buffer.from(`Draft ${format} at ${requested}`).toString("base64") });
+    if (url.pathname === `/api/back-office/timesheet/drafts/${draftId}/document`) documentRequests++;
+    return new Response(null, { status: 404 });
   } });
   const oldURL = process.env.EIGENWELT_PLATFORM_URL;
   process.env.EIGENWELT_PLATFORM_URL = platform.url.origin;
@@ -39,23 +35,15 @@ test("firm invoice draft documents preserve the requested revision through the p
     account: { userId: "reviewer", orgId: "firm", orgName: "Test firm", orgRole: "org:admin", userName: "Reviewer", userEmail: null } });
   await scheduleOrgPolicySync(config, { force: true });
   const server = await startServer(config);
-  const download = (format: string, requested?: string) => fetch(
-    `http://127.0.0.1:${server.port}/back-office/timesheet/drafts/${draftId}/document?scope=team&format=${format}${requested ? "&revision=" + requested : ""}`,
-    { headers: { authorization: "Bearer fixture", "x-legalwork-host-token": "host" } },
-  );
   try {
     for (const format of ["pdf", "docx"]) {
-      const file = await download(format, revision);
-      expect(file.status).toBe(200);
-      expect(await file.text()).toBe(`Draft ${format} at ${revision}`);
+      const response = await fetch(
+        `http://127.0.0.1:${server.port}/back-office/timesheet/drafts/${draftId}/document?scope=team&format=${format}`,
+        { headers: { authorization: "Bearer fixture", "x-legalwork-host-token": "host" } },
+      );
+      expect(response.status).toBe(404);
     }
-    expect((await download("pdf", obsolete)).status).toBe(409);
-    expect((await download("pdf")).status).toBe(409);
-    expect((await download("pdf", "invalid")).status).toBe(400);
-    expect(requests).toEqual([
-      { format: "pdf", revision }, { format: "docx", revision },
-      { format: "pdf", revision: obsolete }, { format: "pdf", revision: null },
-    ]);
+    expect(documentRequests).toBe(0);
   } finally {
     await server.stop();
     await resetOrgPolicyRuntimeForTests(config);

@@ -169,6 +169,7 @@ export function TimesheetWorkspace({
   const invoices = canOpenInvoices && state ? (
     recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
       <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={!team && page === "billing-review" ? "submitted" : "invoices"}
+        directory={directory} columnScope={workdayScope + ":unbilled"} onSaveView={onSaveView}
         invoiceRegister={renderRecords("invoices", { scope: state.scope, userId: state.userId, invoices: state.invoices })}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
         renderRecordHistory={team ? (entry, close) => <RecordHistorySidebar key={entry.id}

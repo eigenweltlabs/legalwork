@@ -44,7 +44,7 @@ import { calendarClientScope } from "../calendar/calendar-cache";
 import { applySavedRecord, backOfficeReadFailure, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeReadFailure, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
-import { ValueDisplay } from "./record-values";
+import { RecordChip, ValueDisplay } from "./record-values";
 import { RecordDetail } from "./record-detail";
 import { creatableRecordObject } from "./record-creation-values";
 import { ModelEditor } from "./model-editor";
@@ -200,6 +200,9 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
         !isInternalBackOfficeObject(object.id),
     );
   const billingTarget = detail?.objectId === "matters" ? "matter" : detail?.objectId === "clients" ? "client" : undefined;
+  const invoicedEntries = detail?.objectId === "invoices" && !pendingDetail
+    ? records.filter(record => record.objectId === "timeEntries" && record.values.invoice === detail.id)
+    : [];
   const timeTracking = useQuery(timeTrackingProfile(billingTarget || billingSettings ? client : null));
   const request = (path: string, body: unknown, method = "POST") =>
     client.backOffice(path, { method, body, team });
@@ -631,6 +634,17 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
               onSave={save}
               onOpen={openRecord}
             >
+              {invoicedEntries.length > 0 && (
+                <div className="bo-property">
+                  <label>
+                    <ObjectIcon id="timeEntries" size={13} />
+                    {t("back_office.timeEntries.plural")}
+                  </label>
+                  <div className="bo-relation-values">
+                    {invoicedEntries.map(entry => <RecordChip key={entry.id} record={entry} onOpen={openRecord} />)}
+                  </div>
+                </div>
+              )}
               {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
                 {timeTracking.data?.enabled !== false && billingTarget && data.directoryId && (
                   <><Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({

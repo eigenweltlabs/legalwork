@@ -33,6 +33,9 @@ import { BillingAdjustments } from "./billing-adjustments";
 import { BillingCosts } from "./billing-costs";
 import { feeSummary, useBillingAction, type BillingProps } from "./billing-components";
 import { reviewPeriod } from "./billing-amounts";
+import { UnbilledTimeGrid } from "./unbilled-time-grid";
+import type { BackOfficeState } from "./api";
+import type { SaveBackOfficeView } from "./record-grid";
 import "./billing-review.css";
 
 type Mode = "submitted" | "approved" | "invoices" | "costs" | "adjustments";
@@ -120,7 +123,7 @@ export function BillingReview({
   initialDate,
   initialMatterId = "",
   initialMode = "submitted",
-  invoiceViews = false, renderRecordHistory, invoiceRegister,
+  invoiceViews = false, renderRecordHistory, invoiceRegister, directory, columnScope, onSaveView,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
@@ -129,6 +132,9 @@ export function BillingReview({
   invoiceViews?: boolean;
   invoiceRegister?: ReactNode;
   renderRecordHistory?: (entry: TimeEntry, close: () => void) => ReactNode;
+  directory: BackOfficeState;
+  columnScope: string;
+  onSaveView: SaveBackOfficeView;
   client: Pick<LegalworkServerClient, "downloadTimesheetAdjustment">;
 }) {
   const locale = useLocale();
@@ -265,6 +271,7 @@ export function BillingReview({
   }
   const supportsCreation = state.supportsInvoiceCreation === true;
   const canCreate = (state.canInvoice ?? state.canReview) && canEdit && supportsCreation;
+  const hasInvoiceableRows = !unbilledView || rows.some(entry => invoiceEntryAccess(state, entry).authorized);
   const historyEntry = rows.find(entry => entry.id === historyId);
   const draftMatter = invoiceEntry?.matterId || matter;
   const draftClient = invoiceEntry?.clientId || billTo;
@@ -314,7 +321,7 @@ export function BillingReview({
             <SlidersHorizontal />{t("invoiceReview.filters")}</Button>}
           {invoiceViews && mode === "invoices" && <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/back-office/invoices">
             {t("timesheets.invoice_record_add")}</Link>}
-          {["approved", "invoices", "submitted"].includes(mode) && supportsCreation && <Button size="sm"
+          {["approved", "invoices", "submitted"].includes(mode) && supportsCreation && hasInvoiceableRows && <Button size="sm"
             disabled={!canCreate} onClick={() => { setInvoiceEntry(undefined); setInvoiceScreen("invoice"); }}>
             <Plus />{t(invoiceScreen === "review" ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button>}
@@ -369,7 +376,49 @@ export function BillingReview({
         <BillingCosts rows={all} state={state} onCommand={onCommand} />
       ) : mode === "invoices" ? (invoiceRegister ?? (
         <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("back_office.billing.no_invoices")}</EmptyTitle></EmptyHeader></Empty>
-      )) : (
+      )) : unbilledView ? (
+        <div className="relative flex min-h-0 min-w-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <UnbilledTimeGrid directory={directory} columnScope={columnScope} onSaveView={onSaveView}
+              pending={pending}
+              onAssignClient={(entry, clientId) => void send({ type: "assignBillingClient", id: entry.id, revision: entry.revision, clientId }).catch(() => {})}
+              rows={rows.map(entry => {
+                const { authorized, policy } = invoiceEntryAccess(state, entry);
+                const priced = pricedEntry(entry);
+                const fixed = Boolean(entry.nonHourlyApproval || policy.nonHourlyAgreement);
+                const assignedReviewer = reviewInfo.get(entry.id)?.eligible === true;
+                const clients = state.supportsBillingClientAssignment && !entry.clientId && assignedReviewer
+                  ? state.clients.filter(client => state.matters.some(matter => matter.id === entry.matterId && matter.clientIds.includes(client.id)))
+                  : [];
+                const status = entry.legacy ? t("invoiceReview.imported_locked")
+                  : !entry.clientId ? t("invoiceReview.missing_recipient")
+                  : entry.status === "submitted" ? t("invoiceReview.await_review")
+                  : authorized ? t(!fixed && !hasTimeEntryPrice(priced) ? "invoiceReview.no_rate" : "timesheets.ledger.status.approved")
+                  : entry.status === "confirmed" ? t(entry.workerId === state.userId ? "invoiceReview.ready_to_submit" : "invoiceReview.await_submission")
+                  : t("invoiceReview.other_reviewer");
+                return { entry, priced, fixed, status, clients, invoiceable: canCreate && authorized,
+                  canReview: entry.status === "submitted" && assignedReviewer,
+                  matter: groups.matters.get(entry.matterId) ?? "", timekeeper: groups.people.get(entry.workerId) ?? "" };
+              })}
+              selectionActions={(records, clear) => {
+                const candidates = records.map(record => eligibleRows.find(entry => entry.id === record.id));
+                if (candidates.some(entry => !entry || adjustments.some(adjustment =>
+                  adjustment.status === "pending" && appliesTimeAdjustment(entry, adjustment)))) return null;
+                return <>
+                  <Input className="w-auto" aria-label={t("back_office.billing.return_reason")}
+                    placeholder={t("back_office.billing.return_reason")} value={reason} onChange={event => setReason(event.target.value)} />
+                  <Button size="sm" variant="outline" disabled={pending} onClick={() => {
+                    void send({ type: "return", entries: records.map(({ id, revision }) => ({ id, revision })), reason: reason.trim() || undefined })
+                      .then(() => { clear(); setReason(""); }).catch(() => {});
+                  }}>{t("back_office.billing.price_return")}</Button>
+                </>;
+              }}
+              onInvoice={entry => { setInvoiceEntry(entry); setInvoiceScreen("invoice"); }}
+              onHistory={entry => setHistoryId(entry.id)} />
+          </div>
+          {historyEntry && renderRecordHistory?.(historyEntry, () => setHistoryId(""))}
+        </div>
+      ) : (
         <>
           <div className="bo-billing-body">
             <Table>
@@ -652,7 +701,7 @@ export function BillingReview({
           </footer>
         </>
       )}
-      {historyEntry && renderRecordHistory?.(historyEntry, () => setHistoryId(""))}
+      {!unbilledView && historyEntry && renderRecordHistory?.(historyEntry, () => setHistoryId(""))}
       {(error || downloadError) && (
         <div className="bo-billing-error" role="alert">
           {error || downloadError}
