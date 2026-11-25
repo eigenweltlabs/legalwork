@@ -11,6 +11,7 @@ export function isTimekeepingBillingCommand(command: TimesheetCommand) {
     case "return":
     case "applyWording":
     case "assignBillingClient":
+    case "createInvoice":
     case "prepareInvoice":
     case "reviewInvoiceWording":
     case "approveInvoice":
@@ -28,6 +29,7 @@ export const chatBillingAction = z.discriminatedUnion("action", [
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
     matterId: z.string().optional(),
+    invoiceNumber: z.number().int().positive().safe().optional(),
   }),
   z.strictObject({
     action: z.literal("apply"),

@@ -110,6 +110,7 @@ export function BillingInvoiceDraft({
   onIssued,
 }: DraftProps) {
   const locale = useLocale();
+  const recordOnly = state.supportsInvoiceCreation === true;
   const approvalPane = useContext(InvoiceApprovalPane);
   const closeApproval = approvalPane?.close;
   useEffect(() => () => closeApproval?.(), [closeApproval]);
@@ -381,7 +382,7 @@ export function BillingInvoiceDraft({
     return current && (entry.hourlyRate !== current.hourlyRate || entry.currency !== current.currency);
   });
   const visibleDraft =
-    draft &&
+    !recordOnly && draft &&
     JSON.stringify(matchingInput) === JSON.stringify(draft.input) &&
     !legacyCutoffUnavailable &&
     !hourlyPricingMissing &&
@@ -459,10 +460,18 @@ export function BillingInvoiceDraft({
     if (!input.success || hourlyPricingMissing || agreementBlock || invalidDates || pendingAdjustments || legacyCutoffUnavailable) return;
     setSaving(true);
     try {
-      await send({ type: "prepareInvoice", draft: input.data });
-      approvalPane?.open();
+      if (recordOnly) {
+        const revision = JSON.stringify(input.data);
+        if (request.current?.revision !== revision)
+          request.current = { revision, id: crypto.randomUUID() };
+        await send({ type: "createInvoice", invoice: input.data, requestId: request.current.id });
+        onIssued();
+      } else {
+        await send({ type: "prepareInvoice", draft: input.data });
+        approvalPane?.open();
+      }
     } catch {
-      // The draft form keeps its inputs and shows the server error.
+      // Keep the inputs available for retry.
     } finally {
       setSaving(false);
     }
@@ -470,7 +479,7 @@ export function BillingInvoiceDraft({
 
   const selectableRows = checks.filter(row => row.authorized);
   const unavailableRows = checks.filter(row => !row.authorized && row.entry.billable);
-  const editingSelection = stage === "entries";
+  const editingSelection = !recordOnly && stage === "entries";
   const amounts = new Map(visibleDraft?.lines.map(line => [line.entry.id, line]));
   const rateGroups = new Map(included.map(entry =>
     [JSON.stringify([entry.workerId, entry.date, entry.projectId, entry.hourlyRate, entry.currency, entry.nonHourlyApproval]), entry]));
@@ -569,14 +578,14 @@ export function BillingInvoiceDraft({
   return (
     <div className="bo-billing-body bo-invoice-draft">
       <header className="bo-invoice-header">
-        <Button size="icon-sm" variant="ghost" onClick={editingSelection ? onCancel : () => showStage("entries")} disabled={pending} aria-label={t("common.back")} title={t("common.back")}>
+        <Button size="icon-sm" variant="ghost" onClick={recordOnly || editingSelection ? onCancel : () => showStage("entries")} disabled={pending} aria-label={t("common.back")} title={t("common.back")}>
           <ArrowLeft size={16} />
         </Button>
         <h2>{t("invoiceReview.create")}</h2>
       </header>
       <div className="bo-invoice-scroll" ref={scroll}>
       <fieldset disabled={pending} className="bo-invoice-content">
-        {editingSelection ? <>
+        {(recordOnly || editingSelection) && <>
           <div className="bo-invoice-parties">
             <Field className="min-w-0">
               <FieldLabel htmlFor={matterInputId}>{t("back_office.billing.matter")}</FieldLabel>
@@ -676,9 +685,12 @@ export function BillingInvoiceDraft({
               </li>)}</ul>
             </details>}
           </section>}
-        </> : <>
-          <h3 ref={stageTitle} tabIndex={-1} className="text-base font-semibold focus:outline-none">{t("invoiceReview.details")}</h3>
-          <p className="mt-1 mb-4 text-muted-foreground">{matter?.name}{" · "}{currentClient?.name}</p>
+        </>}
+        {(!recordOnly ? !editingSelection : included.length > 0) && <>
+          {!recordOnly && <>
+            <h3 ref={stageTitle} tabIndex={-1} className="text-base font-semibold focus:outline-none">{t("invoiceReview.details")}</h3>
+            <p className="mt-1 mb-4 text-muted-foreground">{matter?.name}{" · "}{currentClient?.name}</p>
+          </>}
           {legacyCutoffUnavailable && (
             <p role="status" className="mb-3">{t("invoiceReview.legacy_currency_cutoff")}</p>
           )}
@@ -773,7 +785,7 @@ export function BillingInvoiceDraft({
               </div>}
             </details>}
           </details>
-          {included.length > 0 && <details className="bo-invoice-disclosure" open={suggestedWording.length > 0 || undefined}>
+          {!recordOnly && included.length > 0 && <details className="bo-invoice-disclosure" open={suggestedWording.length > 0 || undefined}>
             <summary><ChevronRight size={15} />{t("invoiceReview.result")}</summary>
             {suggestedWording.length > 0 && <div className="bo-invoice-line-actions">
               <Button size="sm" variant="outline"
@@ -859,16 +871,16 @@ export function BillingInvoiceDraft({
         <div className="bo-invoice-footer-actions">
           {editingSelection ? <Button size="sm" disabled={!included.length || invalidDates || pending}
             onClick={() => showStage("details")}>{t("common.continue")}</Button> : <>
-            <Button size="sm" variant="ghost" disabled={pending} onClick={() => showStage("entries")}>{t("invoiceReview.edit_selection")}</Button>
+            {!recordOnly && <Button size="sm" variant="ghost" disabled={pending} onClick={() => showStage("entries")}>{t("invoiceReview.edit_selection")}</Button>}
             <Button size="sm" variant={visibleDraft ? "outline" : "default"}
               disabled={!input.success || hourlyPricingMissing || !!agreementBlock || invalidDates || pending || pendingAdjustments || legacyCutoffUnavailable} onClick={() => void saveDraft()}>
               {saving && <Loader2 size={14} className="animate-spin" />}
-              {t(visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
+              {t(recordOnly ? "invoiceReview.create" : visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
             </Button>
           </>}
         </div>
       </footer>
-      {approvalPane?.target && createPortal(approvalContent, approvalPane.target)}
+      {!recordOnly && approvalPane?.target && createPortal(approvalContent, approvalPane.target)}
       {rateEntry && <Dialog open onOpenChange={open => { if (!open && !savingRate.current) setRateEntry(undefined); }}>
         <DialogContent showCloseButton={false} className="max-h-[85dvh] flex flex-col sm:max-w-xl">
           <DialogHeader>

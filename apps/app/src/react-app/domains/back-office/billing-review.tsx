@@ -259,7 +259,8 @@ export function BillingReview({
       setDownloadError(err instanceof Error ? err.message : t("back_office.billing.download_failed"));
     }
   }
-  const canCreate = (state.canInvoice ?? state.canReview) && canEdit && state.supportsInvoiceDrafts === true;
+  const supportsCreation = state.supportsInvoiceCreation || state.supportsInvoiceDrafts;
+  const canCreate = (state.canInvoice ?? state.canReview) && canEdit && supportsCreation === true;
   const historyEntry = rows.find(entry => entry.id === historyId);
   const draftMatter = invoiceEntry?.matterId || matter;
   const draftClient = invoiceEntry?.clientId || billTo;
@@ -311,14 +312,14 @@ export function BillingReview({
             <SlidersHorizontal />{t("invoiceReview.filters")}</Button>}
           {invoiceViews && mode === "invoices" && <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/back-office/invoices">
             {t("timesheets.invoice_record_add")}</Link>}
-          {["approved", "invoices", "submitted"].includes(mode) && state.supportsInvoiceDrafts && <Button size="sm"
+          {["approved", "invoices", "submitted"].includes(mode) && supportsCreation && <Button size="sm"
             disabled={!canCreate} onClick={() => { setInvoiceEntry(undefined); setInvoiceScreen("invoice"); }}>
             <Plus />{t(resume ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button>}
         </div>
       </header>
       {["approved", "invoices", "submitted"].includes(mode) && !canCreate && <p className="px-4 py-2 text-sm text-muted-foreground" role="status">
-        {t(!state.supportsInvoiceDrafts ? "invoiceReview.firm_unavailable" : !canEdit ? "invoiceReview.read_only" : "invoiceReview.no_invoice_access")}
+        {t(!supportsCreation ? "invoiceReview.firm_unavailable" : !canEdit ? "invoiceReview.read_only" : "invoiceReview.no_invoice_access")}
       </p>}
       {(!invoiceViews || filtersOpen) && !(invoiceRegister && mode === "invoices") && <div className="bo-view-toolbar bo-invoice-index-toolbar">
         <label>

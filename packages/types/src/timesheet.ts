@@ -197,6 +197,7 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("policy"), policy: TimePolicySchema }),
   z.strictObject({ type: z.literal("assignBillingClient"), ...ref.shape, clientId: id }),
   z.strictObject({ type: z.literal("prepareInvoice"), draft: InvoiceDraftInputSchema }),
+  z.strictObject({ type: z.literal("createInvoice"), requestId: z.uuid(), invoice: InvoiceDraftInputSchema }),
   z.strictObject({ type: z.literal("reviewInvoiceWording"), id: z.uuid(), revision: digest,
     model: z.strictObject({ workspaceId: id, providerID: id, modelID: z.string().trim().min(1).max(300) }),
   }),
@@ -221,6 +222,7 @@ export function requiresInvoiceDrafts(command: TimesheetCommand) {
 }
 export const TimeInvoiceSchema = z.object({
   id,
+  recordOnly: z.literal(true).optional(),
   draftId: z.uuid().optional(),
   number: z.number().int().positive().safe(),
   entries: z.array(TimeEntrySchema.extend({
@@ -249,6 +251,7 @@ export const TimesheetStateSchema = z.object({
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
   supportsInvoiceDrafts: z.boolean().optional(),
+  supportsInvoiceCreation: z.boolean().optional(),
   supportsLocalInvoiceRendering: z.boolean().optional(),
   supportsBillingClientAssignment: z.boolean().optional(),
   supportsHourlyInvoiceCurrency: z.boolean().optional(),

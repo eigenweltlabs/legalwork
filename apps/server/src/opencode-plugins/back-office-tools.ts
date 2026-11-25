@@ -56,7 +56,7 @@ export function backOfficeTools(ctx: Plugin.Context) {
     }),
     nativeTool(ctx, {
       name: "legalwork_timekeeping_billing",
-      description: "Read, create and submit saved time, review assigned entries, and prepare, approve or issue a real invoice in the private Timekeeping chat. First read entries by period or matter for exact IDs, current revisions and reviewer requirements. Save directly when requiresReview is false. Only the assigned reviewer can review someone else's submitted entries. Use prepareInvoice to save the draft in the Invoices tab, then approveInvoice and issueInvoice only if the user requests each action. The app asks for confirmation and the PDF should be reviewed before approval. Use the same create or issue requestId when retrying. Read back results. For activity logs, private suggestions, guidelines and changing one's own saved entries, use legalwork_timekeeping_workday.",
+      description: "Read, create and submit time, review assigned entries, and create invoice records in the private Timekeeping chat. Read time by period or matter for current IDs, revisions and reviewer requirements. Save time directly when requiresReview is false. Only the assigned reviewer can review someone else's time. If supportsInvoiceCreation is true, use createInvoice to save a numbered invoice with the selected time after the user's confirmation in the app. Reuse the requestId when retrying. To create a document for an existing invoice, read with invoiceNumber for the saved recipient, line items and amounts, then use the workspace document tools. For older firms, prepareInvoice, approveInvoice and issueInvoice remain available when requested. Use legalwork_timekeeping_workday for activity, suggestions and editing your own entries.",
       schema: chatBillingAction,
       execute: async (input, context) => {
         const command = input.action === "apply" ? input.command : undefined;
@@ -67,12 +67,28 @@ export function backOfficeTools(ctx: Plugin.Context) {
         });
         if (!response.ok) throw new Error(z.object({ message: z.string() }).parse(await response.json()).message);
         const state = TimesheetStateSchema.parse(await response.json());
+        if (input.action === "read" && input.invoiceNumber !== undefined) {
+          const invoice = state.invoices.find(invoice => invoice.number === input.invoiceNumber);
+          if (!invoice) throw new Error("This invoice is unavailable.");
+          const client = state.clients.find(client => client.id === invoice.clientId);
+          return JSON.stringify({
+            number: invoice.number, issuedOn: invoice.snapshot?.date ?? invoice.issuedAt.slice(0, 10),
+            client: invoice.snapshot?.client ?? client?.name, billingAddress: invoice.snapshot?.clientAddress ?? client?.billingAddress,
+            currency: invoice.currency, total: invoice.total, totalMinor: invoice.totalMinor,
+            pricing: invoice.billingMode,
+            entries: invoice.entries.map(({ date, matterId, workerId, narrative, billableMinutes, hourlyRate, amountMinor }) =>
+              ({ date, matter: state.matters.find(matter => matter.id === matterId)?.name,
+                timekeeper: state.people.find(person => person.id === workerId)?.name,
+                narrative, billableMinutes, hourlyRate, amountMinor })),
+          });
+        }
         const matches = (row: { date: string; matterId: string }) => input.action !== "read" ||
           ((!input.from || row.date >= input.from) && (!input.to || row.date <= input.to) && (!input.matterId || row.matterId === input.matterId));
         const entries = state.entries.filter(matches);
         return JSON.stringify({
           service: state.service, userId: state.userId, canManage: state.canManage, canReview: state.canReview,
           canInvoice: state.canInvoice ?? state.canReview, supportsInvoiceDrafts: state.supportsInvoiceDrafts,
+          supportsInvoiceCreation: state.supportsInvoiceCreation,
           entries: entries.slice(0, 200).map(({ history, sharedOriginal, proposalDigest, ...entry }) => {
             const policy = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
             const reviewerId = assignedTimeReviewer(policy, entry.workerId);

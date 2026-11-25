@@ -59,7 +59,7 @@ export const DocumentSchema = z.discriminatedUnion("kind", [
     kind: z.literal("invoice"),
     id: z.string(),
     value: invoice,
-    document: z.string(),
+    document: z.string().optional(),
   }),
   z.object({ kind: z.literal("request"), id: z.string(), digest: z.string() }),
 ]);
@@ -332,6 +332,7 @@ export function readTimesheet(
     supportsBillingComparisons: false,
     supportsTimeAllocations: true,
     supportsInvoiceDrafts: scope === "local",
+    supportsInvoiceCreation: scope === "local",
     supportsBillingClientAssignment: scope === "local",
     supportsHourlyInvoiceCurrency: scope === "local",
     supportsInvoiceWordingReview: scope === "local" && actor.model && actor.finance && actor.edit,

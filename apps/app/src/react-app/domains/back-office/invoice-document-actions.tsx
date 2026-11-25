@@ -33,7 +33,7 @@ export function InvoiceDocumentActions({ client, scope, userId, invoice }: {
   invoice: TimeInvoice;
 }) {
   const pane = useContext(InvoiceApprovalPane);
-  if (!pane) return null;
+  if (!pane || invoice.recordOnly) return null;
   function open(format: "docx" | "pdf" | "html") {
     if (!pane) return;
     openInvoiceDocument(pane, client, { scope, userId }, {

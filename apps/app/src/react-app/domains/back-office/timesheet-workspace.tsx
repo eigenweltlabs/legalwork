@@ -146,7 +146,8 @@ export function TimesheetWorkspace({
       const latest = cache.getQueryData<TimesheetState | BackOfficeReadFailure>(key);
       if (latest && "loadError" in latest) throw latest.loadError;
       cache.setQueryData(key, next);
-      if (command.type === "issueInvoice") void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl, "auto"] });
+      if (command.type === "issueInvoice" || command.type === "createInvoice")
+        void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl, "auto"] });
       return next;
     } catch (error) {
       if (isCurrent() && isBackOfficeAccessError(error)) {
@@ -172,7 +173,7 @@ export function TimesheetWorkspace({
 
   const canOpenInvoices = state && (team || recordsOnly ? directory.permissions.finance : state.canReview || state.canManage);
   const invoices = canOpenInvoices && state ? (
-    (team && !state.supportsInvoiceDrafts) || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
+    (team && !state.supportsInvoiceCreation && !state.supportsInvoiceDrafts) || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
       <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={!team && page === "billing-review" ? "submitted" : "invoices"}
         invoiceRegister={renderRecords("invoices", { scope: state.scope, userId: state.userId, invoices: state.invoices })}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}

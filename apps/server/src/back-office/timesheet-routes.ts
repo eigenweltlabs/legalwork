@@ -199,7 +199,7 @@ export function registerTimesheetRoutes(
           const minimumBillableMinutes = Math.max(entry.minimumBillableMinutes ?? 0, rules.minimumMinutes);
           checkedCommand = { ...checkedCommand, entry: { ...entry, clientId, minimumBillableMinutes: minimumBillableMinutes || undefined } };
         }
-        if (checkedCommand && ["policy", "approveInvoice", "issueInvoice"].includes(checkedCommand.type)) {
+        if (checkedCommand && ["policy", "approveInvoice", "issueInvoice", "createInvoice"].includes(checkedCommand.type)) {
           const state = await billingState();
           let summary: string, description: string;
           if (checkedCommand.type === "policy") {
@@ -211,6 +211,17 @@ export function registerTimesheetRoutes(
             description = [target?.name ?? policy.targetId, "Effective from " + policy.effectiveFrom,
               reviewer ? "Reviewer: " + reviewer.name : "Reviewer: inherited or unassigned",
               JSON.stringify(policy, null, 2)].join("\n");
+          } else if (checkedCommand.type === "createInvoice") {
+            const { invoice: { clientId, matterId, entries, pricing } } = checkedCommand;
+            const client = state.clients.find(row => row.id === clientId);
+            const matter = state.matters.find(row => row.id === matterId && row.clientIds.includes(clientId));
+            if (!client || !matter) timeError("Choose an accessible matter and billing client.", 404);
+            summary = "Create this invoice?";
+            description = [matter.name, client.name, entries.length + " time entries",
+              pricing.mode === "fixed"
+                ? new Intl.NumberFormat("en", { style: "currency", currency: pricing.currency }).format(pricing.amountMinor / currencyScale(pricing.currency))
+                : "Hourly fees at the saved rates",
+              "This saves a numbered invoice and marks the selected time as invoiced."].join("\n");
           } else {
             if (checkedCommand.type !== "approveInvoice" && checkedCommand.type !== "issueInvoice") throw new Error("Invalid billing approval.");
             const { type, id, revision } = checkedCommand;
@@ -274,6 +285,12 @@ export function registerTimesheetRoutes(
           }
         }
         if (access.scope !== "local" && !recordsOnly) {
+          if (command?.type === "createInvoice") {
+            const capabilities = await platformState(access, "GET");
+            if (!capabilities.supportsInvoiceCreation)
+              timeError("The connected firm has not enabled direct invoice creation.", 501);
+            await assertIdentity(ctx, store, access);
+          }
           if (
             command &&
             (command.type === "reviewInvoiceWording" ||
@@ -634,7 +651,7 @@ export function registerTimesheetRoutes(
         const firm = isInvoice && access.scope !== "local" ? await platformDocumentState(access) : undefined;
         const renderLocally = firm?.supportsLocalInvoiceRendering;
         const sharedInvoice = renderLocally ? firm?.invoices.find(item => item.id === id) : undefined;
-        if (renderLocally && !sharedInvoice) timeError("The issued document is unavailable.", 404);
+        if (renderLocally && (!sharedInvoice || sharedInvoice.recordOnly)) timeError("The issued document is unavailable.", 404);
         if (sharedInvoice && format !== "html") {
           const word = renderWordInvoice(issuedOutput(sharedInvoice));
           const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
@@ -702,6 +719,7 @@ export function registerTimesheetRoutes(
           if (
             isInvoice &&
             d?.kind === "invoice" &&
+            d.document !== undefined &&
             canReadRecord(d.value.clientId) &&
             d.value.entries.every((e) => canReadRecord(e.matterId))
           ) {

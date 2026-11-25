@@ -803,6 +803,36 @@ try {
   const preparedFixed = calls.at(-1);
   assert.ok(preparedFixed?.type === "prepareInvoice" && preparedFixed.draft.pricing.mode === "fixed");
   assert.equal(preparedFixed.draft.pricing.amountMinor, 25000);
+
+  await render(null);
+  const recordState = { ...directState, supportsInvoiceCreation: true, policies: [{ ...policy, reviewerId: undefined }] };
+  await render(<BillingReview state={recordState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  const writesBeforeCreate = calls.length;
+  const filesBeforeCreate = requests.length;
+  await click(match("Create Invoice"));
+  const invoiceRecord = calls.at(-1);
+  assert.ok(invoiceRecord?.type === "createInvoice");
+  assert.deepEqual(invoiceRecord.invoice.entries, [{ id: fresh.id, revision: fresh.revision }]);
+  assert.deepEqual(invoiceRecord.invoice.pricing, { mode: "hourly", currency: "EUR" });
+  assert.equal(calls.length, writesBeforeCreate + 1);
+  assert.equal(requests.length, filesBeforeCreate);
+  assert.equal(approvalTarget.textContent, "");
+  assert.equal(host.querySelector(".bo-invoice-editor-view"), null);
+
+  await render(null);
+  await render(<BillingReview state={{ ...fixedState, supportsInvoiceCreation: true }} client={client}
+    canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  assert.equal(match("Create Invoice").disabled, true);
+  await click(match("Use fixed price"));
+  await write(field('input[inputmode="decimal"]'), "250");
+  await click(match("Create Invoice"));
+  const fixedRecord = calls.at(-1);
+  assert.ok(fixedRecord?.type === "createInvoice" && fixedRecord.invoice.pricing.mode === "fixed");
+  assert.equal(fixedRecord.invoice.pricing.amountMinor, 25000);
   console.log("Billing review passed");
 } finally {
   await act(async () => billingRoot.unmount());

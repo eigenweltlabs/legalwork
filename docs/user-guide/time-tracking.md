@@ -73,15 +73,13 @@ In a shared workspace, open **Review** and choose the service date or range. Cli
 
 1. Open **Invoices** and select **Create Invoice**. You can also open **Unbilled time** and choose **Invoice this entry** beside a row to start with it selected.
 2. Search for the **Matter**. If the matter has one billing client, LegalWork fills it in. When it has several, choose the **Client**.
-3. Check the time entries to invoice and select **Continue**. Use **Filter by date** if you need a shorter list. Expand **Entries outside this invoice** to see any entries awaiting review or missing a billing client.
-4. Open **Pricing and fee adjustments** in **Invoice details** to see each timekeeper’s hourly rate for their service date. A billing manager can choose **Edit rate**, enter the rate and currency if needed, and select **Save rate**. Hourly entries on one invoice must share a currency. For time covered by a flat-fee agreement, select **Use fixed price** and enter the agreed amount. **Invoice wording** contains the descriptions and suggestions.
-5. Choose **Save and preview**. Check the PDF in the **Invoice approval** tab on the right, then choose **Approve this invoice** and **Issue numbered invoice**. To return to a saved draft, choose **Continue invoice draft**. In **All invoices**, choose **Word** or **PDF** in the invoice document cell to open the issued file in a workspace tab.
+3. Check the time entries to invoice. Use **Filter by date** to narrow the list. **Entries outside this invoice** shows entries awaiting review or missing a billing client.
+4. Choose **Create Invoice** to save the numbered invoice in **All invoices** and mark the selected time as invoiced. For hourly work, LegalWork uses the saved rates. If a rate is missing, choose **Edit rate** and **Save rate**. For a flat-fee agreement, select **Use fixed price** and enter the agreed amount.
+5. For a document, ask the Timekeeping agent to create it from the saved invoice number. It can read the invoice’s recipient, amounts and time entries.
 
 For an imported, recorded entry you own, follow the link to **Time entries**, edit and save it, then return to the invoice. An approved imported record cannot be added directly. If an entry needs a billing client, choose **Assign to [client]** when offered. Assigning a recipient to a previously approved entry returns it to review under that client's billing terms.
 
-To change the selection from **Invoice details**, choose **Edit time entries**. After changing a description or accepting a suggestion, save and preview the updated draft. The AI wording check offers suggestions you can accept in **Invoice wording**. If the firm connection briefly drops, choose **Try again** to reconnect. The open editor keeps its inputs while access is restored.
-
-The approval screen displays the PDF rendered from the selected Word template. You can download the same PDF to inspect its letterhead, line items and total. Approval binds the line revisions, wording, amounts, recipient and template. A later edit requires a fresh preview and approval. Issuing the approved revision assigns an invoice number and makes the **Word** and **PDF** files available in the invoice grid. If PDF conversion is interrupted, retry the invoice's document download. The existing reservation and number are reused.
+Firms that still use the earlier invoice service show **Continue** and **Save and preview**. In that flow, review the PDF in **Invoice approval**, then choose **Approve this invoice** and **Issue numbered invoice**. Existing invoice files open from the **Word** or **PDF** buttons in the invoice grid. If the firm connection drops while editing, choose **Try again** to restore access and continue with the same selection.
 
 ## Set timekeeper rates
 
@@ -99,4 +97,4 @@ A connected directory can support synchronized time entries and invoice records 
 
 The floating bar shows the stopwatch beside the microphone. In the floating stopwatch or the Time header, search by matter name or reference, choose a match if you want to assign the time, and enter an optional **Quick note**. You can start and stop a personal timer with the matter blank. Booking the interval into the timesheet requires a matter. The note becomes the description of the stopped timer. You can update it when you stop the timer.
 
-The Timekeeping chat can save time, submit it to an assigned reviewer, and check the current invoice draft. When you ask it to review assigned time or prepare an invoice, it follows your account’s access and uses the current record revision. Approving or issuing an invoice from chat asks for your confirmation in the app.
+The Timekeeping chat can save time, submit it to an assigned reviewer, and create an invoice record. It follows your account’s access and uses the current record revisions. When you ask it to create an invoice, confirm the change in the app.
