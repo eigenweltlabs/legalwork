@@ -816,6 +816,34 @@ try {
   assert.equal(cell(row(bookedId), 5).textContent, "0:20");
   assert.equal(patchesAfterBooking, 0, "the old inline editor cannot write to a consumed private draft");
   assert.equal(visible(bookingDraftId), false);
+
+  const chooseRounding = TimesheetStateSchema.parse({ ...workflow, entries: [], policies: [
+    { scope: "firm", targetId: "firm", effectiveFrom: first, revision: 1, incrementMinutes: 6, rounding: "choose" },
+  ] });
+  for (const choice of [{ label: "0:54", minutes: 54 }, { label: "Non-billable", minutes: 0 }]) {
+    const chooseId = crypto.randomUUID(), chosenId = crypto.randomUUID();
+    const chooseCapture = capture({ drafts: { [chooseId]: { date: first, revision: 1, values: {
+      ...persisted.values, recordedMinutes: 50, billableMinutes: null,
+    } } } });
+    const bookings: TimeEntry[] = [];
+    await render(chooseCapture, [workerContact], chooseRounding, async request => {
+      assert.equal(request.type, "create");
+      assert.equal(request.requestId, chooseId);
+      bookings.push({ ...request.entry, id: chosenId, groupId: chooseId, authorId: "worker", workerId: "worker",
+        status: "confirmed", source: "manual", revision: 1, history: [] });
+      return { ...chooseRounding, entries: bookings };
+    });
+    assert.match(row(chooseId).textContent ?? "", /Choose billable time in 6-minute increments/);
+    assert.ok(button(row(chooseId), "0:48"));
+    assert.equal(bookings.length, 0, "an entry requiring a choice stays private until a billable amount is chosen");
+    await act(async () => button(row(chooseId), choice.label).click());
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].workedMinutes, 50);
+    assert.equal(bookings[0].billableMinutes, choice.minutes);
+    assert.equal(bookings[0].billable, choice.minutes > 0);
+    assert.ok(visible(chosenId));
+    assert.equal(visible(chooseId), false);
+  }
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

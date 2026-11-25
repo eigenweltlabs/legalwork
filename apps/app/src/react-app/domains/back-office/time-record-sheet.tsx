@@ -388,6 +388,37 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   function billingClients(matterId: BackOfficeValue | undefined) {
     return state.matters.find(matter => matter.id === matterId)?.clientIds.filter(id => availableClients.has(id)) ?? [];
   }
+  function bookingRules(values: TimeRecordValues, matter: TimesheetState["matters"][number], useGuidelines: boolean) {
+    const date = serviceDate(values);
+    const clientId = String(values.client || soleMatterClient(matter, state.clients) || "");
+    const guidelines = capture.guidelines ?? [];
+    if (!firmCommand && (!useGuidelines || !effectiveWorkdayGuidelines(state, guidelines, { date, clientId, matterId: matter.id }).length)) return;
+    const projectId = typeof values.project === "string" ? values.project : undefined;
+    return draftRules(state, guidelines, matter, date, projectId, clientId);
+  }
+  function draftBillableChoices(record: BackOfficeRecord) {
+    const { recordedMinutes, billableMinutes, activity } = record.values;
+    if (billableMinutes != null || typeof recordedMinutes !== "number" || recordedMinutes <= 0 || !canWrite(record)) return;
+    const matter = state.matters.find(item => item.id === record.values.matter);
+    const rules = matter && bookingRules(record.values, matter, true);
+    if (!rules) return;
+
+    const activityCode = String(activity ?? "");
+    const charge = workdayBillableMinutes(recordedMinutes, rules, activityCode);
+    if (charge !== undefined) return { label: t("timeWorkspace.chooseBillable"), amounts: charge > 0 ? [charge] : [] };
+
+    const increment = rules.incrementMinutes;
+    const maximum = rules.activityLimits[activityCode] ?? rules.maxMinutes;
+    const amounts = rules.enforceIncrement && rules.rounding === "choose"
+      ? [...new Set([Math.floor(recordedMinutes / increment), Math.ceil(recordedMinutes / increment)])]
+          .map(units => units * increment)
+          .filter(minutes => minutes > 0 && minutes >= rules.minimumMinutes && minutes <= maximum)
+      : [];
+    return {
+      label: amounts.length ? t("timeWorkspace.chooseBillableIncrement", { minutes: increment }) : t("timeWorkspace.noBillableAmount"),
+      amounts,
+    };
+  }
   function requiredFieldErrors(record: BackOfficeRecord) {
     const values = record.values;
     const timer = proposalMap.get(record.id)?.source === "stopwatch";
@@ -641,10 +672,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     if (matter && typeof next.values.recordedMinutes === "number") {
       const date = serviceDate(next.values);
       const clientId = String(next.values.client || soleMatterClient(matter, state.clients) || "");
-      const guidelines = capture.guidelines ?? [];
-      if (firmCommand || !origin && effectiveWorkdayGuidelines(state, guidelines, { date, clientId, matterId: matter.id }).length) {
-        const projectId = typeof next.values.project === "string" ? next.values.project : undefined;
-        const rules = draftRules(state, guidelines, matter, date, projectId, clientId);
+      const rules = bookingRules(next.values, matter, !origin);
+      if (rules) {
         const activity = String(next.values.activity ?? "");
         const maximum = rules.activityLimits[activity] ?? rules.maxMinutes;
         const charge = next.values.billableMinutes;
@@ -874,8 +903,21 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
           const error = edits.draftErrors.get(record.id), change = edits.updates.get(record.id)?.[0];
           const draft = record.revision === 0 && (edits.drafts.has(record.id) || Boolean(capture.drafts[record.id]));
           if (!draft && !error && !change?.error && !change?.conflict) return null;
+          const billable = draft ? draftBillableChoices(record) : undefined;
+          const chooseBillable = (minutes: number) => void edit(record, { billableMinutes: minutes }).catch(error => {
+            edits.draftErrors.set(record.id, errorMessage(error));
+            edits.changed();
+          });
           return <div className="time-proposal-details">
             {draft && record.id !== blankId && <small>{t("timesheets.sheet.private_draft")}</small>}
+            {billable && <div role="group" aria-label={billable.label} className="flex flex-wrap items-center gap-2">
+              <small>{billable.label}</small>
+              {billable.amounts.map(minutes => <Button key={minutes} size="xs" variant="outline" disabled={edits.saving.has(record.id)}
+                onClick={() => chooseBillable(minutes)}>{formatTimeDuration(minutes, durationFormat)}</Button>)}
+              <Button size="xs" variant="ghost" disabled={edits.saving.has(record.id)} onClick={() => chooseBillable(0)}>
+                {t("timesheets.ledger.nonbillable")}
+              </Button>
+            </div>}
             {draft && <button disabled={edits.saving.has(record.id)} onClick={() => discardDraft(record.id)}>{t("timesheets.sheet.edit_discard")}</button>}
             {error && draftError(record.id)}
             {change?.error && <span role="alert" className="bo-error">{change.error} <button onClick={() => resolveUpdate(record.id, change, null)}>{t("timesheets.retry")}</button> <button onClick={() => resolveUpdate(record.id, change, false)}>{t("timesheets.sheet.edit_discard")}</button></span>}
