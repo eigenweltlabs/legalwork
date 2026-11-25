@@ -20,7 +20,7 @@ import { RecordHistorySidebar } from "./history-panel";
 import { RecordGrid, type SaveBackOfficeView } from "./record-grid";
 import { ValueDisplay } from "./record-values";
 import type { RenderTimeWorkspace } from "./timesheet-workday";
-import { localRecordInstant, proposalAssignment, proposalValues, timeRecordDate } from "./time-record-values";
+import { billableRoundingChoices, localRecordInstant, proposalAssignment, proposalValues, timeRecordDate } from "./time-record-values";
 import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, privateDraftConflict, timeCellChanges, timeRecordConflictSchema, timeRecordEdits, timeRowClipboardSchema, type TimeRecordEdit, type TimeRecordValues, type TimeRowDraft } from "./time-record-edits";
 import { useBookingReceipt } from "./time-booking-receipt";
 import { periodTimeTotals } from "./timesheet-row";
@@ -407,15 +407,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     const charge = workdayBillableMinutes(recordedMinutes, rules, activityCode);
     if (charge !== undefined) return { label: t("timeWorkspace.chooseBillable"), amounts: charge > 0 ? [charge] : [] };
 
-    const increment = rules.incrementMinutes;
-    const maximum = rules.activityLimits[activityCode] ?? rules.maxMinutes;
-    const amounts = rules.enforceIncrement && rules.rounding === "choose"
-      ? [...new Set([Math.floor(recordedMinutes / increment), Math.ceil(recordedMinutes / increment)])]
-          .map(units => units * increment)
-          .filter(minutes => minutes > 0 && minutes >= rules.minimumMinutes && minutes <= maximum)
-      : [];
+    const amounts = billableRoundingChoices(recordedMinutes, rules, activityCode);
     return {
-      label: amounts.length ? t("timeWorkspace.chooseBillableIncrement", { minutes: increment }) : t("timeWorkspace.noBillableAmount"),
+      label: amounts.length ? t("timeWorkspace.chooseBillableIncrement", { minutes: rules.incrementMinutes }) : t("timeWorkspace.noBillableAmount"),
       amounts,
     };
   }

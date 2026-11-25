@@ -92,6 +92,7 @@ export default {
   "timeWorkspace.foreground": "Active work",
   "timeWorkspace.passive": "Open in the background",
   "timeWorkspace.noActivity": "No activity",
+  "timeWorkspace.optionalActivity": "Activity (optional)",
   "timeWorkspace.noStopwatchMatters": "Create a matter in Back Office to start the stopwatch.",
   "timeWorkspace.stopwatchStart": "Start stopwatch",
   "timeWorkspace.stopwatchStop": "Stop stopwatch",

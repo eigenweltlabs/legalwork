@@ -102,6 +102,7 @@ const de = {
   "timeWorkspace.foreground": "Aktive Arbeit",
   "timeWorkspace.passive": "Im Hintergrund geöffnet",
   "timeWorkspace.noActivity": "Keine Tätigkeit",
+  "timeWorkspace.optionalActivity": "Tätigkeit (optional)",
   "timeWorkspace.noStopwatchMatters": "Legen Sie im Back Office ein Mandat an, um die Stoppuhr zu starten.",
   "timeWorkspace.stopwatchStart": "Stoppuhr starten",
   "timeWorkspace.stopwatchStop": "Stoppuhr stoppen",
