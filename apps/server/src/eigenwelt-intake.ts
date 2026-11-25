@@ -346,8 +346,12 @@ async function intakeFailure(response: Response, path: string): Promise<ApiError
     case 429:
       return new ApiError(429, "intake_rate_limited", message || "Too many intake requests. Please try again shortly.");
     default:
-      if (path === "/api/back-office" || path.startsWith("/api/back-office/"))
+      if (path === "/api/back-office" || path.startsWith("/api/back-office/")) {
+        const requestId = response.headers.get("x-request-id");
+        if (code === "timesheet_internal_error" && requestId && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(requestId))
+          console.warn("[back-office] Model API timesheet request failed", { requestId, status: response.status });
         return new ApiError(502, "back_office_sync_failed", `Back Office could not sync with the firm (HTTP ${response.status}).`);
+      }
       return new ApiError(502, "intake_request_failed", message || `The intake request failed (HTTP ${response.status}).`);
   }
 }

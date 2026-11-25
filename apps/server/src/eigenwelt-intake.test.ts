@@ -1,4 +1,4 @@
-import { describe, expect, test, afterEach } from "bun:test";
+import { describe, expect, test, afterEach, spyOn } from "bun:test";
 
 import {
   intakeCreateTask,
@@ -7,6 +7,7 @@ import {
   intakeListMembers,
   intakeListTasks,
   intakePatchTask,
+  intakeRequest,
   intakeUploadAttachments,
   requireIntakeClient,
   EIGENWELT_INTAKE_MAX_UPLOAD_FILES,
@@ -163,6 +164,23 @@ describe("intakeListTasks", () => {
 });
 
 describe("platform answers that are not intake answers", () => {
+  test("logs a timesheet request ID without logging the error body", async () => {
+    const requestId = "54b80509-d718-4ac7-9fe0-319324c039f6";
+    stubFetch(() => Response.json({ code: "timesheet_internal_error", message: "Private data" }, {
+      status: 500, headers: { "X-Request-Id": requestId },
+    }));
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(intakeRequest(client, "GET", "/api/back-office/timesheet")).rejects.toMatchObject({
+        status: 502,
+        code: "back_office_sync_failed",
+      });
+      expect(warn.mock.calls).toEqual([["[back-office] Model API timesheet request failed", { requestId, status: 500 }]]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("refuses a redirect instead of following it to the sign-in page", async () => {
     stubFetch(() => new Response(null, { status: 307, headers: { Location: "/sign-in" } }));
     await expect(intakeListTasks(client)).rejects.toMatchObject({
