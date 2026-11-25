@@ -103,7 +103,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   const [validationAttempts, setValidationAttempts] = useState<Set<string>>(() => new Set());
   const userId = directory.permissions.userId;
   const latestState = useRef(state);
-  latestState.current = state;
+  useLayoutEffect(() => { latestState.current = state; }, [state]);
   const [submitting, setSubmitting] = useState(false);
   const [submitNotice, setSubmitNotice] = useState<{ message: string; error?: boolean }>();
   const roster = useQuery({ queryKey: ["back-office", client.baseUrl, "time-members", directory.scope, directory.directoryId, userId, directory.permissions.principalKey],
@@ -138,6 +138,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   const candidateOrigins = useRef(new WeakMap<BackOfficeRecord, CaptureProposal>());
   const currentCapture = useRef(capture);
   const currentRecords = useRef(new Map<string, BackOfficeRecord>());
+  // A firm booking keeps the draft ID as its request ID and assigns a separate record ID.
+  const bookedDrafts = useRef(new Map<string, string>());
   const currentAccess = useRef<{ editable: boolean; rosterIds: Set<string>; contacts: Map<string, string> }>(undefined);
   currentCapture.current = capture;
   const blankKey = JSON.stringify([capture.date, person]);
@@ -218,6 +220,8 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
       privateRevision === undefined ? undefined : { date: entry.date, revision: privateRevision });
     const saved = next.entries.find(item => item.groupId === requestId && item.workerId === userId);
     if (!saved) throw new Error(t("back_office.save_failed"));
+    latestState.current = next;
+    bookedDrafts.current.set(requestId, saved.id);
     return workflowRecord(saved);
   }
   function fieldValue(record: BackOfficeRecord, id: string) {
@@ -260,10 +264,17 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   }
   if (firmCommand) for (const entry of state.entries) {
     if (entry.legacy || entry.workerId !== userId || entry.status === "declined") continue;
+    if (entry.groupId) bookedDrafts.current.set(entry.groupId, entry.id);
     const previous = known.get(entry.id);
     if (!previous || previous.revision <= entry.revision) known.set(entry.id, workflowRecord(entry, previous));
   }
   currentRecords.current = known;
+  function savedDraftRecord(id: string) {
+    const savedId = bookedDrafts.current.get(id) ?? id;
+    const current = currentRecords.current.get(savedId), confirmed = edits.confirmed.get(savedId);
+    return confirmed && confirmed.revision > (current?.revision ?? 0) ? confirmed : current;
+  }
+  const hasSavedDraft = (id: string) => known.has(id) || bookedDrafts.current.has(id);
   const stored = [...known.values()].filter(record => Boolean(record.archivedAt) === archived);
   const visible = stored.filter(record => capture.dates.includes(serviceDate(record.values)) && matchesPerson(record));
   const receiptBookings = archived ? [] : bookings.filter(item => {
@@ -303,7 +314,7 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     return permitted(assigned || memberPrefix + record.ownerId) &&
       (!patch.timekeeper || permitted(patch.timekeeper));
   }
-  const proposals = capture.proposals.filter(proposal => !known.has(proposal.key) && !hiddenProposals.has(proposal.key));
+  const proposals = capture.proposals.filter(proposal => !hasSavedDraft(proposal.key) && !hiddenProposals.has(proposal.key));
   const proposalMap = new Map(proposals.map(proposal => [proposal.key, proposal]));
   const createdIds = new Set(receiptBookings.map(item => item.id));
   const entries = new Map(visible.map(record => [record.id, record]));
@@ -314,12 +325,12 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     if (entries.has(record.id) || createdIds.has(record.id) || (capture.dates.includes(serviceDate(overlay.values)) && matchesPerson(overlay))) entries.set(record.id, overlay);
   }
   for (const [id, draft] of Object.entries(capture.drafts)) {
-    if (archived || draft.proposalDigest || draft.values.workflow || known.has(id) || !capture.dates.includes(draft.date)) continue;
+    if (archived || draft.proposalDigest || draft.values.workflow || hasSavedDraft(id) || !capture.dates.includes(draft.date)) continue;
     const record = row(id, { timekeeper: self, ...draft.values, startedAt: draft.values.startedAt ?? draft.date });
     if (matchesPerson(record) || (id === blankId && canWrite(record))) entries.set(id, record);
   }
   for (const [id, draft] of edits.drafts) {
-    if (!archived && (matchesPerson(draft.record) || (id === blankId && canWrite(draft.record))) && !draft.proposal && !known.has(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
+    if (!archived && (matchesPerson(draft.record) || (id === blankId && canWrite(draft.record))) && !draft.proposal && !hasSavedDraft(id) && capture.dates.includes(draft.date)) entries.set(id, draft.record);
   }
   function proposalDefaults(proposal: CaptureProposal) {
     const suggested = currentCapture.current.wording?.[proposal.digest];
@@ -589,8 +600,9 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
       const worker = fieldValue(pending.record, "timekeeper");
       showBooking({ id: saved.id, date: serviceDate(saved.values), worker: typeof worker === "string" ? worker : undefined,
         description: String(saved.values.billingNarrative ?? saved.values.name) });
-      await acknowledge(saved);
+      const acknowledged = acknowledge(saved);
       if (later && later !== pending && !pending.proposal) addUpdate(saved, differentTimeValues(pending.record.values, later.record.values));
+      await acknowledged;
       if (!accepted && currentCapture.current.privateAvailable && (privateRevision !== undefined || !currentCapture.current.writeDraft))
         await deletePrivateDraft(id, pending.date, pending.privateRevision ?? 0);
     } catch (error) {
@@ -615,11 +627,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
     if (previousSource && proposal && previousSource.digest !== proposal.digest) throw new Error(t("timesheets.sheet.edit_suggestion_changed"));
     const origin = previousSource ?? proposal ?? priorDraft?.proposal;
     const matchingDraft = priorDraft?.proposal?.digest === origin?.digest ? priorDraft : undefined;
-    const saved = record.revision ? record : edits.confirmed.get(id) ?? currentRecords.current.get(id);
+    const saved = record.revision ? record : edits.saving.has(id) ? undefined : savedDraftRecord(id);
     // A candidate identified by the private cache cannot become an ordinary row.
     if (!record.revision && ((origin && (saved || hiddenProposals.has(id) || edits.saving.has(id))) || (!origin && capture.drafts[id]?.proposalDigest))) return;
     if ((origin || (id === blankId && !matchingDraft)) && !Object.keys(values).length) return;
-    const latest = matchingDraft?.record ?? record;
+    const latest = saved ?? matchingDraft?.record ?? record;
     const next = { ...latest, values: { ...latest.values, ...values } };
     if (firmCommand && "matter" in values && typeof next.values.project === "string" &&
         !state.projects.some(item => item.id === next.values.project && item.matterIds.includes(String(next.values.matter)))) {
@@ -649,7 +661,11 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
         next.values.billableMinutes = proposedCharge(next.values.recordedMinutes, resolveTimePolicy(state.policies, clientId, matter.id, date));
       }
     }
-    if (saved) { addUpdate(saved, values); return; }
+    if (saved) {
+      if (!canWrite(saved, values)) throw new Error(t("back_office.save_failed"));
+      addUpdate(saved, values);
+      return;
+    }
     const storedDraft = capture.drafts[id];
     const draft: TimeRowDraft = { record: next, date: origin?.date ?? matchingDraft?.date ?? storedDraft?.date ?? capture.date, proposal: origin,
       privateRevision: matchingDraft?.privateRevision ?? storedDraft?.revision,

@@ -1,4 +1,4 @@
-import type { TimesheetState } from "@legalwork/types/timesheet";
+import type { TimeEntry, TimesheetCommand, TimesheetState } from "@legalwork/types/timesheet";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -125,10 +125,11 @@ const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
   proposals: [], drafts: {}, date: first, dates: [first], selectDate: () => {},
   privateAvailable: false, act: async action => { privateActions.push(action); return true; }, openSource: () => {}, ...values,
 });
-const render = async (capture: TimeCaptureSheet, records = directory.records, workflow?: TimesheetState) => {
+const render = async (capture: TimeCaptureSheet, records = directory.records, workflow?: TimesheetState,
+  command?: (command: TimesheetCommand) => Promise<TimesheetState>) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
     <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={workflow ?? state} capture={capture}
-      firmCommand={workflow ? async () => workflow : undefined} submit={workflow ? async () => {} : undefined}
+      firmCommand={workflow ? command ?? (async () => workflow) : undefined} submit={workflow ? async () => {} : undefined}
       workspace={(entries, renderProposal) => <>{entries}<aside>{capture.proposals.map(proposal => {
         const details = renderProposal(proposal);
         return details && <div key={proposal.key} data-private-proposal={proposal.key}>{details}</div>;
@@ -758,6 +759,63 @@ try {
   ] });
   assert.match(row(formatRow.id).textContent ?? "", /Ready to submit/);
   assert.ok(!button(host, "Submit period").disabled);
+
+  // A firm booking has a new record ID. The firm cache can publish it while
+  // the private draft is still cached and its billable-time editor is open.
+  const bookingDraftId = crypto.randomUUID(), bookedId = crypto.randomUUID();
+  let persisted = { date: first, revision: 1, values: {
+    ...formatRow.values, name: "Research", billingNarrative: "Research", matter: singleClientMatter.id, client: primary,
+    timekeeper: "member:worker", startedAt: first, recordedMinutes: 30, billableMinutes: 30,
+  } };
+  let committed = false;
+  let patchesAfterBooking = 0;
+  const staleCapture = capture({ privateAvailable: true, drafts: { [bookingDraftId]: persisted }, writeDraft: async action => {
+    if (action.changes === null) return null;
+    if (committed) {
+      patchesAfterBooking++;
+      throw new LegalworkServerError(409, "private_draft_conflict", "The draft was already booked.", { draft: null });
+    }
+    persisted = { ...persisted, revision: persisted.revision + 1, values: { ...persisted.values, ...action.changes } };
+    return persisted;
+  } });
+  const beforeBooking = { ...workflow, entries: [] };
+  const createReply = Promise.withResolvers<TimesheetState>();
+  const commands: TimesheetCommand[] = [];
+  let booked: TimeEntry | undefined;
+  const command = async (request: TimesheetCommand) => {
+    commands.push(request);
+    if (request.type === "create") {
+      assert.equal(request.requestId, bookingDraftId);
+      booked = { ...request.entry, id: bookedId, groupId: bookingDraftId, revision: 1, workerId: "worker", authorId: "worker",
+        status: "confirmed", source: "manual", history: [] };
+      return createReply.promise;
+    }
+    assert.equal(request.type, "update");
+    assert.equal(request.id, bookedId);
+    assert.equal(request.revision, 1);
+    assert.equal(request.entry.billableMinutes, 20);
+    assert.ok(booked);
+    return { ...beforeBooking, entries: [{ ...booked, ...request.entry, revision: 2 }] };
+  };
+  await render(staleCapture, [workerContact], beforeBooking, command);
+  const bookingNarrative = await enter(row(bookingDraftId), 3, "Checked the research");
+  await act(async () => bookingNarrative.blur());
+  assert.ok(booked, "the firm create is pending");
+  await enter(row(bookingDraftId), 5, "20");
+  committed = true;
+  const booking = { ...beforeBooking, entries: [booked] };
+  await render(staleCapture, [workerContact], booking, command);
+  assert.ok(visible(bookedId));
+  assert.match(row(bookedId).textContent ?? "", /Approved/);
+  assert.equal(visible(bookingDraftId), false, "the newly approved entry replaces the cached draft before the create returns");
+  await act(async () => {
+    createReply.resolve(booking);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+  assert.deepEqual(commands.map(request => request.type), ["create", "update"], "the focused edit is saved once against the approved row");
+  assert.equal(cell(row(bookedId), 5).textContent, "0:20");
+  assert.equal(patchesAfterBooking, 0, "the old inline editor cannot write to a consumed private draft");
+  assert.equal(visible(bookingDraftId), false);
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());
