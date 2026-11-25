@@ -22,17 +22,17 @@ export function useBillingPolicyAutosave(base: TimePolicy, onCommand: BillingPro
     const parsed = TimePolicySchema.safeParse(value);
     if (!parsed.success) {
       setInvalid(true);
-      return;
+      return false;
     }
     setInvalid(false);
     const initial = TimePolicySchema.parse(baseline);
     if (!active.current && samePolicy(parsed.data, initial)) {
       stage(undefined);
       setError("");
-      return;
+      return true;
     }
     queued.current = parsed.data;
-    if (active.current) return;
+    if (active.current) return false;
 
     active.current = true;
     setPending(true);
@@ -56,9 +56,11 @@ export function useBillingPolicyAutosave(base: TimePolicy, onCommand: BillingPro
             ? undefined : { ...current, revision: persisted.revision };
         });
       }
+      return true;
     } catch (failure) {
       queued.current = undefined;
       setError(failure instanceof Error ? failure.message : t("back_office.billing.save_failed"));
+      return false;
     } finally {
       active.current = false;
       setPending(false);

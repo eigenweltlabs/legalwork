@@ -35,7 +35,7 @@ import type {
   TimesheetState,
 } from "@legalwork/types/timesheet";
 
-const { act } = await import("react");
+const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
 const { BillingReview } = await import("../../src/react-app/domains/back-office/billing-review");
@@ -735,7 +735,20 @@ try {
   assert.deepEqual(preparedSingle.draft.entries, [{ id: fresh.id, revision: fresh.revision }]);
   await render(null);
   const unpricedState = { ...directState, policies: [{ ...policy, hourlyRate: undefined, reviewerId: undefined }] };
-  await render(<BillingReview state={unpricedState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  let rejectSave: ((error: Error) => void) | undefined;
+  function RateEditorFixture() {
+    const [state, setState] = useState(unpricedState);
+    return <BillingReview state={state} client={client} canEdit initialMode="invoices" invoiceViews
+      onCommand={async action => {
+        await command(action);
+        if (action.type !== "policy") return;
+        if (!rejectSave) await new Promise<void>((_, reject) => { rejectSave = reject; });
+        setState(previous => ({ ...previous, policies: [...previous.policies,
+          { ...action.policy, revision: action.policy.revision + 1 },
+        ] }));
+      }} />;
+  }
+  await render(<RateEditorFixture />);
   await click(match("Create Invoice"));
   await click(checkbox("Select entry: Call with client"));
   await click(match("Continue"));
@@ -751,11 +764,45 @@ try {
   assert.equal(calls.length, beforeRate, "Opening the rate editor never sets a fee");
   await write(rate, "330");
   await act(async () => rate.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true })));
+  assert.equal(calls.length, beforeRate, "Leaving the field waits for explicit confirmation");
+  const saveRate = () => [...rateDialog.querySelectorAll<HTMLButtonElement>("button")]
+    .find(button => button.textContent?.trim() === "Save rate")!;
+  await click(saveRate());
+  assert.match(rateDialog.textContent ?? "", /Saving/);
+  assert.ok(rejectSave);
+  await act(async () => rejectSave?.(new Error("Billing settings could not be reached.")));
+  assert.match(rateDialog.querySelector('[role="alert"]')?.textContent ?? "", /Billing settings could not be reached/);
+  assert.equal(rate.value, "330");
+  await click(saveRate());
   const updatedRate = calls.at(-1);
   assert.ok(updatedRate?.type === "policy");
   assert.equal(updatedRate.policy.targetId, "m");
   assert.equal(updatedRate.policy.effectiveFrom, today);
   assert.equal(updatedRate.policy.workerRates?.partner, 330);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  assert.match(host.textContent ?? "", /€330\.00\/h/);
+  assert.equal(save().disabled, false);
+
+  await render(null);
+  const fixedState: TimesheetState = { ...directState, policies: [
+    { ...policy, reviewerId: undefined },
+    { scope: "matter", targetId: "m", effectiveFrom: "0001-01-01", revision: 0,
+      agreementId: "flat", allocationUnavailable: true, nonHourlyAgreement: true, nonHourlyBasis: "fixed" },
+  ] };
+  await render(<BillingReview state={fixedState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  await click(match("Continue"));
+  assert.match(host.textContent ?? "", /covered by a flat-fee agreement/);
+  assert.doesNotMatch(host.textContent ?? "", /No hourly rate|Edit rate/);
+  assert.ok(save().disabled);
+  await click(match("Use fixed price"));
+  await write(field('input[inputmode="decimal"]'), "250");
+  assert.equal(save().disabled, false);
+  await click(save());
+  const preparedFixed = calls.at(-1);
+  assert.ok(preparedFixed?.type === "prepareInvoice" && preparedFixed.draft.pricing.mode === "fixed");
+  assert.equal(preparedFixed.draft.pricing.amountMinor, 25000);
   console.log("Billing review passed");
 } finally {
   await act(async () => billingRoot.unmount());

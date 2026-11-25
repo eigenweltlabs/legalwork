@@ -230,6 +230,8 @@
   color: var(--foreground);
 }
 .bo-time-policy fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.bo-invoice-rate-editor { display: flex; flex-direction: column; min-height: 0; }
+.bo-invoice-rate-editor fieldset { overflow-y: auto; }
 .bo-time-policy summary { cursor: pointer; font-size: 14px; font-weight: 500; }
 .bo-time-policy details[open] > summary { margin-bottom: 12px; }
 .bo-time-policy [data-slot="item-header-actions"] :is(input, textarea, select) { width: min(210px, 50vw); }
