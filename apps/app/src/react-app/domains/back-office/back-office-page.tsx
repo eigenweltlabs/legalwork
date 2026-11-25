@@ -1,9 +1,7 @@
 import { isLoopbackLegalworkServerUrl } from "@/app/lib/legalwork-server";
-import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { timePage } from "./time-routes";
 import { timeTrackingProfile } from "./time-tracking-profile";
 import { TimesheetWorkspace, type InvoiceRegister } from "./timesheet-workspace";
-import { InvoiceDocumentActions } from "./invoice-document-actions";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
 import { NativeBacklinks } from "./native-backlinks";
@@ -84,9 +82,8 @@ function canEditDirectoryRecord(record: BackOfficeRecord, team: boolean, userId:
     (record.ownerId === userId && !["Submitted", "Approved", "Invoiced", "Written off"].includes(String(record.values.status)));
 }
 
-export function BackOfficePage({ client, embeddedObject, workdayModels, billingSettings, invoiceRegister }: {
+export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister }: {
   client: LegalworkServerClient;
-  workdayModels?: WorkdayModelOption[];
   embeddedObject?: "timeEntries" | "invoices";
   billingSettings?: boolean;
   invoiceRegister?: InvoiceRegister;
@@ -144,7 +141,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
   });
   const outcome = query.data;
   const data = outcome && "records" in outcome && (protectedDirectory || !query.isError) ? outcome : undefined;
-  const issuedInvoices = useMemo(() => new Map(invoiceRegister?.invoices.map(invoice => [invoice.id, invoice])), [invoiceRegister?.invoices]);
+
   const directoryError = query.error ?? (outcome && "loadError" in outcome ? outcome.loadError : undefined);
   useEffect(() => () => { conflictDecision.current?.(false); }, [selected, data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model]);
   const team = Boolean(data && data.scope !== "local");
@@ -479,7 +476,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,credential,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            onSaveView={saveView} client={client} directory={data} page={timesheet} workdayModels={workdayModels}
+            onSaveView={saveView} client={client} directory={data} page={timesheet}
             directoryRefresh={directoryError ? { error: directoryError, fetching: query.isFetching, retry: () => void query.refetch() } : undefined}
             renderRecords={(objectId, invoiceRegister) => <BackOfficePage key={objectId} client={client} embeddedObject={objectId} invoiceRegister={invoiceRegister} />}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
@@ -583,11 +580,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                 onSaveView={saveView}
                 archived={archived}
                 onArchivedChange={setArchived}
-                renderCell={invoiceRegister && invoiceRegister.scope === data.scope && invoiceRegister.userId === data.permissions.userId
-                  ? (record, field) => {
-                    const invoice = field.id === "invoiceFile" ? issuedInvoices.get(record.id) : undefined;
-                    return invoice ? <InvoiceDocumentActions client={client} invoice={invoice} scope={data.scope} userId={data.permissions.userId} /> : undefined;
-                  } : undefined}
+
               />
             </>
           )}

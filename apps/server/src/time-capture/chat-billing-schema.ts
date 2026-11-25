@@ -1,26 +1,17 @@
 import { z } from "zod";
 import { TimesheetCommandSchema, type TimesheetCommand } from "../back-office/timesheet-schema.js";
 
+const billingTypes = new Set<TimesheetCommand["type"]>([
+  "create", "submit", "review", "approve", "return", "applyWording", "assignBillingClient", "createInvoice", "policy",
+]);
+const [firstCommand, ...otherCommands] = TimesheetCommandSchema.options.filter(schema =>
+  [...billingTypes].some(type => schema.shape.type.safeParse(type).success),
+);
+if (!firstCommand) throw new Error("Timekeeping billing commands are unavailable.");
+
 export function isTimekeepingBillingCommand(command: TimesheetCommand) {
-  switch (command.type) {
-    case "create":
-      return command.source !== "suggestion" && !command.proposalDigest;
-    case "submit":
-    case "review":
-    case "approve":
-    case "return":
-    case "applyWording":
-    case "assignBillingClient":
-    case "createInvoice":
-    case "prepareInvoice":
-    case "reviewInvoiceWording":
-    case "approveInvoice":
-    case "issueInvoice":
-    case "policy":
-      return true;
-    default:
-      return false;
-  }
+  if (command.type === "create") return command.source !== "suggestion" && !command.proposalDigest;
+  return billingTypes.has(command.type);
 }
 
 export const chatBillingAction = z.discriminatedUnion("action", [
@@ -33,6 +24,7 @@ export const chatBillingAction = z.discriminatedUnion("action", [
   }),
   z.strictObject({
     action: z.literal("apply"),
-    command: TimesheetCommandSchema.refine(isTimekeepingBillingCommand, "Use the permitted timekeeping operations."),
+    command: z.discriminatedUnion("type", [firstCommand, ...otherCommands])
+      .refine(isTimekeepingBillingCommand, "Use the permitted timekeeping operations."),
   }),
 ]);

@@ -339,60 +339,20 @@
   align-items: center;
   gap: 8px;
 }
-.bo-invoice-line-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 4px 16px 8px;
-}
-.bo-invoice-line-table {
-  table-layout: fixed;
-}
-.bo-invoice-line-table :is(th, td) {
-  padding: 10px 12px;
-}
-.bo-invoice-line-table td {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-.bo-invoice-line-table th {
-  white-space: normal;
-  background: var(--background);
-}
-.bo-invoice-service {
-  width: 145px;
-}
-.bo-invoice-amount {
-  width: 110px;
-}
-.bo-invoice-line-table small, .bo-invoice-unavailable small {
+.bo-invoice-unavailable small {
   display: block;
   color: var(--muted-foreground);
   margin-top: 2px;
 }
-.bo-invoice-wording-suggestion {
-  margin-block-start: 6px;
-  padding: 8px 10px;
-  background: var(--muted);
-  border-radius: var(--lw-radius-lg);
-  display: grid;
-  justify-items: start;
-  gap: 4px;
-}
-.bo-invoice-line-details summary, .bo-invoice-unavailable summary {
+.bo-invoice-unavailable summary {
   display: flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
   color: var(--muted-foreground);
 }
-.bo-invoice-line-details[open] summary > svg, .bo-invoice-unavailable[open] summary > svg {
+.bo-invoice-unavailable[open] summary > svg {
   transform: rotate(90deg);
-}
-.bo-invoice-line-details {
-  margin-top: 6px;
-}
-.bo-invoice-line-details p {
-  padding: 5px 0;
 }
 .bo-invoice-unavailable {
   padding: 12px 16px;
@@ -477,37 +437,6 @@
   min-width: 0;
   font-size: 13px;
 }
-.bo-invoice-preview-heading, .bo-invoice-preview-meta, .bo-invoice-preview-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding-inline: 16px;
-}
-.bo-invoice-preview-heading {
-  justify-content: space-between;
-  padding-block: 12px 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-.bo-invoice-draft-preview .bo-invoice-footer { justify-content: flex-end; }
-.bo-invoice-preview-meta { padding-block: 6px; color: var(--muted-foreground); overflow-wrap: anywhere; }
-.bo-invoice-preview-tools { padding-block: 6px; border-block-end: 1px solid var(--border); }
-.bo-invoice-preview-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  background: var(--muted);
-  overflow: auto;
-}
-.bo-invoice-preview-status {
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  padding: 18px 16px;
-  color: var(--muted-foreground);
-}
 .bo-invoice-index-toolbar {
   gap: 8px;
 }
@@ -517,15 +446,6 @@
 @container (max-width: 620px) {
   .bo-invoice-settings { grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); }
   .bo-invoice-parties { grid-template-columns: minmax(0, 1fr); }
-  .bo-invoice-service { width: 105px; }
-  .bo-invoice-amount { width: 74px; }
-  .bo-invoice-line-table :is(th, td) { padding-inline: 7px; }
-}
-.bo-invoice-pdf-frame {
-  width: 100%;
-  flex: 1;
-  min-height: 12rem;
-  background: var(--background);
 }
 .bo-invoice-link {
   text-decoration: underline;

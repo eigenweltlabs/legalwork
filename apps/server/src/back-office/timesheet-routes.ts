@@ -31,30 +31,8 @@ import {
   timeError,
   timeWorkspaces,
 } from "./timesheet-data.js";
-import {
-  readLocalInvoiceGuidelines,
-  withLocalInvoiceGuidelines,
-  type InvoiceGuidelineContext,
-} from "./timesheet-invoice-guidelines.js";
-import { generateInvoiceWordingReview } from "./timesheet-invoice-wording.js";
-import {
-  draftOutput,
-  issuedOutput,
-  issuedArtifacts,
-  invoiceAttachment,
-} from "./invoice-artifacts.js";
-import {
-  renderWordInvoice,
-  convertInvoicePdf,
-  validateWordTemplate,
-} from "./invoice-word.js";
-import { readInvoiceDraft } from "./timesheet-data.js";
-import {
-  invoiceTemplateSchema,
-  requiresInvoiceDrafts,
-} from "./timesheet-schema.js";
-import { commandTimesheet, currentInvoiceDraft, readTimesheetRequest } from "./timesheet.js";
-import { currencyScale, renderInvoice } from "./timesheet-schema.js";
+import { commandTimesheet, readTimesheetRequest } from "./timesheet.js";
+import { currencyScale } from "./timesheet-schema.js";
 import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
@@ -99,23 +77,6 @@ export function registerTimesheetRoutes(
   ) => requestPlatformTimesheet(config, access, method, path, body);
   const platformState = (access: Access, method: string, body?: unknown) =>
     readPlatformTimesheet(config, access, method, body);
-  async function platformDocumentState(access: Access) {
-    try {
-      return await platformState(access, "GET");
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "timesheet_service_unavailable") return undefined;
-      throw error;
-    }
-  }
-  function privateBilling(ctx: RequestContext, access: Access) {
-    return (
-      access.scope === "local" &&
-      ctx.actor?.type === "host" &&
-      !ctx.agentAccess &&
-      !access.actor.agentId &&
-      ["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host)
-    );
-  }
   async function assertFinance(
     ctx: RequestContext,
     store: BackOfficeStore,
@@ -199,7 +160,7 @@ export function registerTimesheetRoutes(
           const minimumBillableMinutes = Math.max(entry.minimumBillableMinutes ?? 0, rules.minimumMinutes);
           checkedCommand = { ...checkedCommand, entry: { ...entry, clientId, minimumBillableMinutes: minimumBillableMinutes || undefined } };
         }
-        if (checkedCommand && ["policy", "approveInvoice", "issueInvoice", "createInvoice"].includes(checkedCommand.type)) {
+        if (checkedCommand?.type === "policy" || checkedCommand?.type === "createInvoice") {
           const state = await billingState();
           let summary: string, description: string;
           if (checkedCommand.type === "policy") {
@@ -211,7 +172,7 @@ export function registerTimesheetRoutes(
             description = [target?.name ?? policy.targetId, "Effective from " + policy.effectiveFrom,
               reviewer ? "Reviewer: " + reviewer.name : "Reviewer: inherited or unassigned",
               JSON.stringify(policy, null, 2)].join("\n");
-          } else if (checkedCommand.type === "createInvoice") {
+          } else {
             const { invoice: { clientId, matterId, entries, pricing } } = checkedCommand;
             const client = state.clients.find(row => row.id === clientId);
             const matter = state.matters.find(row => row.id === matterId && row.clientIds.includes(clientId));
@@ -222,18 +183,6 @@ export function registerTimesheetRoutes(
                 ? new Intl.NumberFormat("en", { style: "currency", currency: pricing.currency }).format(pricing.amountMinor / currencyScale(pricing.currency))
                 : "Hourly fees at the saved rates",
               "This saves a numbered invoice and marks the selected time as invoiced."].join("\n");
-          } else {
-            if (checkedCommand.type !== "approveInvoice" && checkedCommand.type !== "issueInvoice") throw new Error("Invalid billing approval.");
-            const { type, id, revision } = checkedCommand;
-            const draft = state.invoiceDraft;
-            if (type === "issueInvoice" && state.invoices.some(invoice => invoice.draftId === id &&
-                invoice.approval?.revision === revision && invoice.approval.actorId === state.userId)) return state;
-            if (!draft || draft.id !== id || draft.revision !== revision)
-              timeError("The invoice draft changed. Open its preview again.", 409);
-            summary = type === "approveInvoice" ? "Approve this invoice draft?" : "Issue this invoice?";
-            description = [draft.snapshot.client, draft.snapshot.date, draft.lines.length + " billing lines",
-              new Intl.NumberFormat("en", { style: "currency", currency: draft.currency }).format(draft.totalMinor / currencyScale(draft.currency)),
-              "Review this revision's PDF in Time tracking → Invoices before confirming."].join("\n");
           }
           const decision = await ctx.approvals.requestApproval({
             action: "timekeeping.billing." + checkedCommand.type,
@@ -252,6 +201,10 @@ export function registerTimesheetRoutes(
         timeError("Use the private Timekeeping chat for billing workflow operations.", 403);
       }
       const command = checkedCommand;
+      if (command?.type === "prepareInvoice" || command?.type === "approveInvoice" ||
+          command?.type === "issueInvoice" || command?.type === "reviewInvoiceWording" ||
+          command?.type === "template")
+        timeError("Use Create Invoice to save the invoice record.", 409);
       if (command?.type === "invoice")
         timeError("Prepare and approve the invoice before issuing.", 409);
       if (command?.type === "template" && command.template.word) {
@@ -289,31 +242,6 @@ export function registerTimesheetRoutes(
             const capabilities = await platformState(access, "GET");
             if (!capabilities.supportsInvoiceCreation)
               timeError("The connected firm has not enabled direct invoice creation.", 501);
-            await assertIdentity(ctx, store, access);
-          }
-          if (
-            command &&
-            (command.type === "reviewInvoiceWording" ||
-              requiresInvoiceDrafts(command) ||
-              (command.type === "template" && command.template.word))
-          ) {
-            const capabilities = await platformState(access, "GET");
-            if (
-              command.type === "reviewInvoiceWording" &&
-              !capabilities.supportsInvoiceWordingReview
-            )
-              timeError(
-                "The connected firm has not enabled invoice wording review.",
-                501,
-              );
-            if (!capabilities.supportsInvoiceDrafts)
-              timeError(
-                "The connected firm has not enabled invoice drafts, partner approval and document output.",
-                501,
-              );
-            if (command.type === "prepareInvoice" && command.draft.pricing.mode === "hourly" &&
-              command.draft.pricing.currency && !capabilities.supportsHourlyInvoiceCurrency)
-              timeError("The connected firm has not enabled currency-specific hourly invoices.", 501);
             await assertIdentity(ctx, store, access);
           }
           const otherWorkers =
@@ -374,8 +302,6 @@ export function registerTimesheetRoutes(
             canReview: false,
             supportsBillingComparisons: false,
             supportsTimeAllocations: false,
-            supportsInvoiceWordingReview: false,
-            supportsInvoiceDrafts: false,
             invoiceDraft: undefined,
             entries: state.entries.filter((entry) => entry.legacy),
             delegatedEntries: [],
@@ -385,86 +311,9 @@ export function registerTimesheetRoutes(
             template: undefined,
           };
         }
-        const privateContext = privateBilling(ctx, access) || Boolean(billingAgent && access.scope === "local");
-        const activeProfile = privateContext
-          ? (await captureProfile(config, access)).profileId
-          : undefined;
-        const readCurrent = async () => {
-          const context = privateContext
-            ? await readLocalInvoiceGuidelines(config, access)
-            : undefined;
-          if (context?.profileId !== activeProfile)
-            timeError("The active account changed.", 409);
-          await assertFinance(ctx, store, access);
-          return {
-            state: readTimesheet(
-              store,
-              access.scope,
-              access.actor,
-              people,
-              workspaces,
-              true,
-              context?.profileId,
-            ),
-            context,
-          };
-        };
-        const advice =
-          command?.type === "reviewInvoiceWording"
-            ? await generateInvoiceWordingReview(
-                config,
-                store,
-                access.actor,
-                command,
-                readCurrent,
-                ctx.request.signal,
-              )
-            : undefined;
-        const commit = async (context?: InvoiceGuidelineContext) => {
-          await assertIdentity(ctx, store, access);
-          if (context?.profileId !== activeProfile)
-            timeError("The active account changed.", 409);
-          return command
-            ? commandTimesheet(
-                store,
-                access.scope,
-                access.actor,
-                people,
-                command,
-                workspaces,
-                advice,
-                context,
-              )
-            : readTimesheet(
-                store,
-                access.scope,
-                access.actor,
-                people,
-                workspaces,
-                false,
-                activeProfile,
-              );
-        };
-        const result =
-          privateContext && command && requiresInvoiceDrafts(command)
-            ? await withLocalInvoiceGuidelines(config, access, commit)
-            : await commit(
-                activeProfile
-                  ? { profileId: activeProfile, versions: [] }
-                  : undefined,
-              );
-        if (command?.type === "issueInvoice") {
-          const invoice = result.invoices.find(
-            (row) => row.draftId === command.id,
-          );
-          const stored =
-            invoice && readTimeDocument(store, access.scope, invoice.id);
-          if (!stored || stored.kind !== "invoice")
-            timeError("The issued invoice is unavailable.", 404);
-          await issuedArtifacts(store, access.scope, stored.value);
-          await assertIdentity(ctx, store, access);
-        }
-        return result;
+        return command
+          ? commandTimesheet(store, access.scope, access.actor, people, command, workspaces)
+          : readTimesheet(store, access.scope, access.actor, people, workspaces);
       };
       const bookingIdentity = { user: access.actor.userId, scope: access.scope, principal: access.actor.principalKey ?? "",
         profileId: ctx.url.searchParams.get("profileId") };
@@ -520,261 +369,38 @@ export function registerTimesheetRoutes(
     route(method, "/timesheet", timesheet);
     route(method, "/workspace/:id/timekeeping/billing", timesheet);
   }
-  route("POST", "/timesheet/template-preview", async (ctx, store, access) => {
+  route("GET", "/timesheet/adjustments/:id/document", async (ctx, store, access) => {
     await assertFinance(ctx, store, access);
-    if (!access.actor.finance || ctx.agentAccess || access.actor.agentId)
-      timeError("Billing access is required.", 403);
-    const template = invoiceTemplateSchema.parse(await input(ctx));
-    if (access.scope !== "local" && !(await platformDocumentState(access))?.supportsLocalInvoiceRendering) {
-      const response = z
-        .object({ format: z.literal("pdf"), contentBase64: z.string().min(4) })
-        .parse(await platform(access, "POST", "/template-preview", template));
-      await assertFinance(ctx, store, access);
-      return invoiceAttachment(
-        "pdf",
-        Buffer.from(response.contentBase64, "base64"),
-        "Template",
-      );
+    const id = z.uuid().parse(ctx.params.id);
+    let document: string, number: string;
+    if (access.scope === "local") {
+      const canReadRecord = (id: string) => {
+        const record = store.raw(access.scope, id);
+        return record && !record.archivedAt && store.canRead(access.scope, record, access.actor);
+      };
+      const correction = readTimeDocument(store, access.scope, id);
+      if (correction?.kind !== "adjustment" || !correction.document || !correction.value.noteNumber ||
+          !correction.value.invoiceId || !canReadRecord(correction.value.matterId))
+        timeError("The correction document is unavailable.", 404);
+      const invoice = readTimeDocument(store, access.scope, correction.value.invoiceId);
+      if (invoice?.kind !== "invoice" || !canReadRecord(invoice.value.clientId))
+        timeError("The correction document is unavailable.", 404);
+      document = correction.document;
+      number = correction.value.noteNumber;
+    } else {
+      const result = z.object({ number: z.string().regex(/^[0-9]+-C[0-9]+$/), document: z.string() })
+        .parse(await platform(access, "GET", "/adjustments/" + id + "/document"));
+      document = result.document;
+      number = result.number;
     }
-    const pdf = await convertInvoicePdf(validateWordTemplate(template));
-    await assertFinance(ctx, store, access);
-    return invoiceAttachment("pdf", pdf, "Template");
+    return new Response(document, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-disposition": 'attachment; filename="Correction-' + number + '.html"',
+        "content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+        "x-content-type-options": "nosniff",
+        "cache-control": "no-store",
+      },
+    });
   });
-  {
-    route(
-      "GET",
-      "/timesheet/drafts/:id/document",
-      async (ctx, store, access) => {
-        await assertFinance(ctx, store, access);
-        if (!access.actor.finance)
-          timeError("Billing access is required.", 403);
-        const revision = z.string().regex(/^[a-f\d]{64}$/).optional().parse(ctx.url.searchParams.get("revision") ?? undefined);
-        const id = z.uuid().parse(ctx.params.id),
-          format = z
-            .enum(["docx", "pdf"])
-            .parse(ctx.url.searchParams.get("format"));
-        if (access.scope !== "local") {
-          const state = await platformDocumentState(access);
-          if (state?.supportsLocalInvoiceRendering) {
-            const expected = revision ?? state.invoiceDraft?.revision;
-            if (!expected || state.invoiceDraft?.id !== id) timeError("The invoice draft is unavailable.", 404);
-            const query = new URLSearchParams({ draft: id, revision: expected });
-            const current = async () => {
-              await assertFinance(ctx, store, access);
-              const { invoiceDraft } = TimesheetStateSchema.parse(await platform(access, "GET", "?" + query));
-              if (!invoiceDraft || invoiceDraft.id !== id || invoiceDraft.revision !== expected)
-                timeError("The invoice draft changed. Open its preview again.", 409);
-              return invoiceDraft;
-            };
-            const word = renderWordInvoice(draftOutput(await current()));
-            const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
-            await current();
-            return invoiceAttachment(format, bytes, "Draft");
-          }
-          const query = new URLSearchParams({ format });
-          if (revision) query.set("revision", revision);
-          const remote = z
-            .object({
-              format: z.literal(format),
-              contentBase64: z.string().min(4),
-            })
-            .parse(
-              await platform(
-                access,
-                "GET",
-                "/drafts/" + id + "/document?" + query,
-              ),
-            );
-          await assertFinance(ctx, store, access);
-          return invoiceAttachment(
-            format,
-            Buffer.from(remote.contentBase64, "base64"),
-            "Draft",
-          );
-        }
-        const current = async () => {
-          const { people, workspaces } = await localDirectory(store, access);
-          await assertFinance(ctx, store, access);
-          const context = privateBilling(ctx, access)
-            ? await readLocalInvoiceGuidelines(config, access)
-            : undefined;
-          const stored = readInvoiceDraft(
-            store,
-            access.scope,
-            access.actor.userId,
-            context?.profileId,
-          );
-          if (!stored || stored.id !== id)
-            timeError("The invoice draft is unavailable.", 404);
-          if (revision && stored.revision !== revision)
-            timeError("The invoice draft changed. Open its preview again.", 409);
-          return currentInvoiceDraft(
-            store,
-            readTimesheet(
-              store,
-              access.scope,
-              access.actor,
-              people,
-              workspaces,
-              true,
-              context?.profileId,
-            ),
-            access.actor,
-            stored,
-            context,
-          );
-        };
-        const draft = await current(),
-          word = renderWordInvoice(draftOutput(draft));
-        const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
-        if ((await current()).revision !== draft.revision)
-          timeError("The invoice draft changed. Open its preview again.", 409);
-        return invoiceAttachment(format, bytes, "Draft");
-      },
-    );
-  }
-  for (const kind of ["invoices", "adjustments"] as const)
-    route(
-      "GET",
-      "/timesheet/" + kind + "/:id/document",
-      async (ctx, store, access) => {
-        await assertIdentity(ctx, store, access);
-        if (!access.actor.finance)
-          timeError("Billing access is required.", 403);
-        const id = z.uuid().parse(ctx.params.id),
-          isInvoice = kind === "invoices";
-        const format = z
-          .enum(["html", "docx", "pdf"])
-          .parse(ctx.url.searchParams.get("format") ?? "html");
-        if (!isInvoice && format !== "html")
-          timeError("This correction is available as HTML.", 404);
-        const firm = isInvoice && access.scope !== "local" ? await platformDocumentState(access) : undefined;
-        const renderLocally = firm?.supportsLocalInvoiceRendering;
-        const sharedInvoice = renderLocally ? firm?.invoices.find(item => item.id === id) : undefined;
-        if (renderLocally && (!sharedInvoice || sharedInvoice.recordOnly)) timeError("The issued document is unavailable.", 404);
-        if (sharedInvoice && format !== "html") {
-          const word = renderWordInvoice(issuedOutput(sharedInvoice));
-          const bytes = format === "pdf" ? await convertInvoicePdf(word) : word;
-          await assertFinance(ctx, store, access);
-          if (!(await platformState(access, "GET")).invoices.some(item => item.id === id))
-            timeError("The issued document is unavailable.", 404);
-          return invoiceAttachment(format, bytes, String(sharedInvoice.number));
-        }
-        if (isInvoice && format !== "html" && access.scope !== "local") {
-          const remote = z
-            .object({
-              number: z.number().int().positive(),
-              format: z.literal(format),
-              contentBase64: z.string().min(4),
-            })
-            .parse(
-              await platform(
-                access,
-                "GET",
-                "/invoices/" + id + "/document?format=" + format,
-              ),
-            );
-          await assertFinance(ctx, store, access);
-          return invoiceAttachment(
-            format,
-            Buffer.from(remote.contentBase64, "base64"),
-            String(remote.number),
-          );
-        }
-        let document: string, number: string;
-        if (sharedInvoice) {
-          const snapshot = sharedInvoice.snapshot;
-          if (!snapshot) timeError("The issued document is unavailable.", 404);
-          number = String(sharedInvoice.number);
-          document = renderInvoice(snapshot.template, {
-            ...snapshot, number: sharedInvoice.number, entries: sharedInvoice.entries,
-            currency: sharedInvoice.currency, billingMode: sharedInvoice.billingMode, showHours: sharedInvoice.showHours,
-          });
-        } else if (access.scope !== "local") {
-          const result = z
-            .object({
-              number: z.union([
-                z.number().int().positive(),
-                z.string().regex(/^[0-9]+-C[0-9]+$/),
-              ]),
-              document: z.string(),
-            })
-            .parse(
-              await platform(
-                access,
-                "GET",
-                "/" + kind + "/" + id + "/document",
-              ),
-            );
-          document = result.document;
-          number = String(result.number);
-        } else {
-          const d = readTimeDocument(store, access.scope, id);
-          const canReadRecord = (id: string) => {
-            const m = store.raw(access.scope, id);
-            return (
-              m && !m.archivedAt && store.canRead(access.scope, m, access.actor)
-            );
-          };
-          if (
-            isInvoice &&
-            d?.kind === "invoice" &&
-            d.document !== undefined &&
-            canReadRecord(d.value.clientId) &&
-            d.value.entries.every((e) => canReadRecord(e.matterId))
-          ) {
-            if (format !== "html") {
-              const pair = await issuedArtifacts(store, access.scope, d.value);
-              await assertFinance(ctx, store, access);
-              if (
-                !canReadRecord(d.value.clientId) ||
-                d.value.entries.some((row) => !canReadRecord(row.matterId))
-              )
-                timeError("The issued document is unavailable.", 404);
-              return invoiceAttachment(
-                format,
-                pair[format],
-                String(d.value.number),
-              );
-            }
-            document = d.document;
-            number = String(d.value.number);
-          } else if (
-            !isInvoice &&
-            d?.kind === "adjustment" &&
-            d.document &&
-            d.value.noteNumber &&
-            canReadRecord(d.value.matterId) &&
-            d.value.invoiceId
-          ) {
-            const original = readTimeDocument(
-              store,
-              access.scope,
-              d.value.invoiceId,
-            );
-            if (
-              original?.kind !== "invoice" ||
-              !canReadRecord(original.value.clientId)
-            )
-              timeError("The issued document is unavailable.", 404);
-            document = d.document;
-            number = d.value.noteNumber;
-          } else timeError("The issued document is unavailable.", 404);
-        }
-        return new Response(document, {
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "content-disposition":
-              'attachment; filename="' +
-              (isInvoice ? "Invoice-" : "Correction-") +
-              number +
-              '.html"',
-            "content-security-policy":
-              "sandbox; default-src 'none'; style-src 'unsafe-inline'",
-            "x-content-type-options": "nosniff",
-            "cache-control": "no-store",
-          },
-        });
-      },
-    );
 }

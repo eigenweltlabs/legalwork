@@ -1,17 +1,13 @@
-import { unzipSync, strFromU8, strToU8, zipSync } from "fflate";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
-import { standardInvoice, starterInvoiceWord } from "@legalwork/types/invoice-template";
 import { startServer } from "./server.js";
 import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { BackOfficeRecordSchema } from "./back-office/schema.js";
-import { extractPdfText } from "./document-preparation/render.js";
 import {
-  invoiceDraftRef,
   prepareInvoice,
 } from "./back-office/timesheet-invoice.test-support.js";
 
@@ -127,97 +123,15 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
         })
       ).status,
     ).toBe(409);
-    const letterhead = "Fixture custom letterhead";
-    const customTemplate = unzipSync(Buffer.from(starterInvoiceWord, "base64"));
-    customTemplate["word/document.xml"] = strToU8(
-      strFromU8(customTemplate["word/document.xml"]).replace("{{ client_name }}", letterhead + " - {{ client_name }}"),
-    );
-    await command({ type: "template", template: { ...standardInvoice, word: {
-      name: "Fixture letterhead.docx", contentBase64: Buffer.from(zipSync(customTemplate)).toString("base64"),
-    } } });
-    const approval = async (entries: typeof recorded.entries) => {
-      const prepared = await command(prepareInvoice(entries));
-      const draft = invoiceDraftRef(prepared);
-      await command({ type: "approveInvoice", ...draft });
-      return { type: "issueInvoice", ...draft, requestId: crypto.randomUUID() };
-    };
-    const visibleDraft = await command(prepareInvoice([recorded.entries[0]]));
-    expect(visibleDraft.invoices).toHaveLength(0);
-    const previewRef = invoiceDraftRef(visibleDraft);
-    const draftUrl =
-      "/timesheet/drafts/" +
-      previewRef.id +
-      "/document" +
-      query +
-      "&revision=" + previewRef.revision;
-    const draftDocx = await api(draftUrl + "&format=docx");
-    expect(draftDocx.status).toBe(200);
-    expect(strFromU8(unzipSync(new Uint8Array(await draftDocx.arrayBuffer()))["word/document.xml"])).toContain(letterhead);
-    const draftPdf = await api(draftUrl + "&format=pdf");
-    expect(draftPdf.status).toBe(200);
-    expect(draftPdf.headers.get("content-type")).toBe("application/pdf");
-    const previewPdf = Buffer.from(await draftPdf.arrayBuffer());
-    expect(previewPdf.subarray(0, 5).toString()).toBe("%PDF-");
-    expect((await api(draftUrl.replace(previewRef.revision, "a".repeat(64)) + "&format=pdf")).status).toBe(409);
-    const policy = visibleDraft.policies.find(
-      (p) => p.scope === "firm" && p.effectiveFrom === "2026-01-01",
-    )!;
-    const changed = await command({
-      type: "policy",
-      policy: { ...policy, hourlyRate: 320 },
+    const createInvoice = (entries: typeof recorded.entries) => ({
+      type: "createInvoice", requestId: crypto.randomUUID(), invoice: prepareInvoice(entries).draft,
     });
-    const revoked = await api(draftUrl + "&format=docx");
-    expect([403, 409]).toContain(revoked.status);
-    expect(revoked.headers.get("content-type")).not.toContain(
-      "wordprocessingml",
-    );
-    await command({
-      type: "policy",
-      policy: {
-        ...policy,
-        revision: changed.policies.find(
-          (p) => p.scope === "firm" && p.effectiveFrom === "2026-01-01",
-        )!.revision,
-        soloApproval: true,
-      },
-    });
-    const issue = await approval([recorded.entries[0]]);
-    const issued = await command(issue),
-      inv = issued.invoices[0];
-    expect(inv.total).toBe(50);
+    const issue = createInvoice([recorded.entries[0]]);
+    const issued = await command(issue);
+    const inv = issued.invoices[0];
+    expect(inv).toMatchObject({ number: 1, total: 50, recordOnly: true });
     expect((await command(issue)).invoices).toHaveLength(1);
-    const file = await api(
-      "/timesheet/invoices/" + inv.id + "/document" + query,
-    );
-    expect(file.headers.get("content-disposition")).toContain("Invoice-1");
-    const original = await file.text();
-    expect(original).toContain("Client call");
-    const getArtifact = async (format: "docx" | "pdf") => {
-      const response = await api(
-        "/timesheet/invoices/" +
-          inv.id +
-          "/document" +
-          query +
-          "&format=" +
-          format,
-      );
-      expect(response.status).toBe(200);
-      return Buffer.from(await response.arrayBuffer());
-    };
-    const word = await getArtifact("docx"),
-      pdf = await getArtifact("pdf");
-    expect(strFromU8(unzipSync(word)["word/document.xml"])).toContain(
-      "Client call",
-    );
-    expect(strFromU8(unzipSync(word)["word/document.xml"])).toContain(letterhead);
-    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
-    if (process.env.LEGALWORK_TEST_LIBREOFFICE) {
-      for (const artifact of [previewPdf, pdf]) {
-        const { pages } = await extractPdfText(artifact, AbortSignal.timeout(10_000));
-        const text = pages.map((page) => page.text).join(" ");
-        for (const expected of [letterhead, "Client call", "50.00"]) expect(text).toContain(expected);
-      }
-    }
+    expect((await api("/timesheet/invoices/" + inv.id + "/document" + query)).status).toBe(404);
     const adjusted = await command({
       type: "adjust",
       id: entry.id,
@@ -240,14 +154,6 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     expect(note.headers.get("content-disposition")).toContain("1-C1");
     expect(await note.text()).toContain("Courtesy allowance");
     expect(decided.invoices[0].total).toBe(50);
-    expect(
-      await (
-        await api("/timesheet/invoices/" + inv.id + "/document" + query)
-      ).text(),
-    ).toBe(original);
-
-    expect(await getArtifact("docx")).toEqual(word);
-    expect(await getArtifact("pdf")).toEqual(pdf);
     expect(
       (
         await api(path, {
@@ -281,9 +187,9 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     const sent = await command({ type: "submit", entries: refs });
     const open = sent.entries.filter((e) => e.status === "confirmed");
     expect(open).toHaveLength(2);
-    const second = await approval([open[0]]);
+    const second = createInvoice([open[0]]);
     await Promise.all([command(second), command(second)]);
-    const third = await approval([open[1]]);
+    const third = createInvoice([open[1]]);
     await command(third);
     const finalState = TimesheetStateSchema.parse(
       await (await api(path)).json(),

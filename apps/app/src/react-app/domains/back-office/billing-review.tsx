@@ -24,11 +24,9 @@ import {
   timeCapWarning,
 } from "@legalwork/types/timesheet";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { BillingInvoiceDraft } from "./billing-invoice-draft";
-import { saveInvoiceDownload } from "./billing-invoice-pdf";
 import { BillingWordingCheck } from "./billing-wording-check";
 import { BillingEditCell } from "./billing-edit-cell";
 import { BillingAdjustments } from "./billing-adjustments";
@@ -105,6 +103,15 @@ function BillingHistory({ e, state }: { e: TimeEntry; state: TimesheetState }) {
   );
 }
 
+function saveCorrection(file: { data: ArrayBuffer; contentType: string | null; filename: string | null }, fallback: string) {
+  const url = URL.createObjectURL(new Blob([file.data], { type: file.contentType ?? "application/octet-stream" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.filename ?? fallback;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function BillingReview({
   state,
   onCommand,
@@ -112,20 +119,17 @@ export function BillingReview({
   canEdit,
   initialDate,
   initialMatterId = "",
-  workdayModels,
   initialMode = "submitted",
-  invoiceViews = false, renderRecordHistory, invoiceRegister, documentClient,
+  invoiceViews = false, renderRecordHistory, invoiceRegister,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
   initialMatterId?: string;
-  workdayModels?: WorkdayModelOption[];
   initialMode?: "submitted" | "invoices";
   invoiceViews?: boolean;
   invoiceRegister?: ReactNode;
-  documentClient?: LegalworkServerClient;
   renderRecordHistory?: (entry: TimeEntry, close: () => void) => ReactNode;
-  client: Pick<LegalworkServerClient, "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
+  client: Pick<LegalworkServerClient, "downloadTimesheetAdjustment">;
 }) {
   const locale = useLocale();
   const navigate = useNavigate();
@@ -254,18 +258,16 @@ export function BillingReview({
     setDownloadError("");
     try {
       const file = await client.downloadTimesheetAdjustment(id, state.scope);
-      saveInvoiceDownload(file, "Adjustment-" + id + ".html");
+      saveCorrection(file, "Adjustment-" + id + ".html");
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : t("back_office.billing.download_failed"));
     }
   }
-  const supportsCreation = state.supportsInvoiceCreation || state.supportsInvoiceDrafts;
-  const canCreate = (state.canInvoice ?? state.canReview) && canEdit && supportsCreation === true;
+  const supportsCreation = state.supportsInvoiceCreation === true;
+  const canCreate = (state.canInvoice ?? state.canReview) && canEdit && supportsCreation;
   const historyEntry = rows.find(entry => entry.id === historyId);
   const draftMatter = invoiceEntry?.matterId || matter;
   const draftClient = invoiceEntry?.clientId || billTo;
-  const resume = !invoiceEntry && (invoiceScreen === "review" || (state.invoiceDraft &&
-    (!matter || state.invoiceDraft.input.matterId === matter) && (!billTo || state.invoiceDraft.input.clientId === billTo)));
   const invoiceEditing = invoiceScreen !== "closed" && canCreate;
   const invoiceVisible = invoiceScreen === "invoice" && canCreate;
   return (
@@ -274,9 +276,9 @@ export function BillingReview({
         <div className="bo-invoice-editor-view" hidden={!invoiceVisible}>
           <section className="bo-billing">
             <BillingInvoiceDraft
-              state={state} onCommand={onCommand} client={client} documentClient={documentClient}
+              state={state} onCommand={onCommand}
               dates={filtersOpen ? { from: throughEndDate ? "" : dates.from, to: dates.to } : undefined}
-              initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient} workdayModels={workdayModels}
+              initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient}
               onCancel={() => { setInvoiceEntry(undefined); setInvoiceScreen("closed"); }}
               onReviewSubmitted={(entry) => {
                 if (invoiceViews) {
@@ -314,7 +316,7 @@ export function BillingReview({
             {t("timesheets.invoice_record_add")}</Link>}
           {["approved", "invoices", "submitted"].includes(mode) && supportsCreation && <Button size="sm"
             disabled={!canCreate} onClick={() => { setInvoiceEntry(undefined); setInvoiceScreen("invoice"); }}>
-            <Plus />{t(resume ? "invoiceReview.resume" : "invoiceReview.create")}
+            <Plus />{t(invoiceScreen === "review" ? "invoiceReview.resume" : "invoiceReview.create")}
           </Button>}
         </div>
       </header>
