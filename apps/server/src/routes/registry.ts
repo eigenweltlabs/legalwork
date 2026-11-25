@@ -19,6 +19,8 @@ export interface RequestContext {
 
 export interface Route {
   method: string;
+  /** The registered pattern (e.g. `/workspaces/:id/files`), used to label errors without request data. */
+  path: string;
   regex: RegExp;
   keys: string[];
   auth: AuthMode;
@@ -44,7 +46,7 @@ export function matchRoute(routes: Route[], method: string, path: string): Match
 export function addRoute(routes: Route[], method: string, path: string, auth: AuthMode, handler: Route["handler"]): void {
   const keys: string[] = [];
   const regex = pathToRegex(path, keys);
-  routes.push({ method, regex, keys, auth, handler });
+  routes.push({ method, path, regex, keys, auth, handler });
 }
 
 function pathToRegex(path: string, keys: string[]): RegExp {

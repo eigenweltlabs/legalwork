@@ -701,6 +701,18 @@ function toUnixNano(): string {
   return (BigInt(Date.now()) * 1_000_000n).toString();
 }
 
+/**
+ * Hand an unexpected failure to the host's error reporting. Only the method
+ * and the route pattern go along, never the request path, query or body.
+ */
+function reportUnhandledError(config: ServerConfig, error: unknown, method: string, route: string): void {
+  try {
+    config.reportUnhandledError?.(error, { method, route });
+  } catch {
+    // Reporting must never change the response.
+  }
+}
+
 export function createServerLogger(config: ServerConfig): ServerLogger {
   const runId = process.env.LEGALWORK_RUN_ID ?? shortId();
   const host = hostname().trim();
@@ -1087,6 +1099,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         } catch (error) {
           if (!findApiError(error)) {
             console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
+            reportUnhandledError(config, error, request.method, "opencode-proxy");
           }
           const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
@@ -1168,6 +1181,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         } catch (error) {
           if (!findApiError(error)) {
             console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
+            reportUnhandledError(config, error, request.method, "opencode-proxy");
           }
           const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
           errorMessage = apiError.message;
@@ -1238,6 +1252,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         if (request.signal.aborted) return finalize(new Response(null, { status: 499 }));
         if (!findApiError(error)) {
           console.error("[legalwork-server] Unhandled error:", request.method, url.pathname, error);
+          reportUnhandledError(config, error, request.method, route.path);
         }
         const apiError = findApiError(error) ?? new ApiError(500, "internal_error", "Unexpected server error");
         errorMessage = apiError.message;

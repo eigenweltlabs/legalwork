@@ -1,34 +1,26 @@
 /**
- * Content-free error analytics. `app_error` NEVER carries an error message or
- * stack — only: an allowlisted class name, an opaque one-way fingerprint of the
- * error's structure, the originating service, an HTTP status, a numeric process
- * exit code (sidecar crashes), and the surface. The guarantee comes from the
- * schema (allowlist + hash + enums + numbers), not from scrubbing free-form
- * strings.
+ * App errors.
+ *
+ * Errors go to error reporting (error-reporting.ts → Sentry, sent by the main
+ * process only with the user's consent, cleaned of paths and content first).
+ * This module keeps two things the run analytics still use: an allowlisted
+ * error class name and a content-free fingerprint for engine session errors.
  */
-import { captureAnalyticsEvent, analyticsSurface, type AnalyticsSurface } from "./analytics";
-import { analyticsErrorService, analyticsErrorStatus, type AnalyticsErrorService } from "./analytics-error";
+import { reportError } from "./error-reporting";
 import { hashString } from "./hash";
 
 export type AppErrorSource =
-  // global (caught automatically in the renderer)
+  // global (logged here; captured by Sentry's own window handlers)
   | "uncaught"
   | "unhandledrejection"
   | "react_render"
   // explicit (fired from subsystem catch blocks)
   | "workspace_create"
-  | "integration_connect"
-  // main process (relayed from Electron main over IPC)
-  | "main_uncaught"
-  | "main_unhandledrejection"
-  | "sidecar_exit";
+  | "integration_connect";
 
-type AppErrorService = AnalyticsErrorService | "renderer" | "sidecar";
-
-const GLOBAL_SOURCES = new Set<AppErrorSource>(["uncaught", "unhandledrejection", "react_render"]);
-
-// Only these class names are ever emitted; anything else is bucketed to "other"
-// so an unexpected (possibly content-bearing) name never leaves the machine.
+// Run analytics (session-sync.ts) only ever record these class names; anything
+// else is bucketed to "other" so an unexpected (possibly content-bearing) name
+// never reaches analytics.
 const ALLOWED_ERROR_NAMES = new Set([
   // Standard JS / DOM error classes.
   "Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError", "EvalError",
@@ -109,74 +101,9 @@ export function sessionErrorFingerprint(error: unknown): string | null {
   }
 }
 
-// Throttle: send each distinct fingerprint at most once per session, and cap
-// the total, so a looping error can never flood analytics.
-const MAX_ERRORS_PER_SESSION = 20;
-const seenFingerprints = new Set<string>();
-let sentCount = 0;
-
-type AppErrorFields = {
-  source: AppErrorSource;
-  error_name: string;
-  error_fingerprint: string | null;
-  service: AppErrorService;
-  status_code: number | null;
-  // Process exit code for `sidecar_exit` (a signal is encoded as 128 + signal
-  // number: 137 = SIGKILL/OOM, 139 = SIGSEGV, ...). null for all other sources.
-  exit_code: number | null;
-  surface: AnalyticsSurface;
-};
-
-function emit(fields: AppErrorFields): void {
-  // Include exit_code so distinct sidecar failure modes each record once while a
-  // crash loop with the same code is still deduped to one event per session.
-  const key = `${fields.source}:${fields.error_name}:${fields.error_fingerprint ?? ""}:${fields.exit_code ?? ""}`;
-  if (seenFingerprints.has(key)) return;
-  if (sentCount >= MAX_ERRORS_PER_SESSION) return;
-  seenFingerprints.add(key);
-  sentCount += 1;
-  captureAnalyticsEvent("app_error", { ...fields });
-}
-
-/** Report a renderer error. Never throws. */
-export function captureAppError(source: AppErrorSource, error: unknown, service?: AppErrorService): void {
-  try {
-    const name = allowlistedErrorName(error);
-    emit({
-      source,
-      error_name: name,
-      error_fingerprint: errorFingerprint(name, error),
-      service: service ?? (GLOBAL_SOURCES.has(source) ? "renderer" : analyticsErrorService(error)),
-      status_code: analyticsErrorStatus(error),
-      exit_code: null,
-      surface: analyticsSurface(),
-    });
-  } catch {
-    // Error reporting must never surface an error itself.
-  }
-}
-
-/** Report an error relayed from the Electron main process (precomputed, content-free). */
-export function captureRelayedAppError(fields: {
-  source: AppErrorSource;
-  error_name?: string | null;
-  service: AppErrorService;
-  exit_code?: number | null;
-}): void {
-  try {
-    const name = fields.error_name && ALLOWED_ERROR_NAMES.has(fields.error_name) ? fields.error_name : "other";
-    emit({
-      source: fields.source,
-      error_name: name,
-      error_fingerprint: null,
-      service: fields.service,
-      status_code: null,
-      exit_code: typeof fields.exit_code === "number" ? fields.exit_code : null,
-      surface: analyticsSurface(),
-    });
-  } catch {
-    // no-op
-  }
+/** Report an error the app caught. Never throws. */
+export function captureAppError(source: AppErrorSource, error: unknown): void {
+  reportError(error, { source });
 }
 
 // The desktop app keeps this window's console errors in main.log for support,
@@ -192,7 +119,10 @@ function describeForLog(value: unknown): string {
 }
 
 let installed = false;
-/** Install global renderer error hooks. Idempotent; safe to call from any root. */
+/**
+ * Log uncaught errors with their stack (for main.log and support bundles).
+ * Reporting them is done by Sentry's own window handlers. Idempotent.
+ */
 export function initErrorAnalytics(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
@@ -200,10 +130,8 @@ export function initErrorAnalytics(): void {
     // Resource-load failures fire "error" with no `error` object — skip them.
     if (!(event instanceof ErrorEvent) || !event.error) return;
     console.error("Uncaught error:", describeForLog(event.error));
-    captureAppError("uncaught", event.error);
   });
   window.addEventListener("unhandledrejection", (event) => {
     console.error("Unhandled rejection:", describeForLog(event.reason));
-    captureAppError("unhandledrejection", event.reason);
   });
 }

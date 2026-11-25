@@ -601,7 +601,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, onServerError, getApprovalWindow, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     showMessageBox: async (window, options) => {
@@ -614,10 +614,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
 
-  // Report an unexpected sidecar (agent runtime) exit as a content-free signal.
+  // Report an unexpected sidecar (agent runtime) exit with its exit code.
   // Intentional stops/restarts are filtered out in spawnManagedChild via the
   // intentional-stop registry that stopChild marks, and a crash loop is
-  // deduped to one event per session by the renderer's app_error throttle.
+  // capped per exit code in error-reporting.mjs.
   function reportSidecarCrash(detail = {}) {
     try {
       // A numeric exit uses the code directly; a signal-terminated exit is
@@ -1435,6 +1435,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     };
     const handle = await startEmbeddedServer({
       onListening: publishServerConnection,
+      // Unexpected 500s inside the server go to error reporting as well as main.log.
+      reportUnhandledError: onServerError,
       renderHtmlPdf: renderRisHtmlPdf,
       modelDownloadFetch,
       // Electron's Node TLS uses BoringSSL, whose legacy verifier cannot handle

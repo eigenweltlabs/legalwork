@@ -146,10 +146,6 @@ What is sent when analytics is on:
   prompts and model downloads; Office add-in installation; connecting and
   disconnecting a connector, together with which connector it was; and changes to
   tool and permission toggles.
-- Error and crash events: an error name from a fixed list, a hash used to group
-  similar errors, the component affected, a status code, and the surface the
-  error occurred on. These are produced from a fixed schema rather than extracted
-  from error text, which is how the guarantee below is kept.
 - A random identifier, new on every app start and never stored on your device,
   plus a machine-generated task id used to group the events of one task.
 - Where the App is used from, no finer than city level (derived from the request
@@ -164,6 +160,29 @@ What is **never** sent to analytics:
 Analytics never blocks or slows the App. Details on the legal basis, retention
 and your rights are in the
 [privacy notice](https://eigenweltlabs.com/legalwork/privacy).
+
+### Error reports (Sentry)
+
+With the same setting, the App sends **error reports** so we can find and fix
+bugs. They go to a [Sentry](https://sentry.io) server that we operate ourselves
+in the EU (Microsoft Azure, Sweden) and are kept for 30 days. Nothing is sent
+before you have turned the setting on, and your firm's policy can switch it off.
+
+What an error report contains:
+
+- The type of error and where in the App's own code it happened (a stack trace
+  of LegalWork's open-source code).
+- The error message, cleaned before it leaves your device: file paths, e-mail
+  addresses, web-address parameters, long numbers and longer quoted text are
+  replaced by placeholders.
+- App version, operating system and technical context such as processor
+  architecture, memory and graphics, and for the agent runtime its exit code.
+
+What is **never** sent in an error report:
+
+- Your messages, prompts, chat content, documents, file names or file contents.
+- Values from the App's memory, crash dumps or screenshots.
+- Your computer's name. Your IP address is not stored.
 
 ## 7. License and output
 

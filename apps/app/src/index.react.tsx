@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, HashRouter } from "react-router-dom";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { initDesktopErrorReporting } from "./app/lib/error-reporting";
 import { getLegalWorkDeployment } from "./app/lib/legalwork-deployment";
 import { bootstrapTheme } from "./app/theme";
 import { isDesktopRuntime } from "./app/utils";
@@ -19,6 +20,9 @@ import { AppRoot } from "./react-app/shell/app-root";
 import { startDeepLinkBridge } from "./react-app/shell/startup-deep-links";
 import "./app/index.css";
 
+// First, so errors during startup are caught. Desktop windows only; sends
+// nothing until the user has agreed (decided in the main process).
+void initDesktopErrorReporting();
 bootstrapTheme();
 initLocale();
 startDeepLinkBridge();

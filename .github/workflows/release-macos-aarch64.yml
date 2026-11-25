@@ -410,6 +410,9 @@ jobs:
       - name: Build Electron app
         shell: bash
         env:
+          # Uploads the renderer's source maps to Sentry (readable stack traces);
+          # without the secret the build skips this and ships no maps.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
@@ -637,6 +640,9 @@ jobs:
       - name: Build Electron app
         shell: bash
         env:
+          # Uploads the renderer's source maps to Sentry (readable stack traces);
+          # without the secret the build skips this and ships no maps.
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars

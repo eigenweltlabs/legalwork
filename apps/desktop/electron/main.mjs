@@ -53,6 +53,7 @@ import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resol
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
+import { initErrorReporting, reportAgentRuntimeExit, reportServerError, setErrorReportingConsent } from "./error-reporting.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
@@ -517,6 +518,9 @@ if (userDataOverride) {
 // After setName/setPath: the logs folder derives from the app name (macOS)
 // or userData (Windows/Linux).
 installMainErrorLog(() => app.getPath("logs"));
+// Before the app is ready, so windows created later are covered. Sends
+// nothing until the user has agreed (see error-reporting.mjs).
+initErrorReporting();
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -708,37 +712,14 @@ const eventStreams = createEventStreams();
 const httpRequests = createHttpRequests();
 const pendingDeepLinks = [];
 
-// Relay a content-free error signal to the renderer, which turns it into an
-// `app_error` analytics event (only when the user has analytics enabled).
-function relayAppError(source, error, service, exitCode = null) {
-  try {
-    const name =
-      error instanceof Error
-        ? error.name || "Error"
-        : error && typeof error === "object" && "name" in error
-          ? String(error.name)
-          : "Error";
-    if (mainWindow?.webContents && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("legalwork:app-error", {
-        source,
-        error_name: name,
-        service,
-        exit_code: typeof exitCode === "number" ? exitCode : null,
-      });
-    }
-  } catch {
-    // Never let error reporting throw.
-  }
-}
-// `uncaughtExceptionMonitor` reports without suppressing Electron's default
-// crash behavior (unlike `uncaughtException`).
+// Keep uncaught errors in main.log for support bundles. Sentry reports them
+// itself (error-reporting.mjs); `uncaughtExceptionMonitor` observes without
+// changing Electron's default crash behavior (unlike `uncaughtException`).
 process.on("uncaughtExceptionMonitor", (error) => {
   console.error("[main] Uncaught exception:", error);
-  relayAppError("main_uncaught", error, "server");
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[main] Unhandled rejection:", reason);
-  relayAppError("main_unhandledrejection", reason, "server");
 });
 
 const browserPanel = createBrowserPanel({
@@ -1243,10 +1224,12 @@ const runtimeManager = createRuntimeManager({
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
-  // The agent runtime (orchestrator / opencode) runs as a child process; relay
-  // an unexpected exit as a content-free `sidecar_exit` app_error. Intentional
-  // stops/restarts are filtered out inside the runtime manager.
-  onSidecarExit: (detail) => relayAppError("sidecar_exit", { name: "Error" }, "sidecar", detail?.exitCode ?? null),
+  // The agent runtime (orchestrator / opencode) runs as a child process; report
+  // an unexpected exit with its exit code. Intentional stops/restarts are
+  // filtered out inside the runtime manager.
+  onSidecarExit: (detail) => reportAgentRuntimeExit(detail),
+  // Unexpected failures inside the embedded server (it answered 500).
+  onServerError: (error, context) => reportServerError(error, context),
 });
 
 let runtimeDisposedForQuit = false;
@@ -3186,6 +3169,12 @@ ipcMain.handle("legalwork:terminal:kill", (event, terminalId) => {
 });
 
 browserPanel.registerIpc(ipcMain);
+
+// The window reports the user's current "share anonymous usage" choice
+// (including the firm policy); error reports are sent only while it is on.
+ipcMain.on("legalwork:error-reporting-consent", (_event, enabled) => {
+  setErrorReportingConsent(enabled === true);
+});
 
 // ── Recorder streaming channels ────────────────────────────────────────────
 // High-frequency payloads use fire-and-forget send() instead of the typed

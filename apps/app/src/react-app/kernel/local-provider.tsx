@@ -10,6 +10,7 @@ import {
 
 import { THINKING_PREF_KEY } from "../../app/constants";
 import { flushAnalytics, getAnalyticsDistinctId, setAnalyticsDistinctId } from "../../app/lib/analytics";
+import { syncErrorReportingConsent } from "../../app/lib/error-reporting";
 import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
@@ -208,6 +209,13 @@ export function LocalProvider({ children }: LocalProviderProps) {
   useEffect(() => {
     if (prefs.analyticsEnabled === true) void flushAnalytics();
   }, [prefs.analyticsEnabled]);
+
+  // Error reports follow the same choice. A pending choice (welcome screen)
+  // counts as "no": nothing is sent until the user has actually agreed.
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    syncErrorReportingConsent(prefs.analyticsEnabled === true && !firmAnalyticsOff);
+  }, [prefs.analyticsEnabled, firmAnalyticsOff]);
 
   // Sync analytics consent and our per-launch distinct id to the local
   // server, so the renderer, the server's gateway header and the Office pane

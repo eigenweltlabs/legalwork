@@ -9,7 +9,7 @@ type State = { hasError: boolean };
 
 /**
  * Top-level error boundary: catches React render/lifecycle crashes (which do
- * not reach window.onerror in production), reports a content-free `app_error`,
+ * not reach window.onerror in production), reports them to error reporting,
  * and shows a fallback instead of a blank screen.
  */
 export class AppErrorBoundary extends Component<Props, State> {

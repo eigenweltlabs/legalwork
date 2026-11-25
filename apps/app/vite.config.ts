@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { openuiLicenseNotices } from "./scripts/openui-license-notices";
 
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
@@ -48,6 +49,23 @@ const buildAppVersion =
 // must be relative. Gate on an env var the electron build script sets.
 const isElectronPackagedBuild = process.env.LEGALWORK_ELECTRON_BUILD === "1";
 
+// Readable stack traces in error reports: packaged builds with an upload token
+// (release CI) produce source maps, upload them to Sentry and delete them, so
+// the installer ships without .map files. Without a token nothing changes.
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN?.trim();
+const uploadSourceMaps = isElectronPackagedBuild && Boolean(sentryAuthToken);
+const sentrySourceMaps = uploadSourceMaps
+  ? sentryVitePlugin({
+      url: process.env.SENTRY_URL?.trim() || "https://sentry.eigenweltlabs.com",
+      org: process.env.SENTRY_ORG?.trim() || "sentry",
+      project: process.env.SENTRY_PROJECT?.trim() || "legalwork-desktop",
+      authToken: sentryAuthToken,
+      release: { name: `legalwork-desktop@${buildAppVersion}` },
+      sourcemaps: { filesToDeleteAfterUpload: [resolve(appRoot, "dist/**/*.map")] },
+      telemetry: false,
+    })
+  : [];
+
 export default defineConfig({
   base: isElectronPackagedBuild ? "./" : "/",
   define: {
@@ -70,6 +88,8 @@ export default defineConfig({
         plugins: [["babel-plugin-react-compiler", { compilationMode: "annotation" }]],
       },
     }),
+    // Must stay last: it reads the final bundles.
+    sentrySourceMaps,
   ],
   server: {
     // Supervised visual fixtures stay stable if another preview restarts the host.
@@ -81,6 +101,8 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
+    // "hidden": maps are written (for the upload) but not referenced from the bundles.
+    sourcemap: uploadSourceMaps ? "hidden" : false,
     rollupOptions: {
       input: {
         app: resolve(appRoot, "index.html"),

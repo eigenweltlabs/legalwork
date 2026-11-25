@@ -62,6 +62,8 @@ declare global {
       files?: {
         copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
       };
+      /** Whether error reports may be sent (usage-sharing choice and firm policy). */
+      setErrorReportingConsent?: (enabled: boolean) => void;
       shell?: {
         openExternal?: (url: string) => Promise<void>;
         relaunch?: () => Promise<void>;

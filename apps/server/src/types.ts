@@ -159,6 +159,12 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  /**
+   * Host-owned error reporting for unexpected failures (the server answered
+   * 500). Receives the error and a request label without request data (method
+   * and route pattern). Never set from client input or persisted config.
+   */
+  reportUnhandledError?: (error: unknown, context: { method: string; route: string }) => void;
   /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
   agentSandboxEnabled?: boolean;
   /** Host-owned admission boundary for native project automation discovery. */
