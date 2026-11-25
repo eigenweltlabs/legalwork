@@ -1,4 +1,4 @@
-import type { CorpusService } from "../corpus/service.js";
+import type { CorpusFolderApproval, CorpusService } from "../corpus/service.js";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -13,6 +13,7 @@ import { reviewExecutionActor } from "../reviews/execution-actor.js";
 
 export function registerReviewRoutes(options: {
   routes: Route[]; config: ServerConfig; reviews: ReviewService; corpus?: CorpusService; reviewSessions: ReviewSessions;
+  corpusFolders?: (ctx: RequestContext, workspace: WorkspaceInfo) => CorpusFolderApproval;
   jsonResponse: (data: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
@@ -61,7 +62,7 @@ export function registerReviewRoutes(options: {
   route("POST", "/corpus/query", async (ctx, workspace) => {
     if (!options.corpus) throw new ApiError(503, "corpus_unavailable", "Corpus questions are unavailable.");
     const { requestId, ...input } = await body(ctx);
-    return options.corpus.query(workspace, input, z.string().max(100).optional().parse(requestId));
+    return options.corpus.query(workspace, input, z.string().max(100).optional().parse(requestId), options.corpusFolders?.(ctx, workspace));
   });
   route("GET", "/settings", (_ctx, workspace) => reviews.capabilities(workspace));
   route("PUT", "/settings", async (ctx, workspace) => reviews.saveSettings(workspace, await body(ctx)));

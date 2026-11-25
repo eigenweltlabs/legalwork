@@ -1,5 +1,30 @@
 import { expect, test } from "bun:test";
-import { ApiError, projectFileError } from "./errors.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ApiError, findApiError, projectFileError } from "./errors.js";
+
+test("API errors from a separately bundled copy keep their status", async () => {
+  // Mirrors the build: dist/project-storage-paths.js is bundled with its own ApiError.
+  const outdir = await mkdtemp(join(tmpdir(), "legalwork-errors-"));
+  try {
+    const build = await Bun.build({ entrypoints: [join(import.meta.dir, "project-storage-paths.ts")], outdir, target: "node", format: "esm" });
+    expect(build.success).toBe(true);
+    const bundled = await import(join(outdir, "project-storage-paths.js"));
+    let thrown: unknown;
+    try { bundled.resolveWorkspaceFile({ path: "/project" }, "/elsewhere/file.docx"); } catch (error) { thrown = error; }
+    expect(findApiError(thrown)).toMatchObject({ status: 403, code: "file_access_denied" });
+  } finally {
+    await rm(outdir, { recursive: true, force: true });
+  }
+});
+
+test("subclasses keep ordinary instanceof checks", () => {
+  class OtherError extends ApiError {}
+  expect(new OtherError(409, "other", "Other") instanceof ApiError).toBe(true);
+  expect(new ApiError(409, "plain", "Plain") instanceof OtherError).toBe(false);
+  expect(new Error("plain") instanceof ApiError).toBe(false);
+});
 
 test.each([
   { code: "Unknown system error -81", errno: -81 },
