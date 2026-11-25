@@ -1,8 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Check, ChevronRight, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -39,6 +40,10 @@ import {
   type BillingProps,
 } from "./billing-components";
 import { BillingInvoicePdf } from "./billing-invoice-pdf";
+import { InvoiceApprovalPane } from "./invoice-approval-pane";
+import { openInvoiceDocument } from "./invoice-document-actions";
+import { BillingPreferences } from "./billing-preferences";
+import { formatFee } from "./billing-amounts";
 import { entryStatusKeys, labelForCode } from "./timesheet-labels";
 import { invoiceEntryAccess } from "./invoice-entry-access";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
@@ -57,6 +62,7 @@ const invoiceWordingRules = {
 
 type DraftProps = BillingProps & {
   client: Pick<LegalworkServerClient, "downloadTimesheetDraft">;
+  documentClient?: LegalworkServerClient;
   initialMatterId: string;
   initialClientId: string;
   initialEntry?: TimeEntry;
@@ -94,6 +100,7 @@ export function BillingInvoiceDraft({
   state,
   onCommand,
   client,
+  documentClient,
   dates,
   initialMatterId, initialClientId, initialEntry,
   workdayModels,
@@ -102,6 +109,10 @@ export function BillingInvoiceDraft({
   onIssued,
 }: DraftProps) {
   const locale = useLocale();
+  const approvalPane = useContext(InvoiceApprovalPane);
+  const closeApproval = approvalPane?.close;
+  useEffect(() => () => closeApproval?.(), [closeApproval]);
+  const [rateEntry, setRateEntry] = useState<TimeEntry>();
   const matterInputId = useId();
   const clientInputId = useId();
   const durationFormat = useTimeDurationFormat();
@@ -201,12 +212,9 @@ export function BillingInvoiceDraft({
   });
   const { send, error, pending } = useBillingAction(onCommand);
   const [saving, setSaving] = useState(false);
-  const preview = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const stageTitle = useRef<HTMLHeadingElement>(null);
   const [pricingOpen, setPricingOpen] = useState(Boolean(saved?.pricing.mode === "fixed" || saved?.reduction));
-  const [footerActions, setFooterActions] = useState<HTMLDivElement | null>(null);
-  const revealPreview = useRef(false);
   const serviceDate = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" });
   const request = useRef<{ revision: string; id: string } | undefined>(
     undefined,
@@ -285,7 +293,9 @@ export function BillingInvoiceDraft({
   const included = checks
     .filter(({ picked }) => picked)
     .map(({ entry }) => entry);
-  const hourlyPricingMissing = !fixed && included.some(entry => !isHourlyInvoiceLine(entry) || entry.currency !== hourlyCurrency);
+  const missingRate = included.some(entry => !isHourlyInvoiceLine(entry));
+  const mixedCurrencies = hourlyCurrencies.length > 1;
+  const hourlyPricingMissing = !fixed && (missingRate || mixedCurrencies);
   const linkedAdjustments = adjustments.filter((item) =>
     included.some((entry) => appliesTimeAdjustment(entry, item)),
   );
@@ -355,11 +365,17 @@ export function BillingInvoiceDraft({
       input.data.pricing.currency === draft.currency
     ? { ...input.data, pricing: { mode: "hourly" } }
     : input.data;
+  const currentRates = new Map(included.map(entry => [entry.id, entry]));
+  const pricingChanged = !fixed && draft?.lines.some(({ entry }) => {
+    const current = currentRates.get(entry.id);
+    return current && (entry.hourlyRate !== current.hourlyRate || entry.currency !== current.currency);
+  });
   const visibleDraft =
     draft &&
     JSON.stringify(matchingInput) === JSON.stringify(draft.input) &&
     !legacyCutoffUnavailable &&
     !hourlyPricingMissing &&
+    !pricingChanged &&
     !pendingAdjustments &&
     (!state.template ||
       state.template.revision === draft.snapshot.template.revision) &&
@@ -412,12 +428,6 @@ export function BillingInvoiceDraft({
     }
   }
 
-  useEffect(() => {
-    if (!visibleDraft || !revealPreview.current) return;
-    revealPreview.current = false;
-    preview.current?.scrollIntoView({ block: "start" });
-  }, [visibleDraft?.revision]);
-
   function showStage(next: typeof stage) {
     setStage(next);
     requestAnimationFrame(() => {
@@ -428,16 +438,16 @@ export function BillingInvoiceDraft({
 
   async function saveDraft() {
     if (visibleDraft) {
-      preview.current?.scrollIntoView({ block: "start" });
+      approvalPane?.open();
       return;
     }
     if (!input.success || hourlyPricingMissing || invalidDates || pendingAdjustments || legacyCutoffUnavailable) return;
-    revealPreview.current = true;
     setSaving(true);
     try {
       await send({ type: "prepareInvoice", draft: input.data });
+      approvalPane?.open();
     } catch {
-      revealPreview.current = false;
+      // The draft form keeps its inputs and shows the server error.
     } finally {
       setSaving(false);
     }
@@ -447,6 +457,100 @@ export function BillingInvoiceDraft({
   const unavailableRows = checks.filter(row => !row.authorized && row.entry.billable);
   const editingSelection = stage === "entries";
   const amounts = new Map(visibleDraft?.lines.map(line => [line.entry.id, line]));
+  const rateGroups = new Map(included.map(entry =>
+    [JSON.stringify([entry.workerId, entry.date, entry.projectId, entry.hourlyRate, entry.currency, entry.nonHourlyApproval]), entry]));
+  const approvalContent = visibleDraft ? (
+    <div className="bo-invoice-draft-preview">
+      <header className="bo-invoice-preview-heading">
+        <h2>{t("invoiceReview.approval_tab")}</h2>
+        <strong>{money(visibleDraft.totalMinor, visibleDraft.currency)}</strong>
+      </header>
+      <div className="bo-invoice-preview-meta">
+        {visibleDraft.input.reduction && (
+          <>
+            <span>
+              {t("invoiceReview.selected_amount", {
+                amount: money(
+                  visibleDraft.selectedTotalMinor,
+                  visibleDraft.currency,
+                ),
+              })}
+            </span>
+            <span>
+              {t("invoiceReview.protected_amount", {
+                amount: money(
+                  visibleDraft.protectedMinor,
+                  visibleDraft.currency,
+                ),
+              })}
+            </span>
+          </>
+        )}
+        <span>
+          {visibleDraft.snapshot.template.revision === 0 ? t("invoiceReview.default_template") :
+            t("invoiceReview.template_name", { title: visibleDraft.snapshot.template.word?.name ?? visibleDraft.snapshot.template.title })}
+        </span>
+        {state.canManage && <Link className={buttonVariants({ size: "xs", variant: "ghost" })}
+          to="/settings/billing?tab=invoice-template">{t("invoiceReview.manage_template")}</Link>}
+      </div>
+      {state.supportsInvoiceWordingReview &&
+        models.length > 0 &&
+        !visibleDraft.approval && (
+          <div className="bo-invoice-preview-meta">
+            <TimeSelect label={t("invoiceReview.model")} placeholder={t("invoiceReview.choose_model")}
+              value={model} disabled={pending} options={models.map(({ workspaceId, providerID, modelID, label }) =>
+                ({ id: JSON.stringify([workspaceId, providerID, modelID]), name: label }))} onChange={setModel} />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending || !chosenModel}
+              onClick={() => {
+                if (chosenModel) {
+                  const { workspaceId, providerID, modelID } = chosenModel;
+                  void send({
+                    type: "reviewInvoiceWording",
+                    id: visibleDraft.id,
+                    revision: visibleDraft.revision,
+                    model: { workspaceId, providerID, modelID },
+                  }).catch(() => {});
+                }
+              }}
+            >
+              {t("invoiceReview.ai_review")}
+            </Button>
+            {visibleDraft.modelWording && (
+              <span role="status">
+                {t("invoiceReview.ai_results", {
+                  count: visibleDraft.modelWording.length,
+                })}
+              </span>
+            )}
+          </div>
+        )}
+      <BillingInvoicePdf
+        key={JSON.stringify([state.scope, visibleDraft.id, visibleDraft.revision])}
+        client={client}
+        scope={state.scope}
+        id={visibleDraft.id}
+        revision={visibleDraft.revision}
+        openWord={approvalPane && documentClient ? () => openInvoiceDocument(approvalPane, documentClient, state, {
+          id: visibleDraft.id + ":" + visibleDraft.revision, format: "docx", name: t("invoiceReview.word_draft"),
+          loadFile: () => client.downloadTimesheetDraft(visibleDraft.id, state.scope, "docx", { revision: visibleDraft.revision }),
+        }) : undefined}
+      >
+        {pdfReady => <footer className="bo-invoice-footer justify-end">
+          {!visibleDraft.snapshot.clientAddress && <p className="me-auto text-muted-foreground">{t("invoiceReview.address_required")}</p>}
+          {error && <p className="me-auto text-destructive" role="alert">{error}</p>}
+          {visibleDraft.approval ? <Button size="sm" disabled={pending || !pdfReady}
+            onClick={() => void issue(visibleDraft)}>{t("back_office.billing.issue")}</Button>
+            : <Button size="sm" disabled={pending || !pdfReady || !visibleDraft.snapshot.clientAddress}
+              onClick={() => void send({ type: "approveInvoice", id: visibleDraft.id, revision: visibleDraft.revision }).catch(() => {})}>
+              {t("invoiceReview.approve")}
+            </Button>}
+        </footer>}
+      </BillingInvoicePdf>
+    </div>
+  ) : <p className="px-5 py-4 text-sm text-muted-foreground" role="status">{t("invoiceReview.refresh_preview")}</p>;
   return (
     <div className="bo-billing-body bo-invoice-draft">
       <header className="bo-invoice-header">
@@ -570,8 +674,7 @@ export function BillingInvoiceDraft({
                 {t(fixed ? "invoiceReview.fixed" : "invoiceReview.hourly")}{invoiceCurrency && " · " + invoiceCurrency}
               </span>
             </summary>
-            {hourlyPricingMissing && <p className="px-4 pt-2 text-sm" role="status">{t("invoiceReview.hourly_selection_help")}</p>}
-            <div className="bo-invoice-settings">
+            <div className="bo-invoice-settings bo-invoice-fee-basis">
               <label>
                 {t("invoiceReview.pricing")}
                 <TimeSelect label={t("invoiceReview.pricing")} value={fixed ? "fixed" : "hourly"} disabled={pending}
@@ -593,8 +696,26 @@ export function BillingInvoiceDraft({
                 {t("invoiceReview.show_hours")}
               </label>
             </div>}
+            {!fixed && rateGroups.size > 0 && <div className="bo-invoice-rates">
+              <h4>{t("invoiceReview.timekeeper_rates")}</h4>
+              {hourlyPricingMissing && <p className="text-sm text-muted-foreground" role="status">
+                {t(mixedCurrencies ? "invoiceReview.mixed_rates" : "invoiceReview.missing_rate_help")}
+              </p>}
+              <ul>{[...rateGroups].map(([key, entry]) => <li key={key}>
+                <div>
+                  <strong>{people.get(entry.workerId) ?? entry.workerId}</strong>
+                  <small>{serviceDate.format(new Date(entry.date + "T00:00:00"))}</small>
+                </div>
+                <span className="text-sm tabular-nums">{isHourlyInvoiceLine(entry)
+                  ? t("invoiceReview.rate_per_hour", { rate: formatFee(locale, entry.hourlyRate, entry.currency) })
+                  : t(entry.nonHourlyApproval ? "invoiceReview.fixed_agreement" : "invoiceReview.no_rate")}</span>
+                {state.canManage && <Button size="xs" variant="outline" onClick={() => setRateEntry(entry)}>
+                  {t(entry.status === "approved" ? "invoiceReview.rate_settings" : "invoiceReview.edit_rate")}
+                </Button>}
+              </li>)}</ul>
+            </div>}
             {included.length > 0 && <details className="bo-invoice-reduction" open={reduction ? true : undefined}>
-              <summary>{t("invoiceReview.reduction")}</summary>
+              <summary><ChevronRight size={14} />{t("invoiceReview.reduction")}</summary>
               <div className="bo-invoice-settings">
                 <label>
                   {t("invoiceReview.reduction")}
@@ -637,28 +758,28 @@ export function BillingInvoiceDraft({
                 {t("invoiceReview.apply_suggestions")}
               </Button>
             </div>}
-            <table className="bo-invoice-line-table">
-              <thead><tr>
-                <th className="bo-invoice-service" scope="col">{t("invoiceReview.service")}</th>
-                <th scope="col">{t("invoiceReview.result")}</th>
-                {visibleDraft && <th className="bo-invoice-amount bo-billing-number" scope="col">
+            <Table className="bo-invoice-line-table">
+              <TableHeader><TableRow>
+                <TableHead className="bo-invoice-service" scope="col">{t("invoiceReview.service")}</TableHead>
+                <TableHead scope="col">{t("invoiceReview.result")}</TableHead>
+                {visibleDraft && <TableHead className="bo-invoice-amount bo-billing-number" scope="col">
                   {t("invoiceReview.billed")}
-                </th>}
-              </tr></thead>
-              <tbody>
+                </TableHead>}
+              </TableRow></TableHeader>
+              <TableBody>
                 {checks.filter(row => row.picked).map(({ entry, line, preparedLine, rules, suggested, edited, accepted }) => {
                   const previewLine = amounts.get(entry.id);
                   const original = entry.submittedNarrative ?? entry.narrative;
                   const wording = edited ?? previewLine?.entry.narrative ?? accepted ?? line.narrative;
                   const hasDetails = original !== wording || rules.length > 0 || preparedLine?.modelRule || preparedLine?.guidelineVersions?.length;
-                  return <tr key={entry.id}>
-                    <td className="bo-invoice-service">
+                  return <TableRow key={entry.id}>
+                    <TableCell className="bo-invoice-service">
                       <time dateTime={entry.date}>{serviceDate.format(new Date(entry.date + "T00:00:00"))}</time>
                       <small>{people.get(entry.workerId) ?? entry.workerId}</small>
                       {entry.authorId !== entry.workerId && <small>{t("invoiceReview.author", { name: people.get(entry.authorId) ?? entry.authorId })}</small>}
                       <small>{formatTimeDuration(line.billableMinutes, durationFormat)}</small>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Textarea maxLength={2000} className="min-h-9 py-1.5"
                         aria-label={t("invoiceReview.edit_wording", { label: line.narrative })} value={wording}
                         onChange={event => changeWording(entry.id, { type: "edit", revision: entry.revision, narrative: event.target.value })} />
@@ -682,107 +803,22 @@ export function BillingInvoiceDraft({
                       </details> : null}
                       {(edited !== undefined || accepted !== undefined) && <Button size="xs" variant="ghost"
                         onClick={() => changeWording(entry.id, undefined)}>{t("invoiceReview.reset_wording")}</Button>}
-                    </td>
-                    {visibleDraft && <td className="bo-invoice-amount bo-billing-number">
+                    </TableCell>
+                    {visibleDraft && <TableCell className="bo-invoice-amount bo-billing-number">
                       {previewLine && <>
                         {money(previewLine.amountMinor, visibleDraft.currency)}
                         {previewLine.baseAmountMinor !== previewLine.amountMinor && <small title={t("invoiceReview.base_amount")}>
                           <s>{money(previewLine.baseAmountMinor, visibleDraft.currency)}</s>
                         </small>}
                       </>}
-                    </td>}
-                  </tr>;
+                    </TableCell>}
+                  </TableRow>;
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </details>}
         </>}
       </fieldset>
-      {!editingSelection && visibleDraft && (
-        <div className="bo-invoice-draft-preview" ref={preview}>
-          <div className="bo-billing-subrow">
-            <strong>
-              {t("invoiceReview.total", {
-                amount: money(visibleDraft.totalMinor, visibleDraft.currency),
-              })}
-            </strong>
-            {visibleDraft.input.reduction && (
-              <>
-                <span>
-                  {t("invoiceReview.selected_amount", {
-                    amount: money(
-                      visibleDraft.selectedTotalMinor,
-                      visibleDraft.currency,
-                    ),
-                  })}
-                </span>
-                <span>
-                  {t("invoiceReview.protected_amount", {
-                    amount: money(
-                      visibleDraft.protectedMinor,
-                      visibleDraft.currency,
-                    ),
-                  })}
-                </span>
-              </>
-            )}
-            <span>
-              {t("invoiceReview.template_version", {
-                revision: visibleDraft.snapshot.template.revision,
-              })}
-            </span>
-          </div>
-          {state.supportsInvoiceWordingReview &&
-            models.length > 0 &&
-            !visibleDraft.approval && (
-              <div className="bo-billing-subrow">
-                <TimeSelect label={t("invoiceReview.model")} placeholder={t("invoiceReview.choose_model")}
-                  value={model} disabled={pending} options={models.map(({ workspaceId, providerID, modelID, label }) =>
-                    ({ id: JSON.stringify([workspaceId, providerID, modelID]), name: label }))} onChange={setModel} />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={pending || !chosenModel}
-                  onClick={() => {
-                    if (chosenModel) {
-                      const { workspaceId, providerID, modelID } = chosenModel;
-                      void send({
-                        type: "reviewInvoiceWording",
-                        id: visibleDraft.id,
-                        revision: visibleDraft.revision,
-                        model: { workspaceId, providerID, modelID },
-                      }).catch(() => {});
-                    }
-                  }}
-                >
-                  {t("invoiceReview.ai_review")}
-                </Button>
-                {visibleDraft.modelWording && (
-                  <span role="status">
-                    {t("invoiceReview.ai_results", {
-                      count: visibleDraft.modelWording.length,
-                    })}
-                  </span>
-                )}
-              </div>
-            )}
-          <BillingInvoicePdf
-            key={JSON.stringify([state.scope, visibleDraft.id, visibleDraft.revision])}
-            client={client}
-            scope={state.scope}
-            id={visibleDraft.id}
-            revision={visibleDraft.revision}
-          >
-            {pdfReady => footerActions && createPortal(
-              visibleDraft.approval ? <Button size="sm" disabled={pending || !pdfReady}
-                onClick={() => void issue(visibleDraft)}>{t("back_office.billing.issue")}</Button>
-                : <Button size="sm" disabled={pending || !pdfReady || !visibleDraft.snapshot.clientAddress}
-                  onClick={() => void send({ type: "approveInvoice", id: visibleDraft.id, revision: visibleDraft.revision }).catch(() => {})}>
-                  {t("invoiceReview.approve")}
-                </Button>, footerActions)}
-          </BillingInvoicePdf>
-        </div>
-      )}
       </div>
       <footer className="bo-invoice-footer">
         <div className="bo-invoice-save-status">
@@ -790,8 +826,8 @@ export function BillingInvoiceDraft({
             editingSelection ? (included.length > 0 ? <p>{t("invoiceReview.selected_entries", { count: included.length })}</p> :
               selectableRows.length > 0 && <p>{t("invoiceReview.choose_entry")}</p>) :
             pendingAdjustments ? <p role="status">{t("back_office.billing.invoice_correction_pending")}</p> :
-            visibleDraft ? <p role="status"><Check size={14} />{t(visibleDraft.approval ? "invoiceReview.approved" : "invoiceReview.saved")}
-              {!visibleDraft.snapshot.clientAddress && <span>{t("invoiceReview.address_required")}</span>}</p> :
+            hourlyPricingMissing ? <p role="status">{t(mixedCurrencies ? "invoiceReview.mixed_rates_short" : "invoiceReview.rate_required")}</p> :
+            visibleDraft ? <p role="status"><Check size={14} />{t(visibleDraft.approval ? "invoiceReview.approved" : "invoiceReview.saved")}</p> :
             included.length ? <p>{t("invoiceReview.selected_entries", { count: included.length })}
               {!input.success && !hourlyPricingMissing && <span>{t("invoiceReview.check_terms")}</span>}</p> :
             <p>{t("invoiceReview.choose_entry")}</p>}
@@ -805,10 +841,21 @@ export function BillingInvoiceDraft({
               {saving && <Loader2 size={14} className="animate-spin" />}
               {t(visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
             </Button>
-            <div ref={setFooterActions} />
           </>}
         </div>
       </footer>
+      {approvalPane?.target && createPortal(approvalContent, approvalPane.target)}
+      {rateEntry && <Dialog open onOpenChange={open => { if (!open) setRateEntry(undefined); }}>
+        <DialogContent className="max-h-[min(85dvh,48rem)] overflow-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("invoiceReview.timekeeper_rates")}</DialogTitle>
+            <DialogDescription>{t(rateEntry.status === "approved" ? "invoiceReview.approved_rate_help" : "invoiceReview.policy_rate_help")}</DialogDescription>
+          </DialogHeader>
+          <BillingPreferences state={state} onCommand={onCommand} section="rates"
+            initialProjectId={rateEntry.projectId} initialMatterId={matterId} initialClientId={clientId}
+            initialDate={rateEntry.date} initialWorkerId={rateEntry.workerId} />
+        </DialogContent>
+      </Dialog>}
     </div>
   );
 }

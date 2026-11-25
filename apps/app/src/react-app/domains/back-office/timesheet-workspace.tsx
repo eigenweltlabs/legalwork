@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, ClipboardCheck, FileText, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, ClipboardCheck, FileText, ReceiptText, SlidersHorizontal } from "lucide-react";
 import { calendarDay } from "../calendar/calendar-format";
 import { periodDates, type TimePeriod } from "./timesheet-row";
 import { Button as AppButton } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Button as AppButton } from "@/components/ui/button";
 import {
   assignedTimeReviewer, resolveTimePolicy, TimesheetStateSchema,
   type TimesheetCommand,
+  type TimeInvoice,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
@@ -28,6 +29,7 @@ import { RecordHistorySidebar } from "./history-panel";
 import { FirmTimeReview } from "./firm-time-review";
 import { BillingGuidelinesSettings } from "./billing-guidelines-settings";
 import { BillingPreferences } from "./billing-preferences";
+import { BillingTemplate } from "./billing-template";
 import { TimesheetWorkday } from "./timesheet-workday";
 import type { SaveBackOfficeView } from "./record-grid";
 import { TimeRecordSheet } from "./time-record-sheet";
@@ -36,6 +38,8 @@ import { BackOfficeSurface } from "./twenty-controls";
 import { TimeSetting, TimeSettingsGroup } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 import { HubTabs } from "../settings/segmented-tabs";
+
+export type InvoiceRegister = { scope: string; userId: string; invoices: readonly TimeInvoice[] };
 
 export function TimesheetWorkspace({
   client,
@@ -51,7 +55,7 @@ export function TimesheetWorkspace({
   workdayModels?: WorkdayModelOption[];
   directoryRefresh?: { error: Error; retry: () => void; fetching: boolean };
   onSaveView: SaveBackOfficeView;
-  renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
+  renderRecords: (objectId: "timeEntries" | "invoices", invoiceRegister?: InvoiceRegister) => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
@@ -142,6 +146,7 @@ export function TimesheetWorkspace({
       const latest = cache.getQueryData<TimesheetState | BackOfficeReadFailure>(key);
       if (latest && "loadError" in latest) throw latest.loadError;
       cache.setQueryData(key, next);
+      if (command.type === "issueInvoice") void cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl, "auto"] });
       return next;
     } catch (error) {
       if (isCurrent() && isBackOfficeAccessError(error)) {
@@ -157,7 +162,9 @@ export function TimesheetWorkspace({
   const timekeepingPage = page !== "billing-settings";
   const localBilling = !timekeepingPage && isLoopbackLegalworkServerUrl(client.baseUrl);
   const requestedBillingTab = params.get("tab");
+  const canManageTemplate = Boolean(state?.canManage && !recordsOnly && state.supportsInvoiceDrafts !== false);
   const billingTab = localBilling && requestedBillingTab === "guidelines" ? "guidelines"
+    : canManageTemplate && requestedBillingTab === "invoice-template" ? "invoice-template"
     : requestedBillingTab === "review" ? "review" : "rules";
   const matchesBillingDirectory = !params.has("directory") || params.get("directory") === directory.directoryId;
   const billingMatterId = matchesBillingDirectory ? params.get("matter") ?? undefined : undefined;
@@ -167,11 +174,12 @@ export function TimesheetWorkspace({
   const invoices = canOpenInvoices && state ? (
     (team && !state.supportsInvoiceDrafts) || recordsOnly ? renderRecords("invoices") : <BackOfficeSurface>
       <BillingReview invoiceViews={team} canEdit={directory.permissions.edit} initialDate={initialDate} initialMode={!team && page === "billing-review" ? "submitted" : "invoices"}
+        invoiceRegister={renderRecords("invoices", { scope: state.scope, userId: state.userId, invoices: state.invoices })}
         initialMatterId={!params.has("directory") || params.get("directory") === directory.directoryId ? params.get("matter") ?? "" : ""}
         renderRecordHistory={team ? (entry, close) => <RecordHistorySidebar key={entry.id}
           client={client} directory={directory} record={entry} onClose={close}
           onOpen={record => navigate("/back-office/" + record.objectId + "?record=" + encodeURIComponent(record.id))} /> : undefined}
-        workdayModels={workdayModels} client={client} state={state} onCommand={send} />
+        workdayModels={workdayModels} client={client} documentClient={client} state={state} onCommand={send} />
     </BackOfficeSurface>
   ) : undefined;
   const review = firmReview && state?.canReview ? <FirmTimeReview client={client} state={state} directory={directory}
@@ -240,11 +248,12 @@ export function TimesheetWorkspace({
         </div>
       )}
       {!timekeepingPage && <LayoutStack>
-        <HubTabs<"rules" | "review" | "guidelines">
+        <HubTabs<"rules" | "review" | "guidelines" | "invoice-template">
           label={t("timesheets.settings")} value={billingTab}
           items={[
             { id: "rules", label: t("back_office.billing.time_rules"), icon: SlidersHorizontal },
             { id: "review", label: t("back_office.billing.detail"), icon: ClipboardCheck },
+            ...(canManageTemplate ? [{ id: "invoice-template" as const, label: t("timesheets.template"), icon: ReceiptText }] : []),
             ...(localBilling ? [{ id: "guidelines" as const, label: t("timeWorkspace.guidelines"), icon: FileText }] : []),
           ]}
           onChange={tab => {
@@ -280,10 +289,14 @@ export function TimesheetWorkspace({
             </TimeSetting>
           </TimeSettingsGroup>
         )}
-        {state && !recordsOnly && billingTab !== "guidelines" && (
+        {state && canManageTemplate && billingTab === "invoice-template" && (
+          <BillingTemplate state={state} onCommand={send} key={state.template?.revision ?? 0}
+            previewWord={template => client.previewBillingTemplate(template, state.scope)}
+            accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])} />
+        )}
+        {state && !recordsOnly && (billingTab === "rules" || billingTab === "review") && (
           <BillingPreferences
             accountScope={JSON.stringify([directory.directoryId, directory.captureProfileId, directory.scope, principalKey, userId])}
-            previewWord={template => client.previewBillingTemplate(template, state.scope)}
             key={[params.get("project"), billingMatterId, billingClientId, initialDate].join("/")}
             initialDate={initialDate}
             section={billingTab}

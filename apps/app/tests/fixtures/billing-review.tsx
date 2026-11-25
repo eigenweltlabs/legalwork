@@ -42,6 +42,7 @@ const { BillingReview } = await import("../../src/react-app/domains/back-office/
 const { BillingPreferences } = await import(
   "../../src/react-app/domains/back-office/billing-preferences"
 );
+const { InvoiceApprovalPane } = await import("../../src/react-app/domains/back-office/invoice-approval-pane");
 const { BackOfficeTheme } = await import("../../src/react-app/domains/back-office/twenty-controls");
 const { reviewPeriod, feeTotals } = await import(
   "../../src/react-app/domains/back-office/billing-amounts"
@@ -100,7 +101,6 @@ const actor: TimesheetState = {
 };
 const host = document.createElement("div");
 document.body.append(host);
-const root = createRoot(host);
 const calls: TimesheetCommand[] = [];
 const command = async (c: TimesheetCommand) => {
   calls.push(c);
@@ -124,8 +124,15 @@ const client = {
     throw new Error("Unused");
   },
 };
+const approvalTarget = host.appendChild(document.createElement("div"));
+const viewTarget = host.appendChild(document.createElement("div"));
+const billingRoot = createRoot(viewTarget);
 const render = async (node: ReactNode) =>
-  act(async () => root.render(<MemoryRouter><BackOfficeTheme>{node}</BackOfficeTheme></MemoryRouter>));
+  act(async () => billingRoot.render(<MemoryRouter><BackOfficeTheme>
+    <InvoiceApprovalPane.Provider value={{ target: approvalTarget, open: () => {}, close: () => {}, openDocument: () => {}, closeDocument: () => {} }}>
+      {node}
+    </InvoiceApprovalPane.Provider>
+  </BackOfficeTheme></MemoryRouter>));
 const draw = (state: TimesheetState, canEdit = true) =>
   render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client}
     workdayModels={[{ workspaceId: "fixture", providerID: "fixture", modelID: "proofreader", label: "Proofreader" }]} />);
@@ -277,7 +284,7 @@ try {
   await click(checkbox("Select entry: USD briefing"));
   await click(match("Continue"));
   assert.ok(save().disabled, "An hourly draft cannot silently omit entries in a second currency");
-  assert.match(host.textContent ?? "", /Hourly invoices need a rate for every selected entry/);
+  assert.match(host.textContent ?? "", /The selected time uses more than one currency/);
   await click(match("Edit time entries"));
   await click(checkbox("Select entry: Earlier approved work"));
   await click(match("Continue"));
@@ -726,8 +733,31 @@ try {
   const preparedSingle = calls.at(-1);
   assert.ok(preparedSingle?.type === "prepareInvoice");
   assert.deepEqual(preparedSingle.draft.entries, [{ id: fresh.id, revision: fresh.revision }]);
+  await render(null);
+  const unpricedState = { ...directState, policies: [{ ...policy, hourlyRate: undefined, reviewerId: undefined }] };
+  await render(<BillingReview state={unpricedState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  await click(match("Continue"));
+  assert.ok(save().disabled);
+  assert.match(host.textContent ?? "", /No hourly rate/);
+  const beforeRate = calls.length;
+  await click(match("Edit rate"));
+  const rateDialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  assert.ok(rateDialog);
+  const partnerLabel = Array.from(rateDialog.querySelectorAll("label")).find(label => label.textContent?.trim() === "Partner");
+  const rate = partnerLabel && document.getElementById(partnerLabel.htmlFor);
+  assert.ok(rate instanceof window.HTMLInputElement);
+  assert.equal(calls.length, beforeRate, "Opening the rate editor never sets a fee");
+  await write(rate, "330");
+  await act(async () => rate.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true })));
+  const updatedRate = calls.at(-1);
+  assert.ok(updatedRate?.type === "policy");
+  assert.equal(updatedRate.policy.targetId, "m");
+  assert.equal(updatedRate.policy.effectiveFrom, today);
+  assert.equal(updatedRate.policy.workerRates?.partner, 330);
   console.log("Billing review passed");
 } finally {
-  await act(async () => root.unmount());
+  await act(async () => billingRoot.unmount());
   await window.happyDOM.close();
 }

@@ -1,5 +1,4 @@
 import { roundingKeys, scopeKeys } from "./timesheet-labels";
-import { BillingTemplate } from "./billing-template";
 import { cloneElement, useId, useMemo, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +24,7 @@ import {
 } from "@legalwork/types/timesheet";
 import type { BillingProps } from "./billing-components";
 import { useBillingPolicyAutosave } from "./billing-policy-autosave";
-import { BackOfficeSurface, BackOfficeTheme } from "./twenty-controls";
+import { BackOfficeTheme } from "./twenty-controls";
 import { reviewPeriod } from "./billing-amounts";
 import "./billing-review.css";
 
@@ -99,6 +98,7 @@ function PolicyForm({
   entriesAffected,
   context,
   section,
+  initialWorkerId,
 }: BillingProps & {
   scope: Scope;
   targetId: string;
@@ -107,7 +107,8 @@ function PolicyForm({
   inherited: ReturnType<typeof resolveTimePolicy>;
   entriesAffected: TimeEntry[];
   context: BillingContext;
-  section: "rules" | "review";
+  section: "rules" | "review" | "rates";
+  initialWorkerId?: string;
 }) {
   const baseline = useMemo<TimePolicy>(() => {
     const {
@@ -143,6 +144,11 @@ function PolicyForm({
   const { policy, stage, save, pending, error, invalid, dirty } = useBillingPolicyAutosave(baseline, onCommand);
   const [limitCode, setLimitCode] = useState("");
   const [worker, setWorker] = useState("");
+  const [addedWorkers, setAddedWorkers] = useState<string[]>(initialWorkerId ? [initialWorkerId] : []);
+  const workerRates = new Map([
+    ...addedWorkers.map((id): [string, number | undefined] => [id, undefined]),
+    ...Object.entries({ ...inherited.workerRates, ...policy.workerRates }),
+  ]);
   function commit(value: TimePolicy) {
     if (state.canManage && (!projectBindingTerms(state, value).length || value.incrementExceptionReason?.trim())) {
       void save(value);
@@ -215,7 +221,7 @@ function PolicyForm({
             </Rule>
             {bindingException}
           </TimeSettingsGroup>}
-          {!review && <TimeSettingsGroup title={t("back_office.billing.time_rules")}>
+          {section === "rules" && <TimeSettingsGroup title={t("back_office.billing.time_rules")}>
             {scope === "client" && (
               <TimeSwitch
                 label={t("back_office.billing.binding")}
@@ -343,7 +349,7 @@ function PolicyForm({
               </details>
             </LayoutSectionItem>
           </TimeSettingsGroup>}
-          {!review && <TimeSettingsGroup title={t("back_office.billing.invoice_words")}>
+          {section === "rules" && <TimeSettingsGroup title={t("back_office.billing.invoice_words")}>
             <Rule name={t("back_office.billing.language")}>
               <Input
                 placeholder={inherited.language}
@@ -419,13 +425,13 @@ function PolicyForm({
                 onChange={(e) => update("hourlyRate", rateValue(e.target.value), false)}
               />
             </Rule>
-            {Object.entries({ ...inherited.workerRates, ...policy.workerRates }).map(([id, val]) => (
+            {[...workerRates].map(([id, val]) => (
               <Rule key={id} name={state.people.find((p) => p.id === id)?.name || id}>
                 <Input
                   type="number"
                   min={0}
                   step="0.01"
-                  placeholder={String(val)}
+                  placeholder={val === undefined ? undefined : String(val)}
                   value={policy.workerRates?.[id] ?? ""}
                   onChange={(e) => updateMap("workerRates", id, rateValue(e.target.value), false)}
                 />
@@ -437,7 +443,7 @@ function PolicyForm({
                   label={t("back_office.billing.worker")}
                   value={worker}
                   disabled={readOnly}
-                  options={[{ id: "", name: t("back_office.billing.worker") }, ...state.people]}
+                  options={[{ id: "", name: t("back_office.billing.worker") }, ...state.people.filter(person => !person.directoryOnly && !workerRates.has(person.id))]}
                   onChange={setWorker}
                 />
                 <Button
@@ -446,7 +452,7 @@ function PolicyForm({
                   variant="ghost"
                   disabled={!worker}
                   onClick={() => {
-                    updateMap("workerRates", worker, policy.hourlyRate ?? inherited.hourlyRate ?? 0);
+                    setAddedWorkers(previous => [...previous, worker]);
                     setWorker("");
                   }}
                 >
@@ -454,13 +460,14 @@ function PolicyForm({
                 </Button>
               </div>
             </LayoutSectionItem>
+            {section === "rates" && bindingException}
           </TimeSettingsGroup>}
         </LayoutStack>
       </fieldset>
       <BackOfficeTheme>
         <div className="bo-billing gap-4">
-          {!review && <EffectiveTerms state={state} context={context} />}
-          <BillingImpact state={state} policy={policy} entries={entriesAffected} />
+          {section === "rules" && <EffectiveTerms state={state} context={context} />}
+          {section !== "rates" && <BillingImpact state={state} policy={policy} entries={entriesAffected} />}
         </div>
       </BackOfficeTheme>
       {pending && <span role="status" className="sr-only">{t("common.saving")}</span>}
@@ -480,30 +487,31 @@ function PolicyForm({
 }
 
 export function BillingPreferences({
-  accountScope, previewWord,
+  accountScope,
   state,
   onCommand,
   initialProjectId,
   initialMatterId,
   initialClientId,
   initialDate,
+  initialWorkerId,
   section,
 }: BillingProps & {
   accountScope?: string;
-  previewWord?: import("./billing-word-template").PreviewTemplate;
   initialProjectId?: string;
   initialMatterId?: string;
   initialClientId?: string;
   initialDate?: string;
-  section: "rules" | "review";
+  section: "rules" | "review" | "rates";
+  initialWorkerId?: string;
 }) {
   const [scope, setScope] = useState<Scope>(
     initialProjectId ? "project" : initialMatterId ? "matter" : initialClientId ? "client" : "firm",
   );
   const [target, setTarget] = useState(initialProjectId || initialMatterId || initialClientId || "");
   const [date, setDate] = useState(() => initialDate ?? reviewPeriod().to);
-  const [matterContext, setMatterContext] = useState("");
-  const [clientContext, setClientContext] = useState("");
+  const [matterContext, setMatterContext] = useState(initialMatterId ?? "");
+  const [clientContext, setClientContext] = useState(initialClientId ?? "");
   const options = (s: Scope) =>
     s === "project" ? state.projects : s === "matter" ? state.matters : s === "client" ? state.clients : [];
   const project = scope === "project" ? state.projects.find((p) => p.id === target) : undefined;
@@ -610,6 +618,7 @@ export function BillingPreferences({
           inherited={inherited}
           entriesAffected={affected}
           section={section}
+          initialWorkerId={initialWorkerId}
           context={{
             date,
             clientId: client?.id ?? "",
@@ -617,13 +626,6 @@ export function BillingPreferences({
             projectId: project?.id,
           }}
         />
-      )}
-      {section === "rules" && scope === "firm" && state.canManage && state.supportsInvoiceDrafts !== false && (
-        <BackOfficeSurface>
-          <div className="bo-billing">
-            <BillingTemplate previewWord={previewWord} accountScope={accountScope} key={state.template?.revision ?? 0} state={state} onCommand={onCommand} />
-          </div>
-        </BackOfficeSurface>
       )}
     </LayoutStack>
   );

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { defaultBackOfficeModel } from "@legalwork/types/back-office";
-import type { TimeEntry, TimesheetState } from "@legalwork/types/timesheet";
+import { BackOfficeRecordSchema, defaultBackOfficeModel } from "@legalwork/types/back-office";
+import type { TimeEntry, TimeInvoiceDraft, TimesheetCommand, TimesheetState } from "@legalwork/types/timesheet";
+import { standardInvoice, starterInvoiceWord } from "@legalwork/types/invoice-template";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
 
 const window = new Window({ url: "http://localhost" });
@@ -47,10 +48,10 @@ const state: TimesheetState = {
   people: [{ id: "anna", name: "Anna" }, { id: "ben", name: "Ben" }],
 };
 
-async function until(check: () => unknown) {
+async function until(check: () => unknown, message = "expected billing UI state") {
   for (let attempt = 0; attempt < 60 && !check(); attempt++)
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
-  assert.ok(check(), "expected billing UI state");
+  assert.ok(check(), message);
 }
 const findButton = (label: string) => [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === label);
 async function press(label: string) {
@@ -105,20 +106,50 @@ const reviewDirectory: BackOfficeState = {
   records: [], views: [], sync: { enabled: false, cursor: 0, pending: 0, error: null },
 };
 let officeFailure = 0, timesheetFailure = 0, activeTimesheetUser = "anna";
+let invoiceDraft: TimeInvoiceDraft | undefined;
+let invoiceDocumentsRead: string[] = [];
+const issuedOn = "2026-11-19";
+const invoiceRecord = BackOfficeRecordSchema.parse({
+  id: "773dc6f1-d404-47fe-9bbb-2099191b2b1f", objectId: "invoices", ownerId: "anna", access: "org", members: [],
+  values: { name: "Invoice 439", status: "Issued", invoiceNumber: "439", issuedOn },
+  revision: 1, schemaRevision: 1, createdAt: issuedOn + "T12:00:00Z", updatedAt: issuedOn + "T12:00:00Z", archivedAt: null,
+});
+const invoiceSnapshot = { date: issuedOn, client: "Test client", clientAddress: "Fixture Lane 1", template: standardInvoice };
+const issuedInvoice = {
+  id: invoiceRecord.id, number: 439, currency: "EUR", clientId: "client", issuedAt: issuedOn + "T12:00:00Z",
+  entries: [reviewEntry], total: 225, totalMinor: 22500, templateRevision: 0, snapshot: invoiceSnapshot,
+};
 let recordsMode = false, finance = true;
 const realFetch = globalThis.fetch;
 const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(resource instanceof Request ? resource.url : resource.toString());
   if (url.origin !== reviewOrigin) return realFetch(resource, init);
   if (url.pathname === "/back-office/projects") return Response.json({ projects: [] });
+  if (url.pathname.endsWith("/document")) {
+    const format = url.searchParams.get("format") ?? "";
+    invoiceDocumentsRead.push(format);
+    if (format === "docx") return new Response(Buffer.from(starterInvoiceWord, "base64"),
+      { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" } });
+    return new Response("%PDF-1.7\nFixture read-only invoice", { headers: { "Content-Type": "application/pdf" } });
+  }
   if (url.pathname === "/back-office/timesheet") {
     if (timesheetFailure === 408) throw new TypeError("Fixture connection timed out");
     if (timesheetFailure) return Response.json({ message: "Fixture timesheet access denied" }, { status: timesheetFailure });
-    return Response.json({ ...reviewState, userId: activeTimesheetUser, ...(recordsMode ? { service: "records" } : {}) });
+    const command: TimesheetCommand | undefined = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    if (command?.type === "prepareInvoice") {
+      invoiceDraft = {
+        id: "a4001256-5e66-414b-91bf-fc174729812d", revision: "a".repeat(64), input: command.draft, currency: "EUR", showHours: true,
+        totalMinor: 12550, protectedMinor: 0, selectedBaseMinor: 12550, selectedTotalMinor: 12550, snapshot: invoiceSnapshot,
+        lines: [{ entry: reviewEntry, originalNarrative: reviewEntry.narrative, currentNarrative: reviewEntry.narrative,
+          rules: [], amountMinor: 12550, baseAmountMinor: 12550, actualAmountMinor: 12550 }],
+      };
+    }
+    return Response.json({ ...reviewState, userId: activeTimesheetUser, invoiceDraft, invoices: [issuedInvoice],
+      ...(recordsMode ? { service: "records" } : {}) });
   }
   assert.equal(url.pathname, "/back-office");
   if (officeFailure) return new Response("Fixture directory temporarily unavailable", { status: officeFailure });
-  return Response.json({ ...reviewDirectory, permissions: { ...reviewDirectory.permissions, finance } });
+  return Response.json({ ...reviewDirectory, records: [invoiceRecord], permissions: { ...reviewDirectory.permissions, finance } });
 }, realFetch);
 globalThis.fetch = fetchReview;
 try {
@@ -234,6 +265,39 @@ try {
   await press("Try again");
   await openInvoice();
   assert.equal(invoiceWording()?.value, "Fixture invoice line");
+
+  await input(amount()!, "125.50");
+  await press("Save and preview");
+  const approvalTab = () => document.querySelector('[data-panel-tab-id="timekeeping:invoice-approval"]');
+  await until(approvalTab, "approval tab opened");
+  assert.notEqual(approvalTab()?.closest("[data-document-pane]"), invoiceTab()?.closest("[data-document-pane]"));
+  await until(() => document.querySelector('iframe[title="Invoice PDF preview"]'), "revision PDF loaded");
+  assert.equal(invoiceEditor()?.querySelector("iframe"), null, "approval opens in its own tab");
+  assert.ok(findButton("Approve this invoice"));
+  await press("Open Word document");
+  const wordDraft = () => document.querySelector(`[data-panel-tab-id="timekeeping:invoice-document:${invoiceDraft?.id}:${invoiceDraft?.revision}:docx"]`);
+  await until(wordDraft, "the Word version of the draft opens in a tab");
+  await until(() => invoiceDocumentsRead.includes("docx"), "the Word tab reads the saved draft");
+  const acceptedDocReads = invoiceDocumentsRead.length;
+  await press("Edit time entries");
+  const exit = invoiceEditor()?.querySelector<HTMLButtonElement>('button[aria-label="Back"]');
+  assert.ok(exit);
+  await act(async () => exit.click());
+  await until(() => !approvalTab());
+  await selectOption("View", "Issued invoices");
+  const row = () => document.querySelector(`[data-workspace-tab="invoices"] [data-record-id="${invoiceRecord.id}"]`);
+  await until(row, "invoice register uses the directory grid");
+  assert.match(row()?.textContent ?? "", /Invoice 439/);
+  await press("PDF");
+  const documentTab = () => document.querySelector(`[data-panel-tab-id="timekeeping:invoice-document:${invoiceRecord.id}:pdf"]`);
+  await until(documentTab, "issued PDF opened in its own tab");
+  assert.notEqual(documentTab()?.closest("[data-document-pane]"), invoiceTab()?.closest("[data-document-pane]"));
+  await until(() => invoiceDocumentsRead.length > acceptedDocReads, "issued PDF loaded through document endpoint");
+  assert.equal(invoiceDocumentsRead.at(-1), "pdf");
+  await press("Word");
+  await until(() => document.querySelector(`[data-panel-tab-id="timekeeping:invoice-document:${invoiceRecord.id}:docx"]`), "issued Word document opened in its own tab");
+  await until(() => invoiceDocumentsRead.at(-1) === "docx", "issued Word document loaded through document endpoint");
+  invoiceDraft = undefined;
 
   activeTimesheetUser = "different-account";
   await refreshReview("timesheet");

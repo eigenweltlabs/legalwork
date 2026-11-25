@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TimeSelect } from "./time-settings-controls";
 import { timeRoutes } from "./time-routes";
-import { ChevronDown, ChevronRight, Download, History, Plus, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, History, Plus, SlidersHorizontal } from "lucide-react";
 import {
   type TimeEntry,
   type TimesheetState,
@@ -34,7 +34,7 @@ import { BillingEditCell } from "./billing-edit-cell";
 import { BillingAdjustments } from "./billing-adjustments";
 import { BillingCosts } from "./billing-costs";
 import { feeSummary, useBillingAction, type BillingProps } from "./billing-components";
-import { formatFee, reviewPeriod } from "./billing-amounts";
+import { reviewPeriod } from "./billing-amounts";
 import "./billing-review.css";
 
 type Mode = "submitted" | "approved" | "invoices" | "costs" | "adjustments";
@@ -114,7 +114,7 @@ export function BillingReview({
   initialMatterId = "",
   workdayModels,
   initialMode = "submitted",
-  invoiceViews = false, renderRecordHistory,
+  invoiceViews = false, renderRecordHistory, invoiceRegister, documentClient,
 }: BillingProps & {
   canEdit: boolean;
   initialDate?: string;
@@ -122,8 +122,10 @@ export function BillingReview({
   workdayModels?: WorkdayModelOption[];
   initialMode?: "submitted" | "invoices";
   invoiceViews?: boolean;
+  invoiceRegister?: ReactNode;
+  documentClient?: LegalworkServerClient;
   renderRecordHistory?: (entry: TimeEntry, close: () => void) => ReactNode;
-  client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
+  client: Pick<LegalworkServerClient, "downloadTimesheetAdjustment" | "downloadTimesheetDraft">;
 }) {
   const locale = useLocale();
   const navigate = useNavigate();
@@ -245,29 +247,14 @@ export function BillingReview({
     setHistoryId("");
     setDownloadError("");
   };
-  const invoices = state.invoices
-    .filter(
-      (i) =>
-        (!billTo || billTo === i.clientId) &&
-        i.entries.some(
-          (e) =>
-            (!matter || matter === e.matterId) &&
-            (!dates.from || e.date >= dates.from) &&
-            (!dates.to || e.date <= dates.to),
-        ),
-    )
-    .sort((a, b) => b.number - a.number);
   function returnSelection() {
     void send({ type: "return", entries: refs(selected), reason: reason.trim() || undefined }).then(reset).catch(() => {});
   }
-  async function download(id: string, number?: number, format?: "docx" | "pdf") {
+  async function downloadAdjustment(id: string) {
     setDownloadError("");
     try {
-      const file =
-        number === undefined
-          ? await client.downloadTimesheetAdjustment(id, state.scope)
-          : await client.downloadTimesheetInvoice(id, state.scope, format);
-      saveInvoiceDownload(file, number === undefined ? "Adjustment-" + id + ".html" : "Invoice-" + number + "." + (format ?? "html"));
+      const file = await client.downloadTimesheetAdjustment(id, state.scope);
+      saveInvoiceDownload(file, "Adjustment-" + id + ".html");
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : t("back_office.billing.download_failed"));
     }
@@ -286,7 +273,7 @@ export function BillingReview({
         <div className="bo-invoice-editor-view" hidden={!invoiceVisible}>
           <section className="bo-billing">
             <BillingInvoiceDraft
-              state={state} onCommand={onCommand} client={client}
+              state={state} onCommand={onCommand} client={client} documentClient={documentClient}
               dates={filtersOpen ? { from: throughEndDate ? "" : dates.from, to: dates.to } : undefined}
               initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient} workdayModels={workdayModels}
               onCancel={() => { setInvoiceEntry(undefined); setInvoiceScreen("closed"); }}
@@ -314,13 +301,13 @@ export function BillingReview({
       <section className="bo-billing @container/time-history relative isolate">
       <header className="bo-billing-topbar">
         {invoiceViews ? <HubTabs label={t("back_office.billing.view")} value={mode}
-          items={[{ id: "invoices", label: t("back_office.billing.view_invoices") }, { id: "approved", label: t("invoiceReview.unbilled_time") }]}
+          items={[{ id: "invoices", label: t(invoiceRegister ? "invoiceReview.all_invoices" : "back_office.billing.view_invoices") }, { id: "approved", label: t("invoiceReview.unbilled_time") }]}
           onChange={next => { setMode(next); reset(); }} /> :
           <TimeSelect label={t("back_office.billing.view")} value={mode}
             options={views.map(id => ({ id, name: t(reviewViewKeys[id]) }))}
             onChange={value => { const next = views.find(view => view === value); if (next) { setMode(next); reset(); } }} />}
         <div className="ms-auto flex flex-wrap items-center gap-2">
-          {invoiceViews && <Button size="sm" variant="ghost" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>
+          {invoiceViews && !(invoiceRegister && mode === "invoices") && <Button size="sm" variant="ghost" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>
             <SlidersHorizontal />{t("invoiceReview.filters")}</Button>}
           {invoiceViews && mode === "invoices" && <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/back-office/invoices">
             {t("timesheets.invoice_record_add")}</Link>}
@@ -333,7 +320,7 @@ export function BillingReview({
       {["approved", "invoices", "submitted"].includes(mode) && !canCreate && <p className="px-4 py-2 text-sm text-muted-foreground" role="status">
         {t(!state.supportsInvoiceDrafts ? "invoiceReview.firm_unavailable" : !canEdit ? "invoiceReview.read_only" : "invoiceReview.no_invoice_access")}
       </p>}
-      {(!invoiceViews || filtersOpen) && <div className="bo-view-toolbar bo-invoice-index-toolbar">
+      {(!invoiceViews || filtersOpen) && !(invoiceRegister && mode === "invoices") && <div className="bo-view-toolbar bo-invoice-index-toolbar">
         <label>
           {t("back_office.billing.from")}
           <Input type="date" disabled={throughEndDate} value={throughEndDate ? "" : dates.from}
@@ -373,50 +360,13 @@ export function BillingReview({
           canEdit={canEdit}
           state={state}
           onCommand={onCommand}
-          download={(id) => download(id)}
+          download={downloadAdjustment}
         />
       ) : mode === "costs" ? (
         <BillingCosts rows={all} state={state} onCommand={onCommand} />
-      ) : mode === "invoices" ? (
-        <div className="bo-billing-body">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {["back_office.billing.invoice_number", "back_office.billing.issued", "back_office.billing.client", "back_office.billing.positions", "back_office.billing.fees", "back_office.billing.document"].map((k) => (
-                  <TableHead key={k}>{t(k)}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoices.map((i) => (
-                <TableRow key={i.id}>
-                  <TableCell>{i.number}</TableCell>
-                  <TableCell>{new Date(i.issuedAt).toLocaleDateString(locale)}</TableCell>
-                  <TableCell>{groups.clients.get(i.clientId) || i.clientId}</TableCell>
-                  <TableCell>{i.entries.length}</TableCell>
-                  <TableCell>{i.totalMinor === undefined ? formatFee(locale, i.total, i.currency) : formatInvoiceMinor(locale, i.currency, i.totalMinor)}</TableCell>
-                  <TableCell>
-                    {i.snapshot ? (["docx", "pdf"] as const).map((format) => (
-                      <Button key={format} size="sm" variant="ghost" onClick={() => void download(i.id, i.number, format)}>
-                        {format.toUpperCase()}
-                      </Button>
-                    )) : <button
-                      type="button"
-                      aria-label={t("back_office.billing.download")}
-                      onClick={() => void download(i.id, i.number)}
-                    >
-                      <Download size={15} />
-                    </button>}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {!invoices.length && (
-            <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("back_office.billing.no_invoices")}</EmptyTitle></EmptyHeader></Empty>
-          )}
-        </div>
-      ) : (
+      ) : mode === "invoices" ? (invoiceRegister ?? (
+        <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("back_office.billing.no_invoices")}</EmptyTitle></EmptyHeader></Empty>
+      )) : (
         <>
           <div className="bo-billing-body">
             <Table>

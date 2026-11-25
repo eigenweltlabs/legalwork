@@ -128,7 +128,7 @@ export function RecordGrid({
   onSaveView,
   archived,
   sheet,
-  onArchivedChange, columnScope, lockedSchema = false, readOnlyFields, selectionActions,
+  onArchivedChange, columnScope, lockedSchema = false, readOnlyFields, selectionActions, renderCell,
 }: {
   sheet?: {
     columns: string[];
@@ -147,6 +147,7 @@ export function RecordGrid({
   columnScope: string;
   lockedSchema?: boolean;
   readOnlyFields?: readonly string[];
+  renderCell?: (record: BackOfficeRecord, field: BackOfficeField) => ReactNode;
   selectionActions?: (records: BackOfficeRecord[], clear: () => void) => ReactNode;
   object: BackOfficeObject;
   records: BackOfficeRecord[];
@@ -536,7 +537,7 @@ export function RecordGrid({
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} sheet={Boolean(sheet)} blank={record.id === sheet?.blankId} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record, columns)} record={record} index={index} top={top}
       measure={windowed && index < rows.length ? rowWindow.measureElement : undefined} template={template}
-      fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
+      fields={visibleFields} renderCell={renderCell} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable && !archived && (canEditRecord?.(record) ?? true)} selected={selectedIds.has(record.id)}
       allowedRelationIds={sheet?.allowedRelationIds}
       canTab={sheet ? (column, backward) => backward ? index > 0 || column > 0 : index < rows.length + (sheet.appendedRowCount ?? 0) - 1 || column < visibleFields.length - 1 : undefined}
