@@ -65,10 +65,14 @@ export function TimeTrackingSettingsView({ client }: { client: LegalworkServerCl
     </TimeSettingsGroup>
     {enabled && <>
       <TimeSettingsGroup title={t("timeWorkspace.scheduleTitle")}>
-        <TimeSetting title={t("timeWorkspace.frequency")} description={t(schedule.frequency === "hourly" ? "timeWorkspace.hourlyHelp" : "timeWorkspace.dailyHelp")}>
+        <TimeSetting title={t("timeWorkspace.frequency")} description={t(`timeWorkspace.${schedule.frequency}Help`)}>
           <TimeSelect label={t("timeWorkspace.frequency")} value={schedule.frequency} disabled={pending}
-            options={[{ id: "hourly", name: t("timeWorkspace.hourly") }, { id: "daily", name: t("scheduled.daily") }]}
-            onChange={frequency => { if (frequency === "hourly") change({ field: "schedule", value: { frequency } });
+            options={[
+              { id: "hourly", name: t("timeWorkspace.hourly") },
+              { id: "daily", name: t("scheduled.daily") },
+              { id: "never", name: t("timeWorkspace.never") },
+            ]}
+            onChange={frequency => { if (frequency === "hourly" || frequency === "never") change({ field: "schedule", value: { frequency } });
               if (frequency === "daily") saveTimes([defaultWorkdayRunTime]); }} />
         </TimeSetting>
         {schedule.frequency === "daily" && <TimeSetting title={t("timeWorkspace.runTimes")}>

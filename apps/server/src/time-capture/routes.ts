@@ -593,7 +593,7 @@ export async function prepareWorkday(config: ServerConfig, owner: Profile, date:
       if (scheduledSlot !== undefined) return;
       throw new ApiError(409, "time_tracking_disabled", "Turn on Time tracking in Settings.");
     }
-    if (scheduledSlot !== undefined && initial.lastScheduledSlot >= scheduledSlot) return;
+    if (scheduledSlot !== undefined && (workdaySchedule(initial.settings).frequency === "never" || initial.lastScheduledSlot >= scheduledSlot)) return;
     const workspaces = await workdayWorkspaces(config);
     const access = await backOfficeAccess(config);
     if ((await captureProfile(config, access)).path !== path) return;
@@ -740,11 +740,12 @@ export async function checkScheduledWorkday(config: ServerConfig, options: Omit<
   const owner = await profile(config);
   const { settings, lastScheduledSlot } = await load(owner.path);
   if (settings.enabled === false) return;
+  const schedule = workdaySchedule(settings);
+  if (schedule.frequency === "never") return;
   const now = (options.now ?? Date.now)();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const local = wallTime(new Date(now).toISOString(), timeZone);
   const date = local.slice(0, 10);
-  const schedule = workdaySchedule(settings);
   let slot: number;
   if (schedule.frequency === "hourly") {
     slot = now - Number(local.slice(14, 16)) * 60_000 - now % 60_000;
