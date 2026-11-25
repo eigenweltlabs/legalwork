@@ -441,9 +441,10 @@ function PolicyForm({
               <div className="bo-billing-subrow">
                 <TimeSelect
                   label={t("back_office.billing.worker")}
+                  placeholder={t("back_office.billing.worker")}
                   value={worker}
                   disabled={readOnly}
-                  options={[{ id: "", name: t("back_office.billing.worker") }, ...state.people.filter(person => !person.directoryOnly && !workerRates.has(person.id))]}
+                  options={state.people.filter(person => !person.directoryOnly && !workerRates.has(person.id))}
                   onChange={setWorker}
                 />
                 <Button
