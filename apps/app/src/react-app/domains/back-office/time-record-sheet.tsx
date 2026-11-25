@@ -25,6 +25,7 @@ import { conflictingTimeFields, copyTimeRecordValues, differentTimeValues, priva
 import { useBookingReceipt } from "./time-booking-receipt";
 import { periodTimeTotals } from "./timesheet-row";
 import { TimesheetWeekTotals } from "./timesheet-week-totals";
+import { invoiceEntryAccess } from "./invoice-entry-access";
 import { Link, useNavigate } from "react-router-dom";
 
 const memberPrefix = "member:";
@@ -222,12 +223,13 @@ function TimeRecordSheetGrid({ client, directory, state, capture, workspace, onS
   function fieldValue(record: BackOfficeRecord, id: string) {
     const value = record.values[id];
     if (id === "startedAt") return serviceDate(record.values);
-    if (id === "status" && firmCommand && record.revision > 0 && value === "Draft") {
+    if (id === "status" && firmCommand && record.revision > 0) {
       const entry = state.entries.find(item => item.id === record.id);
       if (entry?.status === "confirmed" && !entry.legacy) {
         const policy = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
         if (assignedTimeReviewer(policy, entry.workerId)) return t("invoiceReview.ready_to_submit");
-        if (entry.billable) return t("invoiceReview.no_review_needed");
+        if (invoiceEntryAccess(state, entry).authorized) return "Approved";
+        if (entry.billable && !entry.clientId) return t("invoiceReview.missing_recipient");
         return t("timesheets.ledger.status.confirmed");
       }
     }

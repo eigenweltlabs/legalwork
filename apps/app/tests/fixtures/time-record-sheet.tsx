@@ -1,3 +1,4 @@
+import type { TimesheetState } from "@legalwork/types/timesheet";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -124,9 +125,10 @@ const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
   proposals: [], drafts: {}, date: first, dates: [first], selectDate: () => {},
   privateAvailable: false, act: async action => { privateActions.push(action); return true; }, openSource: () => {}, ...values,
 });
-const render = async (capture: TimeCaptureSheet, records = directory.records) => {
+const render = async (capture: TimeCaptureSheet, records = directory.records, workflow?: TimesheetState) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
-    <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture}
+    <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={workflow ?? state} capture={capture}
+      firmCommand={workflow ? async () => workflow : undefined} submit={workflow ? async () => {} : undefined}
       workspace={(entries, renderProposal) => <>{entries}<aside>{capture.proposals.map(proposal => {
         const details = renderProposal(proposal);
         return details && <div key={proposal.key} data-private-proposal={proposal.key}>{details}</div>;
@@ -744,6 +746,18 @@ try {
   root = createRoot(host);
   await render(formatCapture, [workerContact, createdRows.get(formatRow.id)!]);
   assert.equal(cell(row(formatRow.id), 4).textContent, "2:18", "reopening preserves format and stored time");
+  const workflow = TimesheetStateSchema.parse({ ...state, scope: "team", service: "workflow", supportsInvoiceDrafts: true,
+    entries: [{ id: formatRow.id, date: first, matterId: matter, clientId: primary, activity: "RES", narrative: "Billable work",
+      workerId: "worker", authorId: "worker", workedMinutes: 15, billableMinutes: 15, billable: true,
+      status: "confirmed", revision: 5, source: "manual", history: [] }] });
+  await render(formatCapture, [workerContact, formatRow], workflow);
+  assert.match(row(formatRow.id).textContent ?? "", /Approved/);
+  assert.ok(!host.textContent?.includes("Submit period"));
+  await render(formatCapture, [workerContact, formatRow], { ...workflow, policies: [
+    { scope: "firm", targetId: "firm", revision: 1, effectiveFrom: first, reviewerId: "another-person" },
+  ] });
+  assert.match(row(formatRow.id).textContent ?? "", /Ready to submit/);
+  assert.ok(!button(host, "Submit period").disabled);
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

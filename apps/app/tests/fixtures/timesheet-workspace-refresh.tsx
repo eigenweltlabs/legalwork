@@ -164,23 +164,25 @@ try {
     if (invoiceTab()?.getAttribute("aria-pressed") !== "true") await act(async () => invoiceTab()?.click());
     await press("Create Invoice");
     await selectOption("Matter", "Test matter");
+    const selection = invoiceEditor()?.querySelector<HTMLElement>('[role="checkbox"][aria-label="Select entry: Fixture invoice line"]');
+    assert.ok(selection);
+    await act(async () => selection.click());
+    await press("Continue");
+    const pricing = invoiceEditor()?.querySelector<HTMLDetailsElement>(".bo-invoice-disclosure");
+    assert.ok(pricing);
+    await act(async () => { pricing.open = true; });
     await selectOption("Fee basis", "Fixed price");
   };
   await openInvoice();
-  const allOpen = [...invoiceEditor()!.querySelectorAll("label")]
-    .find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
-  assert.ok(allOpen);
-  await act(async () => allOpen.click());
   const wording = invoiceWording(), fixedPrice = amount();
   assert.ok(wording && fixedPrice);
   await input(wording, "Unsaved invoice narrative");
   await input(fixedPrice, "125.50");
 
-  await act(async () => { invoiceEditor()?.querySelector("details.bo-invoice-unavailable summary")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
-  const openTimesheet = invoiceEditor()?.querySelector<HTMLAnchorElement>('a[href="/time?date=2026-11-18"]');
-  assert.ok(openTimesheet);
-  await act(async () => openTimesheet.click());
-  await until(() => document.querySelector(".time-ledger-pane:not([hidden])")?.textContent?.includes(ownHistorical.narrative));
+  const entriesTab = document.querySelector<HTMLButtonElement>('[data-panel-tab-id="timekeeping:entries"] button[aria-pressed]');
+  assert.ok(entriesTab);
+  await act(async () => entriesTab.click());
+  await until(() => document.querySelector(".time-ledger-pane:not([hidden])"));
   assert.equal(invoiceEditor(), null, "switching away detaches the draft from the visible pane");
   const reviewLink = invoiceTab();
   assert.ok(reviewLink);

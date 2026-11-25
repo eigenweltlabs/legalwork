@@ -286,8 +286,9 @@ export function BillingReview({
         <div className="bo-invoice-editor-view" hidden={!invoiceVisible}>
           <section className="bo-billing">
             <BillingInvoiceDraft
-              state={state} onCommand={onCommand} client={client} dates={invoiceEntry && throughEndDate ? { from: invoiceEntry.date, to: dates.to } : dates}
-              initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient} throughEndDate={throughEndDate} workdayModels={workdayModels}
+              state={state} onCommand={onCommand} client={client}
+              dates={filtersOpen ? { from: throughEndDate ? "" : dates.from, to: dates.to } : undefined}
+              initialEntry={invoiceEntry} initialMatterId={draftMatter} initialClientId={draftClient} workdayModels={workdayModels}
               onCancel={() => { setInvoiceEntry(undefined); setInvoiceScreen("closed"); }}
               onReviewSubmitted={(entry) => {
                 if (invoiceViews) {
@@ -547,7 +548,7 @@ export function BillingReview({
                         <TableRow>
                           <TableCell colSpan={showSelection ? 5 : 4}>
                             <div className="bo-billing-subrow">
-                              <span>{t(entryStatusKeys[e.status])}</span>
+                              <span>{t(entryStatusKeys[access.authorized && access.direct ? "approved" : e.status])}</span>
                               {e.activity && <span>{t("back_office.billing.activity_code")} · {currentPolicy.activityLabels[e.activity] || e.activity}</span>}
                               {e.submittedNarrative && e.submittedNarrative !== billedLine.narrative && <div>
                                 <small>{t("back_office.billing.submitted_text")}</small>{e.submittedNarrative}

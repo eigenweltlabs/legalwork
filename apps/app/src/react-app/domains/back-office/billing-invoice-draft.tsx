@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Check, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useTimeDurationFormat } from "./time-duration-controls";
+import { formatTimeDuration } from "./time-duration";
 import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { checkBillingNarrative } from "@legalwork/types/billing-narrative";
 import {
@@ -14,7 +19,6 @@ import {
 } from "@legalwork/types/time-capture";
 import {
   currencyScale,
-  formatInvoiceHours,
   formatInvoiceMinor,
 } from "@legalwork/types/invoice-template";
 import {
@@ -34,12 +38,11 @@ import {
   useBillingAction,
   type BillingProps,
 } from "./billing-components";
-import { reviewPeriod } from "./billing-amounts";
 import { BillingInvoicePdf } from "./billing-invoice-pdf";
 import { entryStatusKeys, labelForCode } from "./timesheet-labels";
 import { invoiceEntryAccess } from "./invoice-entry-access";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
-import { SectionHeading, Surface } from "../../design-system/surface";
+import { Surface } from "../../design-system/surface";
 import { timeRoutes } from "./time-routes";
 
 const invoiceWordingRules = {
@@ -57,9 +60,8 @@ type DraftProps = BillingProps & {
   initialMatterId: string;
   initialClientId: string;
   initialEntry?: TimeEntry;
-  throughEndDate: boolean;
   workdayModels?: WorkdayModelOption[];
-  dates: { from: string; to: string };
+  dates?: { from: string; to: string };
   onCancel: () => void;
   onReviewSubmitted: (entry: TimeEntry) => void;
   onIssued: () => void;
@@ -93,19 +95,24 @@ export function BillingInvoiceDraft({
   onCommand,
   client,
   dates,
-  initialMatterId, initialClientId, initialEntry, throughEndDate,
+  initialMatterId, initialClientId, initialEntry,
   workdayModels,
   onCancel,
   onReviewSubmitted,
   onIssued,
 }: DraftProps) {
   const locale = useLocale();
+  const matterInputId = useId();
+  const clientInputId = useId();
+  const durationFormat = useTimeDurationFormat();
   const initial = state.invoiceDraft?.input;
   const saved = !initialEntry && (!initialMatterId || initialMatterId === initial?.matterId) &&
     (!initialClientId || initialClientId === initial?.clientId) ? initial : undefined;
-  const [from, setFrom] = useState(() => saved?.period.from ?? (dates.from || reviewPeriod().from));
-  const [to, setTo] = useState(() => saved?.period.to ?? (dates.to || reviewPeriod().to));
-  const [allOpen, setAllOpen] = useState(saved ? !saved.period.from : !initialEntry && throughEndDate);
+  const [stage, setStage] = useState<"entries" | "details">(saved ? "details" : "entries");
+  const [from, setFrom] = useState(() => saved ? saved.period.from ?? "" : dates?.from ?? "");
+  const [to, setTo] = useState(() => saved?.period.to ?? dates?.to ?? "");
+  const [keepCutoff, setKeepCutoff] = useState(Boolean(saved && !saved.period.from));
+  const invalidDates = Boolean(from && to && from > to);
   const candidates = useMemo(() => {
     const result = new Set<string>();
     const matters = new Map(state.matters.map(matter => [matter.id, matter]));
@@ -113,12 +120,12 @@ export function BillingInvoiceDraft({
     for (const entry of state.entries) {
       if (!entry.clientId || (initialClientId && entry.clientId !== initialClientId) ||
         !clientIds.has(entry.clientId) || !matters.get(entry.matterId)?.clientIds.includes(entry.clientId) ||
-        entry.date > to || (!allOpen && entry.date < from) ||
+        (to && entry.date > to) || (from && entry.date < from) ||
         !invoiceEntryAccess(state, entry).authorized) continue;
       result.add(entry.matterId);
     }
     return result;
-  }, [state, from, to, allOpen, initialClientId]);
+  }, [state, from, to, initialClientId]);
   const orderedMatters = useMemo(() => [...state.matters]
     .sort((a, b) => Number(candidates.has(b.id)) - Number(candidates.has(a.id))), [state.matters, candidates]);
   const withWork = orderedMatters.filter(item => candidates.has(item.id));
@@ -128,24 +135,8 @@ export function BillingInvoiceDraft({
   const [chosenClient, setClient] = useState(saved?.clientId || initialClientId);
   const soleClient = matter?.clientIds.length === 1 && clients.length === 1 ? clients[0] : undefined;
   const clientId = soleClient?.id ?? (clients.some(item => item.id === chosenClient) ? chosenClient : "");
-  const [onlyEntries, setOnlyEntries] = useState<Set<string> | undefined>(() => initialEntry ? new Set([initialEntry.id]) : undefined);
-  const [excluded, setExcluded] = useState<Set<string>>(
-    () =>
-      new Set(
-        saved
-          ? state.entries
-              .filter(
-                (entry) =>
-                  !saved.entries.some((ref) => ref.id === entry.id) &&
-                  entry.matterId === saved.matterId &&
-                  entry.clientId === saved.clientId &&
-                  (entry.status === "approved" || entry.status === "confirmed") &&
-                  entry.date <= saved.period.to &&
-                  (!saved.period.from || entry.date >= saved.period.from),
-              )
-              .map((entry) => entry.id)
-          : [],
-      ),
+  const [selected, setSelected] = useState(
+    () => new Set(initialEntry ? [initialEntry.id] : saved?.entries.map(entry => entry.id)),
   );
   const [decisions, setDecisions] = useState(() => {
     const initial = new Map<string, NarrativeDecision>();
@@ -171,9 +162,6 @@ export function BillingInvoiceDraft({
       JSON.stringify([workspaceId, providerID, modelID]) === model,
   );
   const [fixed, setFixed] = useState(saved?.pricing.mode === "fixed");
-  const [chosenHourlyCurrency, setHourlyCurrency] = useState(
-    saved?.pricing.mode === "hourly" ? saved.pricing.currency ?? state.invoiceDraft?.currency ?? "" : initialEntry?.currency ?? "",
-  );
   const [currency, setCurrency] = useState(
     saved?.pricing.mode === "fixed" ? saved.pricing.currency : "",
   );
@@ -214,6 +202,9 @@ export function BillingInvoiceDraft({
   const { send, error, pending } = useBillingAction(onCommand);
   const [saving, setSaving] = useState(false);
   const preview = useRef<HTMLDivElement>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  const stageTitle = useRef<HTMLHeadingElement>(null);
+  const [pricingOpen, setPricingOpen] = useState(Boolean(saved?.pricing.mode === "fixed" || saved?.reduction));
   const [footerActions, setFooterActions] = useState<HTMLDivElement | null>(null);
   const revealPreview = useRef(false);
   const serviceDate = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" });
@@ -231,9 +222,8 @@ export function BillingInvoiceDraft({
           entry.status === "approved") &&
         entry.matterId === matterId &&
         (!entry.clientId || entry.clientId === clientId) &&
-        to &&
-        entry.date <= to &&
-        (allOpen || (from && entry.date >= from)),
+        (!to || entry.date <= to) &&
+        (!from || entry.date >= from),
     )
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const draft = state.invoiceDraft;
@@ -247,18 +237,16 @@ export function BillingInvoiceDraft({
     return { entry: direct ? { ...entry, ...timeEntryPrice(policy, entry.workerId) } : entry, policy, authorized, canAssign, direct };
   });
   const hourlyCurrencies = [...new Set(authorizedRows.flatMap(({ entry, authorized }) =>
-    authorized && isHourlyInvoiceLine(entry) ? [entry.currency] : [],
+    authorized && selected.has(entry.id) && isHourlyInvoiceLine(entry) ? [entry.currency] : [],
   ))].sort();
-  const hourlyCurrency = hourlyCurrencies.includes(chosenHourlyCurrency) ? chosenHourlyCurrency :
-    hourlyCurrencies.length === 1 ? hourlyCurrencies[0] : undefined;
+  const hourlyCurrency = hourlyCurrencies.length === 1 ? hourlyCurrencies[0] : undefined;
   const currencySupported = state.supportsHourlyInvoiceCurrency === true;
-  const legacyCutoffUnavailable = !fixed && allOpen && !currencySupported && Boolean(hourlyCurrency) &&
+  const legacyCutoffUnavailable = !fixed && keepCutoff && !currencySupported && Boolean(hourlyCurrency) &&
     authorizedRows.some(({ entry, authorized }) => authorized && (!isHourlyInvoiceLine(entry) || entry.currency !== hourlyCurrency));
   const checks = authorizedRows.map(({ entry, policy, authorized, canAssign, direct }) => {
     const line = adjustedTimeEntry(entry, adjustments);
-    const eligible = authorized && (fixed || (isHourlyInvoiceLine(entry) && entry.currency === hourlyCurrency));
-    const picked = eligible && (allOpen || (onlyEntries ? onlyEntries.has(entry.id) : !excluded.has(entry.id)));
-    const decision = decisions.get(entry.id);
+    const picked = authorized && selected.has(entry.id);
+      const decision = decisions.get(entry.id);
     const edited = decision?.type === "edit" && decision.revision === entry.revision
       ? decision.narrative
       : undefined;
@@ -287,7 +275,7 @@ export function BillingInvoiceDraft({
       ? preparedLine.actionFirst
       : check?.actionFirst;
     if (actionFirst) rules.push(t("back_office.billing.action_first"));
-    return { entry, line, policy, preparedLine, rules, suggested, edited, accepted, authorized, eligible, picked, canAssign, direct };
+    return { entry, line, preparedLine, rules, suggested, edited, accepted, authorized, picked, canAssign, direct };
   });
   const suggestedWording = checks.flatMap(({ picked, line, suggested, accepted }) =>
     picked && suggested && accepted !== suggested
@@ -297,6 +285,7 @@ export function BillingInvoiceDraft({
   const included = checks
     .filter(({ picked }) => picked)
     .map(({ entry }) => entry);
+  const hourlyPricingMissing = !fixed && included.some(entry => !isHourlyInvoiceLine(entry) || entry.currency !== hourlyCurrency);
   const linkedAdjustments = adjustments.filter((item) =>
     included.some((entry) => appliesTimeAdjustment(entry, item)),
   );
@@ -325,7 +314,7 @@ export function BillingInvoiceDraft({
   const input = InvoiceDraftInputSchema.safeParse({
     matterId,
     clientId,
-    period: { from: allOpen ? undefined : from, to },
+    period: { from: keepCutoff ? undefined : from || included[0]?.date, to: to || included.at(-1)?.date },
     entries: included.map(({ id, revision }) => ({ id, revision })),
     adjustmentVersions: approvedAdjustments.map(({ id, revision }) => ({
       id,
@@ -370,6 +359,7 @@ export function BillingInvoiceDraft({
     draft &&
     JSON.stringify(matchingInput) === JSON.stringify(draft.input) &&
     !legacyCutoffUnavailable &&
+    !hourlyPricingMissing &&
     !pendingAdjustments &&
     (!state.template ||
       state.template.revision === draft.snapshot.template.revision) &&
@@ -383,14 +373,20 @@ export function BillingInvoiceDraft({
   function changeMatter(id: string) {
     setMatter(id);
     setClient("");
-    setHourlyCurrency("");
     resetSelection();
   }
   function resetSelection() {
-    setOnlyEntries(undefined);
-    setExcluded(new Set());
+    setKeepCutoff(false);
+    setSelected(new Set());
     setDecisions(new Map());
+    setFixed(false);
+    setCurrency("");
+    setFixedPrice("");
+    setShowHours(false);
+    setReduction("");
     setScopeIds(new Set());
+    setAdjustmentValue("");
+    setPricingOpen(false);
   }
   function changeWording(id: string, decision: NarrativeDecision | undefined) {
     setDecisions((previous) => {
@@ -422,12 +418,20 @@ export function BillingInvoiceDraft({
     preview.current?.scrollIntoView({ block: "start" });
   }, [visibleDraft?.revision]);
 
+  function showStage(next: typeof stage) {
+    setStage(next);
+    requestAnimationFrame(() => {
+      if (scroll.current) scroll.current.scrollTop = 0;
+      stageTitle.current?.focus({ preventScroll: true });
+    });
+  }
+
   async function saveDraft() {
     if (visibleDraft) {
       preview.current?.scrollIntoView({ block: "start" });
       return;
     }
-    if (!input.success || !to || (!allOpen && (!from || from > to))) return;
+    if (!input.success || hourlyPricingMissing || invalidDates || pendingAdjustments || legacyCutoffUnavailable) return;
     revealPreview.current = true;
     setSaving(true);
     try {
@@ -439,103 +443,194 @@ export function BillingInvoiceDraft({
     }
   }
 
-  const eligibleRows = checks.filter(row => row.eligible);
-  const unavailableRows = checks.filter(row => !row.eligible);
+  const selectableRows = checks.filter(row => row.authorized);
+  const unavailableRows = checks.filter(row => !row.authorized && row.entry.billable);
+  const editingSelection = stage === "entries";
   const amounts = new Map(visibleDraft?.lines.map(line => [line.entry.id, line]));
   return (
     <div className="bo-billing-body bo-invoice-draft">
       <header className="bo-invoice-header">
-        <Button size="icon-sm" variant="ghost" onClick={onCancel} disabled={pending} aria-label={t("common.back")} title={t("common.back")}>
+        <Button size="icon-sm" variant="ghost" onClick={editingSelection ? onCancel : () => showStage("entries")} disabled={pending} aria-label={t("common.back")} title={t("common.back")}>
           <ArrowLeft size={16} />
         </Button>
         <h2>{t("invoiceReview.create")}</h2>
       </header>
-      <div className="bo-invoice-scroll">
+      <div className="bo-invoice-scroll" ref={scroll}>
       <fieldset disabled={pending} className="bo-invoice-content">
-        <Surface className="bo-invoice-setup">
-        <div className="bo-invoice-settings bo-invoice-parties">
-          <label>
-            {t("back_office.billing.matter")}
-            <TimeRecordPicker label={t("back_office.billing.matter")} placeholder={t("invoiceReview.choose_matter")}
-              value={matterId} options={orderedMatters} disabled={pending} onChange={changeMatter} />
-          </label>
-          {matter && (soleClient ? (
-            <div className="bo-invoice-field">
-              <span>{t("back_office.billing.client")}</span>
-              <strong className="bo-invoice-client">{soleClient.name}</strong>
-            </div>
-          ) : (
-            <label>
-              {t("back_office.billing.client")}
-              <TimeRecordPicker label={t("back_office.billing.client")} placeholder={t("invoiceReview.choose_client")}
-                value={clientId} options={clients} disabled={pending}
-                onChange={value => { setClient(value); setHourlyCurrency(""); resetSelection(); }} />
-            </label>
-          ))}
-        </div>
-        {matter && clientId && <>
-          <div className="bo-invoice-settings">
-            {!allOpen && <label>
-              {t("back_office.billing.from")}
-              <Input type="date" value={from} onChange={event => setFrom(event.target.value)} />
-            </label>}
-            <label>
-              {t("back_office.billing.to")}
-              <Input type="date" value={to} onChange={event => setTo(event.target.value)} />
-            </label>
-            <label>
-              {t("invoiceReview.pricing")}
-              <TimeSelect label={t("invoiceReview.pricing")} value={fixed ? "fixed" : "hourly"} disabled={pending}
-                options={[{ id: "hourly", name: t("invoiceReview.hourly") }, { id: "fixed", name: t("invoiceReview.fixed") }]}
-                onChange={value => { setFixed(value === "fixed"); if (!currency) setCurrency(hourlyCurrency ?? "EUR"); }} />
-            </label>
-            {fixed && <label>
-              {t("invoiceReview.agreed_price")}
-              <Input inputMode="decimal" value={fixedPrice} onChange={event => setFixedPrice(event.target.value)} />
-            </label>}
-            {fixed ? <label>
-              {t("invoiceReview.currency")}
-              <Input maxLength={3} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} />
-            </label> : hourlyCurrencies.length > 0 && <label>
-              {t("invoiceReview.currency")}
-              <TimeSelect label={t("invoiceReview.currency")} placeholder={t("invoiceReview.choose_currency")}
-                disabled={pending} value={hourlyCurrency ?? ""} options={hourlyCurrencies.map(id => ({ id, name: id }))}
-                onChange={value => { setHourlyCurrency(value); if (reduction === "target") setAdjustmentValue(""); }} />
-            </label>}
+        {editingSelection ? <>
+          <div className="bo-invoice-parties">
+            <Field className="min-w-0">
+              <FieldLabel htmlFor={matterInputId}>{t("back_office.billing.matter")}</FieldLabel>
+              <TimeRecordPicker id={matterInputId} label={t("back_office.billing.matter")} placeholder={t("invoiceReview.choose_matter")}
+                value={matterId} options={orderedMatters} disabled={pending} onChange={changeMatter} />
+            </Field>
+            {soleClient ? <div className="flex flex-col gap-3">
+              <span className="text-sm font-medium">{t("back_office.billing.client")}</span>
+              <p className="min-h-9 content-center break-words text-sm">{soleClient.name}</p>
+            </div> : matter && (clients.length ? (
+              <Field className="min-w-0">
+                <FieldLabel htmlFor={clientInputId}>{t("back_office.billing.client")}</FieldLabel>
+                <TimeRecordPicker id={clientInputId} label={t("back_office.billing.client")} placeholder={t("invoiceReview.choose_client")}
+                  value={clientId} options={clients} disabled={pending}
+                  onChange={value => { setClient(value); resetSelection(); }} />
+              </Field>
+            ) : <p className="self-end pb-2 text-sm text-muted-foreground">{t("invoiceReview.no_matter_client")}</p>)}
           </div>
-          <div className="bo-invoice-options">
-            <label>
-              <Checkbox checked={allOpen} disabled={pending} onCheckedChange={checked => { setAllOpen(checked); resetSelection(); }} />
-              {t("invoiceReview.all_open")}
-            </label>
-            {fixed && <label>
-              <Checkbox checked={showHours} disabled={pending} onCheckedChange={setShowHours} />
-              {t("invoiceReview.show_hours")}
-            </label>}
-          </div>
-        </>}
-        </Surface>
-        {(!matter || (clientId && !rows.length)) && withWork.some(item => item.id !== matterId) && (
-          <div className="mt-5 space-y-2">
-            <SectionHeading title={t("invoiceReview.matters_with_time")} />
-            {withWork.filter(item => item.id !== matterId).map(item => (
-              <Button key={item.id} variant="outline" size="sm" className="me-2 h-auto whitespace-normal py-1.5 text-start"
-                onClick={() => changeMatter(item.id)}>{item.name}</Button>
-            ))}
-          </div>
-        )}
-        {matter && clientId && <>
-          {!fixed && !hourlyCurrency && hourlyCurrencies.length > 1 && (
-            <p role="status" className="bo-billing-subrow">{t("invoiceReview.hourly_currency_help")}</p>
-          )}
+          {matter && clientId && <section className="mt-6 space-y-3">
+            <Collapsible>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 ref={stageTitle} tabIndex={-1} className="text-base font-semibold focus:outline-none">{t("timeWorkspace.entries")}</h3>
+                <CollapsibleTrigger className="group" render={<Button variant={from || to ? "outline" : "ghost"} size="sm" />}>
+                  {t("invoiceReview.filter_dates")}<ChevronRight className="group-aria-expanded:rotate-90" />
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent className="bo-invoice-settings px-0 pt-3">
+                <label>{t("back_office.billing.from")}
+                  <Input type="date" value={from} onChange={event => { setFrom(event.target.value); setKeepCutoff(false); }} />
+                </label>
+                <label>{t("back_office.billing.to")}
+                  <Input type="date" value={to} onChange={event => { setTo(event.target.value); setKeepCutoff(false); }} />
+                </label>
+              </CollapsibleContent>
+            </Collapsible>
+            {invalidDates ? <p className="text-sm text-destructive" role="alert">{t("invoiceReview.date_order")}</p> :
+              !selectableRows.length && <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("invoiceReview.none_ready")}</EmptyTitle>
+                <EmptyDescription>{t("invoiceReview.change_period")}</EmptyDescription></EmptyHeader></Empty>}
+            {selectableRows.length > 0 && <Surface className="overflow-hidden">
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox aria-label={t("back_office.billing.select_all")} checked={included.length === selectableRows.length}
+                      indeterminate={included.length > 0 && included.length < selectableRows.length}
+                      onCheckedChange={checked => {
+                        setKeepCutoff(false);
+                        setSelected(new Set(checked ? selectableRows.map(({ entry }) => entry.id) : []));
+                      }} />
+                  </TableHead>
+                  <TableHead>{t("native.description")}</TableHead>
+                  <TableHead className="text-end">{t("timesheets.ledger.billable")}</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>{selectableRows.map(({ entry, line, picked, direct }) => <TableRow key={entry.id}>
+                  <TableCell>
+                    <Checkbox aria-label={t("back_office.billing.select_line", { label: line.narrative })} checked={picked}
+                      onCheckedChange={checked => {
+                        setKeepCutoff(false);
+                        setSelected(previous => updateCheck(previous, entry.id, checked));
+                      }} />
+                  </TableCell>
+                  <TableCell className="whitespace-normal">
+                    <div className="font-medium">{line.narrative}</div>
+                    <small className="text-muted-foreground">
+                      <time dateTime={entry.date}>{serviceDate.format(new Date(entry.date + "T00:00:00"))}</time>
+                      {" · "}{people.get(entry.workerId) ?? entry.workerId}
+                      {direct && <>{" · "}{t(entryStatusKeys.approved)}</>}
+                    </small>
+                  </TableCell>
+                  <TableCell className="text-end tabular-nums">{formatTimeDuration(line.billableMinutes, durationFormat)}</TableCell>
+                </TableRow>)}</TableBody>
+              </Table>
+            </Surface>}
+            {unavailableRows.length > 0 && <details key={selectableRows.length === 0 ? "all" : "some"} className="bo-invoice-unavailable" open={selectableRows.length === 0 || undefined}>
+              <summary><ChevronRight size={15} />{t("invoiceReview.excluded_entries", { count: unavailableRows.length })}</summary>
+              <ul>{unavailableRows.map(({ entry, canAssign, direct }) => <li key={entry.id}>
+                <div>{entry.narrative}<small>{serviceDate.format(new Date(entry.date + "T00:00:00"))} · {people.get(entry.workerId) ?? entry.workerId}</small></div>
+                <div>
+                  {t(entryStatusKeys[entry.status])}
+                  {entry.legacy ? <small>{entry.workerId === state.userId && entry.status === "confirmed" ?
+                    <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }} to={timeRoutes.timesheets + "?date=" + entry.date}>
+                      {t("invoiceReview.imported_edit")}</Link> : t("invoiceReview.imported_locked")}</small>
+                  : !entry.billable ? <small>{t("timesheets.ledger.nonbillable")}</small>
+                  : state.supportsBillingClientAssignment && entry.billable && !entry.clientId && canAssign ? (
+                    <Button size="xs" variant="outline" disabled={pending}
+                      onClick={() => void send({ type: "assignBillingClient", id: entry.id, revision: entry.revision, clientId }).catch(() => {})}>
+                      {t("invoiceReview.assign_recipient", { client: currentClient?.name ?? "" })}
+                    </Button>
+                  ) : !entry.clientId ? <small>{t("invoiceReview.missing_recipient")}</small>
+                  : entry.status === "submitted" && canAssign ? (
+                    <Button size="xs" variant="outline" onClick={() => onReviewSubmitted(entry)}>{t("invoiceReview.review_open")}</Button>
+                  ) : entry.status === "submitted" ? <small>{t("invoiceReview.await_review")}</small>
+                  : entry.status === "confirmed" && !direct ? (
+                    <small>{entry.workerId === state.userId ? <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }}
+                      to={timeRoutes.timesheets + "?date=" + entry.date}>{t("invoiceReview.submit_open")}</Link> : t("invoiceReview.await_submission")}</small>
+                  ) : <small>{t("invoiceReview.other_reviewer")}</small>}
+                </div>
+              </li>)}</ul>
+            </details>}
+          </section>}
+        </> : <>
+          <h3 ref={stageTitle} tabIndex={-1} className="text-base font-semibold focus:outline-none">{t("invoiceReview.details")}</h3>
+          <p className="mt-1 mb-4 text-muted-foreground">{matter?.name}{" · "}{currentClient?.name}</p>
           {legacyCutoffUnavailable && (
-            <p role="status" className="bo-billing-subrow">{t("invoiceReview.legacy_currency_cutoff")}</p>
+            <p role="status" className="mb-3">{t("invoiceReview.legacy_currency_cutoff")}</p>
           )}
-          {!!to && !allOpen && from > to ? <p className="text-sm text-destructive" role="alert">{t("invoiceReview.date_order")}</p> :
-            !rows.length && <Empty variant="ghost"><EmptyHeader><EmptyTitle>{t("invoiceReview.no_entries")}</EmptyTitle>
-              <EmptyDescription>{t("invoiceReview.change_period")}</EmptyDescription></EmptyHeader></Empty>}
-          {eligibleRows.length > 0 && <SectionHeading className="mt-6 mb-2" title={t("timeWorkspace.entries")} />}
-          {eligibleRows.length > 0 && <>
+          <details className="bo-invoice-disclosure" open={pricingOpen || hourlyPricingMissing}
+            onToggle={event => setPricingOpen(event.currentTarget.open)}>
+            <summary><ChevronRight size={15} />{t("invoiceReview.pricing_details")}
+              <span className="ms-auto text-xs text-muted-foreground">
+                {t(fixed ? "invoiceReview.fixed" : "invoiceReview.hourly")}{invoiceCurrency && " · " + invoiceCurrency}
+              </span>
+            </summary>
+            {hourlyPricingMissing && <p className="px-4 pt-2 text-sm" role="status">{t("invoiceReview.hourly_selection_help")}</p>}
+            <div className="bo-invoice-settings">
+              <label>
+                {t("invoiceReview.pricing")}
+                <TimeSelect label={t("invoiceReview.pricing")} value={fixed ? "fixed" : "hourly"} disabled={pending}
+                  options={[{ id: "hourly", name: t("invoiceReview.hourly") }, { id: "fixed", name: t("invoiceReview.fixed") }]}
+                  onChange={value => { setFixed(value === "fixed"); if (!currency) setCurrency(hourlyCurrency ?? "EUR"); }} />
+              </label>
+              {fixed && <label>
+                {t("invoiceReview.agreed_price")}
+                <Input inputMode="decimal" value={fixedPrice} onChange={event => setFixedPrice(event.target.value)} />
+              </label>}
+              {fixed && <label>
+                {t("invoiceReview.currency")}
+                <Input maxLength={3} value={currency} onChange={event => setCurrency(event.target.value.toUpperCase())} />
+              </label>}
+            </div>
+            {fixed && <div className="bo-invoice-options">
+              <label>
+                <Checkbox checked={showHours} disabled={pending} onCheckedChange={setShowHours} />
+                {t("invoiceReview.show_hours")}
+              </label>
+            </div>}
+            {included.length > 0 && <details className="bo-invoice-reduction" open={reduction ? true : undefined}>
+              <summary>{t("invoiceReview.reduction")}</summary>
+              <div className="bo-invoice-settings">
+                <label>
+                  {t("invoiceReview.reduction")}
+                  <TimeSelect label={t("invoiceReview.reduction")} value={reduction} disabled={pending}
+                    options={[{ id: "", name: t("invoiceReview.no_reduction") }, { id: "percent", name: t("invoiceReview.percent") }, { id: "target", name: t("invoiceReview.target") }]}
+                    onChange={value => { setReduction(value === "percent" || value === "target" ? value : ""); setAdjustmentValue(""); }} />
+                </label>
+                {reduction && <>
+                  <label>
+                    {t("invoiceReview.reduce_scope")}
+                    <TimeSelect label={t("invoiceReview.reduce_scope")} value={scope} disabled={pending}
+                      options={[{ id: "all", name: t("invoiceReview.all_lines") }, { id: "people", name: t("invoiceReview.people") }, { id: "entries", name: t("invoiceReview.lines") }]}
+                      onChange={value => { setScope(value === "entries" || value === "people" ? value : "all"); setScopeIds(new Set()); }} />
+                  </label>
+                  {reduction === "target" && <label>
+                    {t("invoiceReview.target_scope")}
+                    <TimeSelect label={t("invoiceReview.target_scope")} value={targetBasis} disabled={pending}
+                      options={[{ id: "selection", name: t("invoiceReview.selected_target") }, { id: "invoice", name: t("invoiceReview.invoice_target") }]}
+                      onChange={value => setTargetBasis(value === "invoice" ? value : "selection")} />
+                  </label>}
+                  <label>
+                    {t(reduction === "target" ? "invoiceReview.target" : "invoiceReview.percent")}
+                    <Input inputMode="decimal" value={adjustmentValue} onChange={event => setAdjustmentValue(event.target.value)} />
+                  </label>
+                </>}
+              </div>
+              {reduction && scope !== "all" && <div className="bo-invoice-options">
+                {[...selectedScope].map(id => <label key={id}>
+                  <Checkbox checked={scopeIds.has(id)} disabled={pending} onCheckedChange={checked => setScopeIds(previous => updateCheck(previous, id, checked))} />
+                  {scope === "people" ? people.get(id) ?? id : included.find(entry => entry.id === id)?.narrative}
+                </label>)}
+              </div>}
+            </details>}
+          </details>
+          {included.length > 0 && <details className="bo-invoice-disclosure" open={suggestedWording.length > 0 || undefined}>
+            <summary><ChevronRight size={15} />{t("invoiceReview.result")}</summary>
             {suggestedWording.length > 0 && <div className="bo-invoice-line-actions">
               <Button size="sm" variant="outline"
                 onClick={() => setDecisions(previous => new Map([...previous, ...suggestedWording]))}>
@@ -544,39 +639,30 @@ export function BillingInvoiceDraft({
             </div>}
             <table className="bo-invoice-line-table">
               <thead><tr>
-                {!allOpen && <th className="bo-invoice-include" scope="col"><span className="sr-only">{t("invoiceReview.include")}</span></th>}
                 <th className="bo-invoice-service" scope="col">{t("invoiceReview.service")}</th>
                 <th scope="col">{t("invoiceReview.result")}</th>
-                {(Boolean(visibleDraft) || !allOpen) && <th className="bo-invoice-amount bo-billing-number" scope="col">
-                  {t(visibleDraft ? "invoiceReview.billed" : "invoiceReview.actual_hours")}
+                {visibleDraft && <th className="bo-invoice-amount bo-billing-number" scope="col">
+                  {t("invoiceReview.billed")}
                 </th>}
               </tr></thead>
               <tbody>
-                {eligibleRows.map(({ entry, line, preparedLine, rules, suggested, edited, accepted, picked }) => {
+                {checks.filter(row => row.picked).map(({ entry, line, preparedLine, rules, suggested, edited, accepted }) => {
                   const previewLine = amounts.get(entry.id);
                   const original = entry.submittedNarrative ?? entry.narrative;
                   const wording = edited ?? previewLine?.entry.narrative ?? accepted ?? line.narrative;
                   const hasDetails = original !== wording || rules.length > 0 || preparedLine?.modelRule || preparedLine?.guidelineVersions?.length;
                   return <tr key={entry.id}>
-                    {!allOpen && <td className="bo-invoice-include">
-                      <Checkbox aria-label={t("back_office.billing.select_line", { label: line.narrative })} checked={picked}
-                        disabled={pending} onCheckedChange={checked => {
-                          if (onlyEntries) setOnlyEntries(updateCheck(onlyEntries, entry.id, checked));
-                          else setExcluded(previous => updateCheck(previous, entry.id, !checked));
-                        }} />
-                    </td>}
                     <td className="bo-invoice-service">
                       <time dateTime={entry.date}>{serviceDate.format(new Date(entry.date + "T00:00:00"))}</time>
                       <small>{people.get(entry.workerId) ?? entry.workerId}</small>
                       {entry.authorId !== entry.workerId && <small>{t("invoiceReview.author", { name: people.get(entry.authorId) ?? entry.authorId })}</small>}
-                      {(visibleDraft || allOpen) && <small>{formatInvoiceHours(locale, entry.workedMinutes)} h</small>}
+                      <small>{formatTimeDuration(line.billableMinutes, durationFormat)}</small>
                     </td>
                     <td>
-                      {picked ? <Textarea maxLength={2000} className="min-h-9 py-1.5"
+                      <Textarea maxLength={2000} className="min-h-9 py-1.5"
                         aria-label={t("invoiceReview.edit_wording", { label: line.narrative })} value={wording}
                         onChange={event => changeWording(entry.id, { type: "edit", revision: entry.revision, narrative: event.target.value })} />
-                        : <p className="bo-invoice-unselected">{wording}</p>}
-                      {suggested && suggested !== wording && picked && <div className="bo-invoice-wording-suggestion">
+                      {suggested && suggested !== wording && <div className="bo-invoice-wording-suggestion">
                         <small>{t("back_office.billing.suggestion")}</small>
                         <p>{suggested}</p>
                         <Button size="xs" variant="outline" aria-label={t("invoiceReview.apply_suggestion", { label: line.narrative })}
@@ -594,89 +680,25 @@ export function BillingInvoiceDraft({
                           {t("invoiceReview.guidelineVersion", { name: version.name, revision: version.revision, date: version.effectiveFrom })}
                         </small>)}
                       </details> : null}
-                      {(edited !== undefined || accepted !== undefined) && picked && <Button size="xs" variant="ghost"
+                      {(edited !== undefined || accepted !== undefined) && <Button size="xs" variant="ghost"
                         onClick={() => changeWording(entry.id, undefined)}>{t("invoiceReview.reset_wording")}</Button>}
                     </td>
-                    {(visibleDraft || !allOpen) && <td className="bo-invoice-amount bo-billing-number">
-                      {visibleDraft ? previewLine && <>
+                    {visibleDraft && <td className="bo-invoice-amount bo-billing-number">
+                      {previewLine && <>
                         {money(previewLine.amountMinor, visibleDraft.currency)}
                         {previewLine.baseAmountMinor !== previewLine.amountMinor && <small title={t("invoiceReview.base_amount")}>
                           <s>{money(previewLine.baseAmountMinor, visibleDraft.currency)}</s>
                         </small>}
-                      </> : formatInvoiceHours(locale, entry.workedMinutes)}
+                      </>}
                     </td>}
                   </tr>;
                 })}
               </tbody>
             </table>
-          </>}
-          {unavailableRows.length > 0 && <details key={eligibleRows.length === 0 ? "all" : "some"} className="bo-invoice-unavailable" open={eligibleRows.length === 0 || undefined}>
-            <summary><ChevronRight size={15} />{t("invoiceReview.excluded_entries", { count: unavailableRows.length })}</summary>
-            <ul>{unavailableRows.map(({ entry, policy, authorized, canAssign, direct }) => <li key={entry.id}>
-              <div>{entry.narrative}<small>{serviceDate.format(new Date(entry.date + "T00:00:00"))} · {people.get(entry.workerId) ?? entry.workerId}</small></div>
-              <div>
-                {t(entryStatusKeys[entry.status])}
-                {entry.legacy ? <small>{entry.workerId === state.userId && entry.status === "confirmed" ?
-                  <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }} to={timeRoutes.timesheets + "?date=" + entry.date}>
-                    {t("invoiceReview.imported_edit")}</Link> : t("invoiceReview.imported_locked")}</small>
-                : !entry.billable ? <small>{t("timesheets.ledger.nonbillable")}</small>
-                : state.supportsBillingClientAssignment && entry.billable && !entry.clientId && canAssign ? (
-                  <Button size="xs" variant="outline" disabled={pending}
-                    onClick={() => void send({ type: "assignBillingClient", id: entry.id, revision: entry.revision, clientId }).catch(() => {})}>
-                    {t("invoiceReview.assign_recipient", { client: currentClient?.name ?? "" })}
-                  </Button>
-                ) : !entry.clientId ? <small>{t("invoiceReview.missing_recipient")}</small>
-                : entry.status === "submitted" && canAssign ? (
-                  <Button size="xs" variant="outline" onClick={() => onReviewSubmitted(entry)}>{t("invoiceReview.review_open")}</Button>
-                ) : entry.status === "submitted" ? <small>{t("invoiceReview.await_review")}</small>
-                : entry.status === "confirmed" && !direct ? (
-                  <small>{entry.workerId === state.userId ? <Link className="bo-invoice-link" state={{ timeWorkspaceTab: "entries" }}
-                    to={timeRoutes.timesheets + "?date=" + entry.date}>{t("invoiceReview.submit_open")}</Link> : t("invoiceReview.await_submission")}</small>
-                ) : <small>{!fixed && authorized ? (
-                  isHourlyInvoiceLine(entry) ? t("invoiceReview.open_currency_line", { currency: entry.currency })
-                    : t(entry.nonHourlyApproval || policy.nonHourlyAgreement ? "back_office.billing.non_hourly" : "back_office.billing.price_missing")
-                ) : t("invoiceReview.other_reviewer")}</small>}
-              </div>
-            </li>)}</ul>
-          </details>}
-          {eligibleRows.length > 0 && <details className="bo-invoice-reduction" open={reduction ? true : undefined}>
-            <summary>{t("invoiceReview.reduction")}</summary>
-            <div className="bo-invoice-settings">
-              <label>
-                {t("invoiceReview.reduction")}
-                <TimeSelect label={t("invoiceReview.reduction")} value={reduction} disabled={pending}
-                  options={[{ id: "", name: t("invoiceReview.no_reduction") }, { id: "percent", name: t("invoiceReview.percent") }, { id: "target", name: t("invoiceReview.target") }]}
-                  onChange={value => { setReduction(value === "percent" || value === "target" ? value : ""); setAdjustmentValue(""); }} />
-              </label>
-              {reduction && <>
-                <label>
-                  {t("invoiceReview.reduce_scope")}
-                  <TimeSelect label={t("invoiceReview.reduce_scope")} value={scope} disabled={pending}
-                    options={[{ id: "all", name: t("invoiceReview.all_lines") }, { id: "people", name: t("invoiceReview.people") }, { id: "entries", name: t("invoiceReview.lines") }]}
-                    onChange={value => { setScope(value === "entries" || value === "people" ? value : "all"); setScopeIds(new Set()); }} />
-                </label>
-                {reduction === "target" && <label>
-                  {t("invoiceReview.target_scope")}
-                  <TimeSelect label={t("invoiceReview.target_scope")} value={targetBasis} disabled={pending}
-                    options={[{ id: "selection", name: t("invoiceReview.selected_target") }, { id: "invoice", name: t("invoiceReview.invoice_target") }]}
-                    onChange={value => setTargetBasis(value === "invoice" ? value : "selection")} />
-                </label>}
-                <label>
-                  {t(reduction === "target" ? "invoiceReview.target" : "invoiceReview.percent")}
-                  <Input inputMode="decimal" value={adjustmentValue} onChange={event => setAdjustmentValue(event.target.value)} />
-                </label>
-              </>}
-            </div>
-            {reduction && scope !== "all" && <div className="bo-invoice-options">
-              {[...selectedScope].map(id => <label key={id}>
-                <Checkbox checked={scopeIds.has(id)} disabled={pending} onCheckedChange={checked => setScopeIds(previous => updateCheck(previous, id, checked))} />
-                {scope === "people" ? people.get(id) ?? id : included.find(entry => entry.id === id)?.narrative}
-              </label>)}
-            </div>}
           </details>}
         </>}
       </fieldset>
-      {visibleDraft && (
+      {!editingSelection && visibleDraft && (
         <div className="bo-invoice-draft-preview" ref={preview}>
           <div className="bo-billing-subrow">
             <strong>
@@ -765,20 +787,26 @@ export function BillingInvoiceDraft({
       <footer className="bo-invoice-footer">
         <div className="bo-invoice-save-status">
           {error ? <p role="alert" className="bo-billing-error">{error}</p> :
+            editingSelection ? (included.length > 0 ? <p>{t("invoiceReview.selected_entries", { count: included.length })}</p> :
+              selectableRows.length > 0 && <p>{t("invoiceReview.choose_entry")}</p>) :
             pendingAdjustments ? <p role="status">{t("back_office.billing.invoice_correction_pending")}</p> :
             visibleDraft ? <p role="status"><Check size={14} />{t(visibleDraft.approval ? "invoiceReview.approved" : "invoiceReview.saved")}
               {!visibleDraft.snapshot.clientAddress && <span>{t("invoiceReview.address_required")}</span>}</p> :
             included.length ? <p>{t("invoiceReview.selected_entries", { count: included.length })}
-              {!input.success && <span>{t("invoiceReview.check_terms")}</span>}</p> :
-            eligibleRows.length > 0 && <p>{t("invoiceReview.choose_entry")}</p>}
+              {!input.success && !hourlyPricingMissing && <span>{t("invoiceReview.check_terms")}</span>}</p> :
+            <p>{t("invoiceReview.choose_entry")}</p>}
         </div>
         <div className="bo-invoice-footer-actions">
-          <Button size="sm" variant={visibleDraft ? "outline" : "default"}
-            disabled={!input.success || (!allOpen && (!from || from > to)) || pending || pendingAdjustments || legacyCutoffUnavailable} onClick={() => void saveDraft()}>
-            {saving && <Loader2 size={14} className="animate-spin" />}
-            {t(visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
-          </Button>
-          <div ref={setFooterActions} />
+          {editingSelection ? <Button size="sm" disabled={!included.length || invalidDates || pending}
+            onClick={() => showStage("details")}>{t("common.continue")}</Button> : <>
+            <Button size="sm" variant="ghost" disabled={pending} onClick={() => showStage("entries")}>{t("invoiceReview.edit_selection")}</Button>
+            <Button size="sm" variant={visibleDraft ? "outline" : "default"}
+              disabled={!input.success || hourlyPricingMissing || invalidDates || pending || pendingAdjustments || legacyCutoffUnavailable} onClick={() => void saveDraft()}>
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              {t(visibleDraft ? "back_office.billing.preview" : "invoiceReview.save_preview")}
+            </Button>
+            <div ref={setFooterActions} />
+          </>}
         </div>
       </footer>
     </div>

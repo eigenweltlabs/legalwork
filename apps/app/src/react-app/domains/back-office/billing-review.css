@@ -297,12 +297,9 @@
   padding: 0;
 }
 .bo-invoice-draft .bo-invoice-content {
-  width: min(100%, 56rem);
+  width: min(100%, 46rem);
   margin-inline: auto;
-  padding: clamp(12px, 3cqw, 28px);
-}
-.bo-invoice-setup {
-  padding: 4px;
+  padding: clamp(16px, 3cqw, 32px);
 }
 .bo-invoice-settings {
   display: grid;
@@ -311,9 +308,12 @@
   padding: 16px 16px 0;
 }
 .bo-invoice-parties {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
 }
-.bo-invoice-settings > label, .bo-invoice-field {
+.bo-invoice-settings > label {
   display: grid;
   align-content: start;
   gap: 6px;
@@ -326,13 +326,23 @@
   width: 100%;
   justify-content: space-between;
 }
-.bo-invoice-client {
+.bo-invoice-settings[data-slot="collapsible-content"] {
+  padding-inline: 0;
+}
+.bo-invoice-disclosure {
+  border-block-start: 1px solid var(--border);
+  padding-block: 4px;
+}
+.bo-invoice-disclosure > summary {
   display: flex;
-  min-height: 36px;
   align-items: center;
-  overflow-wrap: anywhere;
-  color: var(--foreground);
+  gap: 8px;
+  padding-block: 10px;
   font-weight: 500;
+  cursor: pointer;
+}
+.bo-invoice-disclosure[open] > summary > svg {
+  transform: rotate(90deg);
 }
 .bo-invoice-options {
   display: flex;
@@ -364,13 +374,6 @@
 .bo-invoice-line-table th {
   white-space: normal;
   background: var(--background);
-}
-.bo-invoice-line-table .bo-invoice-include {
-  width: 44px;
-  padding-inline-start: 16px;
-}
-.bo-invoice-line-table .bo-invoice-include [role="checkbox"] {
-  margin-block-start: 8px;
 }
 .bo-invoice-service {
   width: 145px;
@@ -407,10 +410,6 @@
 }
 .bo-invoice-line-details p {
   padding: 5px 0;
-}
-.bo-invoice-unselected {
-  color: var(--muted-foreground);
-  padding-block: 6px;
 }
 .bo-invoice-unavailable {
   padding: 12px 16px;
@@ -477,7 +476,6 @@
   .bo-invoice-service { width: 105px; }
   .bo-invoice-amount { width: 74px; }
   .bo-invoice-line-table :is(th, td) { padding-inline: 7px; }
-  .bo-invoice-line-table .bo-invoice-include { width: 32px; padding-inline-start: 10px; }
 }
 .bo-invoice-pdf-frame {
   width: 100%;
@@ -524,4 +522,3 @@
   gap: 4px;
 }
 .bo-billing td[colspan] { white-space: normal; }
-.bo-invoice-setup > :last-child { padding-bottom: 16px; }

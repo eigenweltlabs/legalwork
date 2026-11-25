@@ -255,16 +255,12 @@ try {
   assert.ok(host.querySelector('input[placeholder="Choose a matter"]'));
   await select("Matter", "Alpha");
   assert.match(host.textContent ?? "", /Acme/);
-  assert.ok(!host.textContent?.includes("Booked earlier"));
-  assert.ok(!host.textContent?.includes(prior.narrative));
-  assert.match(host.textContent ?? "", /Choose the currency for this hourly invoice/);
-  await select("Currency", "EUR");
-  assert.equal(host.querySelector('[data-slot="checkbox"][aria-label="Select entry: USD briefing"]'), null);
-  assert.match(host.textContent ?? "", /Stays open in USD/);
-  const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
-  assert.ok(allOpen);
-  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
-  assert.ok(host.textContent?.includes(prior.narrative));
+  assert.equal(host.querySelector('input[aria-label="Client"]'), null, "A single billing client is filled in automatically");
+  assert.equal(host.querySelector('[aria-label="Fee basis"]'), null);
+  assert.equal(host.querySelector("textarea"), null);
+  assert.ok(checkbox("Select entry: Earlier approved work"));
+  assert.ok(match("Continue").disabled, "Creating an invoice starts with a deliberate selection");
+  await click(checkbox("Select entry: Earlier approved work"));
   const ownTimesheet = [...host.querySelectorAll("a")].find((link) => link.textContent?.includes("Open my timesheet"));
   assert.equal(ownTimesheet?.getAttribute("href"), "/time?date=2001-09-01");
   await click(match("Open submitted entries"));
@@ -276,23 +272,30 @@ try {
   const reviewDates = [...host.querySelectorAll<HTMLInputElement>('input[type="date"]')].filter((el) => !el.closest("[hidden]"));
   assert.deepEqual(reviewDates.map((el) => el.value), [prior.date, prior.date]);
   await click(match("Continue invoice draft"));
-  assert.ok(allOpen.getAttribute("aria-checked") === "true", "Returning from a historical review keeps the invoice selections");
-  await draw({ ...open, supportsHourlyInvoiceCurrency: undefined });
-  assert.ok(save().disabled);
-  assert.match(host.textContent ?? "", /Choose a service period to invoice selected entries/);
-  await draw(open);
+  assert.equal(checkbox("Select entry: Earlier approved work").getAttribute("aria-checked"), "true",
+    "Returning from a historical review keeps the invoice selection");
+  await click(checkbox("Select entry: USD briefing"));
+  await click(match("Continue"));
+  assert.ok(save().disabled, "An hourly draft cannot silently omit entries in a second currency");
+  assert.match(host.textContent ?? "", /Hourly invoices need a rate for every selected entry/);
+  await click(match("Edit time entries"));
+  await click(checkbox("Select entry: Earlier approved work"));
+  await click(match("Continue"));
   await click(save());
-  const cutoff = calls.at(-1);
-  assert.ok(cutoff?.type === "prepareInvoice");
-  assert.equal(cutoff.draft.pricing.currency, "EUR");
-  assert.equal(cutoff.draft.period.from, undefined);
-  assert.deepEqual(cutoff.draft.entries.map(({ id }) => id), [prior.id, row.id]);
-  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
+  const usdDraft = calls.at(-1);
+  assert.ok(usdDraft?.type === "prepareInvoice");
+  assert.equal(usdDraft.draft.pricing.currency, "USD");
+  assert.deepEqual(usdDraft.draft.entries, [{ id: "usd", revision: row.revision }]);
+  await click(match("Edit time entries"));
+  await click(checkbox("Select entry: USD briefing"));
+  await click(checkbox("Select entry: Brief amended"));
+  await click(match("Continue"));
   await click(save());
   assert.ok(!host.textContent?.includes("Issue numbered invoice"));
   const prepared = calls.at(-1);
   assert.ok(prepared?.type === "prepareInvoice");
   assert.deepEqual(prepared.draft.entries, [{ id: row.id, revision: row.revision }]);
+  assert.deepEqual(prepared.draft.period, { from: today, to: today });
   const draft: TimeInvoiceDraft = {
     id: crypto.randomUUID(), revision: "a".repeat(64), input: prepared.draft, currency: "EUR", showHours: true,
     totalMinor: 20000, protectedMinor: 0, selectedBaseMinor: 20000, selectedTotalMinor: 20000,
@@ -383,6 +386,7 @@ try {
   const withoutOldEdit = calls.at(-1);
   assert.ok(withoutOldEdit?.type === "prepareInvoice");
   assert.equal(withoutOldEdit.draft.edits, undefined);
+  await click(match("Edit time entries"));
   await click(match("Back"));
   await draw({
     ...actor,
@@ -437,9 +441,12 @@ try {
   await select("View", "Approved positions");
   await click(match("Create Invoice"));
   await select("Matter", "Alpha");
+  await click(match("Filter by date"));
   const invoiceDates = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="date"]'));
   await write(invoiceDates[0], today);
   await write(invoiceDates[1], today);
+  await click(checkbox("Select entry: Brief amended"));
+  await click(match("Continue"));
   assert.ok(save().disabled, "an unreviewed delta blocks issuance");
   const revised = {
     ...locked,
@@ -453,6 +460,7 @@ try {
   const revisedInvoice = calls.at(-1);
   assert.ok(revisedInvoice?.type === "prepareInvoice");
   assert.deepEqual(revisedInvoice.draft.adjustmentVersions, [{ id: "corr", revision: 2 }]);
+  await click(match("Edit time entries"));
   await click(match("Back"));
   await select("View", "Work products and fees");
   const totals = host.querySelector("tbody tr")?.textContent ?? "";
@@ -693,6 +701,7 @@ try {
     narrative: "Saved without a reviewer", status: "confirmed" as const };
   await draw({ ...open, entries: [...open.entries, excludedDirect], invoiceDraft: revisedDraft });
   await click(match("Continue invoice draft"));
+  await click(match("Edit time entries"));
   assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
   await render(null);
   const fresh = { ...excludedDirect, id: "new-direct", narrative: "Call with client" };
@@ -711,6 +720,8 @@ try {
   await click(invoiceThisEntry);
   assert.equal(checkbox("Select entry: Call with client").getAttribute("aria-checked"), "true");
   assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
+  assert.match(checkbox("Select entry: Call with client").closest("tr")?.textContent ?? "", /Approved/);
+  await click(match("Continue"));
   await click(save());
   const preparedSingle = calls.at(-1);
   assert.ok(preparedSingle?.type === "prepareInvoice");
