@@ -254,6 +254,10 @@ export function RecordDetail({
               )
               .map((field) => {
                 const canEdit = editable && !readOnlyFields?.includes(field.id) && !(onReviewLocal && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+                const value = record.values[field.id];
+                const display = (
+                  <ValueDisplay objectId={record.objectId} field={field} value={value} records={records} onOpen={onOpen} />
+                );
                 return <div className="bo-property" key={field.id}>
                   <label>
                     <FieldIcon field={field} />
@@ -263,7 +267,7 @@ export function RecordDetail({
                     )}
                   </label>
                   <div className="bo-property-value">
-                    <Popover.Root
+                    {field.type === "relation" && !canEdit ? display : <Popover.Root
                       open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
@@ -278,15 +282,8 @@ export function RecordDetail({
                           />
                         }
                       >
-                        <ValueDisplay objectId={record.objectId}
-                          field={field}
-                          value={record.values[field.id]}
-                          records={records}
-                          onOpen={onOpen}
-                        />
-                        {(record.values[field.id] === null ||
-                          record.values[field.id] === undefined ||
-                          record.values[field.id] === "") && (
+                        {display}
+                        {(value === null || value === undefined || value === "") && (
                           <span className="bo-muted">{field.label}</span>
                         )}
                       </Popover.Trigger>
@@ -314,7 +311,7 @@ export function RecordDetail({
                           </DirectoryEditorPopup>
                         </Popover.Positioner>
                       </Popover.Portal>
-                    </Popover.Root>
+                    </Popover.Root>}
                   </div>
                 </div>
               })}

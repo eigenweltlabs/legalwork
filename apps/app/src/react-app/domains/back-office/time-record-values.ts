@@ -8,6 +8,15 @@ import { calendarDay } from "../calendar/calendar-format";
 
 type Values = Record<string, BackOfficeValue>;
 
+export function billableRoundingChoices(minutes: number, rules: ReturnType<typeof draftRules>, activity: string) {
+  if (!rules.enforceIncrement || rules.rounding !== "choose") return [];
+  const increment = rules.incrementMinutes;
+  const maximum = rules.activityLimits[activity] ?? rules.maxMinutes;
+  return [...new Set([Math.floor(minutes / increment), Math.ceil(minutes / increment)])]
+    .map(units => units * increment)
+    .filter(amount => amount > 0 && amount >= rules.minimumMinutes && amount <= maximum);
+}
+
 /** Date-only records must never shift to the preceding day in western time zones. */
 export function timeRecordDate(value: BackOfficeValue | undefined, serviceDate?: BackOfficeValue): string {
   const day = CalendarDaySchema.safeParse(serviceDate);

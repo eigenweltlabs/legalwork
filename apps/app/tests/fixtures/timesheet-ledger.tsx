@@ -201,6 +201,43 @@ async function clip(element: Element, type: string, clipboard: DataTransfer) {
 }
 try {
   localStorage.setItem("legalwork.timekeeping.duration-format", "minutes");
+  const { TimelineEntryDialog, rangeInstant } = await import("../../src/react-app/domains/back-office/timeline-time-entry");
+  const calendarState: TimesheetState = { ...state, service: "workflow", policies: [
+    { scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, incrementMinutes: 6, rounding: "choose" },
+  ] };
+  const bookingHost = document.body.appendChild(document.createElement("div"));
+  const bookingTrigger = bookingHost.appendChild(document.createElement("button"));
+  for (const duration of [30, 50]) {
+    const expectedId = crypto.randomUUID();
+    const bookings: Array<{ id: string; activity: string; workedMinutes: number; billableMinutes: number }> = [];
+    await act(async () => root.render(<MemoryRouter><BackOfficeTheme>
+      <TimelineEntryDialog key={expectedId} requestId={expectedId} container={bookingHost} trigger={bookingTrigger}
+        seed={{ date: base.date, matterId: base.matterId, narrative: "Calendar appointment", startAt: rangeInstant(base.date, 540),
+          endAt: rangeInstant(base.date, 540 + duration) }}
+        state={calendarState} guidelines={[]} onClose={() => {}} onSave={async (id, entry) => { bookings.push({ id, ...entry }); }} />
+    </BackOfficeTheme></MemoryRouter>));
+    const dialog = bookingHost.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.match(dialog.textContent ?? "", /Activity \(optional\)/);
+    const create = dialog.querySelector<HTMLButtonElement>('button[type="submit"]');
+    assert.ok(create);
+    if (duration === 50) {
+      await act(async () => create.click());
+      assert.equal(bookings.length, 0);
+      const choices = [...dialog.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")];
+      assert.deepEqual(choices.map(button => button.textContent), ["48", "54"]);
+      await act(async () => choices[1].click());
+    }
+    await act(async () => create.click());
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].id, expectedId);
+    assert.equal(bookings[0].activity, "Other", "calendar booking accepts the regular default without a selection");
+    assert.equal(bookings[0].workedMinutes, duration);
+    assert.equal(bookings[0].billableMinutes, duration === 50 ? 54 : 30);
+  }
+  await act(async () => root.render(null));
+  bookingHost.remove();
+
   // Exercise the optional recorded-time allocations throughout the keyboard tests.
   localStorage.setItem("legalwork.timesheet.columns." + state.scope + ":" + state.userId, JSON.stringify(["worked"]));
   await act(async () => root.render(<MemoryRouter><BackOfficeTheme><TimesheetLedger

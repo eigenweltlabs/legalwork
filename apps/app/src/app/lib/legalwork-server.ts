@@ -1771,15 +1771,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   return {
     backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean; timeoutMs?:number } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: options.timeoutMs ?? timeouts.binary, identifyTransportError: true }),
     downloadTimesheetAdjustment: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/adjustments/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
-    previewBillingTemplate: (template:import("@legalwork/types/invoice-template").InvoiceTemplate,scope:string) => requestBinary(baseUrl,`/back-office/timesheet/template-preview?scope=${encodeURIComponent(scope)}`,{token,hostToken,method:"POST",body:template,timeoutMs:90_000}),
-    downloadTimesheetDraft: (id: string, scope: string, format: "docx" | "pdf", options?: { revision?: string; signal?: AbortSignal }) => {
-      const query = new URLSearchParams({ scope, format });
-      if (options?.revision) query.set("revision", options.revision);
-      return requestBinary(baseUrl, `/back-office/timesheet/drafts/${encodeURIComponent(id)}/document?${query}`, {
-        token, hostToken, timeoutMs: 90_000, signal: options?.signal,
-      });
-    },
-    downloadTimesheetInvoice: (id: string, scope: string, format:"docx"|"pdf"|"html" = "html") => requestBinary(baseUrl, `/back-office/timesheet/invoices/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}&format=${format}`, { token, hostToken, timeoutMs: timeouts.binary }),
     downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
     uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
 

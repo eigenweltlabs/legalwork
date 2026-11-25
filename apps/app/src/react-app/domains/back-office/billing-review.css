@@ -4,7 +4,7 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  color: var(--bo-text);
+  color: var(--foreground);
   font-variant-numeric: tabular-nums;
 }
 .bo-billing .bo-view-toolbar {
@@ -19,7 +19,7 @@
   gap: 4px;
   color: var(--bo-muted);
 }
-.bo-billing input:not([type="checkbox"], [data-slot="input"]),
+.bo-billing input:not([type="checkbox"], [data-slot]),
 .bo-billing select,
 .bo-billing textarea:not([data-slot="textarea"]) {
   font: inherit;
@@ -45,20 +45,20 @@
   min-height: 0;
   overflow: auto;
 }
-.bo-billing table {
+.bo-billing table:not([data-slot]) {
   width: 100%;
   border-spacing: 0;
   border-collapse: separate;
   font-size: 12px;
 }
-.bo-billing th,
-.bo-billing td {
+.bo-billing th:not([data-slot]),
+.bo-billing td:not([data-slot]) {
   padding: 4px 8px;
   height: 32px;
   text-align: left;
   border-bottom: 1px solid var(--bo-border);
 }
-.bo-billing th {
+.bo-billing th:not([data-slot]) {
   background: var(--bo-bg);
   color: var(--bo-muted);
   font-weight: 500;
@@ -72,7 +72,7 @@
   text-align: right;
   white-space: nowrap;
 }
-.bo-billing tr:hover td {
+.bo-billing tr:not([data-slot]):hover td {
   background: var(--bo-hover);
 }
 .bo-billing td input:not([type="checkbox"]) {
@@ -193,25 +193,6 @@
   padding: 4px;
 }
 
-.bo-invoice-template {
-  padding: 12px 16px;
-}
-.bo-invoice-template summary {
-  cursor: pointer;
-}
-.bo-invoice-template label {
-  display: grid;
-  gap: 4px;
-}
-.bo-invoice-preview {
-  width: 100%;
-  min-height: 280px;
-  background: white;
-  border: 1px solid var(--border);
-  grid-column: 1/-1;
-  flex-basis: 100%;
-}
-
 .bo-billing-cap {
   color: var(--t-color-red11);
   font-weight: 600;
@@ -249,6 +230,8 @@
   color: var(--foreground);
 }
 .bo-time-policy fieldset { min-width: 0; margin: 0; border: 0; padding: 0; }
+.bo-invoice-rate-editor { display: flex; flex-direction: column; min-height: 0; }
+.bo-invoice-rate-editor fieldset { overflow-y: auto; }
 .bo-time-policy summary { cursor: pointer; font-size: 14px; font-weight: 500; }
 .bo-time-policy details[open] > summary { margin-bottom: 12px; }
 .bo-time-policy [data-slot="item-header-actions"] :is(input, textarea, select) { width: min(210px, 50vw); }
@@ -296,6 +279,11 @@
   min-width: 0;
   padding: 0;
 }
+.bo-invoice-draft .bo-invoice-content {
+  width: min(100%, 46rem);
+  margin-inline: auto;
+  padding: clamp(16px, 3cqw, 32px);
+}
 .bo-invoice-settings {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr));
@@ -303,26 +291,41 @@
   padding: 16px 16px 0;
 }
 .bo-invoice-parties {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
 }
-.bo-invoice-settings > label, .bo-invoice-field {
+.bo-invoice-settings > label {
   display: grid;
   align-content: start;
   gap: 6px;
   min-width: 0;
-  color: var(--muted-foreground);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
 }
 .bo-invoice-settings [data-slot="select-trigger"] {
   width: 100%;
   justify-content: space-between;
 }
-.bo-invoice-client {
+.bo-invoice-settings[data-slot="collapsible-content"] {
+  padding-inline: 0;
+}
+.bo-invoice-disclosure {
+  border-block-start: 1px solid var(--border);
+  padding-block: 4px;
+}
+.bo-invoice-disclosure > summary {
   display: flex;
-  min-height: 36px;
   align-items: center;
-  overflow-wrap: anywhere;
-  color: var(--foreground);
+  gap: 8px;
+  padding-block: 10px;
   font-weight: 500;
+  cursor: pointer;
+}
+.bo-invoice-disclosure[open] > summary > svg {
+  transform: rotate(90deg);
 }
 .bo-invoice-options {
   display: flex;
@@ -336,71 +339,20 @@
   align-items: center;
   gap: 8px;
 }
-.bo-invoice-line-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 4px 16px 8px;
-}
-.bo-invoice-line-table {
-  table-layout: fixed;
-}
-.bo-invoice-line-table :is(th, td) {
-  padding: 10px 12px;
-}
-.bo-invoice-line-table td {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-.bo-invoice-line-table th {
-  white-space: normal;
-  background: var(--background);
-}
-.bo-invoice-line-table .bo-invoice-include {
-  width: 44px;
-  padding-inline-start: 16px;
-}
-.bo-invoice-line-table .bo-invoice-include [role="checkbox"] {
-  margin-block-start: 8px;
-}
-.bo-invoice-service {
-  width: 145px;
-}
-.bo-invoice-amount {
-  width: 110px;
-}
-.bo-invoice-line-table small, .bo-invoice-unavailable small {
+.bo-invoice-unavailable small {
   display: block;
   color: var(--muted-foreground);
   margin-top: 2px;
 }
-.bo-invoice-wording-suggestion {
-  margin-block-start: 6px;
-  padding: 8px 10px;
-  background: var(--muted);
-  border-radius: var(--lw-radius-lg);
-  display: grid;
-  justify-items: start;
-  gap: 4px;
-}
-.bo-invoice-line-details summary, .bo-invoice-unavailable summary {
+.bo-invoice-unavailable summary {
   display: flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
   color: var(--muted-foreground);
 }
-.bo-invoice-line-details[open] summary > svg, .bo-invoice-unavailable[open] summary > svg {
+.bo-invoice-unavailable[open] summary > svg {
   transform: rotate(90deg);
-}
-.bo-invoice-line-details {
-  margin-top: 6px;
-}
-.bo-invoice-line-details p {
-  padding: 5px 0;
-}
-.bo-invoice-unselected {
-  color: var(--muted-foreground);
-  padding-block: 6px;
 }
 .bo-invoice-unavailable {
   padding: 12px 16px;
@@ -423,9 +375,34 @@
   text-align: right;
   gap: 3px;
 }
-.bo-invoice-reduction {
-  padding-block-end: 16px;
+.bo-invoice-fee-basis {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 14rem));
+  padding-inline: 0;
 }
+.bo-invoice-reduction { margin-block: 12px; }
+.bo-invoice-reduction summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding-block: 6px;
+  font-weight: 500;
+}
+.bo-invoice-reduction[open] summary > svg { transform: rotate(90deg); }
+.bo-invoice-rates { display: grid; gap: 8px; margin-block: 16px; }
+.bo-invoice-rates h4 { font-weight: 600; }
+.bo-invoice-rates ul { border-block-start: 1px solid var(--border); }
+.bo-invoice-rates li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-block: 8px;
+  border-block-end: 1px solid var(--border);
+}
+.bo-invoice-rates li > div { flex: 1 1 7rem; min-width: 0; overflow-wrap: anywhere; }
+.bo-invoice-rates li small { display: block; color: var(--muted-foreground); }
+.bo-invoice-reduction .bo-invoice-settings { padding-inline: 0; }
 .bo-invoice-footer {
   justify-content: space-between;
   flex-wrap: wrap;
@@ -453,7 +430,12 @@
   align-items: center;
 }
 .bo-invoice-draft-preview {
-  padding: 0 16px 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  font-size: 13px;
 }
 .bo-invoice-index-toolbar {
   gap: 8px;
@@ -462,18 +444,45 @@
   width: auto;
 }
 @container (max-width: 620px) {
-  .bo-invoice-service { width: 105px; }
-  .bo-invoice-amount { width: 74px; }
-  .bo-invoice-line-table :is(th, td) { padding-inline: 7px; }
-  .bo-invoice-line-table .bo-invoice-include { width: 32px; padding-inline-start: 10px; }
-}
-.bo-invoice-pdf-frame {
-  width: 100%;
-  height: clamp(18rem, 68dvh, 52rem);
-  border: 1px solid var(--border);
-  background: white;
+  .bo-invoice-settings { grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); }
+  .bo-invoice-parties { grid-template-columns: minmax(0, 1fr); }
 }
 .bo-invoice-link {
   text-decoration: underline;
   color: var(--bo-blue);
 }
+
+.bo-billing-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-billing .bo-invoice-index-toolbar {
+  gap: 8px 12px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.bo-billing-description {
+  width: 100%;
+  min-width: 11rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.bo-billing-description small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+.bo-billing-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 4px;
+}
+.bo-billing td[colspan] { white-space: normal; }

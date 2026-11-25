@@ -1,4 +1,5 @@
 import { useContext, useLayoutEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CalendarDays, List, MessageSquare, ReceiptText, ClipboardCheck, Loader2 } from "lucide-react";
 import { BackOfficeSurface } from "./twenty-controls";
 import { z } from "@legalwork/types/back-office";
@@ -8,7 +9,6 @@ import { SidePanel, type PageCatalog, type WorkspacePage } from "../session/pane
 import { EmbeddedWorkspaceChat } from "../session/chat/embedded-workspace-chat";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { usePanelTabStore, workspacePanelKey } from "../session/panel/panel-tab-store";
-
 const viewSchema = z.enum(["entries", "invoices", "review", "timeline", "chat"]);
 type View = z.infer<typeof viewSchema>;
 export type TimelineView = "combined" | "matters";
@@ -110,6 +110,11 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
   const sessionId = projectId ? workspacePanelKey(projectId) : legacyKey;
   const locale = useLocale();
   const [expanded, setExpanded] = useState(false);
+  const workspaceTabs = usePanelTabStore(state => state.sessions[sessionId]?.tabs);
+  const retiredTabs = workspaceTabs?.filter(tab => tab.id === "timekeeping:invoice-approval" || tab.id.startsWith("timekeeping:invoice-document:"));
+  useLayoutEffect(() => {
+    for (const tab of retiredTabs ?? []) usePanelTabStore.getState().closeTab(sessionId, tab.id);
+  }, [sessionId, workspaceTabs]);
   const timelineId = idFor("timeline");
   const timelineFocused = usePanelTabStore(state => {
     const session = state.sessions[sessionId];
@@ -137,6 +142,8 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
   }
   const withInvoices = invoices != null;
   const withReview = review != null;
+  const [params] = useSearchParams();
+  const reviewEntry = requestedTab === "review" ? params.get("reviewEntry") : null;
   useLayoutEffect(() => {
     prepareLayout(sessionId, withInvoices, legacyKey);
     if (withReview) return;
@@ -151,7 +158,7 @@ export function TimeWorkspacePanels({ scope, conversation, entries, timeline, ch
     const tab = tabFor(requestedTab);
     if (layout?.tabs.some(item => item.id === tab.id)) store.selectTab(sessionId, tab.id);
     else store.openTab(sessionId, tab, layout?.panes.find(pane => pane.tabIds.includes(idFor("entries")))?.id ?? layout?.panes[0]?.id);
-  }, [sessionId, requestedTab, withInvoices, withReview]);
+  }, [sessionId, requestedTab, reviewEntry, withInvoices, withReview]);
 
   const contents: Record<View, WorkspacePage["content"]> = {
     entries: <BackOfficeSurface className="time-workspace-entry-content" data-workspace-tab="entries">{entries}</BackOfficeSurface>,

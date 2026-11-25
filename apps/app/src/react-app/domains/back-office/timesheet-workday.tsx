@@ -158,9 +158,6 @@ export function TimesheetWorkday({
   ].filter(event => event.kind === "event" && event.status !== "cancelled")
     .map(event => event.allDay ? event : { ...event, timeZone })
     .filter(event => occursOnDay(event, date));
-  const unavailableCalendars = [...providerCalendars.unavailable];
-  if (projectCalendar.isError) unavailableCalendars.push(t("calendar.title"));
-  if (providerCalendars.connected.isError) unavailableCalendars.push(t("calendar.connected_calendars"));
   const profileId = directory.captureProfileId;
   const identity = {
     scope: directory.scope,
@@ -415,9 +412,6 @@ export function TimesheetWorkday({
           <div className="contents" inert={confirmation?.date === date && Boolean(settings) && settings?.enabled !== false}>
           {settings?.enabled !== false && !refreshing && status && <SuggestionFailure status={status} />}
           {!local && <p className="time-workspace-note">{t("timesheets.local_only")}</p>}
-          {local && unavailableCalendars.length > 0 && <p role="status" className="time-workspace-note px-2">
-            {t("calendar.connected_unavailable", { calendars: unavailableCalendars.join(", ") })}
-          </p>}
           {local && (
             <div ref={timelineBody} className="relative isolate min-h-0 flex-1 overflow-hidden">
               <WorkdayTimeline key={date} date={date} bookings={timeline?.bookings ?? confirmed.filter(entry => entry.date === date).map(entry => ({ ...entry, key: entry.groupId ?? entry.id }))}

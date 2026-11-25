@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import { defaultBackOfficeModel } from "@legalwork/types/back-office";
-import type { TimeEntry, TimesheetState } from "@legalwork/types/timesheet";
+import { BackOfficeRecordSchema, defaultBackOfficeModel } from "@legalwork/types/back-office";
+import type { TimeEntry, TimesheetCommand, TimesheetState } from "@legalwork/types/timesheet";
 import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
 
 const window = new Window({ url: "http://localhost" });
@@ -47,10 +47,10 @@ const state: TimesheetState = {
   people: [{ id: "anna", name: "Anna" }, { id: "ben", name: "Ben" }],
 };
 
-async function until(check: () => unknown) {
+async function until(check: () => unknown, message = "expected billing UI state") {
   for (let attempt = 0; attempt < 60 && !check(); attempt++)
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
-  assert.ok(check(), "expected billing UI state");
+  assert.ok(check(), message);
 }
 const findButton = (label: string) => [...document.querySelectorAll("button")].find(button => button.textContent?.trim() === label);
 async function press(label: string) {
@@ -96,7 +96,7 @@ const ownHistorical: TimeEntry = {
   ...entry, id: "own-earlier", workerId: "anna", authorId: "anna", status: "confirmed",
   date: "2026-11-18", projectId: "required-review", narrative: "Own historical work",
 };
-const reviewState = { ...state, supportsInvoiceDrafts: true, entries: [reviewEntry, ownHistorical],
+const reviewState = { ...state, supportsInvoiceDrafts: true, supportsInvoiceCreation: true, entries: [reviewEntry, ownHistorical],
   policies: [{ scope: "firm", targetId: "firm", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "anna" },
     { scope: "project", targetId: "required-review", effectiveFrom: "2020-01-01", revision: 1, reviewerId: "ben" }] };
 const reviewDirectory: BackOfficeState = {
@@ -105,20 +105,41 @@ const reviewDirectory: BackOfficeState = {
   records: [], views: [], sync: { enabled: false, cursor: 0, pending: 0, error: null },
 };
 let officeFailure = 0, timesheetFailure = 0, activeTimesheetUser = "anna";
+const invoiceWrites: TimesheetCommand[] = [];
+let creationSupported = true;
+let invoiceDocumentsRead: string[] = [];
+const issuedOn = "2026-11-19";
+const invoiceRecord = BackOfficeRecordSchema.parse({
+  id: "773dc6f1-d404-47fe-9bbb-2099191b2b1f", objectId: "invoices", ownerId: "anna", access: "org", members: [],
+  values: { name: "Invoice 439", status: "Issued", invoiceNumber: "439", issuedOn },
+  revision: 1, schemaRevision: 1, createdAt: issuedOn + "T12:00:00Z", updatedAt: issuedOn + "T12:00:00Z", archivedAt: null,
+});
 let recordsMode = false, finance = true;
 const realFetch = globalThis.fetch;
 const fetchReview: typeof globalThis.fetch = Object.assign(async (resource: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(resource instanceof Request ? resource.url : resource.toString());
   if (url.origin !== reviewOrigin) return realFetch(resource, init);
   if (url.pathname === "/back-office/projects") return Response.json({ projects: [] });
+  if (url.pathname === "/back-office/time-members") return Response.json({ members: [] });
+  if (url.pathname.endsWith("/document")) {
+    const format = url.searchParams.get("format") ?? "";
+    invoiceDocumentsRead.push(format);
+    return new Response(null, { status: 404 });
+  }
   if (url.pathname === "/back-office/timesheet") {
     if (timesheetFailure === 408) throw new TypeError("Fixture connection timed out");
     if (timesheetFailure) return Response.json({ message: "Fixture timesheet access denied" }, { status: timesheetFailure });
-    return Response.json({ ...reviewState, userId: activeTimesheetUser, ...(recordsMode ? { service: "records" } : {}) });
+    const command: TimesheetCommand | undefined = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    if (command) {
+      invoiceWrites.push(command);
+      assert.equal(command.type, "createInvoice");
+    }
+    return Response.json({ ...reviewState, supportsInvoiceCreation: creationSupported, userId: activeTimesheetUser, invoices: [],
+      ...(recordsMode ? { service: "records" } : {}) });
   }
   assert.equal(url.pathname, "/back-office");
   if (officeFailure) return new Response("Fixture directory temporarily unavailable", { status: officeFailure });
-  return Response.json({ ...reviewDirectory, permissions: { ...reviewDirectory.permissions, finance } });
+  return Response.json({ ...reviewDirectory, records: [invoiceRecord], permissions: { ...reviewDirectory.permissions, finance } });
 }, realFetch);
 globalThis.fetch = fetchReview;
 try {
@@ -128,7 +149,6 @@ try {
     </MemoryRouter>
   </QueryClientProvider>));
   const invoiceEditor = () => document.querySelector(".bo-invoice-draft");
-  const invoiceWording = () => invoiceEditor()?.querySelector<HTMLTextAreaElement>("textarea");
   const amount = () => invoiceEditor()?.querySelector<HTMLInputElement>('input[inputmode="decimal"]');
   const refreshReview = (source: "directory" | "timesheet") => act(async () => {
     await reviewCache.invalidateQueries({ queryKey: ["back-office", reviewOrigin], predicate: query =>
@@ -164,38 +184,36 @@ try {
     if (invoiceTab()?.getAttribute("aria-pressed") !== "true") await act(async () => invoiceTab()?.click());
     await press("Create Invoice");
     await selectOption("Matter", "Test matter");
+    const selection = invoiceEditor()?.querySelector<HTMLElement>('[role="checkbox"][aria-label="Select entry: Fixture invoice line"]');
+    assert.ok(selection);
+    await act(async () => selection.click());
+    const pricing = invoiceEditor()?.querySelector<HTMLDetailsElement>(".bo-invoice-disclosure");
+    assert.ok(pricing);
+    await act(async () => { pricing.open = true; });
     await selectOption("Fee basis", "Fixed price");
   };
   await openInvoice();
-  const allOpen = [...invoiceEditor()!.querySelectorAll("label")]
-    .find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
-  assert.ok(allOpen);
-  await act(async () => allOpen.click());
-  const wording = invoiceWording(), fixedPrice = amount();
-  assert.ok(wording && fixedPrice);
-  await input(wording, "Unsaved invoice narrative");
+  const fixedPrice = amount();
+  assert.ok(fixedPrice);
   await input(fixedPrice, "125.50");
 
-  await act(async () => { invoiceEditor()?.querySelector("details.bo-invoice-unavailable summary")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
-  const openTimesheet = invoiceEditor()?.querySelector<HTMLAnchorElement>('a[href="/time?date=2026-11-18"]');
-  assert.ok(openTimesheet);
-  await act(async () => openTimesheet.click());
-  await until(() => document.querySelector(".time-ledger-pane:not([hidden])")?.textContent?.includes(ownHistorical.narrative));
+  const entriesTab = document.querySelector<HTMLButtonElement>('[data-panel-tab-id="timekeeping:entries"] button[aria-pressed]');
+  assert.ok(entriesTab);
+  await act(async () => entriesTab.click());
+  await until(() => document.querySelector(".time-ledger-pane:not([hidden])"));
   assert.equal(invoiceEditor(), null, "switching away detaches the draft from the visible pane");
   const reviewLink = invoiceTab();
   assert.ok(reviewLink);
   await act(async () => reviewLink.click());
   await until(invoiceEditor);
-  assert.equal(invoiceWording(), wording);
-  assert.equal(wording.value, "Unsaved invoice narrative");
   assert.equal(amount(), fixedPrice);
   assert.equal(fixedPrice.value, "125.50");
 
   timesheetFailure = 408;
   await refreshReview("timesheet");
   await until(() => document.querySelector('[role="alert"]')?.textContent?.includes("connection timed out"));
-  assert.equal(invoiceWording(), wording);
-  assert.equal(wording.value, "Unsaved invoice narrative");
+  assert.equal(amount(), fixedPrice);
+  assert.equal(fixedPrice.value, "125.50");
   timesheetFailure = 0;
   await press("Try again");
   await until(() => !document.querySelector('[role="alert"]'));
@@ -208,8 +226,8 @@ try {
   officeFailure = 0;
   await press("Try again");
   await until(() => !document.querySelector('[role="alert"]'));
-  assert.equal(invoiceWording(), wording);
-  assert.equal(wording.value, "Unsaved invoice narrative");
+  assert.equal(amount(), fixedPrice);
+  assert.equal(fixedPrice.value, "125.50");
 
   timesheetFailure = 403;
   await refreshReview("timesheet");
@@ -220,7 +238,7 @@ try {
   timesheetFailure = 0;
   await press("Try again");
   await openInvoice();
-  assert.equal(invoiceWording()?.value, "Fixture invoice line", "access recovery opens a fresh editor");
+  assert.equal(amount()?.value, "", "access recovery opens a fresh editor");
 
   officeFailure = 401;
   await refreshReview("directory");
@@ -231,12 +249,25 @@ try {
   officeFailure = 0;
   await press("Try again");
   await openInvoice();
-  assert.equal(invoiceWording()?.value, "Fixture invoice line");
+  assert.equal(amount()?.value, "");
 
+  await input(amount()!, "125.50");
+  await press("Create Invoice");
+  await until(() => !invoiceEditor(), "saved directly from the editor");
+  assert.equal(invoiceWrites.length, 1);
+  assert.ok(invoiceWrites[0].type === "createInvoice");
+  assert.equal(invoiceWrites[0].invoice.pricing.mode, "fixed");
+  assert.equal(invoiceDocumentsRead.length, 0);
+  assert.equal(document.querySelector('[data-panel-tab-id="timekeeping:invoice-approval"]'), null);
+  await selectOption("View", "Issued invoices");
+  const row = () => document.querySelector(`[data-workspace-tab="invoices"] [data-record-id="${invoiceRecord.id}"]`);
+  await until(row, "invoice register uses the directory grid");
+  assert.match(row()?.textContent ?? "", /Invoice 439/);
+  assert.equal(findButton("PDF"), undefined);
+  assert.equal(findButton("Word"), undefined);
   activeTimesheetUser = "different-account";
   await refreshReview("timesheet");
-  await until(() => !invoiceEditor());
-  assert.equal(findButton("Create Invoice"), undefined, "a snapshot for another account is never presented");
+  await until(() => !invoiceEditor() && !findButton("Create Invoice"), "a snapshot for another account is never presented");
 
   await act(async () => root.render(null));
   reviewCache.clear();
@@ -252,18 +283,27 @@ try {
   const mountRecords = () => act(async () => root.render(<QueryClientProvider client={reviewCache}>
     <MemoryRouter initialEntries={["/time"]}><BackOfficePage client={reviewClient} /></MemoryRouter>
   </QueryClientProvider>));
+  store.openTab(scope, { id: "timekeeping:invoice-approval", type: "workspace-page", label: "Invoice approval" }, "side");
   await mountRecords();
-  await until(invoiceTab);
+  await until(() => !usePanelTabStore.getState().sessions[scope]?.tabs.some(tab => tab.id === "timekeeping:invoice-approval"), "retired invoice approval tab is removed");
+  await until(invoiceTab, "saved workspace gets the invoices tab");
   const migrated = usePanelTabStore.getState().sessions[scope];
   assert.deepEqual(migrated.panes.find(pane => pane.id === "main")?.tabIds, ["timekeeping:entries", "timekeeping:invoices"]);
   assert.equal(migrated.sizes.workday.main, 55, "introducing Invoices keeps a saved split");
   await act(async () => invoiceTab()?.click());
   await until(() => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-tab="invoices"] button'))
-    .some(button => button.textContent?.trim() === "Record existing invoice" && !button.disabled));
+    .some(button => button.textContent?.trim() === "Record existing invoice" && !button.disabled), "records-only mode opens the invoice register");
   assert.equal(document.querySelector(".bo-invoice-draft"), null, "the records service does not open the approval workflow");
+  recordsMode = false;
+  creationSupported = false;
+  await refreshReview("timesheet");
+  await until(() => document.body.textContent?.includes("update the connected firm service"), "the workflow explains why invoice creation is unavailable");
+  assert.equal(findButton("Create Invoice"), undefined);
+  assert.equal(document.querySelector('[data-panel-tab-id="timekeeping:invoice-approval"]'), null);
+  recordsMode = true;
   finance = false;
   await refreshReview("directory");
-  await until(() => !invoiceTab());
+  await until(() => !invoiceTab(), "revoking finance access removes the invoices tab");
   assert.equal(document.querySelector('[data-workspace-tab="invoices"]'), null);
 
 } finally {

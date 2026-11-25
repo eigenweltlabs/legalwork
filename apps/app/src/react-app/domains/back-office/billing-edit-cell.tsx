@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 
 export function BillingEditCell({
@@ -83,7 +84,7 @@ export function BillingEditCell({
         if (!event.currentTarget.contains(event.relatedTarget)) void finish(false);
       }}
     >
-      <input
+      <Input
         aria-label={label}
         autoFocus
         readOnly={saving}
@@ -95,7 +96,7 @@ export function BillingEditCell({
         onKeyDown={keys}
       />
       {showReason && value !== edit.value && (
-        <input
+        <Input
           readOnly={saving}
           value={reason}
           maxLength={2000}

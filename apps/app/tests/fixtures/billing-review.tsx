@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import type { ReactNode } from "react";
-import type { LegalworkServerClient } from "../../src/app/lib/legalwork-server";
+import type { ComponentProps, ReactNode } from "react";
+import { defaultBackOfficeModel } from "@legalwork/types/back-office";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><head></head><body></body></html>");
@@ -29,16 +29,15 @@ for (const [key, value] of Object.entries({
 
 import type {
   TimeEntry,
-  TimeInvoiceDraft,
   TimePolicy,
   TimesheetCommand,
   TimesheetState,
 } from "@legalwork/types/timesheet";
 
-const { act } = await import("react");
+const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
-const { BillingReview } = await import("../../src/react-app/domains/back-office/billing-review");
+const { BillingReview: BillingReviewView } = await import("../../src/react-app/domains/back-office/billing-review");
 const { BillingPreferences } = await import(
   "../../src/react-app/domains/back-office/billing-preferences"
 );
@@ -46,7 +45,6 @@ const { BackOfficeTheme } = await import("../../src/react-app/domains/back-offic
 const { reviewPeriod, feeTotals } = await import(
   "../../src/react-app/domains/back-office/billing-amounts"
 );
-const { standardInvoice } = await import("@legalwork/types/invoice-template");
 const today = reviewPeriod().to;
 const policy: TimePolicy = {
   scope: "firm",
@@ -84,7 +82,7 @@ const actor: TimesheetState = {
   scope: "team",
   canManage: true,
   canReview: true,
-  supportsInvoiceDrafts: true,
+  supportsInvoiceCreation: true,
   supportsHourlyInvoiceCurrency: true,
   entries: [row, { ...row, id: "own", workerId: "partner" }],
   matters: [{ id: "m", name: "Alpha", reference: "A", clientIds: ["c"] }],
@@ -98,25 +96,20 @@ const actor: TimesheetState = {
   policies: [policy],
   invoices: [],
 };
+function BillingReview(props: Omit<ComponentProps<typeof BillingReviewView>, "directory" | "columnScope" | "onSaveView">) {
+  return <BillingReviewView {...props} columnScope="billing-fixture" onSaveView={async view => view} directory={{
+    scope: props.state.scope, model: defaultBackOfficeModel(), records: [], views: [],
+    permissions: { userId: props.state.userId, edit: true, model: true, finance: true },
+    sync: { enabled: false, cursor: 0, pending: 0, error: null },
+  }} />;
+}
 const host = document.createElement("div");
 document.body.append(host);
-const root = createRoot(host);
 const calls: TimesheetCommand[] = [];
 const command = async (c: TimesheetCommand) => {
   calls.push(c);
 };
-type PreviewFile = Awaited<ReturnType<LegalworkServerClient["downloadTimesheetDraft"]>>;
-const requests: Array<{
-  id: string; format: string; revision?: string; signal?: AbortSignal;
-  resolve: (value: PreviewFile) => void; reject: (error: Error) => void;
-}> = [];
-function pdf(text: string, contentType = "application/pdf"): PreviewFile {
-  return { data: new TextEncoder().encode("%PDF-1.7\n" + text).buffer, contentType, filename: "Fixture.pdf", updatedAt: null };
-}
-const downloadTimesheetDraft: LegalworkServerClient["downloadTimesheetDraft"] = (id, _scope, format, options) =>
-  new Promise((resolve, reject) => requests.push({ id, format, ...options, resolve, reject }));
 const client = {
-  downloadTimesheetDraft,
   downloadTimesheetAdjustment: async () => {
     throw new Error("Unused");
   },
@@ -124,11 +117,12 @@ const client = {
     throw new Error("Unused");
   },
 };
+const viewTarget = host.appendChild(document.createElement("div"));
+const billingRoot = createRoot(viewTarget);
 const render = async (node: ReactNode) =>
-  act(async () => root.render(<MemoryRouter><BackOfficeTheme>{node}</BackOfficeTheme></MemoryRouter>));
+  act(async () => billingRoot.render(<MemoryRouter><BackOfficeTheme>{node}</BackOfficeTheme></MemoryRouter>));
 const draw = (state: TimesheetState, canEdit = true) =>
-  render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client}
-    workdayModels={[{ workspaceId: "fixture", providerID: "fixture", modelID: "proofreader", label: "Proofreader" }]} />);
+  render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client} />);
 const match = (s: string) => {
   const el = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
     (e) => e.textContent?.trim() === s || e.getAttribute("aria-label") === s,
@@ -161,7 +155,7 @@ const checkbox = (label: string) => {
   return control;
 };
 const save = () => [...host.querySelectorAll<HTMLButtonElement>(".bo-invoice-footer button")]
-  .find(button => /^(Save and preview|Preview invoice)$/.test(button.textContent ?? ""))!;
+  .find(button => button.textContent?.trim() === "Create Invoice")!;
 const field = (sel: string) => {
   const el = host.querySelector<HTMLInputElement>(sel);
   assert.ok(el, "Input " + sel);
@@ -242,9 +236,9 @@ try {
   assert.ok(!host.textContent?.includes("After cutoff"));
   await click(unbilled.closest("label")!.querySelector("input[type=checkbox]")!);
   assert.ok(!host.textContent?.includes(prior.narrative));
-  await draw({ ...actor, supportsInvoiceDrafts: undefined, entries: [{ ...row, status: "approved" }] });
+  await draw({ ...actor, supportsInvoiceCreation: false, supportsInvoiceDrafts: true, entries: [{ ...row, status: "approved" }] });
   assert.ok(!host.textContent?.includes("Create Invoice"));
-  assert.match(host.textContent ?? "", /require support from the connected firm server/);
+  assert.match(host.textContent ?? "", /update the connected firm service/);
   const open: TimesheetState = { ...actor, policies: [policy, { ...policy, scope: "project", targetId: "required-review", reviewerId: "lawyer" }], entries: [prior, { ...row, status: "approved" },
     { ...row, id: "usd", status: "approved", currency: "USD", narrative: "USD briefing" },
     { ...prior, id: "queued", narrative: "Waiting for historical review", status: "submitted", suggestion: undefined },
@@ -255,16 +249,12 @@ try {
   assert.ok(host.querySelector('input[placeholder="Choose a matter"]'));
   await select("Matter", "Alpha");
   assert.match(host.textContent ?? "", /Acme/);
-  assert.ok(!host.textContent?.includes("Booked earlier"));
-  assert.ok(!host.textContent?.includes(prior.narrative));
-  assert.match(host.textContent ?? "", /Choose the currency for this hourly invoice/);
-  await select("Currency", "EUR");
-  assert.equal(host.querySelector('[data-slot="checkbox"][aria-label="Select entry: USD briefing"]'), null);
-  assert.match(host.textContent ?? "", /Stays open in USD/);
-  const allOpen = [...host.querySelectorAll("label")].find(label => label.textContent?.includes("All open entries through"))?.querySelector<HTMLElement>('[data-slot="checkbox"]');
-  assert.ok(allOpen);
-  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
-  assert.ok(host.textContent?.includes(prior.narrative));
+  assert.equal(host.querySelector('input[aria-label="Client"]'), null, "A single billing client is filled in automatically");
+  assert.equal(host.querySelector('[aria-label="Fee basis"]'), null);
+  assert.equal(host.querySelector("textarea"), null);
+  assert.ok(checkbox("Select entry: Earlier approved work"));
+  assert.ok(save().disabled, "Creating an invoice starts with a deliberate selection");
+  await click(checkbox("Select entry: Earlier approved work"));
   const ownTimesheet = [...host.querySelectorAll("a")].find((link) => link.textContent?.includes("Open my timesheet"));
   assert.equal(ownTimesheet?.getAttribute("href"), "/time?date=2001-09-01");
   await click(match("Open submitted entries"));
@@ -275,115 +265,20 @@ try {
   assert.equal(host.querySelector('button[role="combobox"][aria-label="Client"] [data-slot="select-value"]')?.textContent, "Acme");
   const reviewDates = [...host.querySelectorAll<HTMLInputElement>('input[type="date"]')].filter((el) => !el.closest("[hidden]"));
   assert.deepEqual(reviewDates.map((el) => el.value), [prior.date, prior.date]);
-  await click(match("Continue invoice draft"));
-  assert.ok(allOpen.getAttribute("aria-checked") === "true", "Returning from a historical review keeps the invoice selections");
-  await draw({ ...open, supportsHourlyInvoiceCurrency: undefined });
-  assert.ok(save().disabled);
-  assert.match(host.textContent ?? "", /Choose a service period to invoice selected entries/);
-  await draw(open);
+  await click(match("Back to invoice"));
+  assert.equal(checkbox("Select entry: Earlier approved work").getAttribute("aria-checked"), "true",
+    "Returning from a historical review keeps the invoice selection");
+  await click(checkbox("Select entry: USD briefing"));
+  assert.ok(save().disabled, "An hourly invoice cannot silently omit entries in a second currency");
+  assert.match(host.textContent ?? "", /The selected time uses more than one currency/);
+  await click(checkbox("Select entry: Earlier approved work"));
   await click(save());
-  const cutoff = calls.at(-1);
-  assert.ok(cutoff?.type === "prepareInvoice");
-  assert.equal(cutoff.draft.pricing.currency, "EUR");
-  assert.equal(cutoff.draft.period.from, undefined);
-  assert.deepEqual(cutoff.draft.entries.map(({ id }) => id), [prior.id, row.id]);
-  await click(allOpen.closest("label")!.querySelector("input[type=checkbox]")!);
-  await click(save());
-  assert.ok(!host.textContent?.includes("Issue numbered invoice"));
-  const prepared = calls.at(-1);
-  assert.ok(prepared?.type === "prepareInvoice");
-  assert.deepEqual(prepared.draft.entries, [{ id: row.id, revision: row.revision }]);
-  const draft: TimeInvoiceDraft = {
-    id: crypto.randomUUID(), revision: "a".repeat(64), input: prepared.draft, currency: "EUR", showHours: true,
-    totalMinor: 20000, protectedMinor: 0, selectedBaseMinor: 20000, selectedTotalMinor: 20000,
-    snapshot: { date: today, client: "Acme", clientAddress: "Fixture Lane 1", template: standardInvoice },
-    lines: [{ entry: { ...row, status: "approved" }, originalNarrative: row.narrative, currentNarrative: row.narrative,
-      rules: [], amountMinor: 20000, baseAmountMinor: 20000, actualAmountMinor: 20000 }],
-  };
-  // A previously prepared hourly invoice omitted the currency from its input.
-  const legacy = { ...draft, input: { ...draft.input, pricing: { mode: "hourly" as const } } };
-  await draw({ ...open, invoiceDraft: legacy, policies: [{ ...policy, actionFirst: true, actionWords: { MOD: "Amending" } }] });
-  assert.ok(!host.textContent?.includes("Use all suggested wording"), "Only the prepared server line decides whether to offer a correction");
-  assert.equal(requests[0].revision, legacy.revision);
-  assert.equal(requests[0].format, "pdf");
-  assert.ok(match("Approve this invoice").disabled);
-  assert.match(host.textContent ?? "", /Rendering the invoice PDF/);
-  await act(async () => requests[0].resolve(pdf("unexpected payload", "text/html")));
-  assert.match(host.querySelector('[role="alert"]')?.textContent ?? "", /did not return a valid invoice PDF/);
-  assert.ok(match("Approve this invoice").disabled);
-  await click(match("Retry PDF preview"));
-  assert.equal(requests.length, 2);
-  const revisedDraft = { ...draft, id: crypto.randomUUID(), revision: "b".repeat(64) };
-  await draw({ ...open, invoiceDraft: revisedDraft });
-  assert.ok(requests[1].signal?.aborted);
-  assert.equal(requests[2].revision, revisedDraft.revision);
-  await act(async () => requests[1].resolve(pdf("Stale invoice")));
-  assert.equal(host.querySelector('iframe[title="Invoice PDF preview"]'), null);
-  await act(async () => requests[2].resolve(pdf("Fixture custom letterhead")));
-  const frame = host.querySelector<HTMLIFrameElement>('iframe[title="Invoice PDF preview"]');
-  assert.ok(frame);
-  assert.ok(!frame.hasAttribute("srcdoc"));
-  const openPdf = host.querySelector<HTMLAnchorElement>('a[target="_blank"]');
-  assert.ok(openPdf?.href.startsWith("blob:"));
-  assert.match(await (await fetch(openPdf.href)).text(), /Fixture custom letterhead/);
-  assert.ok(!match("Approve this invoice").disabled);
-  await click(match("Approve this invoice"));
-  assert.deepEqual(calls.at(-1), { type: "approveInvoice", id: revisedDraft.id, revision: revisedDraft.revision });
-  await draw({ ...open, invoiceDraft: { ...revisedDraft, approval: { actorId: actor.userId, at: new Date().toISOString(), revision: revisedDraft.revision } } });
-  await click(match("Issue numbered invoice"));
-  assert.equal(calls.at(-1)?.type, "issueInvoice");
-  const editedDraft = {
-    ...draft, id: crypto.randomUUID(), revision: "c".repeat(64),
-    input: { ...draft.input, edits: [{ id: row.id, narrative: "Manually amend the brief" }] },
-    lines: [{ ...draft.lines[0], entry: { ...draft.lines[0].entry, narrative: "Manually amend the brief" } }],
-  };
-  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: editedDraft });
-  await click(match("Continue invoice draft"));
-  await select("Wording review model", "Proofreader");
-  await click(match("Check wording with AI"));
-  assert.deepEqual(calls.at(-1), {
-    type: "reviewInvoiceWording", id: editedDraft.id, revision: editedDraft.revision,
-    model: { workspaceId: "fixture", providerID: "fixture", modelID: "proofreader" },
-  });
-  const advice = { id: row.id, narrative: "Amend the brief", rule: "spelling" as const };
-  const checked = { ...editedDraft, id: crypto.randomUUID(), revision: "d".repeat(64), modelWording: [advice],
-    lines: [{ ...editedDraft.lines[0], suggestedNarrative: advice.narrative, modelRule: advice.rule }] };
-  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: checked });
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, "Manually amend the brief");
-  await click(match("Use all suggested wording"));
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, advice.narrative);
-  await click(save());
-  const acceptedWording = calls.at(-1);
-  assert.ok(acceptedWording?.type === "prepareInvoice");
-  assert.deepEqual(acceptedWording.draft.expectedSuggestions, [{ id: row.id, narrative: advice.narrative }]);
-  const acceptedDraft = {
-    ...draft, id: crypto.randomUUID(), revision: "e".repeat(64), input: acceptedWording.draft,
-    lines: [{ ...draft.lines[0], entry: { ...draft.lines[0].entry, narrative: advice.narrative }, suggestedNarrative: advice.narrative }],
-  };
-  await draw({ ...open, supportsInvoiceWordingReview: true, invoiceDraft: acceptedDraft });
-  await click(match("Check wording with AI"));
-  assert.equal(calls.at(-1)?.type, "reviewInvoiceWording");
-  const refreshed = { ...open, invoiceDraft: acceptedDraft, supportsInvoiceWordingReview: true,
-    entries: open.entries.map((entry) => entry.id === row.id ? { ...entry, revision: row.revision + 1 } : entry) };
-  await draw(refreshed);
-  const result = host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea");
-  assert.ok(result);
-  assert.equal(result.value, row.narrative, "A wording selection applies to its source revision only");
-  await click(save());
-  const withoutOldWording = calls.at(-1);
-  assert.ok(withoutOldWording?.type === "prepareInvoice");
-  assert.deepEqual(withoutOldWording.draft.wording, []);
-  await write(result, "Unsaved edit on the refreshed revision");
-  await draw({ ...refreshed, people: [...refreshed.people] });
-  assert.equal(result.value, "Unsaved edit on the refreshed revision", "Refreshing the same entry revision preserves edits");
-  await draw({ ...refreshed, entries: refreshed.entries.map((entry) => entry.id === row.id
-    ? { ...entry, revision: entry.revision + 1 } : entry) });
-  assert.equal(result.value, row.narrative);
-  await click(save());
-  const withoutOldEdit = calls.at(-1);
-  assert.ok(withoutOldEdit?.type === "prepareInvoice");
-  assert.equal(withoutOldEdit.draft.edits, undefined);
-  await click(match("Back"));
+  const usdInvoice = calls.at(-1);
+  assert.ok(usdInvoice?.type === "createInvoice");
+  assert.equal(usdInvoice.invoice.pricing.currency, "USD");
+  assert.deepEqual(usdInvoice.invoice.entries, [{ id: "usd", revision: row.revision }]);
+  assert.equal(host.querySelector(".bo-invoice-editor-view"), null);
+  assert.doesNotMatch(host.textContent ?? "", /Save and preview|Invoice approval|Issue numbered invoice/);
   await draw({
     ...actor,
     entries: [row, { ...row, id: "b", workerId: "partner", billableMinutes: 20, hourlyRate: 240 }],
@@ -437,9 +332,11 @@ try {
   await select("View", "Approved positions");
   await click(match("Create Invoice"));
   await select("Matter", "Alpha");
+  await click(match("Filter by date"));
   const invoiceDates = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="date"]'));
   await write(invoiceDates[0], today);
   await write(invoiceDates[1], today);
+  await click(checkbox("Select entry: Brief amended"));
   assert.ok(save().disabled, "an unreviewed delta blocks issuance");
   const revised = {
     ...locked,
@@ -448,12 +345,11 @@ try {
     ],
   };
   await draw(revised);
+  assert.match(host.querySelector(".bo-invoice-draft")?.textContent ?? "", /Revised reply brief/);
   await click(save());
-  assert.equal(host.querySelector<HTMLTextAreaElement>(".bo-invoice-line-table textarea")?.value, "Revised reply brief");
   const revisedInvoice = calls.at(-1);
-  assert.ok(revisedInvoice?.type === "prepareInvoice");
-  assert.deepEqual(revisedInvoice.draft.adjustmentVersions, [{ id: "corr", revision: 2 }]);
-  await click(match("Back"));
+  assert.ok(revisedInvoice?.type === "createInvoice");
+  assert.deepEqual(revisedInvoice.invoice.adjustmentVersions, [{ id: "corr", revision: 2 }]);
   await select("View", "Work products and fees");
   const totals = host.querySelector("tbody tr")?.textContent ?? "";
   assert.match(totals, /100.00/);
@@ -691,11 +587,98 @@ try {
   await render(null);
   const excludedDirect = { ...row, id: "excluded-direct", workerId: actor.userId, authorId: actor.userId,
     narrative: "Saved without a reviewer", status: "confirmed" as const };
-  await draw({ ...open, entries: [...open.entries, excludedDirect], invoiceDraft: revisedDraft });
-  await click(match("Continue invoice draft"));
+  const fresh = { ...excludedDirect, id: "new-direct", narrative: "Call with client" };
+  const emptyMatter = { id: "kestrel", name: "Kestrel", clientIds: ["c"] };
+  const directState: TimesheetState = { ...actor, canReview: false, canInvoice: true,
+    matters: [emptyMatter, ...actor.matters], entries: [excludedDirect, fresh] };
+  await render(<BillingReview state={directState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  assert.equal(field('input[aria-label="Matter"]').value, "Alpha");
+  await click(match("Back"));
+  await click(match("Unbilled time"));
+  const ownRow = host.querySelector('[data-record-id="' + fresh.id + '"]');
+  const invoiceThisEntry = [...(ownRow?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+    .find(button => button.textContent === "Invoice this entry");
+  assert.equal(invoiceThisEntry?.textContent, "Invoice this entry");
+  assert.ok(invoiceThisEntry);
+  await click(invoiceThisEntry);
+  assert.equal(checkbox("Select entry: Call with client").getAttribute("aria-checked"), "true");
   assert.equal(checkbox("Select entry: Saved without a reviewer").getAttribute("aria-checked"), "false");
+  assert.match(checkbox("Select entry: Call with client").closest("tr")?.textContent ?? "", /Approved/);
+  await click(save());
+  const preparedSingle = calls.at(-1);
+  assert.ok(preparedSingle?.type === "createInvoice");
+  assert.deepEqual(preparedSingle.invoice.entries, [{ id: fresh.id, revision: fresh.revision }]);
+  await render(null);
+  const unpricedState = { ...directState, policies: [{ ...policy, hourlyRate: undefined, reviewerId: undefined }] };
+  let rejectSave: ((error: Error) => void) | undefined;
+  function RateEditorFixture() {
+    const [state, setState] = useState(unpricedState);
+    return <BillingReview state={state} client={client} canEdit initialMode="invoices" invoiceViews
+      onCommand={async action => {
+        await command(action);
+        if (action.type !== "policy") return;
+        if (!rejectSave) await new Promise<void>((_, reject) => { rejectSave = reject; });
+        setState(previous => ({ ...previous, policies: [...previous.policies,
+          { ...action.policy, revision: action.policy.revision + 1 },
+        ] }));
+      }} />;
+  }
+  await render(<RateEditorFixture />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  assert.ok(save().disabled);
+  assert.match(host.textContent ?? "", /No hourly rate/);
+  const beforeRate = calls.length;
+  await click(match("Edit rate"));
+  const rateDialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  assert.ok(rateDialog);
+  const partnerLabel = Array.from(rateDialog.querySelectorAll("label")).find(label => label.textContent?.trim() === "Partner");
+  const rate = partnerLabel && document.getElementById(partnerLabel.htmlFor);
+  assert.ok(rate instanceof window.HTMLInputElement);
+  assert.equal(calls.length, beforeRate, "Opening the rate editor never sets a fee");
+  await write(rate, "330");
+  await act(async () => rate.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true })));
+  assert.equal(calls.length, beforeRate, "Leaving the field waits for explicit confirmation");
+  const saveRate = () => [...rateDialog.querySelectorAll<HTMLButtonElement>("button")]
+    .find(button => button.textContent?.trim() === "Save rate")!;
+  await click(saveRate());
+  assert.match(rateDialog.textContent ?? "", /Saving/);
+  assert.ok(rejectSave);
+  await act(async () => rejectSave?.(new Error("Billing settings could not be reached.")));
+  assert.match(rateDialog.querySelector('[role="alert"]')?.textContent ?? "", /Billing settings could not be reached/);
+  assert.equal(rate.value, "330");
+  await click(saveRate());
+  const updatedRate = calls.at(-1);
+  assert.ok(updatedRate?.type === "policy");
+  assert.equal(updatedRate.policy.targetId, "m");
+  assert.equal(updatedRate.policy.effectiveFrom, today);
+  assert.equal(updatedRate.policy.workerRates?.partner, 330);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  assert.match(host.textContent ?? "", /€330\.00\/h/);
+  assert.equal(save().disabled, false);
+
+  await render(null);
+  const fixedState: TimesheetState = { ...directState, policies: [
+    { ...policy, reviewerId: undefined },
+    { scope: "matter", targetId: "m", effectiveFrom: "0001-01-01", revision: 0,
+      agreementId: "flat", allocationUnavailable: true, nonHourlyAgreement: true, nonHourlyBasis: "fixed" },
+  ] };
+  await render(<BillingReview state={fixedState} client={client} canEdit onCommand={command} initialMode="invoices" invoiceViews />);
+  await click(match("Create Invoice"));
+  await click(checkbox("Select entry: Call with client"));
+  assert.match(host.textContent ?? "", /covered by a flat-fee agreement/);
+  assert.doesNotMatch(host.textContent ?? "", /No hourly rate|Edit rate/);
+  assert.ok(save().disabled);
+  await click(match("Use fixed price"));
+  await write(field('input[inputmode="decimal"]'), "250");
+  assert.equal(save().disabled, false);
+  await click(save());
+  const preparedFixed = calls.at(-1);
+  assert.ok(preparedFixed?.type === "createInvoice" && preparedFixed.invoice.pricing.mode === "fixed");
+  assert.equal(preparedFixed.invoice.pricing.amountMinor, 25000);
   console.log("Billing review passed");
 } finally {
-  await act(async () => root.unmount());
+  await act(async () => billingRoot.unmount());
   await window.happyDOM.close();
 }

@@ -8,7 +8,7 @@ import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { serverToken, serverUrl, resolveWorkspaceId, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
 
-export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. In the private Timekeeping chat, use legalwork_timekeeping_workday for activity evidence, private suggestions and revisions to your own open entries. Use legalwork_timekeeping_billing for new saved entries, submission, assigned reviews, billing policies and real invoice drafts. For other fees, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
+export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. In the private Timekeeping chat, use legalwork_timekeeping_workday for activity evidence, private suggestions and revisions to your own open entries. Use legalwork_timekeeping_billing for new saved entries, submission, assigned reviews, billing policies and invoice records. For other fees, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
 When mentioning a Back Office record in a reply, link its readable name using its returned url (or $url on query rows).
 Back Office is LegalWork's structured CRM and metadata data store: clients, matters, people, organisations and user-defined objects. Project metadata links to those records; do not maintain parallel CRM lists in notes, text fields or internal databases.
 The Legal Matter template supports matter links and optional direct project clients. Resolve clients of a linked matter through its relationships. Keep matter reference, subject, practice area, status, opening date and other matter-owned facts on the Back Office matter or its related records, never duplicate them as project metadata. Follow the linked-record context and discovered relations for those details. Add project-specific fields only when the user's workflow needs them; do not expand the default schema to mirror record fields.
@@ -56,7 +56,7 @@ export function backOfficeTools(ctx: Plugin.Context) {
     }),
     nativeTool(ctx, {
       name: "legalwork_timekeeping_billing",
-      description: "Read, create and submit saved time, review assigned entries, and prepare, approve or issue a real invoice in the private Timekeeping chat. First read entries by period or matter for exact IDs, current revisions and reviewer requirements. Save directly when requiresReview is false. Only the assigned reviewer can review someone else's submitted entries. Use prepareInvoice to save the draft in the Invoices tab, then approveInvoice and issueInvoice only if the user requests each action. The app asks for confirmation and the PDF should be reviewed before approval. Use the same create or issue requestId when retrying. Read back results. For activity logs, private suggestions, guidelines and changing one's own saved entries, use legalwork_timekeeping_workday.",
+      description: "Read, create and submit time, review assigned entries, and create invoice records in the private Timekeeping chat. Read time by period or matter for current IDs, revisions and reviewer requirements. Save time directly when requiresReview is false. Only the assigned reviewer can review someone else's time. Use createInvoice when supportsInvoiceCreation is true. It saves a numbered invoice with the selected time after the user confirms in the app. Reuse the requestId when retrying. To create a document for an existing invoice, read with invoiceNumber for the saved recipient, line items and amounts, then use the workspace document tools. Use legalwork_timekeeping_workday for activity, suggestions and editing your own entries.",
       schema: chatBillingAction,
       execute: async (input, context) => {
         const command = input.action === "apply" ? input.command : undefined;
@@ -67,12 +67,28 @@ export function backOfficeTools(ctx: Plugin.Context) {
         });
         if (!response.ok) throw new Error(z.object({ message: z.string() }).parse(await response.json()).message);
         const state = TimesheetStateSchema.parse(await response.json());
+        if (input.action === "read" && input.invoiceNumber !== undefined) {
+          const invoice = state.invoices.find(invoice => invoice.number === input.invoiceNumber);
+          if (!invoice) throw new Error("This invoice is unavailable.");
+          const client = state.clients.find(client => client.id === invoice.clientId);
+          return JSON.stringify({
+            number: invoice.number, issuedOn: invoice.snapshot?.date ?? invoice.issuedAt.slice(0, 10),
+            client: invoice.snapshot?.client ?? client?.name, billingAddress: invoice.snapshot?.clientAddress ?? client?.billingAddress,
+            currency: invoice.currency, total: invoice.total, totalMinor: invoice.totalMinor,
+            pricing: invoice.billingMode,
+            entries: invoice.entries.map(({ date, matterId, workerId, narrative, billableMinutes, hourlyRate, amountMinor }) =>
+              ({ date, matter: state.matters.find(matter => matter.id === matterId)?.name,
+                timekeeper: state.people.find(person => person.id === workerId)?.name,
+                narrative, billableMinutes, hourlyRate, amountMinor })),
+          });
+        }
         const matches = (row: { date: string; matterId: string }) => input.action !== "read" ||
           ((!input.from || row.date >= input.from) && (!input.to || row.date <= input.to) && (!input.matterId || row.matterId === input.matterId));
         const entries = state.entries.filter(matches);
         return JSON.stringify({
           service: state.service, userId: state.userId, canManage: state.canManage, canReview: state.canReview,
-          canInvoice: state.canInvoice ?? state.canReview, supportsInvoiceDrafts: state.supportsInvoiceDrafts,
+          canInvoice: state.canInvoice ?? state.canReview,
+          supportsInvoiceCreation: state.supportsInvoiceCreation,
           entries: entries.slice(0, 200).map(({ history, sharedOriginal, proposalDigest, ...entry }) => {
             const policy = resolveTimePolicy(state.policies, entry.clientId, entry.matterId, entry.date, entry.projectId);
             const reviewerId = assignedTimeReviewer(policy, entry.workerId);
@@ -81,11 +97,6 @@ export function backOfficeTools(ctx: Plugin.Context) {
           }),
           entryCount: entries.length, matters: state.matters, clients: state.clients, people: state.people,
           projects: state.projects, policies: state.policies,
-          invoiceDraft: state.invoiceDraft && {
-            id: state.invoiceDraft.id, revision: state.invoiceDraft.revision, input: state.invoiceDraft.input,
-            client: state.invoiceDraft.snapshot.client, totalMinor: state.invoiceDraft.totalMinor,
-            currency: state.invoiceDraft.currency, approval: state.invoiceDraft.approval,
-          },
           invoices: state.invoices.slice(-100).map(({ id, draftId, number, issuedAt, clientId, currency, totalMinor }) =>
             ({ id, draftId, number, issuedAt, clientId, currency, totalMinor })),
         });
