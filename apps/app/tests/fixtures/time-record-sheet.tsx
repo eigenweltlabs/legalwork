@@ -11,7 +11,7 @@ window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
   window, document: window.document, navigator: window.navigator, sessionStorage: window.sessionStorage, localStorage: window.localStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
-  Element: window.Element, Node: window.Node, Event: window.Event, DOMRect: window.DOMRect,
+  Element: window.Element, Node: window.Node, NodeFilter: window.NodeFilter, Event: window.Event, DOMRect: window.DOMRect,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
   getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window),
@@ -232,6 +232,21 @@ try {
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.decline")));
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")));
   assert.equal(proposalDetails(proposal.key).querySelector("textarea")?.value, "Generated private wording");
+  const matterInput = proposalDetails(proposal.key).querySelector<HTMLInputElement>(
+    'input[role="combobox"][aria-label="' + t("timesheets.workday.matter") + '"]',
+  );
+  assert.ok(matterInput, "calendar proposals use the searchable matter picker");
+  await act(async () => matterInput.focus());
+  await act(async () => matterInput.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    assert.ok(setValue);
+    setValue.call(matterInput, "Second");
+    matterInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  assert.deepEqual([...document.querySelectorAll('[role="option"]')].map(option => option.textContent), ["Second matter"]);
+  await act(async () => matterInput.blur());
+
   assert.equal(privateActions.length, 0);
   assert.equal(writes.length, 0);
   const privateInput = await editProposal(proposal.key, "textarea", "Edited privately");
