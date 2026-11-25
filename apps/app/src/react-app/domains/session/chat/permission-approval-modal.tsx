@@ -66,6 +66,7 @@ function readablePermissionLabel(permission: string): string {
   if (permission === "edit") return t("session.permission_kind_edit");
   if (permission === "read") return t("session.permission_kind_read");
   if (permission === "external_directory") return t("session.permission_kind_external_directory");
+  if (permission === "corpus.folder.search") return t("session.permission_kind_corpus_folder");
   if (permission === "task") return t("session.permission_kind_task");
   if (permission === "todowrite") return t("session.permission_kind_todowrite");
   if (permission === "question") return t("session.permission_kind_question");
@@ -106,6 +107,10 @@ function permissionCopy(permission: string): Pick<PermissionPresentation, "title
       message: t("session.permission_message_external_directory"),
     };
   }
+  if (permission === "corpus.folder.search") return {
+    title: t("session.permission_title_corpus_folder"),
+    message: t("session.permission_message_corpus_folder"),
+  };
   if (permission === "task") {
     return {
       title: t("session.permission_title_task"),
@@ -223,7 +228,7 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
 
 export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
-  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2" || props.permission.permission === "corpus.folder.search";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
@@ -402,7 +407,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
-  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2" || props.permission.permission === "corpus.folder.search";
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;

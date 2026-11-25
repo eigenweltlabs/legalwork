@@ -38,6 +38,7 @@ import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
 import { searchSessionContents, searchFileContents } from "./content-search.js";
 import { CorpusService } from "./corpus/service.js";
+import { serverCorpusFolderAccess } from "./corpus/folder-access.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
@@ -1977,7 +1978,7 @@ function createRoutes(
     };
   });
   registerBackOfficeRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
-  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, corpusFolders: serverCorpusFolderAccess(config, approvals), jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace,startChat: startTimeReview});

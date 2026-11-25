@@ -4880,6 +4880,7 @@ const de = {
   "session.permission_detail_target": "Ziel",
   "session.permission_detail_tool": "Tool",
   "session.permission_detail_url": "URL",
+  "session.permission_kind_corpus_folder": "Ordnersuche",
   "session.permission_kind_edit": "Dateibearbeitung",
   "session.permission_kind_external_directory": "Externes Verzeichnis",
   "session.permission_kind_question": "Frage",
@@ -4890,6 +4891,8 @@ const de = {
   "session.permission_message": "OpenCode bittet um die Erlaubnis fortzufahren.",
   "session.permission_message_bash":
     "Prüfen Sie den Umfang des Befehls, bevor Sie OpenCode fortfahren lassen.",
+  "session.permission_message_corpus_folder":
+    "Prüfen Sie den Ordner, bevor Sie dem Agenten erlauben, Dokumente außerhalb des Projekts zu durchsuchen.",
   "session.permission_message_edit":
     "Prüfen Sie Datei und Diff, bevor Sie OpenCode Änderungen vornehmen lassen.",
   "session.permission_message_external_directory":
@@ -4902,6 +4905,7 @@ const de = {
   "session.permission_review_label": "Prüfen",
   "session.permission_scope_empty": "Kein konkreter Umfang angegeben.",
   "session.permission_title_bash": "Shell-Befehl ausführen?",
+  "session.permission_title_corpus_folder": "Dokumente in einem externen Ordner durchsuchen?",
   "session.permission_title_edit": "Dateien ändern?",
   "session.permission_title_external_directory": "Auf einen externen Ordner zugreifen?",
   "session.permission_title_generic": "{permission} genehmigen?",
