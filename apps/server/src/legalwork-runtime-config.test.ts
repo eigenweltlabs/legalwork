@@ -500,13 +500,12 @@ describe("legalwork runtime config files", () => {
   });
 });
 
-describe("eigenwelt free provider retirement", () => {
+describe("built-in Zen provider", () => {
   test("zen is always disabled without duplicating saved provider denials", async () => {
     const { config } = await setup();
     await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, policies: [{ action: "provider.use", resource: "openrouter", effect: "deny" }, { action: "provider.use", resource: "opencode", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const parsed = (await readSettings(config)).configuration;
-    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
     expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "openrouter", effect: "deny" });
     expect(parsed.policies?.filter(rule => rule.action === "provider.use" && rule.resource === "opencode" && rule.effect === "deny")).toHaveLength(1);
   });
@@ -515,7 +514,6 @@ describe("eigenwelt free provider retirement", () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const parsed = (await readSettings(config)).configuration;
-    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
     expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "opencode", effect: "deny" });
   });
 

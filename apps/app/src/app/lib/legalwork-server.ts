@@ -684,13 +684,6 @@ export type LegalworkRuntimeConfigMigrationResult = {
   legacyError?: string | null;
 };
 
-/** A provider the server dropped from a workspace's stored config at startup. */
-export type LegalworkProviderRepairNotice = {
-  providerId: string;
-  name: string;
-  reason: "retired" | "invalid";
-};
-
 export type LegalworkRuntimeConfigStatus = {
   runtime: Record<string, unknown>;
   runtimeKeys: string[];
@@ -2441,12 +2434,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<LegalworkRuntimeConfigStatus>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/runtime-config`,
-        { token, hostToken, timeoutMs: timeouts.config },
-      ),
-    getProviderRepairs: (workspaceId: string) =>
-      requestJson<{ removed: LegalworkProviderRepairNotice[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/provider-repairs`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
     listProviderCredentials: (workspaceId: string, providerId: string) =>

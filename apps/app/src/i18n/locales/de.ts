@@ -4995,10 +4995,6 @@ const de = {
   "settings.hide_app_never": "Nie",
   "settings.hide_app_recording": "Während der Aufnahme",
   "settings.hide_app_always": "Immer",
-  "settings.terms_link": "Allgemeine Geschäftsbedingungen",
-  "settings.terms_link_desc":
-    "Wie LegalWork mit Ihren Daten umgeht, einschließlich der oben genannten anonymen Nutzungsanalyse.",
-  "settings.terms_open": "Lesen",
   "settings.auto_compact_desc":
     "Steuert compaction.auto von OpenCode für diesen Workspace. Laden Sie die Engine nach einer Änderung neu.",
   "settings.auto_compact_unavailable": "Die automatische Kontextverdichtung ist noch nicht verfügbar.",
@@ -6320,20 +6316,6 @@ const de = {
   "chat.signed_out_title": "Von Eigenwelt abgemeldet.",
   "chat.signed_out_body":
     "Melden Sie sich an, um die Eigenwelt-Modelle weiter zu nutzen, starten Sie Ihre 7-tägige Testphase oder verbinden Sie Ihren eigenen Anbieter.",
-  "free_retired.eyebrow": "Eigenwelt-Modelle",
-  "free_retired.headline": "Kostenlose Modelle wurden eingestellt.",
-  "free_retired.intro":
-    "Den kostenlosen Zugang gibt es nicht mehr. Starten Sie Ihre 7-tägige Testphase für 1 €, um Eigenwelt-Modelle weiter zu nutzen.",
-  "free_retired.keep_title": "Ihre Arbeit bleibt unberührt",
-  "free_retired.keep_body": "Workspaces, Sitzungen und Dokumente bleiben genau so auf diesem Computer.",
-  "free_retired.trial_title": "7 Tage für 1 €, voller Zugriff",
-  "free_retired.trial_body":
-    "Premium-Modelle, in der EU gehostet, ohne Datenspeicherung. Heute einmalig 1 €. Kündigen Sie vor Ende der Testphase, um die Abonnementzahlung zu vermeiden.",
-  "free_retired.byo_title": "Oder verbinden Sie Ihr eigenes Modell",
-  "free_retired.byo_body":
-    "Nutzen Sie stattdessen Ihren eigenen API-Schlüssel oder ein lokales Modell. LegalWork selbst bleibt kostenlos.",
-  "free_retired.cta": "Für 1 € testen",
-  "free_retired.dismiss": "Nicht jetzt",
   "onboarding_permissions.title": "Entscheiden Sie, was Ihre Freigabe braucht.",
   "onboarding_permissions.sandbox_description": "Befehle in einer geschützten Umgebung ausführen. Standardmäßig aus.",
   "onboarding_permissions.network_description": "Wählen Sie, ob Befehle und Websuchen das Internet nutzen dürfen. Ihre KI-Verbindung, verbundene Apps und der Browser bleiben davon unberührt.",
@@ -7580,7 +7562,7 @@ const de = {
   "providers.browser_continue_hint":
     "Fahren Sie im Browser fort, LegalWork schließt die Verbindung automatisch ab.",
   "providers.zen_signin_hint":
-    "Melden Sie sich bei OpenCode Zen mit einem API-Schlüssel an, um neben der kostenlosen Stufe auch kostenpflichtige Modelle freizuschalten.",
+    "Melden Sie sich bei OpenCode Zen mit einem API-Schlüssel an, um die kostenpflichtigen Modelle zu nutzen.",
   "providers.secret_key_hint":
     "Fügen Sie einen geheimen Schlüssel ein, den LegalWork lokal auf diesem Gerät speichert.",
   "mcp.legalmemory_url_hint":
@@ -8359,11 +8341,6 @@ const de = {
   "budget.exceeded_body":
     "Es wird monatlich am Stichtag Ihres Abonnements erneuert. Die Abrechnung Ihrer Kanzlei zeigt Ihre Nutzung im Detail.",
   "budget.upgrade_label": "Abrechnung öffnen",
-  "providers.removed_title": "Modellanbieter entfernt",
-  "providers.removed_retired":
-    "„{name}“ wurde entfernt: Den kostenlosen Eigenwelt-Zugang gibt es nicht mehr. Starten Sie die Testphase oder verbinden Sie Ihr eigenes Modell.",
-  "providers.removed_invalid":
-    "„{name}“ wurde entfernt, weil die Engine die Konfiguration nicht laden konnte. Fügen Sie den Anbieter in den KI-Einstellungen erneut hinzu.",
   // Aufgaben: der gemeinsame Posteingang der Kanzlei (Eigenwelt-Funktion "intake").
   "sidebar.tasks": "Aufgaben",
   "sidebar.tasks_unread_one": "({count} neu)",

@@ -38,8 +38,8 @@ EU-hosted PostHog so we can improve the app. Events carry a random per-launch
 id (nothing is stored on your device) and location no finer than city. The
 option is shown on the welcome screen at first launch and can be turned off
 anytime in **Settings → Privacy**. Development builds (`pnpm dev`) send
-nothing. Details: [TERMS.md](./TERMS.md) and the
-[privacy notice](https://eigenweltlabs.com/legalwork/privacy).
+nothing. Details: the [Terms & Conditions](https://eigenweltlabs.com/legalwork/terms)
+and the [privacy notice](https://eigenweltlabs.com/legalwork/privacy).
 
 ## Develop
 

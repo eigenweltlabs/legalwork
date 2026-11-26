@@ -4667,9 +4667,6 @@ export default {
   "providers.provider_id_required": "Provider ID is required",
   "providers.rate_limit_exceeded": "Rate limit exceeded",
   "providers.removal_unsupported": "Provider auth removal is not supported by this client.",
-  "providers.removed_title": "Model provider removed",
-  "providers.removed_retired": "“{name}” was removed: the free Eigenwelt tier has been retired. Start a trial or connect your own model.",
-  "providers.removed_invalid": "“{name}” was removed because its configuration could not be loaded by the engine. Add it again from the AI settings.",
   "providers.request_failed": "Request failed",
   "providers.save_api_key_failed": "Failed to save API key",
   "providers.unknown_provider": "Unknown provider",
@@ -4851,9 +4848,6 @@ export default {
   "settings.hide_app_never": "Never",
   "settings.hide_app_recording": "During recording",
   "settings.hide_app_always": "Always",
-  "settings.terms_link": "Terms & Conditions",
-  "settings.terms_link_desc": "How LegalWork handles your data, including the anonymous usage analytics above.",
-  "settings.terms_open": "Read",
   "settings.auto_compact_desc": "Controls OpenCode compaction.auto for this workspace. Reload the engine after changing it.",
   "settings.auto_compact_unavailable": "Auto context compaction is not yet available.",
   "settings.auto_update_desc": "Download new versions as soon as they're found. You'll choose when to restart.",
@@ -6066,20 +6060,6 @@ export default {
   "chat.no_ai_plan_upgrade": "Upgrade plan",
   "chat.signed_out_title": "Signed out of Eigenwelt.",
   "chat.signed_out_body": "Log in to keep using Eigenwelt models, start your 7-day trial, or connect your own provider.",
-  // One-time migration dialog after the free tier was retired.
-  "free_retired.eyebrow": "Eigenwelt models",
-  "free_retired.headline": "Free models have been retired.",
-  "free_retired.intro":
-    "The free tier is no longer available. Start your 7-day trial to keep using Eigenwelt models.",
-  "free_retired.keep_title": "Your work is untouched",
-  "free_retired.keep_body": "Workspaces, sessions and documents stay on this computer, exactly as they are.",
-  "free_retired.trial_title": "7 days for €1, full access",
-  "free_retired.trial_body":
-    "Premium EU-hosted models with zero data retention. €1 upfront. Cancel before the trial ends to avoid the subscription payment.",
-  "free_retired.byo_title": "Or connect your own model",
-  "free_retired.byo_body": "Use your own API key or a local model instead. LegalWork itself stays free.",
-  "free_retired.cta": "Start €1 trial",
-  "free_retired.dismiss": "Not now",
   // Onboarding: the tool-permissions cover (Settings -> Tool Permissions, quick)
   "onboarding_permissions.title": "Decide what needs your approval.",
   "onboarding_permissions.sandbox_description": "Keep commands inside a protected environment. Off by default.",
@@ -7265,7 +7245,7 @@ export default {
   "providers.browser_continue_hint":
     "Continue in the browser and let LegalWork finish the connection automatically.",
   "providers.zen_signin_hint":
-    "Sign in to OpenCode Zen with an API key to unlock paid models alongside the free tier.",
+    "Sign in to OpenCode Zen with an API key to use its paid models.",
   "providers.secret_key_hint": "Paste a secret key that LegalWork stores locally on this device.",
   "mcp.legalmemory_url_hint":
     "Your firm's running LegalMemory deployment, for example ki.yourfirm.com. Ask whoever administers it, or see eigenweltlabs.com/legalmemory to deploy one.",

@@ -99,7 +99,7 @@ import {
 } from "./eigenwelt-paid-manifest.js";
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { validateRuntimeProviders } from "./runtime-provider-validation.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -273,7 +273,7 @@ export async function buildLegalworkRuntimeSettings(
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
-  const storedProviders = repairRuntimeProviders(runtimeConfig.providers ?? {}).providers;
+  const storedProviders = validateRuntimeProviders(runtimeConfig.providers ?? {});
   // An account manifest is authoritative even when empty (unfunded Sync or
   // all models disabled). Never resurrect a stale per-workspace paid model.
   if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];

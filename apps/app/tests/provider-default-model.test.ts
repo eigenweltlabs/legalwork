@@ -66,10 +66,9 @@ test("only connected providers with available models can initialize the composer
   expect(getAvailableDefaultModel(list, null)).toEqual({ providerID: "azure", modelID: "gpt-test" });
 });
 
-test("a cold native catalog cannot restore the retired provider the migration just cleared", () => {
+test("a cold native catalog cannot select the built-in Zen provider", () => {
   const legacy = provider("opencode", ["flint-40b-free"]);
-  const free = provider("eigenwelt-free", ["legacy"]);
-  const firstRead = { all: [legacy, free], connected: [legacy.id, free.id], default: { [legacy.id]: "flint-40b-free" } };
+  const firstRead = { all: [legacy], connected: [legacy.id], default: { [legacy.id]: "flint-40b-free" } };
   expect(getAvailableDefaultModel(firstRead, null)).toBeNull();
   expect(getConnectedProviderItems(firstRead)).toEqual([]);
   expect(isModelAvailableInConnectedProviders(firstRead, { providerID: legacy.id, modelID: "flint-40b-free" })).toBe(false);
