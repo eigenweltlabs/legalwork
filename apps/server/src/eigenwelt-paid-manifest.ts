@@ -7,7 +7,7 @@ import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./sys
  * Eigenwelt is a firm account, not a per-workspace model provider — so its
  * gateway URL + key + model list live in ONE disk cache and the provider is
  * injected into EVERY workspace's engine config (see legalwork-runtime-config's
- * buildLegalworkRuntimeConfigObject), exactly like the free tier. Signing in
+ * buildLegalworkRuntimeConfigObject). Signing in
  * writes the cache; "Refresh models" and background refresh update the model
  * list around the kept key; signing out clears it.
  *

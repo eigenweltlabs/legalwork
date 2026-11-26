@@ -1920,8 +1920,8 @@ export function seedSubmittedMessage(
  * Uses the same per-turn keying as the live `session.error` handler (errored
  * assistant message id, session id fallback) so the injected message
  * reconciles with — instead of duplicating — the error the engine reports for
- * the same turn. Used by the free-tier daily-limit and budget-exceeded stop
- * paths, which know the run failed before the engine's abort error arrives.
+ * the same turn. Used by the usage-limit stop path, which knows the run
+ * failed before the engine's abort error arrives.
  */
 export function injectSessionErrorMessage(
   workspaceId: string,

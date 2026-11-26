@@ -28,7 +28,7 @@ automatic publication flow. The explicit signing smoke-test mode only uploads
 workflow artifacts and does not publish a release.
 
 See the [LegalWork privacy notice](https://eigenweltlabs.com/legalwork/privacy)
-and [TERMS.md](TERMS.md) for local processing, model-provider and connector
+and [Terms & Conditions](https://eigenweltlabs.com/legalwork/terms) for local processing, model-provider and connector
 transmissions, and optional analytics. Connected providers' privacy terms
 apply to content sent to those services.
 

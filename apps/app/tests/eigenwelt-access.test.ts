@@ -79,10 +79,9 @@ describe("aiAccessState", () => {
     ).toBe("ready");
   });
 
-  test("own providers without models, and the retired free tiers, do not count", () => {
+  test("own providers without models, and the built-in Zen provider, do not count", () => {
     expect(state({ connectedProviders: [withoutModels("ollama")] })).toBe("new");
     expect(state({ connectedProviders: [withModels("opencode")] })).toBe("new");
-    expect(state({ connectedProviders: [withModels("eigenwelt-free")] })).toBe("new");
   });
 
   test("never signed in: the plans", () => {
