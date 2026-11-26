@@ -68,9 +68,19 @@ export async function webResult(input: WebInput, url: string, response: Outbound
           "Eigenwelt usage limit: " + JSON.stringify(limit), limit);
       }
     }
-    if (input.kind === "search" && provider.name === "aws" && response.status === 403)
+    if (input.kind === "search" && provider.name === "aws" && response.status === 403) {
+      const body = Buffer.from(response.bodyBase64, "base64");
+      if (body.length <= 8192) {
+        let payload: unknown;
+        try { payload = JSON.parse(body.toString("utf8")); } catch { /* Keep unrelated denials generic. */ }
+        const disabled = z.object({ detail: z.object({ code: z.literal("web_search_disabled_by_admin") }) }).safeParse(payload);
+        if (disabled.success) throw new ApiError(403, "web_search_disabled_by_admin",
+          "Web search is disabled by your firm's administrator. You can continue using chat models and local files. " +
+          "Ask your administrator to enable web search on the Model API Models page. Do not retry or use another search route to bypass this restriction.");
+      }
       throw new ApiError(403, "web_search_not_allowed",
         "Paid web search is not allowed for this account. Ask your firm admin to check your subscription, paid seat and enabled EU/US regions on the Model API Models page.");
+    }
     if (input.kind === "search") throw new ApiError(502, "web_search_unavailable",
       "The web search service is unavailable. Please try again later.");
     throw new Error(`Website returned HTTP ${response.status}.`);

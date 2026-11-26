@@ -6,6 +6,39 @@ import { ApiError } from "../errors.js";
 import { eigenweltUsageLimitFromText, type UsageLimitDetails } from "../provider-usage-limit.js";
 const signal = new AbortController().signal;
 
+test("a firm search restriction has a clear error without becoming an allowance failure", async () => {
+  const provider: SearchProvider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" };
+  try {
+    await webResult({ kind: "search", sessionID: "chat", agent: "legalwork", query: "private query", numResults: 8,
+      type: "auto", livecrawl: "fallback" }, provider.url, {
+      status: 403, headers: {}, bodyBase64: Buffer.from(JSON.stringify({ detail: {
+        code: "web_search_disabled_by_admin", message: "private upstream diagnostics", unexpected: "private" },
+      })).toString("base64"),
+    }, signal, provider);
+    throw new Error("Expected a firm policy failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ApiError);
+    if (!(error instanceof ApiError)) throw error;
+    expect(error).toMatchObject({ status: 403, code: "web_search_disabled_by_admin" });
+    expect(error.message).toContain("disabled by your firm's administrator");
+    expect(error.message).toContain("continue using chat models and local files");
+    expect(error.message).toContain("Do not retry or use another search route");
+    expect(error.message).not.toContain("private");
+    expect(eigenweltUsageLimitFromText(error.message)).toBeNull();
+  }
+});
+
+test("unrelated or malformed access denials do not become a firm policy failure", async () => {
+  const provider: SearchProvider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" };
+  for (const text of ["private diagnostics", JSON.stringify({ detail: { code: "other", message: "web_search_disabled_by_admin" } }),
+    JSON.stringify({ detail: { code: "web_search_disabled_by_admin", message: "x".repeat(8192) } })]) {
+    await expect(webResult({ kind: "search", sessionID: "chat", agent: "legalwork", query: "query", numResults: 8,
+      type: "auto", livecrawl: "fallback" }, provider.url, {
+      status: 403, headers: {}, bodyBase64: Buffer.from(text).toString("base64"),
+    }, signal, provider)).rejects.toMatchObject({ status: 403, code: "web_search_not_allowed" });
+  }
+});
+
 test("paid search preserves safe allowance reasons without leaking gateway diagnostics", async () => {
   const provider: SearchProvider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" };
   const reasons: Array<UsageLimitDetails["reason"]> = ["member_limit", "organization_limit", "wallet_empty", "extra_disabled", "seat_required", "service_limit"];

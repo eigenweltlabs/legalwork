@@ -6,7 +6,7 @@ Open in LegalWork: [AI Providers](legalwork://app/settings/ai), [Tabular Review 
 
 Ask the assistant to search the web in a chat. Search follows the chat's web permissions and network settings. Opening a result's complete page is a separate web request and follows those settings too.
 
-With an entitled paid LegalWork account, searches use AWS Web Search through the existing Eigenwelt gateway in **Europe**. Your firm's region choices on the Model API **Models** page control the search endpoint:
+With an entitled paid LegalWork account, searches use AWS Web Search through Eigenwelt's gateway in your firm's platform hosting region. Your firm's region choices on the Model API **Models** page control the search endpoint:
 
 | Enabled regions | Search endpoint |
 | --- | --- |
@@ -17,7 +17,9 @@ With an entitled paid LegalWork account, searches use AWS Web Search through the
 
 An account that has never chosen regions defaults to Europe. If neither supported region is enabled, paid search is unavailable until a firm admin enables Europe or the United States. The Model API checks the current choices on every search, so a stale model selection cannot override the firm's settings. A search outage does not switch to another region.
 
-The Eigenwelt gateway remains in Europe even for US searches, so US endpoint selection does not mean US-only processing. Endpoint selection does not change the customer's saved chat history or the handling of a subsequent page read by its source website. Search costs **€0.01 per completed search** in either region, including searches without matches, and uses the account's existing AI allowance or prepaid usage. Standalone Jev API keys cannot use paid search.
+Gateway hosting and the AWS search endpoint are separate choices. Shared services and compatibility endpoints follow the processing locations in the Eigenwelt Plus privacy notice; selecting a US search endpoint alone does not guarantee US-only processing. Endpoint selection does not change the customer's saved chat history or the handling of a subsequent page read by its source website. Search costs **€0.01 per completed search** in either region, including searches without matches, and uses the account's existing AI allowance or prepaid usage. Standalone Jev API keys cannot use paid search.
+
+Firm administrators can open the Model API platform, choose **Models**, and turn off **Web search** for the firm. This blocks new paid searches for every member, including when the chat uses their own model provider, while keeping chat models available. A blocked call reports **Web search is disabled by your firm’s administrator** and is not charged. Continue with local files or ask your administrator to turn **Web search** back on, then retry. Searches already running may finish. This setting does not block browsers, separate MCP tools or other internet access.
 
 Free and lapsed accounts continue to use free Exa search. No separate AWS or Exa key is needed. Paid-search failures and usage limits are reported in the chat; they do not silently send the query to Exa. Check your account connection or request more usage when prompted.
 
