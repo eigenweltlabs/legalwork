@@ -12,6 +12,7 @@ test("browser tools use fresh effective chat policy, including native tools and 
     const path = new URL(request.url).pathname;
     paths.push(path);
     expect(request.headers.get("authorization")).toBe("Bearer fixture");
+    if (path === "/web-search/policy") return Response.json({ enabled: true });
     if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: "/project" }] });
     if (path === "/workspace/project/sandbox/session/calling-chat") return Response.json(settings, { status });
     return new Response("Unexpected route", { status: 404 });
@@ -45,7 +46,7 @@ test("browser tools use fresh effective chat policy, including native tools and 
         expect(paths).toHaveLength(count);
       }
     }
-    expect(new Set(paths)).toEqual(new Set(["/workspaces", "/workspace/project/sandbox/session/calling-chat"]));
+    expect(new Set(paths)).toEqual(new Set(["/web-search/policy", "/workspaces", "/workspace/project/sandbox/session/calling-chat"]));
     const count = paths.length;
     await before("read");
     await before("legalwork_ui_execute_action", { actionId: "documents.open" });

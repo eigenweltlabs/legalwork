@@ -19,6 +19,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN).each(["build", "legalwork"
   const relay = Bun.serve({ port: 0, async fetch(request) {
     expect(request.headers.get("authorization")).toBe("Bearer command-fixture");
     const path = new URL(request.url).pathname;
+    if (path === "/web-search/policy") return Response.json({ enabled: true });
     if (path === "/v1/responses") {
       const item = { type: "message", id: "msg_fixture", role: "assistant", content: [{ type: "output_text", text: "Done" }], status: "completed" };
       const response = { id: "resp_fixture", status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
