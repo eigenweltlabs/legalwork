@@ -43,7 +43,7 @@ test.skipIf(!binary)("released service uses private authenticated registration a
   } finally { await second?.close(); await first.close(); await rm(root, { recursive: true, force: true }); }
 }, 45_000);
 
-test.skipIf(!binary)("a service engine stops when its host is killed, and the next start is not blocked by its registration", async () => {
+test.skipIf(!binary)("after its host is killed, the next start stops the verified engine or sets its stale registration aside", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-service-lease-")));
   const registration = join(root, "state", "opencode", await expectedOpencodeServiceFilename(binary!));
   const host = spawn(process.execPath, [join(import.meta.dir, "managed-recovery.test-support.ts"), root, binary!, "service", "0"], { stdio: ["ignore", "ignore", "pipe"] });
@@ -54,11 +54,11 @@ test.skipIf(!binary)("a service engine stops when its host is killed, and the ne
     await until(async () => { pid = await readFile(join(root, "ready.json"), "utf8").then(text => JSON.parse(text).pid, () => 0); return pid > 0; });
     expect(JSON.parse(await readFile(registration, "utf8")).pid).toBe(pid);
     host.kill("SIGKILL");
-    await until(async () => !alive(pid));
-    // A leased engine removes its own registration as it exits. Windows ends
-    // the engine with its host instead, and the next start sets the file aside.
-    if (process.platform !== "win32") await until(async () => !await Bun.file(registration).exists());
+    await until(async () => host.signalCode === "SIGKILL");
+    // macOS and Linux keep the engine running and the next start stops it once
+    // it proves itself. Windows ends it with its host; the file is set aside.
     await stopManagedOpencodeService({ configDirectory: join(root, "config"), stateDirectory: join(root, "state") });
+    await until(async () => !alive(pid));
     expect((await readdir(join(root, "state", "opencode"))).filter(name => !name.includes(".stale-"))).toEqual([]);
   } finally {
     if (host.exitCode === null && host.signalCode === null) host.kill("SIGKILL");

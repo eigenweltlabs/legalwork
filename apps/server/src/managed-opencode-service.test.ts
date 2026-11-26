@@ -53,7 +53,7 @@ for (const status of [200, 503]) test(`an engine answering ${status} with the re
   let requests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     requests++; expect(request.headers.get("authorization")).toBe(`Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`);
-    return Response.json({ version: "2.1.4-legalwork.http-policy.8", pid: 4242 }, { status });
+    return Response.json({ version: "2.1.4-legalwork.http-policy.7", pid: 4242 }, { status });
   } });
   const stop = spyOn(Service, "stop").mockImplementation(async () => {});
   try {

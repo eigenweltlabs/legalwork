@@ -12,8 +12,6 @@ docs/patches/opencode-2.1.4-history-file-references.patch text eol=lf
 docs/patches/opencode-2.1.4-history-file-references.receipt.json text eol=lf
 docs/patches/opencode-2.1.4-project-tool-output.patch text eol=lf whitespace=-blank-at-eol
 docs/patches/opencode-2.1.4-project-tool-output.receipt.json text eol=lf
-docs/patches/opencode-2.1.4-service-stdin-lease.patch text eol=lf whitespace=-blank-at-eol
-docs/patches/opencode-2.1.4-service-stdin-lease.receipt.json text eol=lf
 
 # The browser generator reads the same reviewed source bytes on every host.
 apps/desktop/electron/browser-native/** text eol=lf

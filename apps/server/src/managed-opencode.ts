@@ -237,15 +237,15 @@ async function waitForMigration(child: ChildProcess, url: string, username: stri
  * ACTUALLY exit (so callers never start a replacement engine while this one
  * still holds the DB lock), then SIGKILL if it overstays. Memoized so repeated
  * close() calls share one shutdown. */
-function makeTerminator(child: ChildProcess, exited: Promise<void>, stdinLease: boolean): () => Promise<void> {
+function makeTerminator(child: ChildProcess, exited: Promise<void>, parentLease = false): () => Promise<void> {
   let closePromise: Promise<void> | null = null;
   const alive = () => child.pid !== undefined && child.exitCode === null && child.signalCode === null;
   return () => {
     closePromise ??= (async () => {
       if (!alive()) return;
-      if (stdinLease) {
-        // Upstream --stdio and the leased service close their HTTP scope on
-        // stdin EOF. SIGTERM/KILL remain bounded fallbacks.
+      if (parentLease) {
+        // Upstream --stdio closes its HTTP scope on stdin EOF, including EOF
+        // received during startup. SIGTERM/KILL remain bounded fallbacks.
         child.stdin?.end();
         await Promise.race([exited, delay(SIGTERM_GRACE_MS)]);
         if (!alive()) return;
@@ -299,8 +299,6 @@ export async function createManagedOpencodeServer(options: {
   const command = await resolveEngineExecutable(options.bin?.trim() || "opencode", options.cwd, env);
   const identity = await opencodeEngineIdentity(command, options.candidateBuild);
   if (options.service && options.parentLease) throw new Error("A managed engine cannot combine native service and stdin lease modes.");
-  // Both modes hold a stdin lease, so the engine cannot outlive this process.
-  const stdinLease = options.service !== undefined || options.parentLease === true;
   const serviceEnv = options.service ? await prepareManagedOpencodeService({ ...options.service,
     filename: identity.serviceFilename,
   }, password) : {};
@@ -346,12 +344,12 @@ export async function createManagedOpencodeServer(options: {
     const child: ChildProcess = spawn(command, args, {
       cwd: options.cwd,
       env,
-      stdio: [stdinLease ? "pipe" : "ignore", "pipe", "pipe"],
+      stdio: [options.parentLease ? "pipe" : "ignore", "pipe", "pipe"],
     });
     const exited = new Promise<void>((resolve) => {
       child.once("exit", () => resolve());
     });
-    const terminate = makeTerminator(child, exited, stdinLease);
+    const terminate = makeTerminator(child, exited, options.parentLease);
     const abortStartup = () => { void terminate(); };
     options.signal?.addEventListener("abort", abortStartup, { once: true });
     let closing = false;

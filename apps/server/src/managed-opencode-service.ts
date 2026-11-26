@@ -19,9 +19,9 @@ async function registeredEngineAnswers(info: z.infer<typeof registration>): Prom
   return engineInfo.safeParse(body).data?.pid === info.pid;
 }
 
-/** Managed engines hold a stdin lease and cannot outlive the process that
- * started them, so a registration nothing answers for is stale. Only an engine
- * that proves itself is stopped; a PID from the file alone never is. */
+/** Only an engine that proves itself is stopped. A PID from the file alone
+ * never decides: Windows reuses PIDs quickly, often for LegalWork's own next
+ * processes, and an engine killed on quit cannot remove its registration. */
 export async function stopManagedOpencodeService(options: ManagedOpencodeServiceOptions): Promise<void> {
   await Promise.all([options.configDirectory, options.stateDirectory].map(directory => mkdir(directory, { recursive: true, mode: 0o700 })));
   // Both reviewed channels use the same private engine DB. Verify and stop a
@@ -43,10 +43,10 @@ export async function stopManagedOpencodeService(options: ManagedOpencodeService
   }
 }
 
-export async function prepareManagedOpencodeService(options: ManagedOpencodeServiceOptions, password: string): Promise<{ XDG_STATE_HOME: string; OPENCODE_CONFIG_DIR: string; OPENCODE_SERVICE_STDIN_LEASE: "1" }> {
+export async function prepareManagedOpencodeService(options: ManagedOpencodeServiceOptions, password: string): Promise<{ XDG_STATE_HOME: string; OPENCODE_CONFIG_DIR: string }> {
   await stopManagedOpencodeService(options);
   const path = join(options.configDirectory, options.filename ?? "service.json"), temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify({ password }), { mode: 0o600 });
   await rename(temporary, path);
-  return { XDG_STATE_HOME: options.stateDirectory, OPENCODE_CONFIG_DIR: options.configDirectory, OPENCODE_SERVICE_STDIN_LEASE: "1" };
+  return { XDG_STATE_HOME: options.stateDirectory, OPENCODE_CONFIG_DIR: options.configDirectory };
 }
