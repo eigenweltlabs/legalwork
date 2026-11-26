@@ -63,6 +63,7 @@ export function useSyncEvents(client: LegalworkServerClient | null): void {
             const roots = [
               ...(poke.projects || poke.tasks || poke.policy || poke.hub || poke.sessions || poke.approvals || poke.reload || poke.resync ? ["calendar"] : []),
               ...(poke.reviews || poke.resync ? ["project-reviews"] : []),
+              ...(poke.projectNotes || poke.projects || poke.resync ? ["project-notes"] : []),
               ...(poke.suggestions || poke.resync ? ["wiki-suggestion", "wiki-suggestions"] : []),
               ...(poke.views || poke.resync ? ["ui-view", "ui-views"] : []),
               ...(poke.queues || poke.resync ? ["session-message-queue"] : []),
