@@ -8,6 +8,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { openDesktopPath, openDesktopUrl, revealDesktopItemInDir } from "@/app/lib/desktop";
 import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import { ArtifactMarkdownEditor } from "./artifact-markdown-editor";
 import { artifactDocumentKey, documentIsInFront, registerDocumentShutdown, registerUnsavedDocument } from "./docx-document-state";
 import { loadMarkdownDraft, savedMarkdownDraft, replaceMarkdownText, type MarkdownDraft } from "./markdown-draft";
 import { useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
-import { resolveHrefOpenTarget, type OpenTarget } from "./open-target";
+import { classifyOpenTarget, isMarkdownFileLink, markdownFileLinkPaths, type OpenTarget } from "./open-target";
 import { parseTaskLink } from "../../tasks/task-reference";
 import { parseViewReference, viewPanelTab } from "../../views/view-reference";
 import { openUnsavedArtifact } from "./document-shutdown-navigation";
@@ -73,6 +74,7 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
   const requestPanelTab = useRequestPanelTab();
   const requestOpenTask = useRequestOpenTask();
   const projectFiles = useProjectFiles();
+  const runtimeEntry = useDocumentRuntimeEntry();
   const openEditorLink = useCallback((href: string) => {
     const task = parseTaskLink(href);
     if (task) { requestOpenTask(task.taskId); return; }
@@ -81,16 +83,26 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
     const wiki = parseWikiPageUrl(href);
     if (wiki) { requestPanelTab(wikiPanelTab(client.baseUrl, wiki.wikiId, { kind: "page", path: wiki.path }, wiki.path.split("/").at(-1) ?? wiki.path)); return; }
     if (/^(https?:|mailto:|tel:)/i.test(href)) { void openDesktopUrl(href); return; }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^file:/i.test(href)) return;
-    const file = resolveHrefOpenTarget(href, []);
-    if (file?.kind !== "file") return;
-    const root = workspaceRoot.replace(/\/$/, "") + "/";
-    const path = file.value.startsWith(root) ? file.value.slice(root.length) : file.value;
-    const source = projectFiles?.identify(client, workspaceId, { path, name: file.name });
-    if (source) requestPanelTab(projectFileTab(source));
-    else toast.error(t("project_files.source_unavailable"));
-  }, [client, requestOpenTask, requestPanelTab, projectFiles, workspaceId, workspaceRoot]);
-  const runtimeEntry = useDocumentRuntimeEntry();
+    if (!isMarkdownFileLink(href)) return;
+    void (async () => {
+      for (const candidate of markdownFileLinkPaths(href, target.value)) {
+        const file = await client.statWorkspaceFile(workspaceId, candidate);
+        if (!file.exists) continue;
+        if (file.kind !== "file") break;
+        const name = attachmentFilename(file.path);
+        const source = projectFiles?.identify(client, workspaceId, { path: file.path, name });
+        if (source) { requestPanelTab(projectFileTab(source)); return; }
+        // Persistent editors render outside ProjectFileProvider and already have an owning workspace.
+        if (runtimeEntry) {
+          requestPanelTab({ id: `file:${file.path.toLowerCase()}`, type: "artifact", label: name,
+            value: file.path, preview: classifyOpenTarget(file.path, "file"), source: runtimeEntry.props.tab.source });
+          return;
+        }
+        break;
+      }
+      toast.error(t("project_files.source_unavailable"));
+    })().catch(() => toast.error(t("project_files.source_unavailable")));
+  }, [client, requestOpenTask, requestPanelTab, projectFiles, runtimeEntry, target.value, workspaceId]);
   const panel = useRef<HTMLDivElement>(null);
   const streams = useMarkdownStreams(state => state.items);
   const stream = Object.values(streams).findLast(item => item.workspaceId === workspaceId && item.path === target.value);
@@ -375,7 +387,7 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
           {t("markdown.edits_still_here_download", { error: saveError })}
         </div>}
       <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
-        {streamingPreview ? <div className="h-full overflow-auto" aria-label={t("markdown.agent_writing")}><MarkdownPreview content={stream.content} /></div> : draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} onOpenLink={openEditorLink} />
+        {streamingPreview ? <div className="h-full overflow-auto" aria-label={t("markdown.agent_writing")}><MarkdownPreview content={stream.content} /></div> : draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} onOpenLink={openEditorLink} openLinkOnClick={isMarkdownFileLink} />
           : query.isError ? <PreviewError message={query.error instanceof Error ? query.error.message : t("markdown.open_failed")} /> : <PreviewLoading />}
       </div>
     </ArtifactFrame>

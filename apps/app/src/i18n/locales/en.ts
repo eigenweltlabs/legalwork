@@ -3183,6 +3183,8 @@ export default {
   "projects.no_documents": "This folder has no visible documents yet. Add files using the Files sidebar.",
   "projects.files_truncated": "Only part of this folder is shown. Open Files to browse further.",
   "projects.metadata": "Project details",
+  "projects.scheduled_tasks": "Scheduled tasks",
+  "projects.no_scheduled_tasks": "No scheduled tasks for this project.",
   "projects.edit": "Edit",
   "projects.no_metadata": "Choose a metadata template or add your own fields, such as a reference, owner or target date.",
   "projects.metadata_hint": "Define field names and types. Each project has its own content.",
