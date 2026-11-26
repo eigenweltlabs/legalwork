@@ -6,8 +6,8 @@ Tabular Review consumes this contract through agent tools; document search and O
 
 ## Subscription and providers
 
-The managed backend can be Microsoft Decision 1.1 after a qualified platform
-rollout. The platform catalog supplies its current display name, region and
+The managed EU and US backends use Microsoft Decision 1.1. The platform catalog
+supplies each model's current display name, region and
 availability. Disconnected settings use neutral `SystemOne (EU)` / `SystemOne (US)`
 labels rather than guessing the current backend. The request IDs remain `EigenJev`
 (EU) and `TypeSafeJev` (US), preserving selections, firm policies and review defaults.
@@ -17,12 +17,14 @@ question types and fractional scores work through the existing contract. Review
 provenance preserves Microsoft's returned model, distinct from the requested ID.
 Unavailable or disabled models never fall back across providers or regions.
 
-This client change does not activate Microsoft inference or establish ZDR approval.
-Model-api's `docs/microsoft-decision.md` records the regional deployment, retention,
-quality and billing checks required before activation. Microsoft Decision costs
+Microsoft inference is already active through the regional gateways; this client
+change updates offline labels, documentation and compatibility coverage. Model-api's
+`docs/microsoft-decision.md` records deployment, retention and qualification details.
+Microsoft Decision costs
 **€0.05 per million input tokens** in both EU and US; output tokens are free.
-Usage consumes the existing subscription allowance. The original JEV backends
-and standalone EigenJev API keep their per-billion tariff below.
+Usage consumes the existing subscription allowance. The standalone EigenJev API
+and its dedicated JEV infrastructure are retired; managed access uses the existing
+subscription connection.
 
 EigenJev uses the **existing subscription gateway key** saved at sign-in. No API
 key creation or additional credential is required. A firm admin enables EigenJev
@@ -32,20 +34,16 @@ the server checks `/api/desktop/systemone`; an outage never grants access. Sign-
 disabled access and removed membership prevent execution. Platform model choices
 control both the `EigenJev` and legacy `jev-latest` gateway aliases together.
 
-With the original backend, Eigenwelt Europe EigenJev costs
-**€0.05 per billion input tokens; output tokens are free**.
-Usage consumes the existing subscription allowance through that same key.
 The gateway retains fractional-cent spend and the platform rounds cumulative
 spend, so small requests are not individually rounded up or discarded.
 
 A provider is one connection (name, endpoint, API key, enablement), serving many models.
 Models belong to its `models[]` collection and carry their own ID, display name,
-description, release date and question types. Before a Microsoft rollout, the
-Eigenwelt provider serves **Eigenwelt Europe EigenJev** and **Eigenwelt US Jev**
-through the existing subscription key.
-TypeSafe JEV requires explicit US region permission and its own model opt-in. Both
-models cost €0.05 per billion input tokens with free output. TypeSafe credentials
-stay on the paid gateway; standalone API keys cannot call this model.
+description, release date and question types. The Eigenwelt provider serves
+**Microsoft Decision 1.1 (EU)** and **Microsoft Decision 1.1 (US)** through the
+existing subscription key. Each model requires its region permission and firm
+model opt-in. The managed US alias `TypeSafeJev` now selects Microsoft Decision;
+the separate TypeSafe preset still uses the user's own TypeSafe connection.
 
 The platform appends a `models[]` catalog to `/api/desktop/systemone`, with per-model
 `model`, `name`, `region`, `enabled`, `available`, `questionTypes` and optional
@@ -54,10 +52,10 @@ clients. Settings expose each managed model's `region` and `status`; review mode
 discovery excludes disabled/unavailable models even when another model from the
 provider is ready. A saved selection never falls back to another region.
 
-With the original backend, managed request ID **`TypeSafeJev`** maps to TypeSafe's
-`jev-latest` upstream. Its versioned response model is preserved for review provenance. The
-existing EigenJev `jev-latest` compatibility alias continues to mean the EU model.
-See model-api's `gateway/dev/README.md` for server-side credentials and rollout.
+Managed request ID **`TypeSafeJev`** selects the US Microsoft deployment. Its
+served response model is preserved for review provenance. The existing EigenJev
+`jev-latest` compatibility alias continues to mean the EU model.
+See model-api's `docs/microsoft-decision.md` for server-side configuration.
 
 Following [TypeSafe's original model API](https://docs.typesafe.ai/models), LegalWork
 fetches authenticated `GET /v1/models` next to `POST /v1/systemone`. It parses the
@@ -156,19 +154,20 @@ No hard-coded TypeSafe context/rate limits are assumed for EigenJev or custom mo
 
 ## Validation and rollout
 
-For the matching model-api branch and real-gateway local setup, see
-[SystemOne development](systemone-dev.md).
+Managed Microsoft Decision routes are deployed in model-api. The LegalWork
+changes here are compatible with those routes and do not require another backend
+activation. [SystemOne development](systemone-dev.md) also retains the historical
+OpenJev local setup for reference.
 
 Run `pnpm --filter legalwork-server exec bun test src/systemone-client.test.ts src/systemone.e2e.test.ts`,
 server/app typechecks and `pnpm --filter @legalwork/app test:i18n`.
 The development-only `settings-preview.html?tab=ai` fixture uses local in-memory data.
 
-Deploy the matching model-api change and the patched OpenJev pool before enabling
-`EIGENJEV_SYSTEMONE_ENABLED=true`. The backend accepts EigenJev while retaining
-jev-latest. See model-api's `infra/openjev/README.md` for rollout and rollback order.
-Older platform versions leave managed EigenJev unavailable; existing chat remains usable.
+For future gateway changes, follow model-api's `docs/microsoft-decision.md` and
+regional deployment instructions. Managed access still requires the appropriate
+platform availability flags, firm permissions and subscription.
 
-The managed model is displayed as **Eigenwelt Europe EigenJev**. Request identifiers remain `EigenJev` and the compatibility alias `jev-latest`; changing the display name does not change stored selections or subscription permissions. Custom provider setup assumes the standard SystemOne question types and verifies them through Test connection; users do not configure those capabilities in the form.
+Managed display names come from the platform catalog. Request identifiers remain `EigenJev` and the compatibility alias `jev-latest` for EU, and `TypeSafeJev` for US; changing the display name does not change stored selections or subscription permissions. Custom provider setup assumes the standard SystemOne question types and verifies them through Test connection; users do not configure those capabilities in the form.
 
 ## Tabular Review
 
