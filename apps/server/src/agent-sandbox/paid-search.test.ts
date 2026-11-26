@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { webInputSchema, webRequest, webResult } from "./web.js";
 import { searchProvider } from "./search-provider.js";
+import { webSearchPolicy } from "./search-policy.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { parseEigenweltEntitlements } from "../eigenwelt-auth.js";
 import { writeCachedEigenweltPaidManifest } from "../eigenwelt-paid-manifest.js";
@@ -26,6 +27,45 @@ async function fixture() {
   return config;
 }
 const input = (query = "§ 823 BGB") => webInputSchema.parse({ kind: "search", query, sessionID: "s", agent: "build" });
+
+test("free accounts keep Exa without a platform policy request", async () => {
+  expect(await webSearchPolicy(await fixture())).toEqual({ enabled: true });
+});
+
+test("paid account policy is live, authenticated and independent of chat models", async () => {
+  const config = await fixture();
+  let enabled = false;
+  let fail = false;
+  let changeAccount = false;
+  const requests: string[] = [];
+  const platform = Bun.serve({ port: 0, async fetch(request) {
+    requests.push(new URL(request.url).pathname);
+    expect(request.headers.get("authorization")).toBe("Bearer policy-test-token");
+    if (changeAccount) await writeEigenweltConnection(config, { account: {
+      userId: "other-user", userName: null, userEmail: null, orgId: "other-firm", orgName: "Other synthetic firm",
+    } });
+    return fail ? Response.json({ enabled: true }, { status: 500 }) : Response.json({ enabled });
+  } });
+  const previous = process.env.EIGENWELT_PLATFORM_URL;
+  process.env.EIGENWELT_PLATFORM_URL = platform.url.origin;
+  try {
+    await writeEigenweltConnection(config, {
+      platformURL: platform.url.origin, platformToken: "policy-test-token",
+      entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active", features: ["premium_models"], seats: 1 }),
+    });
+    expect(await webSearchPolicy(config)).toEqual({ enabled: false });
+    enabled = true;
+    expect(await webSearchPolicy(config)).toEqual({ enabled: true });
+    fail = true;
+    await expect(webSearchPolicy(config)).rejects.toMatchObject({ status: 503, code: "web_search_policy_unavailable" });
+    fail = false; changeAccount = true;
+    await expect(webSearchPolicy(config)).rejects.toMatchObject({ status: 503, code: "web_search_policy_unavailable" });
+    expect(requests).toEqual(Array(4).fill("/api/desktop/web-search"));
+  } finally {
+    platform.stop(true);
+    if (previous === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previous;
+  }
+});
 
 test("paid search preserves the exact approved query and explains path-scoped site misses", async () => {
   const provider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" } satisfies Awaited<ReturnType<typeof searchProvider>>;

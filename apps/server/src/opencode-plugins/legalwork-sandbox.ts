@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin";
 import { Error as ToolError } from "@opencode/plugin/promise/tool";
 import { z } from "zod";
 import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
-import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverUrl, serverToken, workspaceToolHeaders } from "./office-plugin-shared.js";
 import { isBrowserTool, requireBrowserNetwork } from "./browser-network-policy.js";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
@@ -28,11 +28,30 @@ const shellResult = z.object({ output: z.string(), exitCode: z.number(), truncat
 const hostTools = new Set(nativeHostExecutionActions);
 const webKinds: Array<"fetch" | "search"> = ["fetch", "search"];
 const wikiCommandGuidance = "Wiki chats require protected execution for shell commands. When sandboxing is off, use wiki tools, read and glob instead; ask the user to enable Sandbox only if a command is necessary.";
-const guidance = "Execute shell commands through legalwork_shell. Read web pages through legalwork_webfetch and search through legalwork_websearch. These web tools follow the same chat network setting as commands. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. In project chats, sandboxing off runs commands on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it. " + wikiCommandGuidance;
+const guidance = "Execute shell commands through legalwork_shell. Read web pages through legalwork_webfetch. When offered, search through legalwork_websearch; when absent, web search is unavailable and must not be replaced with another search route. These web tools follow the same chat network setting as commands. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. In project chats, sandboxing off runs commands on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it. " + wikiCommandGuidance;
 
 export const LegalWorkSandbox = Plugin.define({
   id: "legalwork.sandbox",
   async setup(ctx) {
+    // Reload the registered tools before the engine snapshots either catalog.
+    // A failed policy lookup hides only search; models and page fetch still work.
+    const readSearchPolicy = async () => {
+      try {
+        const response = await fetch(`${serverUrl()}/web-search/policy`, {
+          headers: { Authorization: `Bearer ${serverToken()}` }, cache: "no-store", signal: AbortSignal.timeout(7_000),
+        });
+        if (!response.ok) return false;
+        return z.object({ enabled: z.boolean() }).parse(await response.json()).enabled;
+      } catch { return false; }
+    };
+    let searchEnabled = await readSearchPolicy();
+    let updatingPolicy: Promise<void> | undefined;
+    await ctx.session.hook("prompt", () => updatingPolicy ??= (async () => {
+      const next = await readSearchPolicy();
+      if (next === searchEnabled) return;
+      searchEnabled = next;
+      await ctx.tool.reload();
+    })().finally(() => { updatingPolicy = undefined; }));
     const reminders = await registerAppStateReminders(ctx, {
       topic: "sandbox-settings",
       cleared: "Read the chat's current sandbox settings before running commands.",
@@ -55,6 +74,7 @@ export const LegalWorkSandbox = Plugin.define({
     // native shell domain as well, before it can create any host process.
     await ctx.shell.hook("create.before", () => { throw new Error("Use legalwork_shell for command execution."); });
     await ctx.tool.hook("execute.before", async event => {
+      if (event.tool === "legalwork_websearch" && !searchEnabled) throw new Error("Web search is unavailable for this firm. Do not use another search route.");
       if (hostTools.has(event.tool)) throw new Error("Use legalwork_shell, legalwork_webfetch or legalwork_websearch so this chat's execution and network settings are enforced.");
       const input = event.input && typeof event.input === "object" && !Array.isArray(event.input) ? Object.fromEntries(Object.entries(event.input)) : {};
       if (isBrowserTool(event.tool, input)) {
@@ -83,6 +103,7 @@ export const LegalWorkSandbox = Plugin.define({
         },
       }));
       for (const kind of webKinds) {
+        if (kind === "search" && !searchEnabled) continue;
         editor.add(nativeTool(ctx, {
           name: kind === "fetch" ? "legalwork_webfetch" : "legalwork_websearch",
           description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using regional AWS search for paid LegalWork accounts or Exa for free accounts, following this chat's network setting and web permissions. The firm's Model API region policy controls search location. If both EU and US are enabled, the hosted chat model supplies a preference; BYOK or unknown models default to EU. The query is sent only after any required approval. Paid queries must be at most 200 characters; use the default type and livecrawl. Use legalwork_webfetch to read complete source pages.",

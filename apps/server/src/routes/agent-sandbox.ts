@@ -9,6 +9,7 @@ import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/
 import { addRoute, type Route, type RequestContext } from "./registry.js";
 import { networkModeSchema, readSandboxDefault, applicationSandbox, effectiveSandbox, sandboxSettingsSchema, writeSessionSandbox } from "../agent-sandbox/settings.js";
 import { rawHttpInputSchema } from "../agent-sandbox/raw-http.js";
+import { webSearchPolicy } from "../agent-sandbox/search-policy.js";
 
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
@@ -45,6 +46,7 @@ export function registerAgentSandboxRoutes(options: {
   jsonResponse: (value: unknown, status?: number) => Response;
 }) {
   const { routes, config, sandbox, jsonResponse } = options;
+  addRoute(routes, "GET", "/web-search/policy", "client", async () => jsonResponse(await webSearchPolicy(config)));
   const assertWritable = () => {
     if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
     if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "This worker does not manage command execution.");
