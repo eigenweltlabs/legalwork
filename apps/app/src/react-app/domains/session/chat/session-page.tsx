@@ -5,6 +5,7 @@ import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
 import { WorkspaceHeaderTarget } from "../../back-office/time-workspace-header";
 import { timePage } from "../../back-office/time-routes";
+import { BackOfficeWorkspaceTab, useOpenBackOfficeWorkspaceAction } from "../../back-office/back-office-workspace";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
@@ -876,6 +877,13 @@ export function SessionPage(props: SessionPageProps) {
     } : null
   ), [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   useControlAction(closeVoicePanelControlAction);
+  const backOfficeSessions = useMemo(() => [
+    ...controlSessionIds,
+    ...(props.selectedSessionId ? [props.selectedSessionId] : []),
+    ...(props.sidebar.workspaceSessionGroups.find(group => group.workspace.id === props.selectedWorkspaceId)?.sessions.map(session => session.id) ?? []),
+  ], [controlSessionIds, props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups]);
+  const showWorkspacePanel = useCallback(() => setCurrentSidePanel("panel"), [setCurrentSidePanel]);
+  useOpenBackOfficeWorkspaceAction(props.legalworkServerClient && !wikiWorkspace ? props.selectedWorkspaceId : null, backOfficeSessions, showWorkspacePanel);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
   // A reload may restore a wiki page focused beside the chat named in the URL.
@@ -1151,7 +1159,7 @@ export function SessionPage(props: SessionPageProps) {
             visible={visible}
             onClose={closeRightPane}
             projectId={props.selectedWorkspaceId}
-            renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
+            renderProjectView={wikiWorkspace ? undefined : (view, active, backOfficePath) => renderProjectView(view, true, active, backOfficePath)}
             onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
             onDropChat={(ids, pane, edge) => {
               let destination = pane;
@@ -1190,7 +1198,9 @@ export function SessionPage(props: SessionPageProps) {
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : <WorkspaceHeaderTarget.Provider value={workspaceHeaderTarget}><EmbeddedWorkspaceChat.Provider value={props.selectEmbeddedWorkspace ? { workspaceId: props.runtimeWorkspaceId ?? "", selectWorkspace: props.selectEmbeddedWorkspace, render: renderChat, renderPanel: renderWorkspacePanel } : null}>{props.mainView}</EmbeddedWorkspaceChat.Provider></WorkspaceHeaderTarget.Provider>;
   const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
-  const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "dashboards" ? (
+  const renderProjectView = (view: ProjectView, inWorkspace = true, active = true, backOfficePath?: string) => view === "back-office" ? (
+    props.legalworkServerClient ? <BackOfficeWorkspaceTab client={props.legalworkServerClient} scope={workspaceScope} path={backOfficePath} active={active} /> : <p className="p-6">{t("projects.connecting")}</p>
+  ) : view === "dashboards" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); if (!timeWorkspaceActive) navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
   ) : view === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>

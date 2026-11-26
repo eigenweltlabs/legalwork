@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   House,
   CalendarDays,
+  Database,
   AppWindowMac,
   ArrowRight,
   Globe,
@@ -135,7 +136,7 @@ type SidePanelProps = {
   onNewChat?: (pane: string) => void;
   onOpenWiki?: (pane: string) => void;
   onOpenWikiGraph?: (pane: string) => void;
-  renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
+  renderProjectView?: (view: ProjectView, active: boolean, backOfficePath?: string) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
   renderWikiTab?: (tab: WikiPanelTab) => React.ReactNode;
@@ -1150,13 +1151,13 @@ function SidePanelContent({
               <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
               {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
               {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
-              {renderProjectView && (["calendar", "reviews", "tasks", "dashboards"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
+              {renderProjectView && (["calendar", "reviews", "tasks", "dashboards", "back-office"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
                 const tab = projectViewTab(view, projectViewLabel(view));
                 const store = usePanelTabStore.getState();
                 const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
                 if (existing) store.selectTab(sessionId, existing.id);
                 else store.openTab(sessionId, tab, pane.id);
-              }}>{view === "dashboards" ? <DashboardIcon /> : view === "calendar" ? <CalendarDays /> : view === "reviews" ? <TableProperties /> : <ListTodo />}{projectViewLabel(view)}</DropdownMenuItem>)}
+              }}><ProjectViewIcon view={view} />{projectViewLabel(view)}</DropdownMenuItem>)}
               <DropdownMenuItem disabled={!isBrowserAvailable} onClick={() => createTab(undefined, pane.id)}><Globe /> {t("side_panel.browser")}</DropdownMenuItem>
             </>}
           </DropdownMenuContent>
@@ -1243,7 +1244,7 @@ function SidePanelContent({
           : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
-          : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
+          : tab.type === "project-view" ? renderProjectView?.(tab.view, visible, tab.backOfficePath)
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "recording" ? <RecordingTranscriptPanel sessionId={sessionId} tab={tab} onClose={() => closeDocumentTab(tab)} />
@@ -1282,5 +1283,6 @@ function PanelEmpty({ onNewChat, onOpenFile, onOpenBrowser }: {
 }
 
 function ProjectViewIcon({ view }: { view: ProjectView }) {
+  if (view === "back-office") return <Database />;
   return view === "dashboards" ? <DashboardIcon /> : view === "files" ? <Files /> : view === "sessions" ? <MessageSquare /> : view === "home" ? <House /> : view === "calendar" ? <CalendarDays /> : view === "tasks" ? <ListTodo /> : <TableProperties />;
 }

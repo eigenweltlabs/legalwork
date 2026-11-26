@@ -66,10 +66,10 @@ async function render(links = false) {
   await act(async () => { root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/back-office/matters"]}>{links ? <Links /> : <BackOfficePage client={client} />}</MemoryRouter></QueryClientProvider>); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 }
-function input(label: string) { const element = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`); assert.ok(element, `Missing ${label}: ${document.body.textContent?.slice(-1300)}`); return element; }
+function input(label: string) { const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`); assert.ok(element, `Missing ${label}: ${document.body.textContent?.slice(-1300)}`); return element; }
 function button(text: string) { const element = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label") === text || button.textContent?.trim() === text); assert.ok(element, `Missing button ${text}: ${document.body.textContent?.slice(-1300)}`); return element; }
 async function click(label: string) { await act(async () => button(label).click()); }
-async function type(label: string, value: string) { await act(async () => { const element = input(label); element.focus(); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; assert.ok(setter); setter.call(element, value); element.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
+async function type(label: string, value: string) { await act(async () => { const element = input(label); element.focus(); const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set; assert.ok(setter); setter.call(element, value); element.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
 async function key(label: string, key: string, metaKey = false) { await act(async () => input(label).dispatchEvent(new window.KeyboardEvent("keydown", { key, metaKey, bubbles: true, cancelable: true }))); }
 
 try {

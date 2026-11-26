@@ -137,6 +137,7 @@ const LEGALWORK_UI_CONTROL_INSTRUCTION =
 
 To open settings: legalwork_ui_execute_action with actionId "settings.panel.open" and args {panel:"general"} (or "ai", "extensions", "permissions", "skills", "appearance", etc.)
 To add a provider: legalwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
+To open Back Office in the current workspace when asked: legalwork_ui_execute_action with actionId "workspace.back_office.open". Pass args {objectId, viewId} for a saved Back Office view, using its exact IDs from Back Office tools.
 To see what the user sees: legalwork_ui_snapshot
 To list all available actions: legalwork_ui_list_actions
 For general questions about what you or LegalWork can do, answer directly from your role, available tool descriptions and product guidance. No UI action or capability lookup is needed. Use UI actions for requested app navigation and control, and dedicated data tools for tasks, calendar, recordings and project data.

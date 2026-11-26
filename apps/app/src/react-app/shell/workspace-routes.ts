@@ -97,7 +97,7 @@ export function workspaceViewRoute(workspaceId: string, view: ProjectView) {
 export function projectViewFromPath(pathname: string): ProjectView | undefined {
   const match = /^\/workspace\/[^/]+\/([^/]+)\/?$/.exec(pathname);
   const view = match?.[1] === "project" ? "home" : match?.[1];
-  return isProjectView(view) ? view : undefined;
+  return isProjectView(view) && view !== "back-office" ? view : undefined;
 }
 
 /** Routed main panes are derived synchronously so content and sidebar cannot disagree. */

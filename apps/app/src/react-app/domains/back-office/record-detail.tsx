@@ -11,7 +11,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { Button, Input } from "twenty-ui/primitives/input";
+import { Button } from "twenty-ui/primitives/input";
 import { RecordAvatar as Avatar } from "./record-colors";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Tabs } from "twenty-ui/primitives/navigation";
@@ -139,10 +139,9 @@ export function RecordDetail({
           name={String(record.values.name)}
           colorSeed={record.id}
         />
-        <Input
+        <textarea
           className="bo-detail-name"
-          variant="plain"
-          size="sm"
+          rows={1}
           aria-label={t("back_office.record_name", { name: object.label })}
           placeholder={object.fields.find(field => field.id === "name")?.label}
           autoFocus={focusName}
@@ -301,6 +300,7 @@ export function RecordDetail({
                             }}
                           >
                             {edit?.field === field.id && <CellEditor
+                              multiline
                               record={edit.base}
                               field={field}
                               value={field.multiple || field.type === "multiselect" ? record.values[field.id] : edit.base.values[field.id]}

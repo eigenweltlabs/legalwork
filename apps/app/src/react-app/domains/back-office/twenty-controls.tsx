@@ -60,7 +60,7 @@ export function DirectoryEditorPopup({ children, className = "", style, finalFoc
 }) {
   const popup = useRef<HTMLDivElement>(null);
   return <Popover.Popup ref={popup} id={id} finalFocus={finalFocus} initialFocus={() => {
-    popup.current?.querySelector<HTMLElement>("input, button:not(:disabled), [tabindex='0']")?.focus({ preventScroll: true });
+    popup.current?.querySelector<HTMLElement>("input, textarea, button:not(:disabled), [tabindex='0']")?.focus({ preventScroll: true });
     return false;
   }} className={`bo-editor-popup ${className}`} style={{ width: 260, maxHeight: "var(--available-height)", overflowY: "auto", ...style }}>{children}</Popover.Popup>;
 }

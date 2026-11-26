@@ -5,6 +5,7 @@ import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
+import { isBackOfficePath } from "../../back-office/back-office-navigation";
 export type { ProjectView } from "./project-view";
 import type { SearchSourceReference } from "@legalwork/types/search";
 import type { AssistantFileSource } from "@legalwork/types/main-assistant";
@@ -40,9 +41,10 @@ export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
 export type PanelTabType = PanelTab["type"];
 
 export function workspacePanelKey(workspaceId: string) { return `workspace:${workspaceId}`; }
-export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectView; label: string };
-export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
-  return { id: `project-view:${view}`, type: "project-view", view, label };
+export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectView; label: string; backOfficePath?: string };
+export function projectViewTab(view: ProjectView, label: string, backOfficePath?: string): ProjectViewTab {
+  return { id: `project-view:${view}`, type: "project-view", view, label,
+    ...(view === "back-office" && backOfficePath && isBackOfficePath(backOfficePath) ? { backOfficePath } : {}) };
 }
 export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string; parentID?: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
@@ -145,7 +147,7 @@ function restoredTab(value: unknown): PanelTab | null {
   if (typeof value.label === "string") {
     if (value.type === "workspace-page") return { id: value.id, type: value.type, label: value.label };
     if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
-    if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
+    if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label, typeof value.backOfficePath === "string" ? value.backOfficePath : undefined);
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label, typeof value.parentID === "string" ? value.parentID : undefined);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
@@ -167,6 +169,7 @@ export type PanelTabStore = {
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
+  setBackOfficePath: (sessionId: string, path: string) => void;
   resolveViewTab: (draftId: string, saved: ViewPanelTab) => void;
   replaceTab: (tabId: string, replacement: PanelTab) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
@@ -399,7 +402,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     );
   }
 
-  if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label;
+  if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label && left.backOfficePath === right.backOfficePath;
   if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId && left.parentID === right.parentID;
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
@@ -581,6 +584,12 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
         const tab = session.tabs.find((item) => item.id === tabId);
         if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
         return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
+      }),
+      setBackOfficePath: (sessionId, path) => set(state => {
+        const session = state.sessions[sessionId];
+        const tab = session?.tabs.find(item => item.type === "project-view" && item.view === "back-office");
+        if (!isBackOfficePath(path) || !session || tab?.type !== "project-view" || tab.backOfficePath === path) return state;
+        return updateSession(state, sessionId, { ...session, tabs: session.tabs.map(item => item === tab ? { ...tab, backOfficePath: path } : item) });
       }),
       openTab: (sessionId, tab, paneId, edge, options) => set(state => {
         const session = getWritableSession(state, sessionId);

@@ -9,7 +9,8 @@ import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
 import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useBackOfficeLocation, useBackOfficeNavigate } from "./back-office-navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
 import {
@@ -82,17 +83,18 @@ function canEditDirectoryRecord(record: BackOfficeRecord, team: boolean, userId:
     (record.ownerId === userId && !["Submitted", "Approved", "Invoiced", "Written off"].includes(String(record.values.status)));
 }
 
-export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister }: {
+export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister, active = true }: {
   client: LegalworkServerClient;
   embeddedObject?: "timeEntries" | "invoices";
   billingSettings?: boolean;
   invoiceRegister?: InvoiceRegister;
+  active?: boolean;
 }) {
   const locale = useLocale();
   const parentDialogContainer = useContext(DirectoryDialogContainer);
   const [recordPane, setRecordPane] = useState<HTMLDivElement | null>(null);
-  const location = useLocation(),
-    navigate = useNavigate(),
+  const location = useBackOfficeLocation(),
+    navigate = useBackOfficeNavigate(),
     cache = useQueryClient();
   const timesheet = billingSettings ? "billing-settings" : embeddedObject ? undefined : timePage(location.pathname);
   const DirectoryTheme = timesheet ? Fragment : BackOfficeTheme;
@@ -137,7 +139,7 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
         return failure;
       }
     },
-    refetchInterval: 30_000,
+    refetchInterval: active ? 30_000 : false,
   });
   const outcome = query.data;
   const data = outcome && "records" in outcome && (protectedDirectory || !query.isError) ? outcome : undefined;

@@ -6,6 +6,8 @@ Open **Back Office** from the global sidebar. Choose **Matters**, **Clients** (G
 
 Record identity colors, including matters and tasks, use a stable chromatic palette. Grey, white and black are not assigned as identity or status-tag colors. Neutral surfaces, text, borders and unavailable controls keep their normal appearance.
 
+In a project workspace, choose **+ > Back Office** in the tab bar to open the full directory beside your work. Choose an object or a saved view inside the tab. You can also ask the assistant to open a Back Office table or saved view there. The tab uses your existing directory and permissions.
+
 Open **More > Tasks** or **More > Deadlines** for the same records used by Tasks and Calendar. Open **Tasks** in the sidebar for the task list, sessions, files and workflow actions. In **Calendar**, choose **Deadlines** to switch to the table. Project tables show that project's records.
 
 Click a cell or open the name to edit in the sidebar. A task's status, priority, assignee, due date, tags and description update the original task. Deadlines use their project's calendar, reminders and history. Moving a calculated deadline asks for an override reason. Under **Data model**, both schemas are locked.
@@ -27,6 +29,10 @@ In **Create project**, choose a template below the project name. The **Legal Mat
 Clients link directly to a person or an organisation. There is no separate Client type to keep in sync with those links.
 
 A table scrolls continuously through its records. Search, filters, sorting and column totals cover the full result set. **Select all rows** selects every matching record, including rows below the screen. Check the selected count before choosing **Archive** or **Restore**.
+
+Drag the resize handle at a column's right edge to change its width. With the handle focused, use **Left Arrow** and **Right Arrow** for small adjustments. Drag the column name to move the column.
+
+Choose **Options > Row height**. **Compact** uses single-line cells, **Tall** gives all rows more room and wraps text up to three lines, and **Fit to text** grows each row to show the full text. Your choice is remembered for that table or saved view on this device. Open a record to read its full text and line breaks in the right-hand panel. When editing a text field there, press **Enter** to add a line break and select **Save** to keep the changes.
 
 ### Filtering records
 

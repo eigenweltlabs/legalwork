@@ -22,9 +22,23 @@ Object.defineProperty(globalThis, "localStorage", {
     },
   },
 });
-const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const { createPanelTabStore, projectViewTab } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { openTaskProject } = await import("../src/react-app/domains/tasks/task-project-navigation");
 const usePanelTabStore = createPanelTabStore();
+
+test("Back Office restores its selected view and keeps the enclosing workspace layout", () => {
+  const scope = "workspace:back-office";
+  const panels = createPanelTabStore();
+  const tab = projectViewTab("back-office", "Back Office", "/back-office/ismsChecklist");
+  panels.getState().openTab(scope, tab);
+  const path = "/back-office/ismsChecklist?viewId=5733f1ce-8877-4d28-87b5-e3a746cb8109";
+  panels.getState().setBackOfficePath(scope, path);
+  panels.getState().setBackOfficePath(scope, "/settings/permissions");
+  const session = panels.getState().sessions[scope];
+  expect(session.activeTabId).toBe(tab.id);
+  expect(session.tabs).toEqual([{ ...tab, backOfficePath: path }]);
+  expect(panels.getState().readLayout(JSON.parse(JSON.stringify(session)))?.tabs).toEqual(session.tabs);
+});
 
 test("closing the routed chat once survives stale route renders and later navigation can reopen it", () => {
   const panels = createPanelTabStore();

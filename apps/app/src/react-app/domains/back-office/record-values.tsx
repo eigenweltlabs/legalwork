@@ -57,6 +57,7 @@ export const RecordChip = memo(function RecordChip({
   const synthetic = record.objectId.startsWith("@");
   return (
     <Chip
+      className="bo-record-chip"
       size="sm"
       variant="soft"
       clickable={!synthetic}
