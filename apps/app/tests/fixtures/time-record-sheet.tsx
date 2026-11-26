@@ -844,6 +844,61 @@ try {
     assert.ok(visible(chosenId));
     assert.equal(visible(chooseId), false);
   }
+
+  const shortTimer = captureProposalSchema.parse({ ...proposal, key: crypto.randomUUID(), digest: "e".repeat(64),
+    source: "stopwatch", activity: "", narrative: "Checked a reference", workedMinutes: null,
+    startAt: first + "T09:00:00Z", endAt: first + "T09:00:10Z" });
+  const singleClientProposal = { ...proposal, key: crypto.randomUUID(), digest: "a".repeat(64), matterId: singleClientMatter.id, workedMinutes: 20 };
+  const missingClient = { ...workflow.entries[0], clientId: "", billableMinutes: 20 };
+  let billingState = { ...workflow, entries: [missingClient] };
+  const billingRequests: TimesheetCommand[] = [];
+  const book = async (request: TimesheetCommand) => {
+    billingRequests.push(request);
+    if (request.type === "create") {
+      const entry: TimeEntry = { ...missingClient, ...request.entry, id: crypto.randomUUID(),
+        groupId: request.requestId, revision: 1, source: "suggestion" };
+      billingState = { ...billingState, entries: [...billingState.entries, entry] };
+    } else {
+      assert.ok(request.type === "update");
+      assert.equal(request.id, missingClient.id);
+      assert.equal(request.revision, missingClient.revision);
+      billingState = { ...billingState, entries: billingState.entries.map(entry => entry.id === request.id
+        ? { ...entry, ...request.entry, revision: entry.revision + 1 } : entry) };
+    }
+    return billingState;
+  };
+  const timerCapture = capture({ proposals: [shortTimer, singleClientProposal], privateAvailable: true, drafts: {
+    [singleClientProposal.key]: { date: first, proposalDigest: singleClientProposal.digest, values: { client: null } },
+  } });
+  const clientLabel = t("timesheets.sheet.bill_to");
+  await render(timerCapture, [workerContact], billingState, book);
+  await act(async () => button(proposalDetails(shortTimer.key), t("timesheets.sheet.accept")).click());
+  const durationInput = proposalDetails(shortTimer.key).querySelector('[data-field="recordedMinutes"]');
+  assert.equal(durationInput?.getAttribute("aria-invalid"), "true");
+  const durationError = durationInput?.getAttribute("aria-describedby");
+  assert.ok(durationError);
+  assert.equal(document.getElementById(durationError)?.textContent, t("timesheets.ledger.valid_worked"));
+  assert.equal(billingRequests.length, 0, "a sub-minute stopwatch cannot bypass booking validation");
+  await chooseProposalOption(proposalDetails(shortTimer.key), clientLabel, "Secondary client", "Unrelated client");
+  assert.equal(proposalDetails(shortTimer.key).querySelector<HTMLInputElement>('[data-field="billableMinutes"]')?.value, "0:10");
+  await editProposal(shortTimer.key, 'input[data-field="recordedMinutes"]', "1");
+  await act(async () => button(proposalDetails(shortTimer.key), t("timesheets.sheet.accept")).click());
+  assert.equal(billingRequests.length, 1);
+  assert.ok(billingRequests[0].type === "create");
+  assert.equal(billingRequests[0].entry.workedMinutes, 1);
+  assert.equal(billingRequests[0].entry.clientId, secondary);
+
+  assert.equal(proposalDetails(singleClientProposal.key).querySelector(`[aria-label="${clientLabel}"]`), null);
+  await act(async () => button(proposalDetails(singleClientProposal.key), t("timesheets.sheet.accept")).click());
+  assert.ok(billingRequests[1]?.type === "create", host.querySelector(`[data-private-proposal="${singleClientProposal.key}"]`)?.textContent);
+  assert.equal(billingRequests[1].entry.clientId, primary);
+
+  await chooseProposalOption(row(missingClient.id), clientLabel, "Primary client", "Unrelated client");
+  assert.ok(billingRequests[2].type === "update");
+  assert.equal(billingRequests[2].entry.clientId, primary);
+  assert.equal(billingRequests[2].entry.billableMinutes, 20);
+  await render(capture(), [workerContact], billingState, book);
+  assert.equal(cell(row(missingClient.id), 6).textContent, "Approved");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());
