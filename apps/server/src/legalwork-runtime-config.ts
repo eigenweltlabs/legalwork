@@ -296,7 +296,7 @@ export async function buildLegalworkRuntimeSettings(
     ...(workspace ? primaryContentFolderRules(workspace) : []),
     ...(workspace ? projectFilePermissionRules(workspace, configuredPermission) : configuredPermission),
     { action: "legalwork_project_set_instructions", resource: "*", effect:
-      permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
+      permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "allow" },
   ];
   // The firm's instructions too, for every agent the member works with (scheduled runs included).
   const agentPrompt = withFirmInstructions(

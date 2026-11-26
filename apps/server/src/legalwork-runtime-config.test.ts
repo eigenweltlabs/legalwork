@@ -482,18 +482,18 @@ describe("legalwork runtime config files", () => {
     expect(sources.some(plugin => plugin.source.includes('id: "legalwork.agent-memory"'))).toBe(false);
   });
 
-  test("project instruction updates require approval even with broad tool allow rules", async () => {
+  test("project instruction updates are allowed by default and still honor explicit denials", async () => {
     const { config } = await setup();
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current,
-      permissions: [{ action: "legalwork_project_set_instructions", resource: "*", effect: "allow" }, { action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" }],
+      permissions: [{ action: "*", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }],
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const permissions = (await readSettings(config)).configuration.permissions;
     expect(permissions).toEqual(expect.arrayContaining([
-      { action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" },
-      { action: "legalwork_project_set_instructions", resource: "*", effect: "ask" },
+      { action: "*", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" },
+      { action: "legalwork_project_set_instructions", resource: "*", effect: "allow" },
     ]));
-    expect(permissionAction(permissions ?? [], "legalwork_project_set_instructions", "*")).toBe("ask");
+    expect(permissionAction(permissions ?? [], "legalwork_project_set_instructions", "*")).toBe("allow");
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permissions: [{ action: "legalwork_project_set_instructions", resource: "*", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "legalwork_project_set_instructions", resource: "*", effect: "deny" });

@@ -258,7 +258,7 @@ describe("Personalisation", () => {
     }
   });
 
-  test("agent instruction changes wait for approval, respect rejection and conflicts, and stay inside the current project", async () => {
+  test("agent instruction changes save directly, respect conflicts, and stay inside the current project", async () => {
     const { config, workspace } = await setup();
     const nested = join(workspace, "nested");
     await mkdir(nested, { recursive: true });
@@ -270,65 +270,35 @@ describe("Personalisation", () => {
     const oldToken = process.env.LEGALWORK_SERVER_TOKEN;
     process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`;
     process.env.LEGALWORK_SERVER_TOKEN = config.token;
-    let approve = () => {};
-    let requested = () => {};
-    const approval = new Promise<void>(resolve => { approve = resolve; });
-    const requestSeen = new Promise<void>(resolve => { requested = resolve; });
     const context: OpenCodeContext = {
       directory: join(nested, "documents"),
-      ask: async input => {
-        expect(input).toEqual({
-          permission: "legalwork_project_set_instructions", patterns: [nested], always: [],
-          metadata: { previousInstructions: "Use formal German.", proposedInstructions: "Prefer short paragraphs." },
-        });
-        requested();
-        await approval;
-      },
+      ask: async () => { throw new Error("Unexpected confirmation prompt"); },
     };
     try {
       const plugin = await LegalWorkProjectTools();
       const tool = plugin.tool.legalwork_project_set_instructions;
       expect(JSON.parse(await plugin.tool.legalwork_project_get_instructions.execute({}, context)))
         .toEqual({ revision: 1, customInstructions: "Use formal German." });
-      const pending = tool.execute({ revision: 1, customInstructions: "  Prefer short paragraphs.  " }, context);
-      await requestSeen;
-      expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Use formal German.");
-      approve();
-      expect(JSON.parse(await pending)).toEqual({ revision: 2, customInstructions: "Prefer short paragraphs." });
+      const saved = await tool.execute({ revision: 1, customInstructions: "  Prefer short paragraphs.  " }, context);
+      expect(JSON.parse(saved)).toEqual({ revision: 2, customInstructions: "Prefer short paragraphs." });
       expect((await readProjectDetails(workspace)).personalizationPrompt).toBe("Parent preferences");
       expect((await readGlobalPersonalizationSettings(config)).customInstructions).toBe("");
       const message = {sessionID:"ses_existing",messageID:"msg_test",prompt:{text:""}};
       await (await LegalWorkCapabilitiesKnowledge(context)).runtime.hook("session", "prompt", message);
       expect(message.prompt.text).toContain("Prefer short paragraphs.");
 
-      const args = { revision: 2, customInstructions: "Not approved" };
-      await expect(tool.execute(args, { ...context, ask: async () => { throw new Error("Permission rejected by the user"); } })).rejects.toThrow("Permission rejected");
-      expect(plugin.runtime.permissions.at(-1)).toMatchObject({action:"legalwork_project_set_instructions",resources:[nested],save:[]});
-      expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Prefer short paragraphs.");
-      let asked = false;
-      const stale = await tool.execute({ ...args, revision: 1 }, { ...context, ask: async () => { asked = true; } });
-      expect(JSON.parse(stale).error).toContain("project changed");
-      expect(asked).toBe(false);
-      const outside = await tool.execute(args, { ...context, directory: `${workspace}-other`, ask: async () => { asked = true; } });
+      const args = { revision: 2, customInstructions: "Use headings." };
+      const outside = await tool.execute(args, { ...context, directory: `${workspace}-other` });
       expect(JSON.parse(outside).error).toContain("not inside a registered project");
-      expect(asked).toBe(false);
       await expect(tool.execute({ ...args, customInstructions: "x".repeat(12_001) }, context)).rejects.toThrow();
 
-      const conflict = await tool.execute(args, { ...context, ask: async () => {
-        await updateProjectPersonalization(nested, { revision: 2, customInstructions: "Saved in settings while approval was pending." });
-      } });
+      await updateProjectPersonalization(nested, { revision: 2, customInstructions: "Saved in settings." });
+      const conflict = await tool.execute(args, context);
       expect(JSON.parse(conflict).error).toContain("409");
-      expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Saved in settings while approval was pending.");
-      let clearApproved = false;
-      const cleared = await tool.execute({ revision: 3, customInstructions: " \n " }, { ...context, ask: async input => {
-        expect(input.always).toEqual([]);
-        expect(input.metadata.proposedInstructions).toBe("");
-        clearApproved = true;
-      } });
-      expect(clearApproved).toBe(true);
+      expect((await readProjectDetails(nested)).personalizationPrompt).toBe("Saved in settings.");
+      const cleared = await tool.execute({ revision: 3, customInstructions: " \n " }, context);
       expect(JSON.parse(cleared)).toEqual({ revision: 4, customInstructions: "" });
     } finally {
-      approve();
       await server.stop();
       if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
       if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;

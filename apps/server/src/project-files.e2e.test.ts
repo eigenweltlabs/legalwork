@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startServer, type StartedServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { projectFileLinkSchema } from "@legalwork/types/project-files";
+import { serverSentEvents, syncPokeOf } from "@legalwork/types/sync-events";
 import { StoredViewSchema } from "./views/schema.js";
 import { ViewRepository, workspaceViewFiles } from "./views/repository.js";
 
@@ -28,6 +29,38 @@ async function serve(readOnly = false) {
   return { source, target, request, base, token: config.token };
 }
 const sourceRef = { projectId: "source", workspaceId: "source", path: "contract.md", name: "contract.md" };
+
+test("saving the first project note notifies the desktop and makes the note listable", async () => {
+  const { request, base, token } = await serve();
+  const controller = new AbortController();
+  const stream = await fetch(`${base}/sync/events`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4_000)]),
+  });
+  expect(stream.status).toBe(200);
+  const reader = stream.body?.getReader();
+  if (!reader) throw new Error("Expected a sync event stream");
+  try {
+    expect((await request("list?path=Notes")).status).toBe(404);
+    const path = "Notes/Meeting notes.md";
+    // The project note tool saves via this same file endpoint.
+    const saved = await request("content", { path, content: "# Meeting notes\n\nFollow up next week." });
+    expect(saved.status).toBe(200);
+    let notified = false;
+    const feed = serverSentEvents(data => { notified ||= syncPokeOf(data)?.projectNotes === true; });
+    const decoder = new TextDecoder();
+    while (!notified) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error("The sync stream closed before notifying the desktop");
+      feed(decoder.decode(chunk.value, { stream: true }));
+    }
+    const listing = await request("list?path=Notes");
+    expect(await listing.json()).toMatchObject({ entries: [{ kind: "file", path }] });
+  } finally {
+    controller.abort();
+    await reader.cancel().catch(() => {});
+  }
+});
 
 test("dashboard imports and same-project copies have independent IDs, safe source links and no overwrites", async () => {
   const { source, target, request, base } = await serve();

@@ -29,6 +29,7 @@ import {
   Mail,
   MessageSquarePlus,
   Paperclip,
+  PanelsTopLeft,
   Play,
   Plus,
   Sparkles,
@@ -199,6 +200,7 @@ export type TaskDetailProps = {
   accountUserId: string | null;
   /** Closes the task, back to the list alone: the back arrow in one column, the cross in two. */
   onBack: () => void;
+  onOpenTaskTab?: () => void;
   /** Panel tabs already provide navigation and a close button. */
   inPanel?: boolean;
   /** Reserve room for the standard dialog close button. */
@@ -492,6 +494,12 @@ export function TaskDetail(props: TaskDetailProps) {
             ) : null}
           </div>}
           <div className={props.inPanel ? "flex flex-wrap items-center gap-2" : "grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center"}>
+            {props.onOpenTaskTab && <Tooltip>
+              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("workspace.open_task_tab")} onClick={props.onOpenTaskTab} />}>
+                <PanelsTopLeft />
+              </TooltipTrigger>
+              <TooltipContent>{t("workspace.open_task_tab")}</TooltipContent>
+            </Tooltip>}
             {inTrash ? (
               <Button size="sm" disabled={props.busy} aria-busy={props.busy} onClick={props.onRestore}>
                 {props.busy ? <Loader2 className="animate-spin" /> : <ArchiveRestore />}
