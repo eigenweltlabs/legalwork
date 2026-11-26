@@ -8,6 +8,29 @@ import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { saveWorkdayLog } from "./day-log.js";
 import { captureProfile, checkScheduledWorkday, prepareWorkday } from "./routes.js";
 
+test("automatic suggestions default to Never on new profiles and upgrades without a schedule", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-workday-default-schedule-"));
+  try {
+    const config = backOfficeTestConfig(root);
+    const { path } = await captureProfile(config, await backOfficeAccess(config));
+    const now = () => new Date(2030, 0, 10, 18, 30).getTime();
+    let chats = 0;
+    const options = { now, async startChat() { chats++; } };
+
+    await checkScheduledWorkday(config, options);
+    expect(chats).toBe(0);
+
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify({ days: {}, lastRun: 0, settings: {
+      calendar: true, tasks: true, intervalMinutes: 0,
+    } }));
+    await checkScheduledWorkday(config, options);
+    expect(chats).toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("Never skips automatic suggestions and still allows an explicit run", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-workday-no-schedule-"));
   try {
@@ -134,7 +157,7 @@ test("daily times fire once, survive a closed workspace, and never run while sug
     const { path } = await captureProfile(config, await backOfficeAccess(config));
     await mkdir(dirname(path), { recursive: true });
     const settings = { calendar: false, tasks: false, documents: false, workspaceActivity: false,
-      intervalMinutes: 0, model: { workspaceId: "fixture", providerID: "fixture", modelID: "fixture" } };
+      schedule: { frequency: "daily", times: ["18:00"] }, model: { workspaceId: "fixture", providerID: "fixture", modelID: "fixture" } };
     const profile = z.object({
       settings: z.object({ enabled: z.boolean().optional() }).passthrough(),
       lastScheduledSlot: z.number(),

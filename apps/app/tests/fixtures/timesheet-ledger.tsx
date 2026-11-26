@@ -1378,6 +1378,13 @@ try {
   const enableSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="' + t("timeWorkspace.suggestionsEnabled") + '"]');
   assert.ok(enableSwitch);
   const scheduleTimes = () => Array.from(document.querySelectorAll<HTMLInputElement>('ul[aria-label="Run times"] li input[type="time"]')).map(input => input.value);
+  const frequency = document.querySelector('[role="combobox"][aria-label="' + t("timeWorkspace.frequency") + '"]');
+  assert.equal(frequency?.querySelector('[data-slot="select-value"]')?.textContent?.trim(), t("timeWorkspace.never"));
+  assert.deepEqual(scheduleTimes(), []);
+  assert.ok(document.body.textContent?.includes(t("timeWorkspace.neverHelp")));
+  await selectPopup(t("timeWorkspace.frequency"), t("scheduled.daily"));
+  await until(() => scheduleTimes().length > 0);
+  assert.deepEqual(workdaySettings.schedule, { frequency: "daily", times: ["18:00"] });
   assert.deepEqual(scheduleTimes(), ["18:00"]);
   await selectPopup(t("timeWorkspace.frequency"), t("timeWorkspace.never"));
   assert.deepEqual(workdaySettings.schedule, { frequency: "never" });
