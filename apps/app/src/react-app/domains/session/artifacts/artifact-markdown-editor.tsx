@@ -23,25 +23,28 @@ import { markdownBlocksPlugin } from "./markdown-block-controls";
 import { preservedFrontmatterPlugin } from "./markdown-frontmatter-plugin";
 import { documentFingerprint, literalHtmlSyntax, requiresMarkdownSource } from "./markdown-document-sync";
 import { preserveMarkdownFrontmatter } from "./markdown-block-model";
-import { $getNearestNodeFromDOMNode } from "lexical";
+import { $getNearestNodeFromDOMNode, getNearestEditorFromDOMNode } from "lexical";
 
 // Lexical renders app-specific schemes as about:blank. Read the original link
 // from its document state and route clicks through the host, without weakening
 // the editor's URL sanitizer or rewriting the saved Markdown.
-const appLinkNavigationPlugin = realmPlugin<{ getOpen: () => ((href: string) => void) | undefined }>({
+const appLinkNavigationPlugin = realmPlugin<{ getOpen: () => ((href: string) => void) | undefined; openOnClick?: (href: string) => boolean }>({
   init(realm, params) {
     realm.pub(createRootEditorSubscription$, editor => {
       const click = (event: MouseEvent) => {
         const open = params?.getOpen();
         if (!open || !(event.target instanceof Node)) return;
         const target = event.target;
-        const href = editor.getEditorState().read(() => {
+        // Table cells have their own Lexical editor and link nodes.
+        const linkEditor = getNearestEditorFromDOMNode(target) ?? editor;
+        const href = linkEditor.getEditorState().read(() => {
           let node = $getNearestNodeFromDOMNode(target);
           while (node && node.getType() !== "link" && node.getType() !== "autolink") node = node.getParent();
           const data = node?.exportJSON();
           return data && "url" in data && typeof data.url === "string" ? data.url : null;
-        }, { editor });
-        if (!href || href.startsWith("#") || (editor.isEditable() && !event.metaKey && !event.ctrlKey && !/^legalwork(?:task|-view|-wiki):/i.test(href))) return;
+        }, { editor: linkEditor });
+        if (!href || href.startsWith("#") || (linkEditor.isEditable() && !event.metaKey && !event.ctrlKey
+          && !/^legalwork(?:task|-view|-wiki):/i.test(href) && !params?.openOnClick?.(href))) return;
         event.preventDefault();
         event.stopPropagation();
         open(href);
@@ -69,6 +72,7 @@ type Props = {
   toolbarTarget?: HTMLElement | null;
   toolbarMenuItems?: ReactNode;
   onOpenLink?: (url: string) => void;
+  openLinkOnClick?: (href: string) => boolean;
   suppressHtmlProcessing?: boolean;
   allowDiff?: boolean;
   /** Render typed properties outside the editor while keeping full-file Source editing. */
@@ -105,7 +109,7 @@ function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml,
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, openLinkOnClick, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
   const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
   const openLink = useRef(onOpenLink);
   openLink.current = onOpenLink;
@@ -175,7 +179,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     },
   }), [suppressHtmlProcessing]);
   const plugins = useMemo(() => [
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }), appLinkNavigationPlugin({ getOpen: () => openLink.current }),
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }), appLinkNavigationPlugin({ getOpen: () => openLink.current, openOnClick: openLinkOnClick }),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
     tablePlugin(), thematicBreakPlugin(), externalFrontmatter ? preservedFrontmatterPlugin() : frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
@@ -189,7 +193,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     toolbarPlugin({ toolbarContents: () => toolbarTarget === undefined
       ? <MarkdownToolbar rawMarkdown={() => lastValue.current} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />
       : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />, toolbarTarget) : null }),
-  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing]);
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, openLinkOnClick, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing]);
 
   useEffect(() => {
     if (value === lastValue.current) return;

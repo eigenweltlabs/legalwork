@@ -1,5 +1,6 @@
 import { projectFieldsSchema, type ProjectDetails, type ProjectField } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
+import { ProjectScheduledTasks } from "./project-scheduled-tasks";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
@@ -237,6 +238,7 @@ export function ProjectHome(props: {
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
+        <ProjectScheduledTasks client={client} workspaceId={workspaceId} active={props.active} />
         </div>
 
         {details.error ? <Surface className="space-y-3 rounded-xl p-4">

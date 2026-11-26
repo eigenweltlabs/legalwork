@@ -1,6 +1,8 @@
 import type { UIMessage } from "ai";
 import { codeLanguage } from "./code-language";
 import { attachmentFilename } from "@/app/lib/attachment-filename";
+import { normalizeLocalFilePath, resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
+import { projectFilePath } from "@legalwork/types/project-files";
 
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
@@ -280,6 +282,44 @@ export function resolveHrefOpenTarget(href: string, openTargets: OpenTarget[]) {
   // Prefer a verified transcript artifact; otherwise build one from the path so
   // plain file mentions (not just edited/attached files) are openable too.
   return resolvePathOpenTarget(path, openTargets);
+}
+
+const absoluteFilePath = /^(?:\/|[a-z]:\/)/i;
+
+export function isMarkdownFileLink(href: string): boolean {
+  const value = href.trim();
+  return Boolean(value && !value.startsWith("#") && (
+    !/^[a-z][a-z0-9+.-]*:/i.test(value) || /^file:|^[a-z]:[/\\]/i.test(value)
+  ));
+}
+
+/** Markdown links use the document's folder. Older unprefixed links can also refer to the project root. */
+export function markdownFileLinkPaths(href: string, documentPath: string): string[] {
+  if (!isMarkdownFileLink(href)) return [];
+  const path = localPathFromHref(href).replaceAll("\\", "/");
+  if (!path || /[\u0000-\u001f]/.test(path)) return [];
+  if (absoluteFilePath.test(path)) return [path];
+
+  const document = normalizeLocalFilePath(documentPath).replaceAll("\\", "/");
+  const directory = document.slice(0, Math.max(0, document.lastIndexOf("/")));
+  let primary: string;
+  if (absoluteFilePath.test(document)) {
+    // The server authorizes the exact absolute path against the project's roots.
+    primary = resolveLocalFilePath(directory, path);
+  } else {
+    const parts: string[] = [];
+    for (const part of [directory, path].join("/").split("/")) {
+      if (part === "..") {
+        if (!parts.length) return [];
+        parts.pop();
+      } else if (part && part !== ".") {
+        parts.push(part);
+      }
+    }
+    primary = parts.join("/");
+    if (!projectFilePath.safeParse(primary).success) return [];
+  }
+  return primary !== path && projectFilePath.safeParse(path).success ? [primary, path] : [primary];
 }
 
 /**

@@ -3185,6 +3185,8 @@ const de = {
   "projects.no_documents": "Dieser Ordner enthält noch keine sichtbaren Dokumente. Fügen Sie Dateien über die Seitenleiste hinzu.",
   "projects.files_truncated": "Es wird nur ein Teil des Ordners angezeigt. Öffnen Sie die Dateiansicht für weitere Dateien.",
   "projects.metadata": "Projektdetails",
+  "projects.scheduled_tasks": "Geplante Aufgaben",
+  "projects.no_scheduled_tasks": "Keine geplanten Aufgaben für dieses Projekt.",
   "projects.edit": "Bearbeiten",
   "projects.no_metadata": "Wählen Sie eine Metadatenvorlage oder fügen Sie eigene Felder hinzu, etwa Referenz, verantwortliche Person oder Zieldatum.",
   "projects.metadata_hint": "Feldnamen und Typen festlegen. Die Inhalte gehören zum jeweiligen Projekt.",
