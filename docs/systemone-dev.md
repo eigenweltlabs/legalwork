@@ -1,6 +1,16 @@
 # Developing SystemOne and OCR with project workspaces
 
-## Matching repositories
+## Current managed backend
+
+Managed EU and US SystemOne now use Microsoft Decision 1.1 through the regional
+paid gateways. Use the current model-api `main` and its
+[Microsoft Decision configuration](https://github.com/eigenweltlabs/model-api/blob/main/docs/microsoft-decision.md).
+The OpenJev proxy topology, branch pins and startup checklist below are historical;
+the standalone JEV API, GPU pool and dedicated gateways are retired.
+
+## Historical OpenJev setup
+
+### Matching repositories
 
 This branch combines project/Akte workspaces with SystemOne, multi-model providers,
 OCR preparation and Tabular Review. Managed EigenJev requires the matching backend:
@@ -17,7 +27,7 @@ The complete, checked-in setup is in the model-api
 It covers prerequisites, credentials, local provisioning, gateway settings, startup,
 verification, expired keys and the separate production rollout.
 
-## Local topology
+### Local topology
 
 ```text
 LegalWork → local platform subscription checks
@@ -30,7 +40,7 @@ Keep production credentials in a private file outside either repository. LegalWo
 receives only the local subscription key. The proxy accepts only SystemOne traffic;
 chat providers and OCR engines retain their own configuration.
 
-## Startup checklist
+### Startup checklist
 
 1. Check out model-api `feat/systemone`, install dependencies, and configure the
    existing Clerk desktop OAuth and Stripe **test** subscription flow from its
@@ -145,6 +155,5 @@ marked interrupted and waits for an explicit Resume rather than silently
 starting paid requests.
 
 See [SystemOne contract](systemone.md) and [OCR documentation](../apps/server/src/ocr/README.md).
-These steps are for local development. Pushing either branch does not deploy the
-production pool or gateways; production enablement follows model-api's separate
-rollout checklist.
+Desktop development does not change production routing. Backend releases follow
+model-api's regional deployment instructions.

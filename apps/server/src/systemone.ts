@@ -99,8 +99,8 @@ async function managedProvider(config: ServerConfig, signal?: AbortSignal, selec
     name: "Eigenwelt",
     endpoint: `${EIGENWELT_LEGACY_GATEWAY_URL}/v1/systemone`,
     models: [
-      { id: "EigenJev", name: "Eigenwelt Europe EigenJev", region: "EU", questionTypes: ["noul", "choice", "score"], source: "configured" },
-      { id: "TypeSafeJev", name: "Eigenwelt US Jev", region: "US", questionTypes: ["noul", "choice", "score"], source: "configured" },
+      { id: "EigenJev", name: "SystemOne (EU)", region: "EU", questionTypes: ["noul", "choice", "score"], source: "configured" },
+      { id: "TypeSafeJev", name: "SystemOne (US)", region: "US", questionTypes: ["noul", "choice", "score"], source: "configured" },
     ],
     enabled: false,
     managed: true,
