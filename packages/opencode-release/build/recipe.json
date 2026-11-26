@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.7",
+  "version": "2.1.4-legalwork.http-policy.8",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,8 +72,8 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-project-tool-output.patch",
-      "sha256": "1329400f9522720df0364d03bd0ac2ea996b6599764c7fac69affdda2e7e49ad"
+      "path": "docs/patches/opencode-2.1.4-service-stdin-lease.patch",
+      "sha256": "3d53fe2be30c62aecdb168839485de96f84c6d86052bf86709bd1825cf3dd196"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,15 +84,15 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-project-tool-output.receipt.json",
-      "sha256": "fe1e43a7f6ad1b4c108c4c520e0d4c04e42d70ce49a1a14df48b0d15c9bdc689"
+      "path": "docs/patches/opencode-2.1.4-service-stdin-lease.receipt.json",
+      "sha256": "4dbb168445016c8205d94269aab15f914f467a2cb04f15606dc39a4bce3274e2"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "fe1e43a7f6ad1b4c108c4c520e0d4c04e42d70ce49a1a14df48b0d15c9bdc689",
+    "receiptSha256": "4dbb168445016c8205d94269aab15f914f467a2cb04f15606dc39a4bce3274e2",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "1329400f9522720df0364d03bd0ac2ea996b6599764c7fac69affdda2e7e49ad",
+    "patchSha256": "3d53fe2be30c62aecdb168839485de96f84c6d86052bf86709bd1825cf3dd196",
     "bun": "1.4.4",
     "migrationTestsPassed": 38,
     "migrationTestsFailed": 0,
@@ -104,6 +104,8 @@
     "historySourceTestsPassed": 218,
     "historySourceTestsFailed": 0,
     "toolOutputSourceTestsPassed": 146,
-    "toolOutputSourceTestsFailed": 0
+    "toolOutputSourceTestsFailed": 0,
+    "serviceLeaseSourceTestsPassed": 33,
+    "serviceLeaseSourceTestsFailed": 0
   }
 }

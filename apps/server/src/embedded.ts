@@ -237,7 +237,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         process.env.OPENCODE_DB = database;
         const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
         await opencodeEngineIdentity(executablePath, options.opencodeCandidateBuild);
-        const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
+        const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");

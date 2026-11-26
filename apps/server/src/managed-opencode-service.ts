@@ -3,13 +3,25 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Service } from "@opencode/client/service";
 import { z } from "zod";
-import { quarantineForeignWindowsService } from "./managed-opencode-windows-recovery.js";
 
-export type ManagedOpencodeServiceOptions = { configDirectory: string; stateDirectory: string; filename?: "service.json" | "service-legalwork.json"; executablePath?: string };
+export type ManagedOpencodeServiceOptions = { configDirectory: string; stateDirectory: string; filename?: "service.json" | "service-legalwork.json" };
 const registration = z.object({ url: z.string().url(), pid: z.number().int().positive(), password: z.string().optional() });
+const engineInfo = z.object({ pid: z.number().int() });
 
-/** Only a verified service in this application's private registration can be
- * stopped. A reused PID or unrelated listener is never killed from stale JSON. */
+/** The registered engine proves itself by answering with its password and PID.
+ * A refused connection or another listener's answer proves the registration
+ * stale; a listener that stays silent might be a stuck engine and blocks. */
+async function registeredEngineAnswers(info: z.infer<typeof registration>): Promise<boolean> {
+  const signal = AbortSignal.timeout(5000);
+  const headers = Service.headers({ url: info.url, auth: info.password === undefined ? undefined : { type: "basic", username: "opencode", password: info.password } });
+  const body: unknown = await fetch(new URL("/api/info", info.url), { headers, signal }).then(response => response.json()).catch(() => undefined);
+  if (signal.aborted) throw new Error("The previous OpenCode engine's address is in use but does not answer. Close that engine before restarting LegalWork.");
+  return engineInfo.safeParse(body).data?.pid === info.pid;
+}
+
+/** Managed engines hold a stdin lease and cannot outlive the process that
+ * started them, so a registration nothing answers for is stale. Only an engine
+ * that proves itself is stopped; a PID from the file alone never is. */
 export async function stopManagedOpencodeService(options: ManagedOpencodeServiceOptions): Promise<void> {
   await Promise.all([options.configDirectory, options.stateDirectory].map(directory => mkdir(directory, { recursive: true, mode: 0o700 })));
   // Both reviewed channels use the same private engine DB. Verify and stop a
@@ -24,34 +36,17 @@ export async function stopManagedOpencodeService(options: ManagedOpencodeService
       if (!info.success) throw new Error("The private OpenCode service registration is invalid. Preserve it and inspect the managed engine before restarting.");
       const url = new URL(info.data.url);
       if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.protocol !== "http:") throw new Error("The private OpenCode service registration must point to a local engine.");
-      let alive = true, inaccessibleExecutable: string | undefined;
-      try { process.kill(info.data.pid, 0); }
-      catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ESRCH") alive = false;
-        else if (error instanceof Error && "code" in error && error.code === "EPERM" && process.platform === "win32" && options.executablePath) inaccessibleExecutable = options.executablePath;
-        else throw error;
-      }
-      if (alive) {
-        const endpoint = await Service.discover({ file });
-        if (inaccessibleExecutable) {
-          if (endpoint) throw new Error("The previous OpenCode engine is still responding but this user cannot stop it. Close that engine before restarting LegalWork.");
-          await quarantineForeignWindowsService({ file, text, pid: info.data.pid, url, executablePath: inaccessibleExecutable });
-          continue;
-        }
-        if (!endpoint) throw new Error("A process still owns the private OpenCode service registration but cannot be verified. Resolve that engine before starting another copy.");
-        await Service.stop({ file, pty: "clear" });
-      } else {
-        // Retain stale diagnostics, including their private file permissions.
-        await rename(file, `${file}.stale-${randomUUID()}`);
-      }
+      if (await registeredEngineAnswers(info.data)) await Service.stop({ file, pty: "clear" });
+      // Retain stale diagnostics, including their private file permissions.
+      else await rename(file, `${file}.stale-${randomUUID()}`);
     }
   }
 }
 
-export async function prepareManagedOpencodeService(options: ManagedOpencodeServiceOptions, password: string): Promise<{ XDG_STATE_HOME: string; OPENCODE_CONFIG_DIR: string }> {
+export async function prepareManagedOpencodeService(options: ManagedOpencodeServiceOptions, password: string): Promise<{ XDG_STATE_HOME: string; OPENCODE_CONFIG_DIR: string; OPENCODE_SERVICE_STDIN_LEASE: "1" }> {
   await stopManagedOpencodeService(options);
   const path = join(options.configDirectory, options.filename ?? "service.json"), temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify({ password }), { mode: 0o600 });
   await rename(temporary, path);
-  return { XDG_STATE_HOME: options.stateDirectory, OPENCODE_CONFIG_DIR: options.configDirectory };
+  return { XDG_STATE_HOME: options.stateDirectory, OPENCODE_CONFIG_DIR: options.configDirectory, OPENCODE_SERVICE_STDIN_LEASE: "1" };
 }

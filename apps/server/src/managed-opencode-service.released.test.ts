@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -40,6 +41,30 @@ test.skipIf(!binary)("released service uses private authenticated registration a
     await stopManagedOpencodeService({ configDirectory, stateDirectory });
     expect(second.running()).toBe(false);
   } finally { await second?.close(); await first.close(); await rm(root, { recursive: true, force: true }); }
+}, 45_000);
+
+test.skipIf(!binary)("a service engine stops when its host is killed, and the next start is not blocked by its registration", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-service-lease-")));
+  const registration = join(root, "state", "opencode", await expectedOpencodeServiceFilename(binary!));
+  const host = spawn(process.execPath, [join(import.meta.dir, "managed-recovery.test-support.ts"), root, binary!, "service", "0"], { stdio: ["ignore", "ignore", "pipe"] });
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const until = async (condition: () => Promise<boolean>) => { const deadline = Date.now() + 30_000; while (!await condition()) { if (Date.now() > deadline) throw new Error("Service lease fixture did not settle."); await Bun.sleep(20); } };
+  let pid = 0;
+  try {
+    await until(async () => { pid = await readFile(join(root, "ready.json"), "utf8").then(text => JSON.parse(text).pid, () => 0); return pid > 0; });
+    expect(JSON.parse(await readFile(registration, "utf8")).pid).toBe(pid);
+    host.kill("SIGKILL");
+    await until(async () => !alive(pid));
+    // A leased engine removes its own registration as it exits. Windows ends
+    // the engine with its host instead, and the next start sets the file aside.
+    if (process.platform !== "win32") await until(async () => !await Bun.file(registration).exists());
+    await stopManagedOpencodeService({ configDirectory: join(root, "config"), stateDirectory: join(root, "state") });
+    expect((await readdir(join(root, "state", "opencode"))).filter(name => !name.includes(".stale-"))).toEqual([]);
+  } finally {
+    if (host.exitCode === null && host.signalCode === null) host.kill("SIGKILL");
+    if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
 }, 45_000);
 
 test.skipIf(!binary)("released service resumes an interrupted native turn and its durable inbox without client replay", async () => {

@@ -27,7 +27,8 @@ if (mode === "before-ready") {
   child.once("exit", code => process.exit(code ?? 0));
   process.once("SIGTERM", () => child.stdin?.end());
 } else {
-  const engine = await createManagedOpencodeServer({ bin: binary, cwd: home, timeoutMs: 30_000, parentLease: true, env });
+  const lease = mode === "service" ? { service: { configDirectory: join(root, "config"), stateDirectory: join(root, "state") } } : { parentLease: true };
+  const engine = await createManagedOpencodeServer({ bin: binary, cwd: home, timeoutMs: 30_000, ...lease, env });
   const keepAlive = setInterval(() => {}, 1000);
   process.once("SIGTERM", () => { void engine.close().then(() => { clearInterval(keepAlive); process.exit(0); }); });
   await writeFile(join(root, "ready.json"), JSON.stringify({ pid: engine.pid, url: engine.url, password: engine.password, args: engine.execution.args }), { mode: 0o600 });

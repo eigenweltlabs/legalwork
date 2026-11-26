@@ -25,7 +25,7 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const output = stdout + stderr;
       expect(code, output).toBe(0);
-      expect(output).toContain("17 pass");
+      expect(output).toContain("18 pass");
       expect(output).toContain("0 fail");
     } finally {
       clearTimeout(timeout);
@@ -58,10 +58,12 @@ if (n <= failUntil) {
   process.exit(1);
 }
 const stdio = process.argv.includes("--stdio");
+// Service mode reads its password from the private config the launcher wrote.
+const password = process.argv.includes("--service") ? JSON.parse(fs.readFileSync(require("node:path").join(process.env.OPENCODE_CONFIG_DIR, "service-legalwork.json"), "utf8")).password : process.env.OPENCODE_PASSWORD;
 process.stdout.write((stdio ? JSON.stringify({url:"http://127.0.0.1:"+port}) : "server listening on http://127.0.0.1:" + port) + "\\n");
 const migrationStarted = Date.now();
 setTimeout(() => http.createServer((request, response) => {
-  if (request.headers.authorization !== "Basic " + Buffer.from("opencode:" + process.env.OPENCODE_PASSWORD).toString("base64")) return response.writeHead(401).end();
+  if (request.headers.authorization !== "Basic " + Buffer.from("opencode:" + password).toString("base64")) return response.writeHead(401).end();
   if (request.url === "/api/experimental/migration/v1") {
     response.setHeader("Content-Type", "application/json");
     const status = process.env.FAKE_OPENCODE_MIGRATION_ERROR ? {status: "error", error: "legacy conversion failed"}
@@ -75,7 +77,7 @@ setTimeout(() => http.createServer((request, response) => {
   response.end(JSON.stringify({ version: process.env.FAKE_OPENCODE_VERSION || ${JSON.stringify(version)}, pid: process.env.FAKE_OPENCODE_WRONG_PID ? process.pid + 1 : process.pid }));
 }).listen(Number(port), "127.0.0.1"), Number(process.env.FAKE_OPENCODE_LISTEN_DELAY_MS || "0"));
 process.on("SIGTERM", () => { fs.writeFileSync(counter + ".sigterm", "true"); process.exit(0); });
-if (stdio) { process.stdin.once("end", () => { fs.writeFileSync(counter + ".eof", "true"); process.exit(0); }); process.stdin.resume(); }
+if (stdio || process.env.OPENCODE_SERVICE_STDIN_LEASE === "1") { process.stdin.once("end", () => { fs.writeFileSync(counter + ".eof", "true"); process.exit(0); }); process.stdin.resume(); }
 setInterval(() => {}, 1 << 30);
 `;
 
@@ -189,6 +191,19 @@ test("native stdin lease uses JSON readiness and normal Stop closes EOF without 
     expect(server.execution.args).toContain("--stdio");
     expect(server.execution.args).not.toContain("--service");
     expect((await fetch(`${server.url}/api/info`)).status).toBe(401);
+  } finally { await server.close(); }
+  expect(server.running()).toBe(false);
+  expect(readFileSync(counter + ".eof", "utf8")).toBe("true");
+  expect(existsSync(counter + ".sigterm")).toBe(false);
+});
+
+test("a service engine holds a stdin lease and normal Stop closes it without signalling a live process", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const service = { configDirectory: join(dir!, "service-config"), stateDirectory: join(dir!, "service-state") };
+  const server = await createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!, service, env: { FAKE_OPENCODE_COUNTER: counter } });
+  try {
+    expect(server.execution.args).toContain("--service");
+    expect(server.execution.env.find(entry => entry.name === "OPENCODE_SERVICE_STDIN_LEASE")?.value).toBe("1");
   } finally { await server.close(); }
   expect(server.running()).toBe(false);
   expect(readFileSync(counter + ".eof", "utf8")).toBe("true");
