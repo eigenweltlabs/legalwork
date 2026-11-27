@@ -319,6 +319,23 @@ if (previewParams.has("activity")) {
     if (event instanceof CustomEvent && typeof event.detail === "number") activityStep(event.detail);
   });
 }
+// A finished run in which the agent recovered from failed actions.
+if (previewParams.has("tool-failures")) {
+  const history = snapshots.get("visual-review");
+  if (!history) throw new Error("Missing tool failure preview history");
+  const turn = snapshot("visual-review", "Notice periods", "Check the notice periods in the supplier agreement.", "Both parties can terminate with three months' notice. This is a simulated response for visual review.");
+  const [user, assistant] = turn.messages;
+  const tools: Array<[string, Record<string, string>, string?]> = [
+    ["read", { filePath: "/synthetic/agreement.docx" }, "File not found"],
+    ["grep", { pattern: "notice period" }],
+    ["read", { filePath: "/synthetic/Supplier agreement.docx" }],
+    ["bash", { command: "ls", description: "List project files" }, "Command timed out"],
+    ["webfetch", { url: "https://example.com" }],
+  ];
+  const parts: Part[] = tools.map(([tool, input, error], index) => ({ id: `failure-tool-${index}`, messageID: assistant.info.id, sessionID: turn.session.id, type: "tool", tool, callID: `failure-call-${index}`,
+    state: error ? { status: "error", input, error, time: { start: now, end: now + 1 } } : { status: "completed", input, output: "Done.", title: tool, metadata: {}, time: { start: now, end: now + 1 } } }));
+  saveSnapshot({ ...turn, messages: [...history.messages, user, { ...assistant, parts: [...parts, ...assistant.parts] }] });
+}
 if (previewParams.has("sent-by")) {
   const delegated = snapshots.get("visual-review");
   const prompt = delegated?.messages[0]?.parts[0];
@@ -867,7 +884,7 @@ function SessionPreview() {
   } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") || previewParams.has("activity") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") || previewParams.has("activity") || previewParams.has("tool-failures") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();

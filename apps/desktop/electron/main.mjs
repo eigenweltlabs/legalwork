@@ -51,7 +51,8 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
-import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName } from "./support-bundle.mjs";
+import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName, readChatSupportLog } from "./support-bundle.mjs";
+import { createSupportTicketConfirmations } from "./support-ticket.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -384,7 +385,7 @@ async function showSupportLogsProgressWindow(parent) {
 // path, or null when the user cancels the dialog. `runtimeManager` is created
 // later at module scope; the click/IPC always happens after startup, so the
 // late binding via closure is safe.
-async function collectSupportLogsAndReveal(technical = false, days = 7) {
+async function collectSupportLogsAndReveal(technical = false, days = 2) {
   let defaultDir;
   try {
     defaultDir = app.getPath("desktop");
@@ -405,28 +406,14 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
   const progressWindow = await showSupportLogsProgressWindow(parent);
   try {
     if (technical) {
-      const text = await collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days });
+      const text = await collectDetailedSupportLogs(days);
       writeFileSync(filePath, text, { encoding: "utf8", mode: 0o600 });
       shell.showItemInFolder(filePath);
       return filePath;
     }
     // Give the progress window one paint before collecting diagnostics.
     await new Promise((resolve) => setTimeout(resolve, 80));
-    // The embedded server's own requests (e.g. to GitHub) ignore the system
-    // proxy that the app window uses, so record it to tell a proxy network
-    // from a flaky connection.
-    const network = {
-      systemProxyForGithub: await session.defaultSession
-        .resolveProxy("https://api.github.com")
-        .catch((error) => `unknown (${error.message})`),
-      proxyEnv: Object.fromEntries(
-        Object.entries(process.env)
-          .filter(([name]) => /^(https?|all|no)_proxy$/i.test(name))
-          .map(([name, value]) => [name, String(value).replace(/\/\/[^/@]*@/, "//<redacted>@")]),
-      ),
-    };
-    // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, await buildSupportBundleText({ app, runtimeManager, network }), "utf8");
+    writeFileSync(filePath, await collectSupportLogsText(), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -1200,11 +1187,39 @@ function fitSkillName(raw) {
   return candidate.replace(/-+$/g, "") || null;
 }
 
+async function collectSupportLogsText() {
+  const network = {
+    systemProxyForGithub: await session.defaultSession.resolveProxy("https://api.github.com")
+      .catch((error) => `unknown (${error.message})`),
+    proxyEnv: Object.fromEntries(Object.entries(process.env)
+      .filter(([name]) => /^(https?|all|no)_proxy$/i.test(name))
+      .map(([name, value]) => [name, String(value).replace(/\/\/[^/@]*@/, "//<redacted>@")])),
+  };
+  return buildSupportBundleText({ app, runtimeManager, network });
+}
+
+/** @param {number} days @param {AbortSignal} [signal] */
+async function collectDetailedSupportLogs(days, signal) {
+  return collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days, signal });
+}
+
+const supportTicketConfirmations = createSupportTicketConfirmations();
+
 const runtimeManager = createRuntimeManager({
   app,
   // Chromium networking follows the system/PAC proxy and enterprise certificates.
   modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
   getApprovalWindow: () => mainWindow,
+  desktopSupport: {
+    confirm: (signal) => {
+      const focused = BrowserWindow.getFocusedWindow()?.webContents;
+      const contents = focused && isAppUrl(focused.getURL()) ? focused : mainWindow?.webContents;
+      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve("cancel");
+      return supportTicketConfirmations.request(contents, signal);
+    },
+    collectLogs: collectDetailedSupportLogs,
+    readChatLog: (sessionId) => readChatSupportLog(app, sessionId),
+  },
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
@@ -1964,6 +1979,19 @@ const desktopCommandHandlers = {
   "supportBundleCollect": async (event, ...args) => {
       const bundlePath = await collectSupportLogsAndReveal();
       return { path: bundlePath };
+  },
+  "startupSupport": async (event, includeContact) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.sender.getURL()))
+      throw new Error("Startup support is available only in the LegalWork window.");
+    return runtimeManager.startupSupport(includeContact === true);
+  },
+  "supportTicketConfirmationGet": async (event) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return null;
+    return supportTicketConfirmations.read(event.sender);
+  },
+  "supportTicketConfirmationReply": async (event, id, choice) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return false;
+    return supportTicketConfirmations.reply(event.sender, id, choice);
   },
   "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {
@@ -3077,6 +3105,11 @@ async function createMainWindow() {
 }
 
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
+ipcMain.handle("legalwork:shell:openSupportPhone", async (event, phone) => {
+  if (event.senderFrame !== event.sender.mainFrame || typeof phone !== "string" || !/^\+[1-9]\d{6,14}$/.test(phone))
+    throw new Error("Invalid support phone number.");
+  await shell.openExternal(`tel:${phone}`);
+});
 ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
   if (typeof url === "string" && url.trim().length > 0) {
     await safeOpen.openExternal(url);

@@ -482,31 +482,30 @@ describe("legalwork runtime config files", () => {
     expect(sources.some(plugin => plugin.source.includes('id: "legalwork.agent-memory"'))).toBe(false);
   });
 
-  test("project instruction updates require approval even with broad tool allow rules", async () => {
+  test("project instruction updates are allowed by default and still honor explicit denials", async () => {
     const { config } = await setup();
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current,
-      permissions: [{ action: "legalwork_project_set_instructions", resource: "*", effect: "allow" }, { action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" }],
+      permissions: [{ action: "*", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" }],
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const permissions = (await readSettings(config)).configuration.permissions;
     expect(permissions).toEqual(expect.arrayContaining([
-      { action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" },
-      { action: "legalwork_project_set_instructions", resource: "*", effect: "ask" },
+      { action: "*", resource: "*", effect: "ask" }, { action: "shell", resource: "*", effect: "ask" },
+      { action: "legalwork_project_set_instructions", resource: "*", effect: "allow" },
     ]));
-    expect(permissionAction(permissions ?? [], "legalwork_project_set_instructions", "*")).toBe("ask");
+    expect(permissionAction(permissions ?? [], "legalwork_project_set_instructions", "*")).toBe("allow");
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permissions: [{ action: "legalwork_project_set_instructions", resource: "*", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "legalwork_project_set_instructions", resource: "*", effect: "deny" });
   });
 });
 
-describe("eigenwelt free provider retirement", () => {
+describe("built-in Zen provider", () => {
   test("zen is always disabled without duplicating saved provider denials", async () => {
     const { config } = await setup();
     await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, policies: [{ action: "provider.use", resource: "openrouter", effect: "deny" }, { action: "provider.use", resource: "opencode", effect: "deny" }] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const parsed = (await readSettings(config)).configuration;
-    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
     expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "openrouter", effect: "deny" });
     expect(parsed.policies?.filter(rule => rule.action === "provider.use" && rule.resource === "opencode" && rule.effect === "deny")).toHaveLength(1);
   });
@@ -515,7 +514,6 @@ describe("eigenwelt free provider retirement", () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const parsed = (await readSettings(config)).configuration;
-    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
     expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "opencode", effect: "deny" });
   });
 

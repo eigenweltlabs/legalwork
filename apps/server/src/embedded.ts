@@ -32,7 +32,6 @@ import {
 } from "./legalwork-runtime-config.js";
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
-import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
@@ -64,6 +63,7 @@ export type EmbeddedServerOptions = CliArgs & {
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
   /** Host-owned approval presentation for manual mode. */
   requestHostApproval?: ServerConfig["requestHostApproval"];
+  desktopSupport?: ServerConfig["desktopSupport"];
   /** When true, spawn a managed OpenCode child process. */
   manageOpencode?: boolean;
   /** Host-only existing execution boundary; desktop defaults to protected. */
@@ -136,6 +136,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.engineProjectTrustRequired = managedEngine;
   config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
+  config.desktopSupport = options.desktopSupport;
   config.pickDirectory = options.pickDirectory ?? null;
   config.renderHtmlPdf = options.renderHtmlPdf;
   if (managedEngine) config.projectsDirectory = options.projectsDirectory || localProjectsDirectory();
@@ -185,9 +186,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       });
     }
   }
-  // Validate saved providers before building engine configuration. Only retired
-  // app-owned definitions are removed; invalid user connections remain intact.
-  await repairAllWorkspaceRuntimeProviders(config);
   // Desktop connectors are shared by every workspace. Fold what earlier builds
   // stored per workspace or in files into the shared row before the engine
   // config file is built from it, so nothing already connected disappears.
@@ -237,7 +235,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         process.env.OPENCODE_DB = database;
         const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
         await opencodeEngineIdentity(executablePath, options.opencodeCandidateBuild);
-        const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
+        const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");

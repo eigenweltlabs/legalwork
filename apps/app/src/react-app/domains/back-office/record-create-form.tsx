@@ -21,7 +21,8 @@ function focusName(input: HTMLInputElement | null) { input?.focus({ preventScrol
 
 function displayValue(value: BackOfficeValue | undefined, field: BackOfficeField): string {
   if (value === undefined || value === null || value === "") return t("projects.empty_value");
-  if (Array.isArray(value)) return value.map(item => typeof item === "string" ? item : item.name).join(", ");
+  if (Array.isArray(value)) return value.map(item => typeof item === "string" ? item : "label" in item ? item.label : item.name)
+    .join(field.type === "textList" || field.type === "linkList" ? " · " : ", ");
   if (typeof value === "object") return `${backOfficeMajorAmount(value)} ${value.currency}`;
   if (typeof value === "boolean") return t(value ? "projects.reference.filter_true" : "projects.reference.filter_false");
   return backOfficeOptionLabel(field, String(value));

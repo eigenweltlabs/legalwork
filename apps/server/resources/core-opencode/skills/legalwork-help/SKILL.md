@@ -22,7 +22,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter/client links, field names/types/content, More and Customize fields, templates, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
 | Time tracking, hourly or daily suggestions, enabled mail and calendar sources, unchecked intervals, live suggestions, date and range history, table options, timekeeping project and private chat, matter stopwatch, saved client or matter billing guidelines, billing settings, approvals and the Invoices tab for invoice records or Word/PDF | [time-tracking.md](references/time-tracking.md) |
-| Back Office, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
+| Back Office, clients, matters, people, companies, short creation forms, data models, ordered text lists, named web links, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
 | Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Web search, AWS versus Exa, search costs, query length or search processing location | [models-fusion.md](references/models-fusion.md) |
@@ -33,6 +33,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Cloud drives, network storage, or moving and copying connected files | [connected-storage.md](references/connected-storage.md) |
 | Website logins, the general legal-research skill, research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
 | Integration categories, installed connections, connector detail pages, multiple named connections, browser or Computer Use | [integrations.md](references/integrations.md) |
+| GitHub connector, OAuth app setup, GitHub repositories, issues or pull requests in LegalWork | [integrations.md](references/integrations.md#github) |
 | Wiki, Legal Research / Rechtliche Recherche, research starter selection, jurisdiction/area browsing, proposed folders, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
@@ -42,6 +43,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Firm infrastructure region, EU/US hosting or account routing | [settings-privacy.md](references/settings-privacy.md#firm-infrastructure-region) |
 | Show costs, prompt or conversation cost, token breakdown, cached input or unavailable model pricing | [settings-privacy.md](references/settings-privacy.md#show-prompt-and-conversation-costs) |
 | Setup | [getting-started.md](references/getting-started.md) |
+| Support in chat, sending a ticket or attaching support logs | [troubleshooting.md](references/troubleshooting.md#get-support-in-chat) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 
 Answer the question directly and briefly. For setup, give the ordinary path and necessary prerequisites; explain alternative methods only if relevant or requested. Reuse the page's `legalwork://app/...` links as natural labels, for example [Connectors](legalwork://app/settings/extensions/mcp). Clicking one navigates inside LegalWork. Do not invent destinations or turn an explanation into a settings change.

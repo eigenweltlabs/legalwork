@@ -54,6 +54,7 @@ import {
   legalworkStorageToolsPluginPath,
   legalworkTaskToolsPluginPath,
   legalworkCalendarToolsPluginPath,
+  legalworkSupportToolsPluginPath,
   legalworkDraftToolsPluginPath,
   legalworkScheduledTaskToolsPluginPath,
   legalworkProjectToolsPluginPath,
@@ -99,7 +100,7 @@ import {
 } from "./eigenwelt-paid-manifest.js";
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { validateRuntimeProviders } from "./runtime-provider-validation.js";
 import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
@@ -170,7 +171,7 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 ## Quick questions about a document corpus
 
 - A question such as "Which contracts in this folder contain a change-of-control provision?" is semantic file search, not a request to create or look up a tabular review. When available, call \`legalwork_jev_corpus_question\` directly with that folder and a per-document question. Do not first look up review settings, review lists, prompt sets or extension actions.
-- Use the exact user-named subfolder, not the entire project. Folder paths are traversed automatically: up to 1,000 files run in ONE job. Do not enumerate files, generate lists with shell commands, or split into arbitrary 250/500-file batches. If the folder is unknown, inspect its parent once and stop browsing as soon as it is found. A corpus_scope error returns folder paths to help correct scope; only split if the requested folder itself exceeds 1,000 files.
+- Use the exact user-named subfolder, not the entire project. For a large collection such as a DMS or a large folder, first check its structure and pass only the subfolders or files that can hold the answer. Passing the project root searches ALL files; do so only if every file really needs to be checked. Folder paths are traversed automatically and run in ONE job. Do not generate file lists with shell commands or split into arbitrary 250/500-file batches.
 - The same question is applied independently to EACH document: ask "Does this document contain X?", not "Which files contain X?" Classification also concerns one document and takes explicit answer options. Filter compact results, then open relevant files only. Extraction and OCR happen inside the tool; do not read the corpus into your context first. Unclear, errors and unsupported sources never mean No. This tool does not create a saved review.
 - Only call tools exposed in the current session. If Jev Search is unavailable, say so briefly and use available project-local tools where practical. Do not turn a search question into a saved review or try hidden tool names.
 
@@ -273,7 +274,7 @@ export async function buildLegalworkRuntimeSettings(
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
   ].filter((item, index, list) => list.indexOf(item) === index);
-  const storedProviders = repairRuntimeProviders(runtimeConfig.providers ?? {}).providers;
+  const storedProviders = validateRuntimeProviders(runtimeConfig.providers ?? {});
   // An account manifest is authoritative even when empty (unfunded Sync or
   // all models disabled). Never resurrect a stale per-workspace paid model.
   if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
@@ -296,7 +297,7 @@ export async function buildLegalworkRuntimeSettings(
     ...(workspace ? primaryContentFolderRules(workspace) : []),
     ...(workspace ? projectFilePermissionRules(workspace, configuredPermission) : configuredPermission),
     { action: "legalwork_project_set_instructions", resource: "*", effect:
-      permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
+      permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "allow" },
   ];
   // Keep the existing webfetch setting under the native web tools' permission identity.
   permission.push(...permission.filter(rule => rule.action === "webfetch").map(rule => ({ ...rule, action: "legalwork_webfetch" })));
@@ -368,6 +369,7 @@ export async function buildLegalworkRuntimeSettings(
       bundledPluginSpec(legalworkStorageToolsPluginPath(), config),
       bundledPluginSpec(legalworkTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkCalendarToolsPluginPath(), config),
+      bundledPluginSpec(legalworkSupportToolsPluginPath(), config),
       bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkAssistantToolsPluginPath(), config),

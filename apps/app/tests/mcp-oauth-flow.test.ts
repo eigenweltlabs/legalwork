@@ -293,6 +293,27 @@ describe("MCP OAuth attempt ownership", () => {
 });
 
 describe("MCP OAuth browser and callback completion", () => {
+  test("device authorization shows the one-time code before opening GitHub and waits for provider approval", async () => {
+    const approved = deferred<{ status: string }>();
+    const verificationUrl = "https://github.com/login/device";
+    const driver = makeDriver({
+      start: async () => ({ authorizationUrl: verificationUrl, userCode: "TEST-CODE", mode: "auto" }),
+      wait: () => approved.promise,
+    });
+    const { flow, openBrowser, nextPhase } = harness({ driver });
+    await flow.start();
+    expect(flow.getState()).toMatchObject({ phase: "waiting", userCode: "TEST-CODE" });
+    expect(openBrowser).not.toHaveBeenCalled();
+    await flow.reopen();
+    expect(openBrowser).toHaveBeenCalledWith(verificationUrl);
+    await flow.submit("TEST-CODE");
+    expect(driver.complete).not.toHaveBeenCalled();
+    const success = nextPhase("success");
+    approved.resolve({ status: "connected" });
+    await success;
+    expect(flow.getState().userCode).toBeUndefined();
+  });
+
   test("registers the callback before opening the browser and succeeds only after code exchange", async () => {
     const callback = deferred<{ code: string }>();
     const order: string[] = [];

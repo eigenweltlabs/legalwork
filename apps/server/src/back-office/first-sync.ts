@@ -229,6 +229,7 @@ export function stageFirstSync(store: BackOfficeStore, scope: string, actor: Bac
       let merged: BackOfficeModel;
       try {
         merged = identicalModels ? model : mergePublishModel({ ...local, objects: [{ ...object, fields }] }, model);
+        store.requireModelSupport(scope, merged);
         const target = merged.objects.find(o => o.id === object.id)!;
         if (target.archived || (!actor.model && merged !== model && JSON.stringify(merged.objects) !== JSON.stringify(model.objects))) continue;
         validateBackOfficeValues(target, record.values);

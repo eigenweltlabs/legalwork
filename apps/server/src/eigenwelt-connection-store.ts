@@ -135,7 +135,9 @@ const ACCOUNT_ROW_MIGRATION = [
   `DELETE FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}'`,
 ];
 
-export function runtimeDbPath(config: ServerConfig): string {
+type ConnectionLocation = Pick<ServerConfig, "configPath">;
+
+export function runtimeDbPath(config: ConnectionLocation): string {
   const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
   if (override) return resolve(override);
   const configPath = config.configPath?.trim();
@@ -285,7 +287,7 @@ export async function closeEigenweltConnectionForTests(config: ServerConfig): Pr
   (await db).close();
 }
 
-async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
+async function connectionDb(config: ConnectionLocation): Promise<EigenweltConnectionDb> {
   const path = runtimeDbPath(config);
   const existing = dbByPath.get(path);
   if (existing) return existing;
@@ -324,7 +326,7 @@ function decodeRegionalRoute(json: string | null, account: EigenweltAccountIdent
 }
 
 /** Full connection incl. the secret tokens — server-side callers only. */
-export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
+export async function readEigenweltConnection(config: ConnectionLocation): Promise<EigenweltConnection> {
   const db = await connectionDb(config);
   const row = db.get(ACCOUNT_ROW_ID);
   if (!row) {

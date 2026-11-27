@@ -1,4 +1,3 @@
-import { RETIRED_FREE_PROVIDER_IDS } from "@legalwork/types/native-model-display";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { timePage } from "../domains/back-office/time-routes";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
@@ -285,10 +284,6 @@ function serializeSDKError(error: unknown): string {
   }
   return String(error);
 }
-
-// Provider-repair notices already toasted in this renderer, keyed by
-// workspace + provider, so route refreshes never repeat them.
-const shownProviderRepairKeys = new Set<string>();
 
 function describeTaskCreateError(error: unknown) {
   const message = describeRouteError(error);
@@ -1003,44 +998,7 @@ export function SessionRoute() {
     if (!providerListQuery.data) return providerConnectedIds.length;
     return countConnectedProviders(providerListQuery.data, disabledProviderIds);
   }, [disabledProviderIds, hasUsableModel, providerConnectedIds, providerListQuery.data]);
-  // Free-tier retirement: older installs persisted a selection on the retired
-  // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
-  // once; the composer's connect-AI bar offers a replacement.
   const { setPrefs } = local;
-  useEffect(() => {
-    const providerId = local.prefs.defaultModel?.providerID?.trim().toLowerCase();
-    if (!providerId || !RETIRED_FREE_PROVIDER_IDS.has(providerId)) return;
-    setPrefs((previous) => ({ ...previous, defaultModel: null, modelVariant: null }));
-  }, [local.prefs.defaultModel, setPrefs]);
-  // Providers the server dropped from this workspace's stored config at
-  // startup (the retired free tier, or a block the engine cannot parse — one
-  // such block used to take the whole engine down). Toast each exactly once.
-  const repairWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? null;
-  useEffect(() => {
-    if (!client || !repairWorkspaceId) return;
-    let cancelled = false;
-    client
-      .getProviderRepairs(repairWorkspaceId)
-      .then(({ removed }) => {
-        if (cancelled) return;
-        for (const notice of removed) {
-          const key = `${repairWorkspaceId}:${notice.providerId}`;
-          if (shownProviderRepairKeys.has(key)) continue;
-          shownProviderRepairKeys.add(key);
-          toast.warning(t("providers.removed_title"), {
-            description: t(
-              notice.reason === "retired" ? "providers.removed_retired" : "providers.removed_invalid",
-              { name: notice.name },
-            ),
-            duration: 15_000,
-          });
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [client, repairWorkspaceId]);
   // A fresh connection must leave the composer ready to use. Native provider
   // defaults also follow Azure's background catalog-to-deployment discovery.
   useEffect(() => {
@@ -1122,7 +1080,7 @@ export function SessionRoute() {
     if (modelPicker.open || modelPicker.compactOpen) void sessionProviderAuthStore.refreshCustomProviderModels().catch(() => undefined);
   }, [modelPicker.open, modelPicker.compactOpen, sessionProviderAuthStore]);
 
-  // "Start €1 trial" CTAs (migration dialog, connect-AI bar): the choice is
+  // "Start €1 trial" CTA (connect-AI bar): the choice is
   // already made, so go straight to the Eigenwelt sign-in in the browser (the
   // platform funnel continues to the trial) instead of the provider picker.
   const startEigenweltTrial = useCallback(async () => {
@@ -1984,7 +1942,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string; support?: boolean }) => {
     const embedded = Boolean(timeSection && timeChatWorkspace?.id === workspaceId);
     const workspace = embedded ? timeChatWorkspace : workspaces.find((item) => item.id === workspaceId);
     if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
@@ -2011,7 +1969,10 @@ export function SessionRoute() {
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
       setRouteError(null);
       const session = unwrap(
-        await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
+        await createSessionView(workspaceClient, {
+          directory: workspace.path?.trim() || undefined,
+          ...(options?.support ? { metadata: { legalworkSupport: true } } : {}),
+        }),
       );
       registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
@@ -2077,6 +2038,18 @@ export function SessionRoute() {
       }
     }
   }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, timeChatWorkspace, timeSection, assistant.data?.workspace.id]);
+
+  const supportChatRequest = useRef<string | null>(null);
+  useEffect(() => {
+    if (location.state?.askLegalWork !== true || !client || loading || supportChatRequest.current === location.key) return;
+    const preferredProjectId = readLastProjectId() ?? readActiveWorkspaceId();
+    const workspace = sidebarWorkspaces.find(item => item.id === preferredProjectId) ?? sidebarWorkspaces[0];
+    if (workspace && retryingWorkspaceIds.includes(workspace.id)) return;
+    supportChatRequest.current = location.key;
+    navigate("/home", { replace: true, state: null });
+    if (workspace) void handleCreateChatInWorkspace(workspace.id, { support: true });
+    else setNewChatOpen(true);
+  }, [client, handleCreateChatInWorkspace, loading, location.key, location.state, navigate, retryingWorkspaceIds, sidebarWorkspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we

@@ -21,6 +21,7 @@ const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { createLegalworkServerClient, LegalworkServerError } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
+const { BackOfficeTabNavigationProvider } = await import("../../src/react-app/domains/back-office/back-office-navigation");
 const { ProjectMatterClients } = await import("../../src/react-app/domains/workspace/project-matter-clients");
 const { ProjectProperties } = await import("../../src/react-app/domains/workspace/project-properties");
 const { projectFieldsSchema } = await import("@legalwork/types/workspace");
@@ -66,10 +67,10 @@ async function render(links = false) {
   await act(async () => { root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/back-office/matters"]}>{links ? <Links /> : <BackOfficePage client={client} />}</MemoryRouter></QueryClientProvider>); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 }
-function input(label: string) { const element = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`); assert.ok(element, `Missing ${label}: ${document.body.textContent?.slice(-1300)}`); return element; }
+function input(label: string) { const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`); assert.ok(element, `Missing ${label}: ${document.body.textContent?.slice(-1300)}`); return element; }
 function button(text: string) { const element = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label") === text || button.textContent?.trim() === text); assert.ok(element, `Missing button ${text}: ${document.body.textContent?.slice(-1300)}`); return element; }
 async function click(label: string) { await act(async () => button(label).click()); }
-async function type(label: string, value: string) { await act(async () => { const element = input(label); element.focus(); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; assert.ok(setter); setter.call(element, value); element.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
+async function type(label: string, value: string) { await act(async () => { const element = input(label); element.focus(); const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set; assert.ok(setter); setter.call(element, value); element.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
 async function key(label: string, key: string, metaKey = false) { await act(async () => input(label).dispatchEvent(new window.KeyboardEvent("keydown", { key, metaKey, bubbles: true, cancelable: true }))); }
 
 try {
@@ -116,6 +117,29 @@ try {
   await click("Edit Clients");
   const selectedClient = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')].find(row => row.textContent?.includes("Case client"));
   assert.ok(selectedClient); await act(async () => selectedClient.click()); await key("Search Clients", "Escape");
+
+  const linkedPath = "/back-office/matters?record=" + matter.id;
+  function LinkedMatterTab() {
+    const [path, setPath] = useState(linkedPath);
+    const [title, setTitle] = useState("");
+    return <BackOfficeTabNavigationProvider path={path} onNavigate={setPath}>
+      <output aria-label="Back Office tab title">{title}</output>
+      <button onClick={() => setPath(linkedPath)}>Open linked record</button>
+      <BackOfficePage client={client} onTitleChange={setTitle} />
+    </BackOfficeTabNavigationProvider>;
+  }
+  await act(async () => root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/workspace/example/session/chat"]}><LinkedMatterTab /></MemoryRouter></QueryClientProvider>));
+  assert.equal(input("Matter name").value, "Acquisition");
+  await click("Close record");
+  assert.equal(document.querySelector("aside.bo-detail"), null);
+  await click("Open linked record");
+  assert.equal(input("Matter name").value, "Acquisition", "Clicking the same saved citation reopens a closed record");
+  const tabTitle = document.querySelector('output[aria-label="Back Office tab title"]');
+  assert.equal(tabTitle?.textContent, "Matters");
+  await click("People");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  assert.equal(tabTitle?.textContent, "People", "Selecting a table updates the workspace tab title");
+
   await render(true);
   assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");
   assert.equal(button("Edit Client").textContent?.trim(), t("projects.empty_value"));

@@ -58,6 +58,10 @@ export async function createNativeMcpOAuthDriver(options: {
       if (app) {
         const started = await app.client.startMcpOAuth(app.workspaceID, server);
         actualIntegrationID = started.integrationID; attempt = started;
+        if ("userCode" in started) {
+          if (signal.aborted) { await cancel(); signal.throwIfAborted(); }
+          return { authorizationUrl: started.url, expiresAt: started.time.expires, mode: started.mode, userCode: started.userCode };
+        }
         oauthState = new URL(started.url).searchParams.get("state") ?? undefined;
         if (options.desktop && !sameServer(await options.desktop.localServerUrl(), app.baseUrl)) {
           try {

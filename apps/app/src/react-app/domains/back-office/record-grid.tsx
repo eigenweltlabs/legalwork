@@ -6,7 +6,7 @@ import { BackOfficeFilesSchema, backOfficeMajorAmount, backOfficeViewFilters, co
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
 import { toast } from "@/components/ui/sonner";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { useSearchParams } from "react-router-dom";
+import { useBackOfficeNavigate, useBackOfficeSearchParams } from "./back-office-navigation";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import {
@@ -48,6 +48,7 @@ import type {
   BackOfficeView,
 } from "@legalwork/types/back-office";
 import { useRecordGridColumns, revealGridColumn } from "./record-grid-columns";
+import { ColumnResizeHandle } from "./column-resize-handle";
 import { FieldIcon } from "./record-values";
 import { RecordGridRow, type EditingCell } from "./record-grid-row";
 import { RecordKanban, RecordCalendar, RecordList } from "./record-views";
@@ -110,6 +111,8 @@ const defaultWidths: Record<string, number> = {
   leadLawyer: 131,
   openedOn: 112,
 };
+const rowHeights = { compact: "back_office.rows_compact", tall: "back_office.rows_tall", auto: "back_office.rows_fit" } as const;
+const columnDragType = "application/x-legalwork-back-office-column";
 export type SaveBackOfficeView = (view: BackOfficeView, expected: BackOfficeView | null) => Promise<BackOfficeView>;
 
 export function RecordGrid({
@@ -173,7 +176,8 @@ export function RecordGrid({
 }) {
   const locale = useLocale();
   const durationFormat = useTimeDurationFormat();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useBackOfficeSearchParams();
+  const navigate = useBackOfficeNavigate();
   const urlViewId = searchParams.get("viewId");
   const initialView = views.find(
     (view) =>
@@ -185,7 +189,7 @@ export function RecordGrid({
     field: initialView?.sortField ?? (sheet?.columns[0] ?? "name"),
     direction: initialView?.sortDirection ?? "asc",
   });
-  const { columns, widths, setColumns, setWidths, selectLayout, acknowledgeLayout } = useRecordGridColumns(columnScope, object.id, {
+  const { columns, widths, rowHeight, setColumns, setWidths, setRowHeight, selectLayout, acknowledgeLayout } = useRecordGridColumns(columnScope, object.id, {
     columns: sheet?.columns ?? defaults[object.id] ?? object.fields.slice(0, 7).map(field => field.id),
     widths: { ...defaultWidths, ...sheet?.widths },
   }, initialView);
@@ -281,6 +285,8 @@ export function RecordGrid({
   const display = useCallback((record: BackOfficeRecord, id: string) => {
     const value = sheet?.fieldValue ? sheet.fieldValue(record, id) : record.values[id],
       field = fieldById.get(id);
+    if (field?.type === "linkList" && Array.isArray(value))
+      return value.map(item => typeof item === "object" && "url" in item ? item.label + " " + item.url : "").join(" ");
     if (field?.type === "file") {
       const files = BackOfficeFilesSchema.safeParse(value);
       return files.success ? files.data.map((file) => file.name).join(" ") : "";
@@ -343,7 +349,7 @@ export function RecordGrid({
     enabled: layout === "table" && windowed,
     getScrollElement: () => scroll.current,
     getItemKey: useCallback((index: number) => rows[index].id, [rows]),
-    estimateSize: () => 33,
+    estimateSize: () => rowHeight === "compact" ? 33 : 64,
     scrollMargin: 32,
     scrollPaddingStart: 32,
     rangeExtractor: bufferedRange,
@@ -373,7 +379,15 @@ export function RecordGrid({
     } finally { setArchiving(false); }
   };
   const kanbanField = object.fields.find((field) => field.id === groupField);
-  const template = `${sheet ? 56 : 32}px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} ${sheet ? 64 : 32}px minmax(0,1fr)`;
+  const columnWidth = (field: BackOfficeField) => widths[field.id] ?? (field.type === "relation" ? 185 : 144);
+  const template = `${sheet ? 56 : 32}px ${visibleFields.map((field) => `${columnWidth(field)}px`).join(" ")} ${sheet ? 64 : 32}px minmax(0,1fr)`;
+  useLayoutEffect(() => {
+    if (!windowed || layout !== "table") return;
+    rowWindow.measure();
+    for (const row of scroll.current?.querySelectorAll<HTMLDivElement>(".bo-windowed-rows > .bo-grid-row") ?? []) {
+      rowWindow.measureElement(row);
+    }
+  }, [rowHeight, template, windowed, layout, rowWindow]);
   const saveView = async () => {
     if (!viewName.trim()) return;
     try {
@@ -684,6 +698,14 @@ export function RecordGrid({
             }
           >
             {object.id === "timeEntries" && <TimeDurationOptions />}
+            {layout === "table" && <>
+              <Dropdown.Header><Dropdown.Title>{t("back_office.row_height")}</Dropdown.Title></Dropdown.Header>
+              {(Object.keys(rowHeights) as (keyof typeof rowHeights)[]).map(height => <Dropdown.ActionItem key={height}
+                endIcon={height === rowHeight ? <Check size={14} /> : undefined} onClick={() => setRowHeight(height)}>
+                {t(rowHeights[height])}
+              </Dropdown.ActionItem>)}
+              <Dropdown.Separator />
+            </>}
             <Dropdown.Header>
               <Dropdown.Title>{t("back_office.visible_fields")}</Dropdown.Title>
             </Dropdown.Header>
@@ -787,6 +809,7 @@ export function RecordGrid({
       ) : (
         <div
           className="bo-grid-scroll"
+          data-row-height={rowHeight}
           ref={scroll}
           role="grid"
           aria-label={object.plural}
@@ -820,14 +843,13 @@ export function RecordGrid({
                 role="columnheader"
                 data-field={field.id}
                 key={field.id}
-                draggable
-                onDragStart={(event) =>
-                  event.dataTransfer.setData("text/plain", field.id)
-                }
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={event => {
+                  if (event.dataTransfer.types.includes(columnDragType)) event.preventDefault();
+                }}
                 onDrop={(event) => {
+                  const source = event.dataTransfer.getData(columnDragType);
+                  if (!source) return;
                   event.preventDefault();
-                  const source = event.dataTransfer.getData("text/plain");
                   if (!columns.includes(source) || source === field.id) return;
                   setColumns((current) => {
                     const next = current.filter((id) => id !== source);
@@ -837,6 +859,12 @@ export function RecordGrid({
                 }}
               >
                 <button
+                  type="button"
+                  draggable
+                  onDragStart={event => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData(columnDragType, field.id);
+                  }}
                   onClick={() =>
                     setSort((current) => ({
                       field: field.id,
@@ -862,31 +890,8 @@ export function RecordGrid({
                     />
                   )}
                 </button>
-                <div
-                  className="bo-column-resizer"
-                  onPointerDown={(event) => {
-                    const start = event.clientX,
-                      width =
-                        event.currentTarget.parentElement?.getBoundingClientRect()
-                          .width ?? 144;
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    const target = event.currentTarget;
-                    const move = (next: PointerEvent) =>
-                      setWidths((current) => ({
-                        ...current,
-                        [field.id]: Math.max(
-                          88,
-                          Math.min(600, width + next.clientX - start),
-                        ),
-                      }));
-                    const end = () => {
-                      target.removeEventListener("pointermove", move);
-                      target.removeEventListener("pointerup", end);
-                    };
-                    target.addEventListener("pointermove", move);
-                    target.addEventListener("pointerup", end);
-                  }}
-                />
+                <ColumnResizeHandle label={field.label} width={columnWidth(field)}
+                  onResize={width => setWidths(current => ({ ...current, [field.id]: width }))} />
               </div>
             ))}
             <div className="bo-grid-heading">
@@ -895,9 +900,7 @@ export function RecordGrid({
                 variant="ghost"
                 aria-label={t("projects.add_field")}
                 startIcon={<Plus size={14} />}
-                onClick={() =>
-                  (window.location.hash = "/back-office/data-model")
-                }
+                onClick={() => navigate("/back-office/data-model")}
               />}
             </div>
             <div className="bo-grid-fill" />

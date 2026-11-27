@@ -4,6 +4,11 @@
   "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
   "dialogs": [
     {
+      "id": "help-menu",
+      "guide": "troubleshooting.md",
+      "source": "apps/app/src/react-app/domains/session/sidebar/support-menu.tsx"
+    },
+    {
       "id": "usage-top-up",
       "guide": "settings-privacy.md",
       "source": "apps/app/src/react-app/domains/connections/usage-control/payment-components.tsx"
@@ -109,6 +114,11 @@
       "id": "project-field-editor",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
+    },
+    {
+      "id": "back-office-workspace-tab",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/back-office-workspace.tsx"
     },
     {
       "id": "back-office-history",

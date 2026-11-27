@@ -25,7 +25,7 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
     managedEngineStorageDirectory: join(root, "private"), engineConfigurationMode: "native-project", engineProjectTrustRequired: true,
     workspaces: folders.map((path, index) => ({ id: String(index), path, name: "Matter", preset: "starter", workspaceType: "local" })),
     authorizedRoots: folders, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
-  const database = join(root, "private", "engine.db"), service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(root, "state"), executablePath: binary };
+  const database = join(root, "private", "engine.db"), service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(root, "state") };
   let original: Awaited<ReturnType<typeof createConfiguredManagedEngine>> | undefined, lifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   const connect = async (engine: Awaited<ReturnType<typeof createConfiguredManagedEngine>>) => {

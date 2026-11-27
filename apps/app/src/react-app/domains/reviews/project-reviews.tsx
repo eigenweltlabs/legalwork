@@ -2,11 +2,11 @@ import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { reviewActionLabel, reviewModeLabel, reviewStatusLabel } from "./review-labels";
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { workspaceSettingsRoute } from "../../shell/workspace-routes";
-import { ArrowLeft, ArrowUpRight, PanelsTopLeft, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, TableProperties, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, BookOpen, Download, FileText, MessageSquare, MoreHorizontal, Play, Plus, RotateCcw, Settings2, Square, TableProperties, Trash2, X } from "lucide-react";
 import type { ReviewCell, ReviewColumn, RunReview, SavedReview } from "@legalwork/types/reviews";
 import { incompatibleJevQuestion, reviewRunAction, reviewRunningElsewhere } from "@legalwork/types/reviews";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -37,10 +37,10 @@ function exportReview(review: SavedReview) {
   const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(row => row.map(csv).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = `${review.name.replace(/[/\\:*?"<>|]/g, "-")}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange, onOpenInWorkspace, localNavigation = false }: {
+export function ProjectReviews({ client, workspaceId, projectName, onOpenSession, reviewId: tabReviewId, overview, onClose, onTitleChange, renderOpenInWorkspace, localNavigation = false }: {
   client: LegalworkServerClient; workspaceId: string; projectName: string; onOpenSession: (sessionId: string) => void;
   localNavigation?: boolean;
-  onOpenInWorkspace?: (review: { id: string; name: string } | null) => void;
+  renderOpenInWorkspace?: (review: Pick<SavedReview, "id" | "name"> | null, disabled: boolean) => ReactNode;
   reviewId?: string; overview?: boolean; onClose?: () => void; onTitleChange?: (title: string) => void;
 }) {
   const requestPanelTab = useRequestPanelTab();
@@ -147,7 +147,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const error = intake.error || (reviewId ? detail.error : listing.error) || change.error || discussion.error || remove.error || rows.error;
   const pickedDocuments = selectedDocuments.filter(id => review?.documents.some(document => document.id === id));
   return <ReviewFileDropTarget disabled={busy || !!dialog || !!removeTarget || (!!reviewId && !review)} onFiles={sources => void intake.add(sources)} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
-    {onOpenInWorkspace && <div className="flex shrink-0 justify-end px-5 pt-2"><Button variant="ghost" size="sm" disabled={!!reviewId && !review} onClick={() => onOpenInWorkspace(reviewId && review ? review : null)}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button></div>}
+    {renderOpenInWorkspace?.(reviewId ? review ?? null : null, !!reviewId && !review)}
     <div className={tabReviewId ? "flex h-full min-h-0 flex-col p-3" : "lw-project-page-content flex h-full min-h-0 flex-col pb-8"}>
     <header className={tabReviewId ? "shrink-0 pb-3" : "lw-project-page-top shrink-0 pb-4"}>
       {!tabReviewId && <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">{reviewId ? <Button variant="ghost" size="sm" className="-ml-2 h-6 text-xs" disabled={intake.busy} onClick={() => openReview()}><ArrowLeft className="size-3.5" />{t("review.back")}</Button> : <span>{projectName}</span>}</div>}

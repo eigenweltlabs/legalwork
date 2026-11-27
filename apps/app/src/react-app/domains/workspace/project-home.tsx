@@ -1,5 +1,6 @@
 import { projectFieldsSchema, type ProjectDetails, type ProjectField } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
+import { ProjectScheduledTasks } from "./project-scheduled-tasks";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
@@ -118,15 +119,18 @@ export function ProjectHome(props: {
     queryFn: () => client.getProjectDetails(workspaceId),
     select: (data) => withInitialProjectFields(data, savedDefaults),
   });
-  const rootFiles = useQuery({
-    queryKey: ["project-files", workspaceId, "", client.baseUrl],
-    queryFn: () => client.listWorkspaceDirectory(workspaceId, ""),
-  });
-  const hasNotes = Boolean(rootFiles.data?.entries.some((entry) => entry.kind === "dir" && entry.name === "Notes"));
   const notes = useQuery({
     queryKey: ["project-notes", workspaceId, client.baseUrl],
-    queryFn: () => client.listWorkspaceDirectory(workspaceId, "Notes"),
-    enabled: hasNotes,
+    queryFn: async () => {
+      try {
+        return await client.listWorkspaceDirectory(workspaceId, "Notes");
+      } catch (error) {
+        if (error instanceof LegalworkServerError && error.status === 404 && error.code === "dir_not_found")
+          return { path: "Notes", entries: [], truncated: false };
+        throw error;
+      }
+    },
+    enabled: props.active,
   });
   const noteEntries = (notes.data?.entries.filter((entry) => entry.kind === "file" && /\.md$/i.test(entry.name)) ?? [])
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -234,13 +238,13 @@ export function ProjectHome(props: {
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
+        <ProjectScheduledTasks client={client} workspaceId={workspaceId} active={props.active} />
         </div>
 
-        {details.error || rootFiles.error ? <Surface className="space-y-3 rounded-xl p-4">
-          <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
-          <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
+        {details.error ? <Surface className="space-y-3 rounded-xl p-4">
+          <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error)}</p>
+          <Button variant="outline" size="sm" disabled={details.isFetching} onClick={() => {
             void details.refetch();
-            void rootFiles.refetch();
             void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
           }}>{t("workspace_files.try_again")}</Button>
         </Surface> : null}
@@ -254,8 +258,8 @@ export function ProjectHome(props: {
         <ContextMenuTrigger render={<section aria-label={t("projects.notes")} />}>
           <SectionHeading title={t("projects.notes")} action={<Button variant="ghost" size="icon-sm" aria-label={t("projects.add_note")} title={t("projects.add_note")} onClick={() => setNoteOpen(true)}><Plus className="size-4" /></Button>} />
           <div className="mt-3">
-            {rootFiles.isPending || (hasNotes && notes.isPending) ? <Surface className="rounded-xl px-5"><Notice>{t("projects.loading")}</Notice></Surface>
-              : notes.error || rootFiles.error ? <Surface className="rounded-xl px-5"><Notice error>{t("projects.failed")}</Notice></Surface>
+            {notes.isPending ? <Surface className="rounded-xl px-5"><Notice>{t("projects.loading")}</Notice></Surface>
+              : notes.error ? <Surface className="rounded-xl px-5"><Notice error>{t("projects.failed")}</Notice></Surface>
               : noteEntries.length ? (
                 <ul className="flex snap-x snap-proximity gap-3 overflow-x-auto overscroll-x-contain px-1 pb-3 pt-1" tabIndex={0} aria-label={t("projects.notes")}>
                   {noteEntries.map((entry) => (
@@ -275,7 +279,7 @@ export function ProjectHome(props: {
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={() => setNoteOpen(true)}><Plus />{t("projects.add_note")}</ContextMenuItem>
-          <ContextMenuItem disabled={rootFiles.isFetching || notes.isFetching} onClick={refreshNotes}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
+          <ContextMenuItem disabled={notes.isFetching} onClick={refreshNotes}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
         </ContextMenu>
 

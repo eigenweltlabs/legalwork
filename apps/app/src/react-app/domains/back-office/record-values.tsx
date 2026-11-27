@@ -1,5 +1,6 @@
 import { useTimeDurationFormat } from "./time-duration-controls";
 import { formatTimeDuration, isTimeDurationField } from "./time-duration";
+import { openDesktopUrl } from "@/app/lib/desktop";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { backOfficeOptionLabel } from "./labels";
@@ -11,6 +12,7 @@ import {
   Check,
   Hash,
   Link2,
+  ListOrdered,
   LockKeyhole,
   Tag as TagIcon,
   Type,
@@ -18,6 +20,7 @@ import {
 import { Chip, Tag } from "twenty-ui/primitives/data-display";
 import { RecordAvatar as Avatar } from "./record-colors";
 import {
+  BackOfficeLinkListSchema,
   backOfficeMajorAmount,
   type BackOfficeField,
   type BackOfficeRecord,
@@ -28,6 +31,8 @@ import { ObjectIcon } from "./object-icon";
 
 export const FieldIcon = memo(function FieldIcon({ field }: { field: { type: BackOfficeField["type"]; visibility?: BackOfficeField["visibility"]; target?: string } }) {
   if (field.type === "relation" && field.target) return <ObjectIcon id={field.target} size={13} />;
+  if (field.type === "textList") return <ListOrdered size={13} aria-hidden="true" />;
+  if (field.type === "linkList") return <Link2 size={13} aria-hidden="true" />;
   const Icon =
     field.type === "boolean"
       ? Check
@@ -57,6 +62,7 @@ export const RecordChip = memo(function RecordChip({
   const synthetic = record.objectId.startsWith("@");
   return (
     <Chip
+      className="bo-record-chip"
       size="sm"
       variant="soft"
       clickable={!synthetic}
@@ -114,6 +120,18 @@ export function ValueDisplay({
 
 const FieldValue = memo(function FieldValue({ field, value }: { field: BackOfficeField; value: NonNullable<BackOfficeValue> }) {
   const locale = useLocale();
+  if (field.type === "linkList") {
+    const links = BackOfficeLinkListSchema.safeParse(value);
+    return links.success && <span className="bo-ordered-values" role="list">{links.data.map(({ label, url }, i) =>
+      <span role="listitem" key={i}><a href={url} title={url} target="_blank" rel="noopener noreferrer"
+        onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}
+        onKeyDown={event => event.stopPropagation()} onClick={event => {
+          event.preventDefault(); event.stopPropagation(); void openDesktopUrl(url);
+        }}>{label}</a></span>)}</span>;
+  }
+  if (field.type === "textList" && Array.isArray(value)) return <span className="bo-ordered-values" role="list">
+    {value.map((item, i) => typeof item === "string" && <span role="listitem" key={i}>{item}</span>)}
+  </span>;
   if (field.type === "file") return <FileValue value={value} />;
   if (field.type === "select")
     return <Tag color={selectColor(String(value))}>{backOfficeOptionLabel(field, String(value))}</Tag>;
@@ -147,9 +165,9 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
   if (Array.isArray(value))
     return (
       <div className="bo-relation-values">
-        {value.map((item) => (
-          <Tag key={typeof item === "string" ? item : item.id} color={selectColor(typeof item === "string" ? item : item.name)}>
-            {typeof item === "string" ? item : item.name}
+        {value.filter(item => typeof item === "string").map(item => (
+          <Tag key={item} color={selectColor(item)}>
+            {item}
           </Tag>
         ))}
       </div>

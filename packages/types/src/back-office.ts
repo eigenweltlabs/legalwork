@@ -26,6 +26,8 @@ export const BackOfficeFieldSchema = z.object({
     "boolean",
     "select",
     "multiselect",
+    "textList",
+    "linkList",
     "relation",
     "file",
   ]),
@@ -83,8 +85,26 @@ export const BackOfficeFileSchema = z.object({
 export const BackOfficeFilesSchema = z.array(BackOfficeFileSchema).max(20);
 export type BackOfficeFile = z.infer<typeof BackOfficeFileSchema>;
 
+export function isOrderedListField(type: BackOfficeField["type"]) {
+  return type === "textList" || type === "linkList";
+}
+
+export function hasOrderedListFields(model: BackOfficeModel) {
+  return model.objects.some(object => object.fields.some(field => isOrderedListField(field.type)));
+}
+
+const listText = z.string().max(200).regex(/\S/);
+export const BackOfficeTextListSchema = z.array(listText).max(1000);
+export const BackOfficeWebLinkSchema = z.strictObject({
+  label: listText,
+  url: z.url({ protocol: /^https?$/ }).max(2048).regex(/^https?:\/\//i),
+});
+export const BackOfficeLinkListSchema = z.array(BackOfficeWebLinkSchema).max(100);
+export type BackOfficeWebLink = z.infer<typeof BackOfficeWebLinkSchema>;
+
 export const BackOfficeValueSchema = z.union([
   BackOfficeFilesSchema,
+  BackOfficeLinkListSchema,
   z.string().max(16000),
   z.number().finite(),
   z.boolean(),
@@ -117,7 +137,14 @@ export const BackOfficeCreateBatchSchema = z.strictObject({
     members: z.array(z.string().min(1).max(200)).max(500).optional(),
   })).min(1).max(500),
 });
-export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.transform(
+export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.extend({
+  fieldPreviews: z.array(z.object({
+    id: identifier,
+    label: BackOfficeFieldSchema.shape.label,
+    visibility: BackOfficeFieldSchema.shape.visibility.unwrap(),
+    value: z.string().max(512).nullable(),
+  })).max(100).optional(),
+}).transform(
   (record) => {
     // Retire the preview template's provider-specific field without losing import identity.
     const { actaportId, ...values } = record.values;
@@ -213,6 +240,7 @@ export const BackOfficePageRequestSchema = z.object({
 });
 
 export const BackOfficeSyncSchema = z.object({
+  orderedListFields: z.literal(true).optional(),
   page: BackOfficePageRequestSchema.optional(),
   recordBuckets: BackOfficeBucketHashes.optional(),
   protocol: z.literal(BACK_OFFICE_PROTOCOL),
@@ -484,6 +512,8 @@ export function assertModelChange(
     )
       throw new Error("Every object needs a text Name field.");
     for (const field of object.fields) {
+      if (isOrderedListField(field.type) && (field.multiple || field.target || field.options.length))
+        throw new Error("Ordered list fields do not take predefined options or relationship settings.");
       if (field.type === "relation" && !ids.includes(field.target ?? ""))
         throw new Error(`${field.label} needs an existing target object.`);
     }
@@ -497,7 +527,15 @@ export function validateBackOfficeValues(
   for (const [id, value] of Object.entries(values)) {
     const field = object.fields.find((field) => field.id === id);
     if (!field) throw new Error(`Unknown field ${id}. Refresh the data model.`);
-    if (value === null || value === "") continue;
+    if (value === null) continue;
+    if (isOrderedListField(field.type)) {
+      const schema = field.type === "textList" ? BackOfficeTextListSchema : BackOfficeLinkListSchema;
+      if (!schema.safeParse(value).success) throw new Error(
+        field.type === "textList" ? "Enter one non-empty text item per row." : "Enter a label and an HTTP or HTTPS URL for each link.",
+      );
+      continue;
+    }
+    if (value === "") continue;
     if (field.type === "file") {
       const files = BackOfficeFilesSchema.safeParse(value);
       if (
@@ -615,8 +653,16 @@ export function readableBackOfficeRecord(
   object: BackOfficeObject,
   actor: BackOfficeActor,
 ): BackOfficeRecord {
+  const { fieldPreviews, ...data } = record;
+  const previews = fieldPreviews?.filter(field =>
+    !object.fields.some(supported => supported.id === field.id) &&
+    (field.visibility === "normal" ||
+      (field.visibility === "finance" && actor.finance) ||
+      (field.visibility === "private" && record.ownerId === actor.userId)),
+  );
   return {
-    ...record,
+    ...data,
+    ...(previews?.length ? { fieldPreviews: previews } : {}),
     values: Object.fromEntries(
       Object.entries(record.values).filter(([id]) => {
         const field = object.fields.find((field) => field.id === id);
@@ -653,6 +699,7 @@ export function readableBackOfficeView(view: BackOfficeView, model: BackOfficeMo
 }
 
 export const BackOfficeSnapshotSchema = z.object({
+  orderedListFields: z.boolean().optional(),
   protocol: z.literal(BACK_OFFICE_PROTOCOL),
   model: BackOfficeModelSchema,
   records: z.array(BackOfficeRecordSchema),

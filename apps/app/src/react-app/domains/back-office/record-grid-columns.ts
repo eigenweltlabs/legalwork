@@ -6,6 +6,8 @@ const layoutSchema = z.object({
   widths: z.record(z.string(), z.number().min(80).max(800)),
 });
 type ColumnLayout = z.infer<typeof layoutSchema>;
+const rowHeightSchema = z.enum(["compact", "tall", "auto"]);
+export type RecordRowHeight = z.infer<typeof rowHeightSchema>;
 
 // Named views belong to the directory. A personal layout applies until someone
 // changes the shared columns or widths, at which point the shared layout wins.
@@ -15,17 +17,21 @@ export function useRecordGridColumns(scope: string, objectId: string, defaults: 
     const base = view ? JSON.stringify([view.columns, Object.entries(view.widths).sort(([a], [b]) => a.localeCompare(b))]) : "default";
     const key = "legalwork.record-grid.columns." + JSON.stringify([scope, objectId, view?.id ?? null]);
     try {
-      const saved = layoutSchema.extend({ base: z.string() }).safeParse(JSON.parse(localStorage.getItem(key) ?? "null"));
-      if (saved.success && saved.data.base === base) return { ...saved.data, key, changed: false };
+      const saved = layoutSchema.extend({ base: z.string(), rowHeight: rowHeightSchema.catch("compact") }).safeParse(JSON.parse(localStorage.getItem(key) ?? "null"));
+      if (saved.success) return {
+        ...(saved.data.base === base ? saved.data : shared),
+        rowHeight: saved.data.rowHeight, key, base, changed: false,
+      };
     } catch { /* Storage may be unavailable. */ }
-    return { ...shared, key, base, changed: false };
+    const rowHeight: RecordRowHeight = "compact";
+    return { ...shared, key, base, rowHeight, changed: false };
   };
   const [layout, setLayout] = useState(() => load(initialView));
   useEffect(() => {
     if (!layout.changed) return;
     try {
-      const { columns, widths, base } = layout;
-      localStorage.setItem(layout.key, JSON.stringify({ columns, widths, base }));
+      const { columns, widths, base, rowHeight } = layout;
+      localStorage.setItem(layout.key, JSON.stringify({ columns, widths, base, rowHeight }));
     } catch { /* Keep the current session usable without storage. */ }
   }, [layout]);
   return {
@@ -35,10 +41,13 @@ export function useRecordGridColumns(scope: string, objectId: string, defaults: 
     },
     columns: layout.columns,
     widths: layout.widths,
+    rowHeight: layout.rowHeight,
     setColumns: (update: (columns: string[]) => string[]) =>
       setLayout(current => ({ ...current, changed: true, columns: update(current.columns) })),
     setWidths: (update: (widths: Record<string, number>) => Record<string, number>) =>
       setLayout(current => ({ ...current, changed: true, widths: update(current.widths) })),
+    setRowHeight: (rowHeight: RecordRowHeight) =>
+      setLayout(current => ({ ...current, changed: true, rowHeight })),
     selectLayout: (view?: BackOfficeView) => setLayout(load(view)),
   };
 }

@@ -30,6 +30,27 @@
   font-size: var(--t-font-size-md);
 }
 
+.bo-workspace-tab {
+  container-type: inline-size;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.bo-workspace-tab .bo-tabs,
+.bo-workspace-tab .bo-view-toolbar {
+  overflow-x: auto;
+}
+
+@container (max-width: 700px) {
+  .bo-workspace-tab .bo-has-detail > :is(.bo-object-header, .bo-record-grid) {
+    margin-right: 0;
+  }
+}
+
 .bo [role="gridcell"]:focus-visible {
   outline: 2px solid var(--bo-blue);
   outline-offset: -2px;
@@ -206,17 +227,19 @@
 
 .bo-column-resizer {
   position: absolute;
-  z-index: 1;
-  right: -3px;
+  inset-inline-end: 0;
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: 9px;
   cursor: col-resize;
   touch-action: none;
+  user-select: none;
 }
 
-.bo-column-resizer:hover {
+.bo-column-resizer:hover,
+.bo-column-resizer:focus-visible {
   background: var(--t-color-transparent-blue4);
+  outline: none;
 }
 
 .bo-windowed-rows { position: relative; }
@@ -273,6 +296,40 @@
   text-overflow: ellipsis;
 }
 
+.bo-grid-scroll[data-row-height="tall"] .bo-grid-row {
+  min-height: 64px;
+}
+
+.bo-grid-scroll:is([data-row-height="tall"], [data-row-height="auto"]) .bo-grid-cell > .bo-truncate,
+.bo-grid-scroll:is([data-row-height="tall"], [data-row-height="auto"]) .bo-record-chip > span:last-child,
+.bo-detail .bo-record-chip > span:last-child {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 18px;
+}
+
+.bo-grid-scroll:is([data-row-height="tall"], [data-row-height="auto"]) .bo-record-chip,
+.bo-detail .bo-record-chip {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+}
+
+.bo-grid-scroll[data-row-height="tall"] .bo-grid-cell > .bo-truncate,
+.bo-grid-scroll[data-row-height="tall"] .bo-record-chip > span:last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.bo-grid-scroll[data-row-height="auto"] .bo-grid-cell {
+  padding-block: 7px;
+}
+
+.bo-grid-scroll[data-row-height="auto"] .bo-grid-cell > .bo-truncate {
+  overflow: visible;
+}
+
 .bo-grid-cell > [data-slot] {
   max-width: 100%;
 }
@@ -281,6 +338,14 @@
   display: grid;
   place-items: center;
 }
+
+.bo-ordered-values { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bo-ordered-values a { color: var(--t-accent-primary); text-decoration: underline; }
+.bo-grid-cell > .bo-ordered-values { max-height: 6em; overflow: auto; }
+.bo-list-rows { display: grid; gap: 8px; max-height: 40vh; overflow: auto; }
+.bo-list-rows fieldset { display: grid; gap: 4px; min-width: 0; }
+.bo-list-rows legend { color: var(--bo-muted); font-size: 12px; }
+.bo-list-actions { display: flex; justify-content: flex-end; gap: 4px; }
 
 .bo-relation-values {
   display: flex;
@@ -947,16 +1012,29 @@
 
 .bo-detail-toolbar {
   gap: 6px;
-  height: 44px;
+  height: auto;
   min-height: 44px;
-  padding: 0 8px;
+  flex-shrink: 0;
+  padding: 6px 8px;
   border-bottom: 0;
 }
 
 .bo-detail-name {
   flex: 1;
   min-width: 0;
+  field-sizing: content;
+  resize: none;
+  padding: 3px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--bo-text);
   font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.bo-detail-name:focus-visible {
+  outline: 1px solid var(--bo-blue);
 }
 
 .bo-detail-tabs {
@@ -1029,13 +1107,40 @@
 }
 
 .bo-property > label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
+.bo-property > label > svg {
+  flex-shrink: 0;
+}
+
+.bo-read-only-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bo-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.bo-read-only-field-label svg { flex-shrink: 0; }
+.bo-read-only-field { display: grid; gap: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bo-read-only-field small { font-size: 11px; }
+
 .bo-property-value > button {
-  padding: 2px 0;
+  height: auto;
+  padding: 4px 0;
+  white-space: normal;
+}
+
+.bo-property-value .bo-truncate {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bo-property-value .bo-relation-values {
+  flex-wrap: wrap;
+  overflow: visible;
+  min-width: 0;
 }
 
 .bo-system-property {

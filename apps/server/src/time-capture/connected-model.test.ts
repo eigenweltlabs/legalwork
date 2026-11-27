@@ -33,10 +33,10 @@ test("private workday failures expose only stable recovery reasons", () => {
   }
 });
 
-test.skipIf(!nativeMcpBinary)("retired providers advertised by the native engine cannot receive a private workday prompt", async () => {
+test.skipIf(!nativeMcpBinary)("the built-in Zen provider advertised by the native engine cannot receive a private workday prompt", async () => {
   const definition = { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://127.0.0.1:1/v1", apiKey: "fixture" }, models: { fixture: {} } };
-  const retired = ["eigenwelt-free", "opencode"];
-  const engine = await nativeMcpEngine({ providers: { "eigenwelt-free": definition, opencode: definition, firm: definition } });
+  const retired = ["opencode"];
+  const engine = await nativeMcpEngine({ providers: { opencode: definition, firm: definition } });
   try {
     const connection = engine.connection();
     const config = backOfficeTestConfig(engine.root, {

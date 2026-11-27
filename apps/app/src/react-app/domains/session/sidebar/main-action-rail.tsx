@@ -12,6 +12,7 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
 import { useShellConfig, type ShellNavKey, type ShellWindowNavKey } from "../../../shell/shell-config";
+import { SupportMenu } from "./support-menu";
 import { AssistantAvatar } from "./assistant-appearance";
 import { SIDEBAR_ITEMS } from "./sidebar-customization";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
@@ -30,8 +31,9 @@ export type MainRailActions = Record<ShellWindowNavKey, MainRailAction> & {
   navAssistant?: MainRailAction & { profile?: AssistantProfile; unread?: boolean };
 };
 
-export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, settingsActive = false, unreadTasks = 0, children }: {
+export function MainActionRail({ client, workspaceId, actions, onOpenWindow, onOpenSettings, settingsActive = false, unreadTasks = 0, children }: {
   client: LegalworkServerClient | null;
+  workspaceId: string;
   actions: MainRailActions;
   onOpenWindow?: (key: ShellWindowNavKey) => void;
   onOpenSettings?: () => void;
@@ -90,6 +92,7 @@ export function MainActionRail({ client, actions, onOpenWindow, onOpenSettings, 
         );
       })}
       <div className="mt-auto flex shrink-0 flex-col items-center gap-1.5 pt-4">
+        <SupportMenu client={client} workspaceId={workspaceId} onAsk={() => navigate("/home", { state: { askLegalWork: true } })} />
         <Tooltip>
           <TooltipTrigger render={<Button ref={settingsButtonRef} variant="ghost" size="icon" className={cn("size-9 rounded-lg text-muted-foreground hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15", settingsActive && "bg-sidebar-accent text-foreground")} aria-label={t("status.settings")} aria-pressed={settingsActive} onClick={openSettings} />}>
             <Settings className="size-[18px]" strokeWidth={1.6} />

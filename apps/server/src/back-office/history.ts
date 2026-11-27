@@ -183,6 +183,7 @@ export async function platformBackOfficeHistory(
     id: target.id,
     limit: String(options.limit),
     export: String(options.export),
+    orderedListFields: "true",
   });
   if (options.cursor) query.set("cursor", options.cursor);
   try {

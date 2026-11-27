@@ -204,7 +204,7 @@ test("reads a consistent snapshot including committed WAL data without changing 
   db.close();
 });
 
-test("days defaults to seven and a shorter period excludes older sessions, parts and timestamped events", async () => {
+test("days defaults to two and a shorter period excludes older sessions, parts and timestamped events", async () => {
   const db = createDatabase();
   const now = Date.now();
   const old = now - 2 * 86400000;
@@ -215,7 +215,7 @@ test("days defaults to seven and a shorter period excludes older sessions, parts
   db.query("INSERT INTO event VALUES (?, ?, ?, ?, ?)").run("new-event", "parent", 2, "session.updated.1", JSON.stringify({ info: { time: { updated: now } } }));
   db.query("INSERT INTO event VALUES (?, ?, ?, ?, ?)").run("undated-event", "parent", 3, "message.removed.1", JSON.stringify({ messageID: "removed" }));
   db.close();
-  expect(await collectSupportDiagnostics(config, now)).toMatchObject({ scope: { days: 7 }, counts: { sessions: 2, parts: 2, events: 3 } });
+  expect(await collectSupportDiagnostics(config, now)).toMatchObject({ scope: { days: 2 }, counts: { sessions: 2, parts: 2, events: 3 } });
   const report = await collectSupportDiagnostics(config, now, null, 1);
   expect(report).toMatchObject({ scope: { days: 1, sessionsActiveSince: new Date(now - 86400000).toISOString() }, counts: { sessions: 1, parts: 1, events: 2 } });
   expect(JSON.stringify(report)).not.toContain('"id":"old-event"');
@@ -234,7 +234,7 @@ test("the export is host-only, including when a valid ordinary client token is s
     const text = await response.text();
     expect(text).toContain("1234");
     expect(text).not.toContain(credential);
-    expect(JSON.parse(text)).toMatchObject({ scope: { days: 7 }, sources: { engineSchema: "native-v2" }, counts: { sessions: 1 } });
+    expect(JSON.parse(text)).toMatchObject({ scope: { days: 2 }, sources: { engineSchema: "native-v2" }, counts: { sessions: 1 } });
     const custom = await fetch(url, { method: "POST", body: JSON.stringify({ days: 30 }), headers: { "X-LegalWork-Host-Token": config.hostToken } });
     expect(await custom.json()).toMatchObject({ scope: { days: 30 } });
     const invalid = await fetch(url, { method: "POST", body: JSON.stringify({ days: 1.5 }), headers: { "X-LegalWork-Host-Token": config.hostToken } });

@@ -160,7 +160,7 @@ export function SettingsShell(props: SettingsShellProps) {
         </header>
         <Sidebar collapsible="icon" className="mac:**:data-[sidebar=sidebar]:bg-transparent">
           <div className="flex min-h-0 flex-1">
-            <MainActionRail client={props.accountClient} actions={actions} onOpenSettings={() => props.onSelectTab("general")} settingsActive unreadTasks={unreadTasks}>
+            <MainActionRail client={props.accountClient} workspaceId={props.selectedWorkspaceId} actions={actions} onOpenSettings={() => props.onSelectTab("general")} settingsActive unreadTasks={unreadTasks}>
               <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
             </MainActionRail>
             <SettingsSidebar

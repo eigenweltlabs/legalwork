@@ -65,6 +65,7 @@ function Property({
 }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
+  const base = useRef(record);
   const popupId = useId();
   const value = record.values[field.id];
   const content =
@@ -87,18 +88,19 @@ function Property({
     return <span className="bo-record-property">{content}</span>;
   return (
     <>
+      {field.type === "linkList" && content}
       <button
         type="button"
         ref={anchor}
         className="bo-record-property"
-        aria-label={`${field.label}: ${String(value ?? "")}`}
+        aria-label={field.type === "linkList" ? t("projects.edit_value", { name: field.label }) : `${field.label}: ${String(value ?? "")}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popupId : undefined}
         onMouseDown={(event) => { if (open) event.preventDefault(); }}
-        onClick={(event) => { event.stopPropagation(); setOpen(!open); }}
+        onClick={(event) => { event.stopPropagation(); if (!open) base.current = record; setOpen(!open); }}
       >
-        {content}
+        {field.type === "linkList" ? t("projects.edit_value", { name: field.label }) : content}
       </button>
       {open && (
         <Popover.Root open onOpenChange={(nextOpen, details) => {
@@ -116,7 +118,7 @@ function Property({
                   field={field}
                   value={value}
                   records={props.localIds?.has(record.id) ? props.localChoices ?? [] : props.records}
-                  onSave={(value, previous) => props.onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : record, { [field.id]: value })}
+                  onSave={(value, previous) => props.onSave(field.type === "linkList" || field.type === "textList" ? base.current : previous ? { ...record, values: { ...record.values, [field.id]: previous } } : record, { [field.id]: value })}
                   onCancel={() => setOpen(false)}
                 />
               </DirectoryEditorPopup>

@@ -56,8 +56,13 @@ Filters constrain new selections. If someone later becomes inactive, changes typ
 | Calendar | Review dates and supporting deadline records. |
 | Tabular Review | Create or reopen a saved document-comparison table. |
 | Dashboards | Open saved live dashboards or snapshot reports. |
+| Back Office tab | Choose **+ > Back Office** in the workspace tab bar to use the directory in your workspace. |
 
-Project personalisation sets instructions for this project. Check it when the assistant behaves differently between matters. Clearing the project instructions restores the global defaults. Notes are reusable project context; a new chat does not automatically establish every detail from every previous chat as fact.
+On **Project Home**, expand **Scheduled tasks** below **Project details**. Select a task to open its schedule and run history in **Scheduled**.
+
+On **Project Home**, open **Personalization** to review the project's instructions. When you ask the assistant to change them, it saves the update directly. Clearing the project instructions restores the global defaults.
+
+Open **Project Home > Notes** to see saved project notes, including ones created by the assistant. The list refreshes after a note is added. Notes provide reusable project context. A new chat does not automatically treat details from earlier chats as established facts.
 
 ## Linked folders
 

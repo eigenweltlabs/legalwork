@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { backOfficeRecordUrl } from "@legalwork/types/back-office";
 import { appLinkDestination, parseAppLink } from "../src/lib/app-link";
 import { readFile, readdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 describe("app links in help answers", () => {
   test("every app link shipped in the manual resolves to a real router destination", async () => {
@@ -33,7 +34,7 @@ describe("app links in help answers", () => {
     expect(appLinkDestination("legalwork://app/settings/workflows/prompts", "/home")).toBe("/settings/workflows/prompts");
   });
 
-  test("record citations open built-in, custom and archived records from any chat", () => {
+  test("record citations resolve built-in, custom and archived records", () => {
     const id = "12345678-1234-4234-8234-123456789abc";
     for (const objectId of ["matters", "people", "companies", "custom_claims"]) {
       const record = { objectId, id };
@@ -48,6 +49,13 @@ describe("app links in help answers", () => {
       `legalwork://app/back-office/matters?record=${id}&delete=true`,
       "legalwork://app/back-office/matters?record=invalid",
     ]) expect(parseAppLink(href)).toBeNull();
+  });
+
+  test("chat citations open or retarget Back Office in the originating workspace", () => {
+    const result = Bun.spawnSync([process.execPath, fileURLToPath(new URL("./fixtures/back-office-chat-link.tsx", import.meta.url))], {
+      cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
+    });
+    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
   });
 
   test("only routes to supported app pages, with no actions or external targets", () => {

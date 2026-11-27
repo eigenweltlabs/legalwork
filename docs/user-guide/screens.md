@@ -8,6 +8,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | --- | --- | --- |
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
 | Save logins for the in-app browser | Save your own logins for legal research websites so you and your agent can use them | [Research databases](integrations.md#research-databases) |
+| Help above Settings | Open a blank chat in your last project or reach the support person on duty when signed in | [Get support in chat](troubleshooting.md#get-support-in-chat) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Shield icon in the top-right of a chat | Choose the chat's sandbox and network settings, restore inheritance or retry a status check | [Sandboxing](settings-privacy.md#sandboxing) |
@@ -17,6 +18,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |
 | Fill saved login | Choose a saved account from a browser login field and fill its username and password | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
+| Workspace tab bar > + > Back Office | Open the directory and its saved views in a workspace tab | [Back Office](back-office.md) |
 | Back Office > Create | Create a record with the same short form used in project and relation pickers | [Back Office](back-office.md) |
 | Back Office > Data model > object > Settings | Choose which fields appear immediately in short creation forms | [Short forms](back-office.md#choose-the-fields-in-short-forms) |
 | Back Office > record > History | Inspect changes, compare previous values, check attribution and download signed history | [Back Office history](back-office.md#history-and-verification) |

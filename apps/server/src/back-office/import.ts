@@ -5,6 +5,8 @@ import type { BackOfficeActor, BackOfficeValue } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import {
   backOfficeMoneyFromMajor,
+  isOrderedListField,
+  BackOfficeValueSchema,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "./schema.js";
@@ -125,6 +127,10 @@ export function previewImport(
         const cell = cells[columnIndex]?.trim() ?? "";
         if (!cell) {
           values[field.id] = null;
+          continue;
+        }
+        if (isOrderedListField(field.type)) {
+          values[field.id] = BackOfficeValueSchema.parse(JSON.parse(cell));
           continue;
         }
         values[field.id] =

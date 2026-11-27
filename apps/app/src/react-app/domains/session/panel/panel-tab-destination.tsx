@@ -5,6 +5,7 @@ import { startProjectItemDrag, type ProjectItemTab } from "./project-item-drag";
 const Destination = createContext<PanelTabDestination | undefined>(undefined);
 type OpenTab = (tab: PanelTab, options?: { preview?: boolean; besideChat?: boolean }) => void;
 const Open = createContext<OpenTab | undefined>(undefined);
+export function usePanelTabDestination() { return useContext(Destination); }
 export function PanelTabDestinationProvider({ destination, onOpen, children }: { destination: PanelTabDestination; onOpen?: OpenTab; children: ReactNode }) {
   return <Destination.Provider value={destination}><Open.Provider value={onOpen}>{children}</Open.Provider></Destination.Provider>;
 }

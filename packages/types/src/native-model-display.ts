@@ -1,5 +1,6 @@
-/** Native discovery can advertise the retired free tiers before runtime configuration has loaded. */
-export const RETIRED_FREE_PROVIDER_IDS: ReadonlySet<string> = new Set(["eigenwelt-free", "opencode"]);
+/** The engine's built-in OpenCode Zen provider, whose anonymous free models LegalWork never offers. Runtime
+ * configuration disables it, but native discovery can advertise it before that configuration has loaded. */
+export const RETIRED_FREE_PROVIDER_IDS: ReadonlySet<string> = new Set(["opencode"]);
 
 /** Display metadata is never submitted as an executable model setting. */
 export type NativeModelDisplay = { legalwork?: { defaultVariantID: string | null } };

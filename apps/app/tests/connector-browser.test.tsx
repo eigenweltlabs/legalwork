@@ -1,6 +1,7 @@
 import { connectorCategory, popularConnector } from "../src/react-app/domains/settings/pages/connector-categories";
 import { expect, test } from "bun:test";
 import { MCP_QUICK_CONNECT } from "../src/app/constants";
+import { githubMcpOAuth } from "@legalwork/types/connector-config";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -168,6 +169,22 @@ test("SharePoint and Dropbox each have one catalog provider and preserve custom 
   expect(render("service:dropbox", overrides)).toContain("Custom Dropbox</h1>");
 });
 
+
+test("GitHub is a built-in connector using its official endpoint and registered OAuth app", () => {
+  const github = MCP_QUICK_CONNECT.find(entry => entry.serverName === "github");
+  expect(github).toMatchObject({
+    type: "remote",
+    url: "https://api.githubcopilot.com/mcp/",
+    oauth: true,
+    oauthConfig: { clientId: githubMcpOAuth.clientId, scope: githubMcpOAuth.scope },
+  });
+  const overrides = { mcpView: <McpView {...props.mcpView.props} quickConnect={MCP_QUICK_CONNECT} /> };
+  const detail = render("service:github", overrides).split("<article")[1];
+  expect(detail).toContain("GitHub</h1>");
+  expect(github?.requiresOauthClient).toBeUndefined();
+  expect(detail).toContain("public and private repositories");
+  expect(detail).toContain("Connect");
+});
 
 test("catalog categories place storage and Eigenwelt tools correctly and omit the retired Google bundle", () => {
   for (const name of ["box", "egnyte", "dropbox", "sharepoint"]) expect(connectorCategory(name, name)).toBe("files");

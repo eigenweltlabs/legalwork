@@ -45,7 +45,7 @@ export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeA
         if (filterFields.has(key)) relationIds.set(key, links.map(link => link.id));
       } else if (typeof v === "object" && !Array.isArray(v)) {
         values[key] = query.currency ? (v.currency === query.currency ? backOfficeMajorAmount(v) : null) : v;
-      } else if (Array.isArray(v)) values[key] = v.map(item => typeof item === "string" ? item : item.name);
+      } else if (Array.isArray(v)) values[key] = v.map(item => typeof item === "string" || "url" in item ? item : item.name);
       else values[key] = v;
     }
     // Related names and visible identities can change without a revision on this row.

@@ -1,4 +1,5 @@
 export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
+import type { SupportContact } from "@legalwork/types/desktop-ipc";
 import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
@@ -682,13 +683,6 @@ export type LegalworkRuntimeConfigMigrationResult = {
   userOpencodeKeys: string[];
   updatedAt: number | null;
   legacyError?: string | null;
-};
-
-/** A provider the server dropped from a workspace's stored config at startup. */
-export type LegalworkProviderRepairNotice = {
-  providerId: string;
-  name: string;
-  reason: "retired" | "invalid";
 };
 
 export type LegalworkRuntimeConfigStatus = {
@@ -2443,12 +2437,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/runtime-config`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
-    getProviderRepairs: (workspaceId: string) =>
-      requestJson<{ removed: LegalworkProviderRepairNotice[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/provider-repairs`,
-        { token, hostToken, timeoutMs: timeouts.config },
-      ),
     listProviderCredentials: (workspaceId: string, providerId: string) =>
       requestJson<{ items: Array<{ id: string; integrationID: string; label: string; active: boolean; type: "key" | "oauth" | "external" }> }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/providers/${encodeURIComponent(providerId)}/credentials`, { token, hostToken }),
     disconnectProviderCredential: (workspaceId: string, providerId: string, credentialId: string) =>
@@ -2624,6 +2612,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken }),
     eigenweltUsageAction: (workspaceId: string, action: UsageControlAction) => requestJson<unknown>(baseUrl,
       `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken, method: "POST", body: action }),
+    supportContact: (signal?: AbortSignal) => requestJson<{ contact: SupportContact | null }>(baseUrl, "/support/contact", { hostToken, signal }),
     eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
       requestJson<EigenweltEntitlementsView>(
         baseUrl,
@@ -3263,7 +3252,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // Connectors are shared by every workspace the server hosts unless a
     // caller asks for one workspace's own entry.
     startMcpOAuth: (workspaceId: string, server: string) =>
-      requestJson<import("@opencode/client").IntegrationAttempt & { integrationID: string; callback: { redirectUri: string } }>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/start`, {
+      requestJson<import("@opencode/client").IntegrationAttempt & { integrationID: string } & ({ callback: { redirectUri: string } } | { userCode: string })>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/start`, {
         method: "POST", token, hostToken, body: { server }, timeoutMs: timeouts.mcpSetup,
       }),
     mcpOAuthStatus: (workspaceId: string, attempt: { integrationID: string; attemptID: string }) =>

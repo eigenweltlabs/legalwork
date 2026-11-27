@@ -24,6 +24,8 @@ import {
   BackOfficeRecordSchema,
   BackOfficeValueSchema,
   BackOfficeFilesSchema,
+  isOrderedListField,
+  hasOrderedListFields,
   BackOfficeFileSchema,
   BackOfficeViewSchema,
   assertModelChange,
@@ -112,7 +114,7 @@ function selectionField(model: BackOfficeModel, record: BackOfficeRecord, fields
   const field = definition?.fields.find(item => item.id === fields[0]);
   if (field?.type === "multiselect" || (field?.type === "relation" && field.multiple)) return field.id;
 }
-const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional(), position: z.object({ access: z.string(), cursor: z.number().int().nonnegative() }).optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
+const ReplicaBindingSchema = z.object({ id: z.literal("replica"), orderedListFields: z.boolean().optional(), principalKey: z.string(), replicaId: z.string().uuid().optional(), position: z.object({ access: z.string(), cursor: z.number().int().nonnegative() }).optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
 
 export class BackOfficeStore {
   private transactionDepth = 0;
@@ -459,7 +461,7 @@ export class BackOfficeStore {
   ) {
     if (scope === "local") return;
     if (kind === "record" && revision > 0) {
-      const record = BackOfficeRecordSchema.parse(data);
+      const { fieldPreviews: _fieldPreviews, ...record } = BackOfficeRecordSchema.parse(data);
       data = {
         ...record,
         values: Object.fromEntries(Object.entries(record.values).filter(([id]) => changedFields?.includes(id))),
@@ -572,6 +574,7 @@ export class BackOfficeStore {
             "back_office_object",
             "The object is unavailable.",
           );
+        if (scope !== "local" && object.fields.some(field => isOrderedListField(field.type))) this.requireOrderedListFields(scope);
         const existing = parsed.id ? this.raw(scope, parsed.id) : null;
         if (parsed.id && !existing && !parsed.create)
           throw new ApiError(
@@ -855,6 +858,7 @@ export class BackOfficeStore {
     });
     const errors: string[] = [];
     try {
+      this.requireModelSupport(scope, candidate);
       assertModelChange(current, candidate);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : "Check the model.");
@@ -902,6 +906,7 @@ export class BackOfficeStore {
           conflict(
             "The data model changed while you were editing.",
           );
+        this.requireModelSupport(scope, candidate);
         try {
           assertModelChange(current, candidate);
         } catch (error) {
@@ -1043,6 +1048,19 @@ export class BackOfficeStore {
       [scope, enabled ? 1 : 0],
     );
   }
+  supportsOrderedListFields(scope: string) {
+    if (scope === "local") return true;
+    const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+    return !!row && ReplicaBindingSchema.parse(JSON.parse(String(row.data))).orderedListFields === true;
+  }
+  requireOrderedListFields(scope: string) {
+    if (!this.supportsOrderedListFields(scope))
+      throw new ApiError(409, "back_office_list_fields", "Update the firm platform and sync before using ordered list fields.");
+  }
+  requireModelSupport(scope: string, model: BackOfficeModel) {
+    if (hasOrderedListFields(model))
+      this.requireOrderedListFields(scope);
+  }
   directoryPosition(scope: string, actor: BackOfficeActor): DirectoryPosition | null {
     this.requireAccount(scope, actor);
     const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
@@ -1157,7 +1175,9 @@ export class BackOfficeStore {
         }
         // An unsent field can be absent from the platform snapshot but still
         // present in the authorized projection. That is not an access change.
-        if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
+        if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) ||
+            previous.fieldPreviews?.some(field => !projected.fieldPreviews?.some(next => next.id === field.id)) ||
+            previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         if (previous && JSON.stringify(previous) === JSON.stringify(projected)) continue;
         if (incremental) changedIds.push(record.id);
         this.db.run(
@@ -1186,8 +1206,8 @@ export class BackOfficeStore {
       const bound = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
       if (bound) {
         const binding=ReplicaBindingSchema.parse(JSON.parse(String(bound.data)));
-        if (binding.position?.access !== position?.access || binding.position?.cursor !== position?.cursor)
-          this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?",[JSON.stringify({...binding,position}),scope]);
+        if (binding.position?.access !== position?.access || binding.position?.cursor !== position?.cursor || binding.orderedListFields !== snapshot.orderedListFields)
+          this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?",[JSON.stringify({...binding,position,orderedListFields:snapshot.orderedListFields}),scope]);
       }
       return this.replicaId(scope);
     });
@@ -1233,7 +1253,8 @@ export class BackOfficeStore {
           continue;
         }
         const next = readableBackOfficeRecord(record, object, actor);
-        if (canonicalBackOfficeAudit(record.values) !== canonicalBackOfficeAudit(next.values)) {
+        if (canonicalBackOfficeAudit(record.values) !== canonicalBackOfficeAudit(next.values) ||
+            canonicalBackOfficeAudit(record.fieldPreviews ?? null) !== canonicalBackOfficeAudit(next.fieldPreviews ?? null)) {
           this.db.run("UPDATE bo_records SET data=? WHERE scope=? AND id=?", [JSON.stringify(next), scope, record.id]);
           revoked = true;
         }

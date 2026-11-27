@@ -1,10 +1,14 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useId, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { supportAccountQueryOptions } from "../domains/connections/eigenwelt-entitlements";
 import { useUpdateCheckRequestStore } from "../domains/settings/state/update-check-request";
-import { supportBundleCollect } from "../../app/lib/desktop";
+import { SupportContactActions } from "../domains/session/sidebar/support-contact-actions";
+import { desktopBridge, relaunchDesktopApp, supportBundleCollect } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
 import type { EngineStartupState } from "./engine-startup";
@@ -13,7 +17,29 @@ import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
 import { MigrationProgressView } from "./migration-progress";
 
-const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
+function StartupSupportHelp() {
+  const helpId = useId();
+  const [{ open, lookup }, setHelp] = useState({ open: false, lookup: 0 });
+  const account = useQuery(supportAccountQueryOptions());
+  const contact = useQuery({
+    queryKey: ["startup-support", "contact", helpId, open ? lookup : null], queryFn: () => desktopBridge.startupSupport(true),
+    enabled: open && account.data?.authenticated === true, refetchInterval: open ? 30_000 : false,
+    gcTime: 0, retry: false,
+  });
+  if (!account.data?.authenticated || contact.data?.authenticated === false) return null;
+  return (
+    <div className="grid w-full gap-3">
+      <Button variant="outline" size="sm" aria-expanded={open}
+        onClick={() => setHelp(current => current.open ? { ...current, open: false } : { open: true, lookup: current.lookup + 1 })}>
+        {t("boot.get_help")}
+      </Button>
+      {open && <div className="text-left text-foreground">
+        <SupportContactActions authenticated contact={contact.data?.contact ?? null} loading={contact.isPending}
+          unavailable={contact.isError || contact.data?.unavailable === true} />
+      </div>}
+    </div>
+  );
+}
 
 /**
  * One-click support-log collection for the boot error screen. The customer
@@ -95,14 +121,14 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
   return (
     <div
       data-testid="startup-screen"
-      className={`fixed inset-0 z-[1000] flex items-center justify-center bg-dls-surface transition-opacity duration-[160ms] ${
+      className={`fixed inset-0 z-[1000] flex overflow-y-auto bg-dls-surface transition-opacity duration-[160ms] ${
         fading ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
       }`}
       aria-live="polite"
       aria-busy={!fading && !error}
       role="status"
     >
-      <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
+      <div className="m-auto flex w-full max-w-[320px] flex-col items-center gap-4 px-6 py-8 text-center">
         <OwDotTicker size="md" />
         <div className="text-[12px] leading-5 text-dls-secondary">
           {error ? t("boot.error") : updating ? t(migration ? "boot.migration_title" : "boot.updating") : preparingMessage}
@@ -111,14 +137,22 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>
-            {isDesktopRuntime() ? <CollectLogsButton /> : null}
           </div>
         ) : null}
+        {error && isDesktopRuntime() && <div className="grid w-full gap-3">
+          <p className="text-xs leading-5 text-dls-secondary">{t("boot.recovery_prompt")}</p>
+          <Button size="sm" onClick={openUpdates}>{t("boot.update_and_restart")}</Button>
+          <Button variant="ghost" size="sm" onClick={() => void relaunchDesktopApp().catch(() => toast.error(t("settings.restart_failed")))}>
+            {t("boot.restart_app")}
+          </Button>
+          <StartupSupportHelp />
+          <CollectLogsButton />
+        </div>}
         {isDesktopRuntime() ? (
           <>
-            <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
+            {!error && <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
               {t("ai_plans.check_updates")}
-            </Button>
+            </Button>}
             <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
               {/* Keep the updater and its menus above the boot overlay. */}
               <DialogContent

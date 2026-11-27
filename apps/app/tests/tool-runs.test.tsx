@@ -93,14 +93,19 @@ test("browser batches have a short status but retain individual actions in expan
   expect(html).toContain("Browser click · Browser snapshot");
 });
 
-test("failed and denied runs never claim successful completion", () => {
+test("recoverable failures show only as a quiet note in the open run; denials stay visible", () => {
   const failed: DynamicToolUIPart = { ...appTool, state: "output-error", errorText: "Browser unavailable" };
-  for (const part of [failed, { ...failed, errorText: "The user rejected permission to use this specific tool call" }]) {
-    const html = renderToStaticMarkup(<ToolRun parts={[part]} showDetails={false} renderTool={() => null} />);
-    expect(html).not.toContain("Completed");
-    expect(html).not.toContain("lw-tool-shimmer");
-    expect(html).toContain(part === failed ? "Action failed" : "Permission denied");
-  }
+  const collapsed = renderToStaticMarkup(<ToolRun parts={[failed]} showDetails={false} renderTool={() => null} />);
+  expect(collapsed).toContain("Completed");
+  expect(collapsed).not.toContain("Failed");
+  expect(collapsed).not.toContain("text-destructive");
+  const open = renderToStaticMarkup(<ToolRun defaultOpen parts={[failed]} showDetails={false} renderTool={() => null} />);
+  expect(open).toContain("· Failed");
+  expect(open).not.toContain("text-destructive");
+  const denied = renderToStaticMarkup(<ToolRun parts={[{ ...failed, errorText: "The user rejected permission to use this specific tool call" }]} showDetails={false} renderTool={() => null} />);
+  expect(denied).not.toContain("Completed");
+  expect(denied).not.toContain("lw-tool-shimmer");
+  expect(denied).toContain("Permission denied");
 });
 
 test("project lookups stay in ordinary tool activity and the answer stays in chat", () => {
@@ -162,11 +167,11 @@ test("source reads and result paging are distinguishable from new Jev inference"
   expect(getToolHistoryLabel({ ...bash, toolName: "legalwork_jev_corpus_question", input: { jobId: "saved", evidencePath: "room/a.pdf" } })).toBe("Read source: room/a.pdf");
 });
 
-test("capability help is labeled as a read, with failures still visible", () => {
+test("capability help is labeled as a read, also when it failed", () => {
   const help: DynamicToolUIPart = { ...bash, toolName: "legalwork_ui_execute_action", input: { actionId: "help.capabilities" } };
   expect(getToolHistoryLabel(help)).toBe("Checked app capabilities");
   expect(getToolHistoryLabel({ ...help, state: "input-available" })).toBe("Checking app capabilities");
-  expect(getToolHistoryLabel({ type: "dynamic-tool", toolName: help.toolName, toolCallId: "failed-help", state: "output-error", input: help.input, errorText: "Unavailable" })).toBe("Action failed");
+  expect(getToolHistoryLabel({ type: "dynamic-tool", toolName: help.toolName, toolCallId: "failed-help", state: "output-error", input: help.input, errorText: "Unavailable" })).toBe("Checked app capabilities");
   const html = renderToStaticMarkup(<ToolRun defaultOpen parts={[help]} showDetails={false} renderTool={() => null} />);
   expect(html).toContain("Checked app capabilities");
   expect(html).not.toContain("Ui execute action");

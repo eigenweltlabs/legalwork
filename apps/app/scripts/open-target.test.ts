@@ -5,6 +5,7 @@ import {
   classifyOpenTarget,
   deriveOpenTargets,
   isCollectibleArtifactTarget,
+  markdownFileLinkPaths,
   resolveHrefOpenTarget,
   resolvePathOpenTarget,
   selectAutoOpenTarget,
@@ -96,6 +97,27 @@ describe("file chip links", () => {
     ]) expect(resolveHrefOpenTarget(href, [])?.value).toBe(path);
     expect(resolveHrefOpenTarget("#sources", [])).toBeNull();
     expect(resolveHrefOpenTarget("https://example.com/Client%20profile.md", [])).toMatchObject({ kind: "url", value: "https://example.com/Client%20profile.md" });
+  });
+});
+
+describe("file links in Markdown documents", () => {
+  const document = "ISMS/Setup/Draft-baseline.md";
+
+  it("resolves relative paths from the document folder and decodes once", () => {
+    expect(markdownFileLinkPaths("../02-Risk-and-applicability.md", document)).toEqual(["ISMS/02-Risk-and-applicability.md"]);
+    expect(markdownFileLinkPaths("./M%C3%BCller%2520notes.md#sources", document)).toEqual(["ISMS/Setup/Müller%20notes.md"]);
+    expect(markdownFileLinkPaths("Draft.md", document)).toEqual(["ISMS/Setup/Draft.md", "Draft.md"]);
+    expect(markdownFileLinkPaths("Draft.md", "Start.md")).toEqual(["Draft.md"]);
+  });
+
+  it("keeps absolute file identities and rejects escaping relative paths and nonfile links", () => {
+    expect(markdownFileLinkPaths("../Review.md", "C:\\Project\\Setup\\Index.md")).toEqual(["C:/Project/Review.md"]);
+    expect(markdownFileLinkPaths("file://server/share/Review%20notes.md", document)).toEqual(["//server/share/Review notes.md"]);
+    expect(markdownFileLinkPaths("../../../outside.md", document)).toEqual([]);
+    expect(markdownFileLinkPaths("%2e%2e/%2e%2e/%2e%2e/outside.md", document)).toEqual([]);
+    for (const href of ["#sources", "https://example.com/Review.md", "mailto:review@example.com", "javascript:alert(1)"]) {
+      expect(markdownFileLinkPaths(href, document)).toEqual([]);
+    }
   });
 });
 

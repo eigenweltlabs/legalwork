@@ -7,11 +7,12 @@ import {
   History,
   LockKeyhole,
   Maximize2,
+  Pencil,
   MoreVertical,
   RotateCcw,
   X,
 } from "lucide-react";
-import { Button, Input } from "twenty-ui/primitives/input";
+import { Button } from "twenty-ui/primitives/input";
 import { RecordAvatar as Avatar } from "./record-colors";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Tabs } from "twenty-ui/primitives/navigation";
@@ -139,10 +140,9 @@ export function RecordDetail({
           name={String(record.values.name)}
           colorSeed={record.id}
         />
-        <Input
+        <textarea
           className="bo-detail-name"
-          variant="plain"
-          size="sm"
+          rows={1}
           aria-label={t("back_office.record_name", { name: object.label })}
           placeholder={object.fields.find(field => field.id === "name")?.label}
           autoFocus={focusName}
@@ -267,7 +267,8 @@ export function RecordDetail({
                     )}
                   </label>
                   <div className="bo-property-value">
-                    {field.type === "relation" && !canEdit ? display : <Popover.Root
+                    {field.type === "linkList" && display}
+                    {field.type === "linkList" && !canEdit ? null : field.type === "relation" && !canEdit ? display : <Popover.Root
                       open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
@@ -282,8 +283,8 @@ export function RecordDetail({
                           />
                         }
                       >
-                        {display}
-                        {(value === null || value === undefined || value === "") && (
+                        {field.type === "linkList" ? <Pencil size={13} /> : display}
+                        {field.type !== "linkList" && (value === null || value === undefined || value === "") && (
                           <span className="bo-muted">{field.label}</span>
                         )}
                       </Popover.Trigger>
@@ -301,6 +302,7 @@ export function RecordDetail({
                             }}
                           >
                             {edit?.field === field.id && <CellEditor
+                              multiline
                               record={edit.base}
                               field={field}
                               value={field.multiple || field.type === "multiselect" ? record.values[field.id] : edit.base.values[field.id]}
@@ -315,6 +317,15 @@ export function RecordDetail({
                   </div>
                 </div>
               })}
+            {record.fieldPreviews?.map(field => (
+              <div className="bo-property" key={field.id}>
+                <span className="bo-read-only-field-label"><LockKeyhole size={13} aria-hidden="true" />{field.label}</span>
+                <div className="bo-read-only-field">
+                  {field.value !== null && <span>{field.value}</span>}
+                  <small className="bo-muted">{t(field.value === null ? "back_office.field_preview_unavailable" : "back_office.field_preview_update")}</small>
+                </div>
+              </div>
+            ))}
             {children}
           </div>
           {error && (

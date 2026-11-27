@@ -22,9 +22,41 @@ Object.defineProperty(globalThis, "localStorage", {
     },
   },
 });
-const { createPanelTabStore } = await import("../src/react-app/domains/session/panel/panel-tab-store");
+const { createPanelTabStore, newBackOfficeTab, projectViewTab } = await import("../src/react-app/domains/session/panel/panel-tab-store");
 const { openTaskProject } = await import("../src/react-app/domains/tasks/task-project-navigation");
 const usePanelTabStore = createPanelTabStore();
+
+test("Back Office tabs keep independent views across splits and restore", () => {
+  const scope = "workspace:back-office";
+  const panels = createPanelTabStore();
+  const first = newBackOfficeTab("Back Office");
+  const second = newBackOfficeTab("Back Office");
+  const linked = projectViewTab("back-office", "Back Office", "/back-office/people");
+  const checklist = "/back-office/ismsChecklist?viewId=5733f1ce-8877-4d28-87b5-e3a746cb8109";
+  panels.getState().openTab(scope, first);
+  panels.getState().openTab(scope, second);
+  panels.getState().setBackOfficePath(scope, first.id, checklist);
+  panels.getState().setBackOfficePath(scope, second.id, "/back-office/matters");
+  panels.getState().updateTabLabel(scope, first.id, "ISMS audit checklist");
+  panels.getState().updateTabLabel(scope, second.id, "Matters");
+  panels.getState().setBackOfficePath(scope, first.id, "/settings/permissions");
+  panels.getState().moveTab(scope, second.id, panels.getState().sessions[scope].panes[0].id, "right");
+  panels.getState().openTab(scope, linked);
+  panels.getState().openTab(scope, projectViewTab("back-office", "Back Office", "/back-office/clients"));
+  panels.getState().updateTabLabel(scope, linked.id, "Clients");
+  panels.getState().openTab(scope, projectViewTab("back-office", "Back Office", "/back-office/clients"));
+  const session = panels.getState().sessions[scope];
+  expect(session.panes.find(pane => pane.id === session.focusedPaneId)?.activeTabId).toBe(linked.id);
+  expect(session.panes).toHaveLength(2);
+  expect(session.tabs).toEqual([
+    { ...first, label: "ISMS audit checklist", backOfficePath: checklist },
+    { ...second, label: "Matters", backOfficePath: "/back-office/matters" },
+    { ...linked, label: "Clients", backOfficePath: "/back-office/clients" },
+  ]);
+  const restored = panels.getState().readLayout(JSON.parse(JSON.stringify(session)));
+  expect(restored?.tabs).toEqual(session.tabs);
+  expect(restored?.panes).toEqual(session.panes);
+});
 
 test("closing the routed chat once survives stale route renders and later navigation can reopen it", () => {
   const panels = createPanelTabStore();

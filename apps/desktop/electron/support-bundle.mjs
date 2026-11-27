@@ -12,7 +12,7 @@
 //   - the packaged sidecar versions.json
 // A final scrub pass redacts anything that still looks like a secret
 // assignment, as a safety net for stderr passthrough from child processes.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,6 +29,24 @@ function readFileTail(filePath, limit = LOG_TAIL_LIMIT) {
     return tail(readFileSync(filePath, "utf8"), limit);
   } catch {
     return null;
+  }
+}
+
+/** Read only the recent main-process log entries correlated with this chat. */
+export function readChatSupportLog(app, sessionId) {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return [];
+  let fd;
+  try {
+    fd = openSync(path.join(app.getPath("logs"), "main.log"), "r");
+    const size = fstatSync(fd).size;
+    const tail = Buffer.alloc(Math.min(size, 64 * 1024));
+    const bytes = readSync(fd, tail, 0, tail.length, size - tail.length);
+    const match = new RegExp(`(^|[^A-Za-z0-9_-])${sessionId}(?=$|[^A-Za-z0-9_-])`);
+    return tail.subarray(0, bytes).toString("utf8").split(/\r?\n/).filter(line => match.test(line)).slice(-20);
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -56,7 +74,7 @@ export function defaultSupportBundleFileName() {
 }
 
 /** Collect desktop traces locally; the server removes chat bodies and credentials before returning the export. */
-export async function collectTechnicalSupportBundle({ app, runtimeManager, serverInfo, days = 7, fetchImpl = fetch }) {
+export async function collectTechnicalSupportBundle({ app, runtimeManager, serverInfo, days = 2, signal = undefined, fetchImpl = fetch }) {
   if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error("Choose a whole number of days from 1 to 365.");
   if (!serverInfo.running || !serverInfo.baseUrl || !serverInfo.hostToken) {
     throw new Error("Start the local LegalWork service before exporting technical diagnostics.");
@@ -98,11 +116,12 @@ export async function collectTechnicalSupportBundle({ app, runtimeManager, serve
     runtime, logs, logsError, logFileLimit: 10,
     sidecarVersions: sidecarVersionsPath ? readFileTail(sidecarVersionsPath, 16_000) : null,
   };
+  const timeout = AbortSignal.timeout(60_000);
   const response = await fetchImpl(`${serverInfo.baseUrl}/diagnostics/export`, {
     method: "POST",
     headers: { "X-LegalWork-Host-Token": serverInfo.hostToken, "Content-Type": "application/json" },
     body: JSON.stringify({ desktop, days }),
-    signal: AbortSignal.timeout(60_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   if (!response.ok) throw new Error("Technical diagnostics could not be collected from the local service.");
   const diagnostics = await response.json();

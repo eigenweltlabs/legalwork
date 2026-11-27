@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { supportBundleCollect, technicalSupportBundleCollect } from "../../../../app/lib/desktop";
+import { technicalSupportBundleCollect } from "../../../../app/lib/desktop";
 import { formatBytes, formatRelativeTime, isDesktopRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import type { ReleaseChannel } from "../../../../app/types";
@@ -64,13 +64,9 @@ function UpdateDownloadProgress(props: UpdateDownloadProgressProps) {
   );
 }
 
-/**
- * Saves the support bundle (same as Help > Collect Support Logs...). Lives in
- * Settings because the native menu bar is hidden on Windows.
- */
-function SupportLogsSection({ technical = false }: { technical?: boolean }) {
+function DetailedSupportLogsSection() {
   const daysId = useId();
-  const [days, setDays] = useState("7");
+  const [days, setDays] = useState("2");
   const selectedDays = Number(days);
   const validDays = Number.isInteger(selectedDays) && selectedDays >= 1 && selectedDays <= 365;
   const [state, setState] = useState<
@@ -78,10 +74,10 @@ function SupportLogsSection({ technical = false }: { technical?: boolean }) {
   >({ status: "idle" });
 
   const collect = async () => {
-    if (technical && !validDays) return;
+    if (!validDays) return;
     setState({ status: "collecting" });
     try {
-      const { path } = await (technical ? technicalSupportBundleCollect({ days: selectedDays }) : supportBundleCollect());
+      const { path } = await technicalSupportBundleCollect({ days: selectedDays });
       // No path: the save dialog was canceled.
       setState(path ? { status: "saved", path } : { status: "idle" });
     } catch {
@@ -93,24 +89,22 @@ function SupportLogsSection({ technical = false }: { technical?: boolean }) {
     <LayoutSection>
       <LayoutSectionItem>
         <LayoutSectionItemHeader>
-          <LayoutSectionItemTitle>{t(technical ? "updates.technical_diagnostics_title" : "updates.support_logs_title")}</LayoutSectionItemTitle>
-          <LayoutSectionItemDescription>{t(technical ? "updates.technical_diagnostics_desc" : "updates.support_logs_desc")}</LayoutSectionItemDescription>
+          <LayoutSectionItemTitle>{t("updates.technical_diagnostics_title")}</LayoutSectionItemTitle>
+          <LayoutSectionItemDescription>{t("updates.technical_diagnostics_desc")}</LayoutSectionItemDescription>
           <LayoutSectionItemHeaderActions>
-            {technical ? (
-              <div className="flex items-center gap-2">
-                <label htmlFor={daysId} className="text-sm text-muted-foreground">{t("updates.technical_diagnostics_days")}</label>
-                <Input id={daysId} type="number" min={1} max={365} step={1} value={days}
-                  onChange={(event) => setDays(event.target.value)} disabled={state.status === "collecting"}
-                  aria-invalid={!validDays} aria-describedby={!validDays ? `${daysId}-error` : undefined} className="w-20" />
-              </div>
-            ) : null}
-            <Button variant="outline" onClick={() => void collect()} disabled={state.status === "collecting" || (technical && !validDays)}>
+            <div className="flex items-center gap-2">
+              <label htmlFor={daysId} className="text-sm text-muted-foreground">{t("updates.technical_diagnostics_days")}</label>
+              <Input id={daysId} type="number" min={1} max={365} step={1} value={days}
+                onChange={(event) => setDays(event.target.value)} disabled={state.status === "collecting"}
+                aria-invalid={!validDays} aria-describedby={!validDays ? `${daysId}-error` : undefined} className="w-20" />
+            </div>
+            <Button variant="outline" onClick={() => void collect()} disabled={state.status === "collecting" || !validDays}>
               {state.status === "collecting" ? <Spinner className="size-4" /> : null}
-              {t(technical ? "updates.technical_diagnostics_export" : "boot.collect_logs")}
+              {t("updates.technical_diagnostics_export")}
             </Button>
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
-        {technical && !validDays ? <p id={`${daysId}-error`} className="text-sm text-destructive">{t("updates.technical_diagnostics_days_invalid")}</p> : null}
+        {!validDays ? <p id={`${daysId}-error`} className="text-sm text-destructive">{t("updates.technical_diagnostics_days_invalid")}</p> : null}
         {state.status === "saved" ? (
           <Alert>
             <Info />
@@ -372,8 +366,7 @@ export function UpdatesView(props: UpdatesViewProps) {
         </LayoutSection>
       )}
 
-      {isDesktopRuntime() ? <SupportLogsSection /> : null}
-      {isDesktopRuntime() ? <SupportLogsSection technical /> : null}
+      {isDesktopRuntime() ? <DetailedSupportLogsSection /> : null}
     </LayoutStack>
   );
 }
