@@ -100,14 +100,37 @@ test("one named folder searches over 5,000 files and reloads complete saved pagi
   await writeFile(join(f.root, "Unrelated deck.pptx"), "Outside requested scope");
   let calls = 0;
   const backend = { selection, extract, infer: async () => { calls++; return binary(.99); } };
-  const service = new CorpusService(backend);
-  const result = await service.query(f.workspace, { paths: [folder], question: "Does this document contain X?", answers: ["Yes"] });
+  const service = new CorpusService(backend), request = { paths: [folder], question: "Does this document contain X?", answers: ["Yes"] };
+  expect(await service.query(f.workspace, request)).toMatchObject({ status: "scope_check", total: count }); expect(calls).toBe(0);
+  const result = await service.query(f.workspace, request);
+  if ("folders" in result) throw new Error("Repeating the identical call must start the search.");
   expect(result.status).toBe("complete"); expect(result.total).toBe(count); expect(result.processed).toBe(count);
   expect(result.counts).toEqual({ Yes: count, No: 0 }); expect(calls).toBe(count);
   const reloaded = await new CorpusService(backend).query(f.workspace, { jobId: result.jobId, answers: ["Yes"], offset: 6000, limit: 50 });
   expect(reloaded.total).toBe(count); expect(reloaded.results).toHaveLength(1); expect(reloaded.nextOffset).toBeNull();
   expect(reloaded.question).toBe(result.question); expect(calls).toBe(count);
 }, 30000);
+
+test("searches over 500 files report their size per folder and start only when the identical call is repeated", async () => {
+  const f = await fixture(0);
+  for (const [folder, count] of Object.entries({ "Matters/A": 400, "Matters/B": 101 })) {
+    await mkdir(join(f.root, folder), { recursive: true });
+    for (let n = 0; n < count; n++) await writeFile(join(f.root, folder, `${n}.txt`), "Evidence");
+  }
+  let calls = 0;
+  const service = new CorpusService({ selection, extract, infer: async () => { calls++; return binary(.99); } });
+  const request = { paths: ["."], question: "Does this document name Beatrice Holloway?" };
+  expect(await service.query(f.workspace, request)).toEqual({ status: "scope_check", total: 501, folders: [{ path: "Matters", files: 501 }], foldersTruncated: false,
+    guidance: expect.stringContaining("ALL 501 files") });
+  expect(await service.query(f.workspace, { paths: ["Matters"], question: request.question })).toMatchObject({ status: "scope_check",
+    folders: [{ path: "Matters/A", files: 400 }, { path: "Matters/B", files: 101 }] });
+  // A different question is a different search and is checked again.
+  expect(await service.query(f.workspace, { ...request, question: "Does this document name Ada Park?" })).toMatchObject({ status: "scope_check" });
+  expect(calls).toBe(0);
+  expect(await service.query(f.workspace, { paths: ["Matters/A"], question: request.question })).toMatchObject({ status: "complete", total: 400 });
+  expect(await service.query(f.workspace, request)).toMatchObject({ status: "complete", total: 501 });
+  expect(calls).toBe(901);
+});
 
 test("explicit search paths have no document-count cap", () => {
   expect(CorpusQuerySchema.safeParse({ paths: Array.from({ length: 6001 }, (_, n) => String(n) + ".pdf") }).success).toBe(true);
