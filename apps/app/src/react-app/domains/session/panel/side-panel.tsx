@@ -136,7 +136,8 @@ type SidePanelProps = {
   onNewChat?: (pane: string) => void;
   onOpenWiki?: (pane: string) => void;
   onOpenWikiGraph?: (pane: string) => void;
-  renderProjectView?: (view: ProjectView, active: boolean, backOfficePath?: string) => React.ReactNode;
+  renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
+  renderBackOffice?: (path: string | undefined, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
   renderWikiTab?: (tab: WikiPanelTab) => React.ReactNode;
@@ -777,7 +778,7 @@ function SidePanelContent({
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
-  onNewChat, onOpenWiki, onOpenWikiGraph, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  onNewChat, onOpenWiki, onOpenWikiGraph, renderProjectView, renderBackOffice, onOpenTabWindow, onDropChat, projectId,
   renderWikiTab,
 }: SidePanelProps) {
   const controlSessionIds = useDocumentControlSessions(sessionId);
@@ -1151,7 +1152,10 @@ function SidePanelContent({
               <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
               {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
               {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
-              {renderProjectView && (["calendar", "reviews", "tasks", "dashboards", "back-office"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
+              {([
+                ...(renderProjectView ? ["calendar", "reviews", "tasks", "dashboards"] as const : []),
+                ...(renderBackOffice ? ["back-office"] as const : []),
+              ] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
                 const tab = projectViewTab(view, projectViewLabel(view));
                 const store = usePanelTabStore.getState();
                 const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
@@ -1244,7 +1248,7 @@ function SidePanelContent({
           : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
-          : tab.type === "project-view" ? renderProjectView?.(tab.view, visible, tab.backOfficePath)
+          : tab.type === "project-view" ? (tab.view === "back-office" ? renderBackOffice?.(tab.backOfficePath, visible) : renderProjectView?.(tab.view, visible))
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "recording" ? <RecordingTranscriptPanel sessionId={sessionId} tab={tab} onClose={() => closeDocumentTab(tab)} />
