@@ -56,7 +56,12 @@ export async function startGitHubDeviceOAuth() {
 export async function pollGitHubDeviceOAuth(deviceCode: string): Promise<GitHubDevicePoll> {
   const body = await githubOAuthRequest("/login/oauth/access_token", { grant_type: deviceGrant, device_code: deviceCode });
   const token = tokenResponse.safeParse(body);
-  if (token.success) return { status: "complete", token: token.data };
+  if (token.success) {
+    if (!token.data.scope.split(/[\s,]+/).includes("repo")) {
+      return { status: "failed", message: "GitHub did not grant repository access. Start a new sign-in and approve repository access." };
+    }
+    return { status: "complete", token: token.data };
+  }
   const result = errorResponse.safeParse(body);
   switch (result.data?.error) {
     case "authorization_pending": return { status: "pending" };

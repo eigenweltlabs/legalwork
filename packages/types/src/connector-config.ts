@@ -3,7 +3,8 @@ export const githubMcpOAuth = {
   name: "github",
   url: "https://api.githubcopilot.com/mcp/",
   clientId: "Ov23lidcnfp7D6xTjrjo",
-  scope: "public_repo offline_access",
+  // GitHub's hosted get_file_contents can challenge for repo even on a public repository.
+  scope: "repo offline_access",
 };
 
 export type ConnectorConfig = {

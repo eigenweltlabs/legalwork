@@ -4463,7 +4463,7 @@ export default {
   "mcp.quick_connect_everlaw_desc": "Query the firm's Everlaw eDiscovery projects for documents, binders, and Bates metadata. US endpoint — org admin enables OAuth.",
   "mcp.quick_connect_everlaw_title": "Everlaw",
   "mcp.quick_connect_github_desc": "Access repositories, issues, and pull requests through GitHub’s official MCP server.",
-  "mcp.quick_connect_github_note": "Sign in with GitHub to connect your public repositories.",
+  "mcp.quick_connect_github_note": "GitHub asks for access to your public and private repositories.",
   "mcp.quick_connect_google_cloud_storage_desc": "Read and write matter files in the firm's Google Cloud Storage buckets, governed by IAM permissions.",
   "mcp.quick_connect_google_cloud_storage_title": "Google Cloud Storage",
   "mcp.quick_connect_highq_desc": "Read-only access to the firm's HighQ sites, documents, and iSheets. Enter your HighQ instance and site.",

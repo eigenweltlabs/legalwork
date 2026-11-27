@@ -32,7 +32,7 @@ For Dropbox, give the file connection a name, choose its folder and access, then
 
 ## GitHub
 
-The GitHub connector gives the assistant access to public repositories, issues, and pull requests through GitHub's official MCP server. Sign in using your GitHub account.
+The GitHub connector gives the assistant access to repositories, issues, and pull requests through GitHub's official MCP server. Sign in using your GitHub account. GitHub requests the `repo` scope, which grants read and write access to public and private repositories within your account's access. [GitHub OAuth scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps)
 
 1. Open **Settings > Integrations**, search for **GitHub**, select it, and choose **Connect**.
 2. Choose **Copy code and open GitHub**. Paste the one-time code on GitHub and approve the LegalWork app.

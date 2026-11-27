@@ -4557,7 +4557,7 @@ const de = {
   "mcp.quick_connect_github_desc":
     "Greifen Sie über den offiziellen GitHub-MCP-Server auf Repositorys, Issues und Pull Requests zu.",
   "mcp.quick_connect_github_note":
-    "Melden Sie sich bei GitHub an, um Ihre öffentlichen Repositorys zu verbinden.",
+    "GitHub bittet um Zugriff auf Ihre öffentlichen und privaten Repositorys.",
   "mcp.quick_connect_google_cloud_storage_desc":
     "Lesen und schreiben Sie Aktendateien in den Google-Cloud-Storage-Buckets der Kanzlei, gesteuert über IAM-Berechtigungen.",
   "mcp.quick_connect_google_cloud_storage_title": "Google Cloud Storage",

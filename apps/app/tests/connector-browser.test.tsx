@@ -182,7 +182,7 @@ test("GitHub is a built-in connector using its official endpoint and registered 
   const detail = render("service:github", overrides).split("<article")[1];
   expect(detail).toContain("GitHub</h1>");
   expect(github?.requiresOauthClient).toBeUndefined();
-  expect(detail).toContain("Sign in with GitHub");
+  expect(detail).toContain("public and private repositories");
   expect(detail).toContain("Connect");
 });
 
