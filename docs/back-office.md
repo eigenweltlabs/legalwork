@@ -62,7 +62,9 @@ Record movement uses renderer pointer events rather than OS-native HTML dragging
 
 Custom `textList` fields store ordered string arrays; `linkList` fields store ordered arrays of `{label,url}` with absolute HTTP(S) URLs. A list edit replaces one field under the ordinary expected-value and record revision checks. CSV uses a JSON array in one quoted cell for these fields. The default template and multiselect representation are unchanged.
 
-Shared directories require support in the platform's Back Office field/value schemas and validation. Updated clients and servers advertise `orderedListFields: true` on the existing sync request and snapshot. The native server caches support per account-bound replica; missing support blocks introducing these types or staging dependent records. Update the platform and all clients that need to read a directory before introducing a list. No SQL migration is required.
+Shared directories require platform support. Updated clients and servers advertise `orderedListFields: true` on sync requests and snapshots. The native server caches platform support per account-bound replica. Missing platform support blocks introducing these fields or staging records that depend on them.
+
+The platform omits unsupported fields, values, and view settings from older clients’ sync responses. Page positions and record bucket hashes follow the client’s projection, so upgrading restores the full directory. Older clients can edit supported fields, and the platform preserves values they did not receive. Creating a record with a required list or saving a model or view that uses lists requires an updated client. History uses the same capability and withholds original payloads when the display is redacted. No SQL migration is required.
 
 ## File fields
 
