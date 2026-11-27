@@ -133,6 +133,12 @@ export interface RecorderBridge {
   ) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
 }
 
+export type DesktopSupport = {
+  confirm: (signal: AbortSignal) => Promise<import("@legalwork/types/desktop-ipc").SupportTicketChoice>;
+  collectLogs: (days: number, signal: AbortSignal) => Promise<string>;
+  readChatLog: (sessionId: string) => string[];
+};
+
 export interface ServerConfig {
   /** Read-only migration from the previous desktop safeStorage connector store. */
   decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
@@ -159,6 +165,7 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  desktopSupport?: DesktopSupport;
   /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
   agentSandboxEnabled?: boolean;
   /** Host-owned admission boundary for native project automation discovery. */

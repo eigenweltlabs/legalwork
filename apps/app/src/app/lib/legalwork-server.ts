@@ -1,4 +1,5 @@
 export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
+import type { SupportContact } from "@legalwork/types/desktop-ipc";
 import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
@@ -2611,6 +2612,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken }),
     eigenweltUsageAction: (workspaceId: string, action: UsageControlAction) => requestJson<unknown>(baseUrl,
       `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/usage`, { token, hostToken, method: "POST", body: action }),
+    supportContact: (signal?: AbortSignal) => requestJson<{ contact: SupportContact | null }>(baseUrl, "/support/contact", { hostToken, signal }),
     eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
       requestJson<EigenweltEntitlementsView>(
         baseUrl,

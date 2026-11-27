@@ -16,7 +16,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { attachFile, attachedFile, historicalFile, fileFromHistory, fileField } from "./files.js";
 import { loadAttachedFile } from "./file-sync.js";
-import { BACK_OFFICE_FILE_LIMIT, BackOfficeCreateBatchSchema, isInternalBackOfficeObject } from "./schema.js";
+import { BACK_OFFICE_FILE_LIMIT, BackOfficeCreateBatchSchema, BackOfficeModelSchema, isInternalBackOfficeObject } from "./schema.js";
 import {
   readableBackOfficeRecord,
   type BackOfficeRecord,
@@ -195,6 +195,7 @@ export function registerBackOfficeRoutes(options: {
       captureProfileId: (await captureProfile(options.config, access)).profileId,
       directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
+      orderedListFields: store.supportsOrderedListFields(scope),
       permissions: actor,
       ...(scope !== "local" && actor.principalKey ? { firstSync: { ...firstSyncStatus(store, actor), firm: (await readEigenweltConnection(options.config)).account?.orgName ?? scope } } : {}),
       views: store.views(scope),
@@ -486,6 +487,8 @@ export function registerBackOfficeRoutes(options: {
         "Model administrator permission is required.",
       );
     store.requireAccount(scope, actor);
+    const model = BackOfficeModelSchema.parse(body.model);
+    store.requireModelSupport(scope, model);
     const snapshot = await backOfficePlatform(options.config, [
       {
         id: randomUUID(),

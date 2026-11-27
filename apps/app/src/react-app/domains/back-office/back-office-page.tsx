@@ -35,6 +35,7 @@ import {
   BackOfficeRecordSchema,
   BackOfficeViewSchema,
   backOfficeMajorAmount,
+  isOrderedListField,
   defaultBackOfficeValues,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
@@ -369,11 +370,12 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
           columns
             .map((field) => {
               const value = record.values[field.id];
+              if (isOrderedListField(field.type) && Array.isArray(value)) return escape(JSON.stringify(value));
               return escape(
                 Array.isArray(value)
                   ? value
                       .map((item) =>
-                        typeof item === "string" ? item : item.name,
+                        typeof item === "string" ? item : "name" in item ? item.name : item.label,
                       )
                       .join("|")
                   : typeof value === "object" && value !== null
@@ -508,6 +510,7 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
           {data && selected === "data-model" && (
             <ModelEditor
               model={data.model}
+              orderedListFields={data.orderedListFields === true}
               editable={data.permissions.model}
               onPreview={async (model) =>
                 ModelPreviewSchema.parse(

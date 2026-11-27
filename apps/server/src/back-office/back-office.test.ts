@@ -9,6 +9,7 @@ import {
   type BackOfficeRecord,
   type BackOfficeSnapshot,
   BackOfficeViewSchema,
+  BackOfficeFieldSchema,
   BackOfficeRecordSchema,
 } from "./schema.js";
 import { applyImport, parseCsv, previewImport } from "./import.js";
@@ -173,6 +174,47 @@ const snapshot = (
   cursor: 1,
   accepted,
   conflicts: [],
+});
+
+test("shared list fields need an affirmative capability before staging writes", async () => {
+  const store = await database();
+  store.bindAccount("firm", owner);
+  const team = { ...owner, replicaId: store.replicaId("firm")! };
+  const baseline = snapshot([]);
+  store.receive("firm", baseline, team);
+  const candidate = structuredClone(baseline.model);
+  candidate.objects[0].fields.push(BackOfficeFieldSchema.parse({ id: "items", label: "Items", type: "textList" }));
+  expect(store.previewModel("firm", team, candidate, candidate.revision).valid).toBe(false);
+  expect(() => store.saveModel("firm", team, candidate, candidate.revision)).toThrow("Update the firm platform");
+  expect(store.pending("firm")).toHaveLength(0);
+  store.receive("firm", { ...baseline, orderedListFields: true }, team);
+  expect(store.previewModel("firm", team, candidate, candidate.revision).valid).toBe(true);
+  expect(store.saveModel("firm", team, candidate, candidate.revision).revision).toBe(candidate.revision + 1);
+});
+
+test("sync keeps read-only field previews apart from edits and removes restricted previews", async () => {
+  const store = await database();
+  store.bindAccount("firm", owner);
+  const team = { ...owner, replicaId: store.replicaId("firm")! };
+  const record = BackOfficeRecordSchema.parse({
+    ...add(store, "people", "Mara"),
+    fieldPreviews: [
+      { id: "upcoming", label: "Upcoming field", visibility: "normal", value: "One\nTwo" },
+      { id: "rateNotes", label: "Rates", visibility: "finance", value: "Restricted preview" },
+    ],
+  });
+  store.receive("firm", snapshot([record]), team);
+  expect(store.records("firm", team)[0].fieldPreviews).toEqual(record.fieldPreviews);
+  expect(() => store.saveRecord("firm", team, {
+    id: record.id, objectId: record.objectId, revision: record.revision, values: { upcoming: "Attempted edit" },
+  })).toThrow("Unknown field upcoming");
+  const saved = store.saveRecord("firm", team, {
+    id: record.id, objectId: record.objectId, revision: record.revision, values: { name: "Mara Lee" },
+  });
+  expect(saved.fieldPreviews).toEqual(record.fieldPreviews);
+  expect(store.pending("firm")[0].change.data).not.toHaveProperty("fieldPreviews");
+  store.restrictTeamAccess("firm", { ...team, finance: false });
+  expect(store.raw("firm", record.id)?.fieldPreviews?.map(field => field.id)).toEqual(["upcoming"]);
 });
 
 describe("Back Office records and protected model", () => {

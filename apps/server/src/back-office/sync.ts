@@ -45,7 +45,7 @@ export async function backOfficePlatform(
   const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
   const buckets = baseline && directoryBuckets(baseline);
   const response = await intakeRequest(client, "POST", "/api/back-office", {
-    protocol: 1, changes, cursor: 0,
+    protocol: 1, orderedListFields: true, readOnlyFieldPreviews: true, changes, cursor: 0,
     recordBuckets: buckets && directoryBucketHashes(buckets, text => createHash("sha256").update(text).digest("hex")),
   });
   const snapshot = buckets && response && typeof response === "object" && "recordDelta" in response
@@ -84,6 +84,7 @@ export async function syncBackOffice(config: ServerConfig, options: { uploadOnly
       store.restrictTeamAccess(scope, actor);
       const before = store.syncState(scope, actor);
       const replicaBefore = store.replicaId(scope);
+      const listFieldsBefore = store.supportsOrderedListFields(scope);
       const batch = firstSyncBatch(store, scope, actor);
       // Every queued project reference must name a project already shared with this firm.
       const links = await projectSyncStore(config);
@@ -113,7 +114,7 @@ export async function syncBackOffice(config: ServerConfig, options: { uploadOnly
           const position = store.directoryPosition(scope, actor);
           const client = { ...requireIntakeClient(await requireBackOfficePrincipal(config, initialPrincipal)), signal };
           const response = BackOfficeSnapshotSchema.pick({ accepted: true, conflicts: true }).parse(await intakeRequest(client, "POST", "/api/back-office", {
-            protocol: 1, changes: chunk, cursor: position?.cursor ?? 0, page: { access: position?.access ?? null },
+            protocol: 1, orderedListFields: true, readOnlyFieldPreviews: true, changes: chunk, cursor: position?.cursor ?? 0, page: { access: position?.access ?? null },
           }));
           store.acknowledgeUploads(scope, actor, response.accepted);
           if (response.conflicts.length || response.accepted.length < chunk.length) break;
@@ -148,7 +149,7 @@ export async function syncBackOffice(config: ServerConfig, options: { uploadOnly
           const snapshot=result.snapshot;
           supportsNativeLinks = result.nativeLinks;
           if (result.more) scheduleBackOfficeSync(config);
-          if (result.incremental && snapshot.cursor===position?.cursor && !chunk.length && !before.error) break;
+          if (result.incremental && snapshot.cursor===position?.cursor && !chunk.length && !before.error && listFieldsBefore === !!snapshot.orderedListFields) break;
           if (!result.position) snapshot.records.forEach(translate);
           const replicaId=store.receive(scope,snapshot,actor,result.position,result.incremental,result.position ? inbox : undefined);
           if (replicaId) actor={...actor,replicaId};
@@ -168,7 +169,7 @@ export async function syncBackOffice(config: ServerConfig, options: { uploadOnly
       if (supportsNativeLinks) scheduleNativeLinkSync(config,store,scope,actor);
       const after = store.syncState(scope, actor);
       if (accepted || staged || before.cursor !== after.cursor || before.pending !== after.pending ||
-          before.enabled !== after.enabled || before.error !== after.error || replicaBefore !== store.replicaId(scope))
+          listFieldsBefore !== store.supportsOrderedListFields(scope) || before.enabled !== after.enabled || before.error !== after.error || replicaBefore !== store.replicaId(scope))
         announceSyncChange(config, "backOffice");
     } catch (error) {
       if (signal?.aborted) return;

@@ -6,7 +6,7 @@ import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { serverToken, serverUrl, resolveWorkspaceId, workspaceToolHeaders } from "./office-plugin-shared.js";
-import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
+import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema, BackOfficeValueSchema, BackOfficeRecordSchema, backOfficeRecordUrl } from "../back-office/schema.js";
 
 export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. In the private Timekeeping chat, use legalwork_timekeeping_workday for activity evidence, private suggestions and revisions to your own open entries. Use legalwork_timekeeping_billing for new saved entries, submission, assigned reviews, billing policies and invoice records. For other fees, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
 When mentioning a Back Office record in a reply, link its readable name using its returned url (or $url on query rows).
@@ -201,13 +201,13 @@ export function backOfficeTools(ctx: Plugin.Context) {
       permission: "domain",
       save: [],
       description:
-        "Create, patch, archive or restore one Back Office record using the discovered field IDs and current revision. Use revision 0 without id to create, or reserve a UUID for required file attachments and pass that id with create:true. Existing records require their exact id and revision. Omitted values stay unchanged and null clears a field. Respect server-enforced access and protected relationships. Never guess missing facts, change a historical matter when relinking a project, or edit runtime SQLite directly.",
+        "Create, patch, archive or restore one Back Office record using the discovered field IDs and current revision. Use revision 0 without id to create, or reserve a UUID for required file attachments and pass that id with create:true. Existing records require their exact id and revision. Omitted values stay unchanged and null clears a field. Send textList as an ordered array of strings (commas are literal) and linkList as an ordered array of {label,url} pairs with HTTP or HTTPS URLs. Respect server-enforced access and protected relationships. Never guess missing facts, change a historical matter when relinking a project, or edit runtime SQLite directly.",
       schema: z.object({
         id: z.string().uuid().optional(),
         create: z.boolean().optional(),
         objectId: z.string(),
         revision: z.number().int().nonnegative(),
-        values: z.record(z.string(), z.unknown()),
+        values: z.record(z.string(), BackOfficeValueSchema),
         archived: z.boolean().optional(),
         access: z.enum(["org", "members"]).optional(),
         members: z.array(z.string().min(1)).max(500).optional(),

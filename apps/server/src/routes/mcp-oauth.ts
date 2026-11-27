@@ -1,7 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { IntegrationAttempt, IntegrationAttemptStatus, OpenCodeClient } from "@opencode/client";
-import { githubMcpOAuth, isCredentialHeader } from "@legalwork/types/connector-config";
+import { githubMcpOAuth, isCredentialHeader } from "../connector-config.js";
 import { createEngineClient, workspaceEngineLocation } from "../engine-client.js";
 import { assertEngineProjectReady } from "../engine-project.js";
 import { resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";

@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowRight, ArrowUpRight, Plug } from "lucide-react"
+import { ArrowRight, ArrowUpRight, Cpu, Plug, Ticket, Wrench } from "lucide-react"
 import { useContext } from "react"
 import { ChatWorkspaceContext } from "./chat-workspace-context"
 import { motion, type Variants } from "motion/react"
@@ -12,7 +12,11 @@ import { cn } from "@/lib/utils"
 import { t } from "@/i18n";
 
 // Built per render, not once at import: `t()` reads the current language.
-const suggestions = (workspace: "project" | "wiki" | "timekeeping"): { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] => workspace === "timekeeping" ? [
+const suggestions = (workspace: "project" | "wiki" | "timekeeping" | "support"): { title: string; description: string; kind: TaskIllustrationKind; prompt: string }[] => workspace === "support" ? [
+  { title: t("support.starter_troubleshoot"), description: t("support.starter_troubleshoot_description"), prompt: t("support.starter_troubleshoot_prompt"), kind: "grid" },
+  { title: t("support.starter_model"), description: t("support.starter_model_description"), prompt: t("support.starter_model_prompt"), kind: "redline" },
+  { title: t("support.starter_ticket"), description: t("support.starter_ticket_description"), prompt: t("support.starter_ticket_prompt"), kind: "summary" },
+] : workspace === "timekeeping" ? [
   { title: t("timeChat.review"), description: t("timeChat.reviewDetail"), prompt: t("timeChat.reviewPrompt"), kind: "grid" },
   { title: t("timeChat.draft"), description: t("timeChat.draftDetail"), prompt: t("timeChat.draftPrompt"), kind: "redline" },
   { title: t("timeChat.remember"), description: t("timeChat.rememberDetail"), prompt: t("timeChat.rememberPrompt"), kind: "summary" },
@@ -46,8 +50,11 @@ const entrance = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.42, ease: "easeOut" } },
 } satisfies Variants
 
-export function TaskSuggestionCards({ className, providerConnectedCount, onConnect, onSelect }: {
+const supportIcons = { grid: Wrench, redline: Cpu, summary: Ticket };
+
+export function TaskSuggestionCards({ className, providerConnectedCount, onConnect, onSelect, variant }: {
   className?: string
+  variant?: "support"
   providerConnectedCount: number
   onConnect: () => void
   onSelect: (prompt: string) => void
@@ -71,34 +78,42 @@ export function TaskSuggestionCards({ className, providerConnectedCount, onConne
           </Button>
         </motion.div>
       ) : null}
-      <motion.p variants={entrance} className="lw-task-suggestions-label">{t("task_suggestions.label")}</motion.p>
+      <motion.p variants={entrance} className="lw-task-suggestions-label">{t(variant === "support" ? "support.starter_label" : "task_suggestions.label")}</motion.p>
       <div className="grid min-w-0 grid-cols-1 gap-3 @xl:grid-cols-3">
-        {suggestions(workspace).map((suggestion) => (
-          <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
-            <Button variant="ghost" className="lw-task-card" data-task-kind={suggestion.kind} onClick={() => onSelect(suggestion.prompt)}>
-              <span className="lw-task-card-art">
-                <TaskIllustration kind={suggestion.kind} />
-                <span className="lw-task-card-action" aria-hidden="true"><ArrowUpRight className="lw-task-card-arrow" size={14} /></span>
-              </span>
-              <span className="lw-task-card-copy">
-                <span className="lw-task-card-title">{suggestion.title}</span>
-                <span className="lw-task-card-description">{suggestion.description}</span>
-              </span>
-            </Button>
-          </motion.div>
-        ))}
+        {suggestions(variant ?? workspace).map((suggestion) => {
+          const SupportIcon = variant === "support" ? supportIcons[suggestion.kind] : null;
+          return (
+            <motion.div key={suggestion.kind} variants={entrance} className="min-w-0">
+              <Button variant="ghost" className="lw-task-card" data-task-kind={suggestion.kind} onClick={() => onSelect(suggestion.prompt)}>
+                <span className="lw-task-card-art">
+                  {SupportIcon ? (
+                    <span className="flex size-full items-center justify-center bg-muted/70">
+                      <SupportIcon className="size-7 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+                    </span>
+                  ) : <TaskIllustration kind={suggestion.kind} />}
+                  <span className="lw-task-card-action" aria-hidden="true"><ArrowUpRight className="lw-task-card-arrow" size={14} /></span>
+                </span>
+                <span className="lw-task-card-copy">
+                  <span className="lw-task-card-title">{suggestion.title}</span>
+                  <span className="lw-task-card-description">{suggestion.description}</span>
+                </span>
+              </Button>
+            </motion.div>
+          );
+        })}
       </div>
     </div>
   )
 }
 
-export function TaskSuggestions({ className }: { className?: string }) {
+export function TaskSuggestions({ className, variant }: { className?: string; variant?: "support" }) {
   const { displaySuggestions, providerConnectedCount, dispatchAction, setPrompt } = useMessageList()
   if (!displaySuggestions) return null
 
   return (
     <TaskSuggestionCards
       className={className}
+      variant={variant}
       providerConnectedCount={providerConnectedCount}
       onConnect={() => dispatchAction({ target: "settings", action: "open", section: "providers" })}
       onSelect={setPrompt}

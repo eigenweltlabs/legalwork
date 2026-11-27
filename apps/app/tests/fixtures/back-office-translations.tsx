@@ -34,7 +34,7 @@ let modelWrites = 0;
 const client = {
   ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
   backOffice: async (path: string, options?: { body?: unknown }) => {
-    if (path.startsWith("?")) return { scope: "local", directoryId: "local:translations", model, records: store.records("local", actor), views: [], permissions: actor, sync: { enabled: false, cursor: 0, pending: 0, error: null } };
+    if (path.startsWith("?")) return { scope: "local", directoryId: "local:translations", orderedListFields: true, model, records: store.records("local", actor), views: [], permissions: actor, sync: { enabled: false, cursor: 0, pending: 0, error: null } };
     if (path === "/projects") return { projects: [] };
     if (path === "/records") { writes++; return { record: store.saveRecord("local", actor, options?.body) }; }
     if (path === "/model/preview") return { valid: true, changes: [], errors: [] };
@@ -91,7 +91,16 @@ try {
   const objectButton = [...document.querySelectorAll<HTMLButtonElement>(".bo-model .bo-field-list button")].find(item => item.textContent?.includes("Matters"));
   assert.ok(objectButton, document.body.textContent?.slice(-1800));
   await act(async () => objectButton.click());
+  await click("New field");
+  button("Multi-select");
+  button("Text list");
+  button("Named web links");
   await language("de");
+  button("Textliste");
+  button("Benannte Weblinks");
+  const back = document.querySelector<HTMLButtonElement>(".bo-field-step button");
+  assert.ok(back);
+  await act(async () => back.click());
   assert.ok(document.querySelector(".bo-model")?.textContent?.includes("Aktenzeichen"));
   await click("Einstellungen");
   const form = document.querySelector<HTMLFormElement>(".bo-model form.bo-form");

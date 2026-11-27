@@ -12,6 +12,7 @@ export const BackOfficeStateSchema = z.object({
   scope: z.string().default("local"),
   directoryId: z.string().optional(),
   captureProfileId: z.string().optional(),
+  orderedListFields: z.boolean().optional(),
   model: BackOfficeModelSchema,
   records: z.array(BackOfficeRecordSchema),
   views: z.array(BackOfficeViewSchema),

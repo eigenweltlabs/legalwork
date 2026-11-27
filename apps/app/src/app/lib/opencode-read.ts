@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@opencode/client";
+import type { SessionCreateInput, SessionStatus } from "@opencode/client";
 import type { Client } from "../types";
 import { projectMessages, projectSession, type Todo } from "./opencode-view";
 export async function readSession(client: Client, sessionID: string) {
@@ -75,12 +75,13 @@ export function projectNativeTodos(value: unknown, toolID: string): Todo[] | und
 
 export async function createSessionView(
   client: Client,
-  input?: { directory?: string; title?: string; parentID?: string },
+  input?: { directory?: string; title?: string; parentID?: string; metadata?: SessionCreateInput["metadata"] },
 ) {
   return projectSession(
     await client.session.create({
       title: input?.title,
       parentID: input?.parentID,
+      metadata: input?.metadata,
       location: input?.directory ? { directory: input.directory } : undefined,
     }),
   );

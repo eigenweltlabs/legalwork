@@ -26,7 +26,7 @@ export function backOfficeFilterFields(object: BackOfficeObject, finance: boolea
   return object.fields.filter(field => field.visibility !== "private" && (field.visibility !== "finance" || finance));
 }
 export function backOfficeFilterOperators(field: BackOfficeField): BackOfficeFilterCondition["operator"][] {
-  if (field.type === "file") return ["contains", "not_contains", "empty", "not_empty"];
+  if (field.type === "linkList" || field.type === "textList" || field.type === "file") return ["contains", "not_contains", "empty", "not_empty"];
   if (["text", "email"].includes(field.type)) return ["contains", "not_contains", "is", "is_not", "empty", "not_empty"];
   if (["number", "currency", "date", "datetime"].includes(field.type)) return ["is", "is_not", "gt", "gte", "lt", "lte", "empty", "not_empty"];
   return ["is", "is_not", "empty", "not_empty"];
@@ -64,7 +64,7 @@ export function compileBackOfficeFilters(object: BackOfficeObject, criteria: Bac
     const values = Array.isArray(actual) ? actual : [actual];
     if (condition.operator === "contains" || condition.operator === "not_contains") {
       const found = values.some(value => {
-        const text = typeof value === "string" ? value : typeof value === "object" && value && "name" in value ? value.name : "";
+        const text = typeof value === "string" ? value : typeof value === "object" && value && "name" in value ? value.name : typeof value === "object" && value && "url" in value ? `${value.label} ${value.url}` : "";
         return normalized(text).includes(normalized(String(expected)));
       });
       return condition.operator === "contains" ? found : !found;
@@ -99,7 +99,7 @@ export function backOfficeViewFilters(view?: { filterCriteria?: BackOfficeFilter
     if (value === null || value === "" || Array.isArray(value) && !value.length) return [{ fieldId, operator: "empty" satisfies "empty", values: [] }];
     const values = (Array.isArray(value) ? value : [value]).flatMap<BackOfficeFilterCondition["values"][number]>(value => {
       if (typeof value !== "object") return [value];
-      return "name" in value ? [] : [{ amountMinor: value.amountMinor, currency: value.currency }];
+      return "amountMinor" in value ? [{ amountMinor: value.amountMinor, currency: value.currency }] : [];
     });
     return [{ fieldId, operator: "is" satisfies "is", values }];
   }) };

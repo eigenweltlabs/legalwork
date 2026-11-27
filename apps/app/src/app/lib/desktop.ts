@@ -1,4 +1,5 @@
 import type { DesktopActivitySample } from "@legalwork/types/time-capture";
+import type { SupportTicketConfirmation } from "@legalwork/types/desktop-ipc";
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 import { fetchDesktopText } from "./desktop-text-fetch";
@@ -59,11 +60,13 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      onSupportTicketConfirmation?: (callback: (confirmation: SupportTicketConfirmation | null) => void) => () => void;
       files?: {
         copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
       };
       shell?: {
         openExternal?: (url: string) => Promise<void>;
+        openSupportPhone?: (phone: string) => Promise<void>;
         relaunch?: () => Promise<void>;
       };
       system?: {
@@ -319,6 +322,12 @@ export async function openDesktopUrl(url: string): Promise<void> {
   if (typeof window !== "undefined") {
     window.open(url, "_blank", "noopener,noreferrer");
   }
+}
+
+export async function openSupportPhone(phone: string): Promise<void> {
+  const openPhone = window.__LEGALWORK_ELECTRON__?.shell?.openSupportPhone;
+  if (openPhone) await openPhone(phone);
+  else window.location.href = `tel:${phone}`;
 }
 
 export async function openDesktopPath(target: string): Promise<void> {

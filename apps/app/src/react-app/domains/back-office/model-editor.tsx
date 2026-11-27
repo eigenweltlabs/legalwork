@@ -19,6 +19,7 @@ import { Breadcrumb, ListItem, Tabs } from "twenty-ui/primitives/navigation";
 import {
   BackOfficeFieldSchema,
   isInternalBackOfficeObject,
+  isOrderedListField,
   BackOfficeObjectSchema,
   type BackOfficeModel,
   type BackOfficeObject,
@@ -39,6 +40,8 @@ const basicFieldTypes: BackOfficeField["type"][] = [
   "date",
   "select",
   "multiselect",
+  "textList",
+  "linkList",
   "currency",
   "email",
   "file",
@@ -47,12 +50,14 @@ const basicFieldTypes: BackOfficeField["type"][] = [
 export function ModelEditor({
   model,
   editable: canEditModel,
+  orderedListFields,
   onSave,
   onPreview,
   onRecords,
 }: {
   model: BackOfficeModel;
   editable: boolean;
+  orderedListFields: boolean;
   onSave: (model: BackOfficeModel) => Promise<void>;
   onRecords: (id: string) => void;
   onPreview: (model: BackOfficeModel) => Promise<ModelPreview>;
@@ -81,6 +86,7 @@ export function ModelEditor({
     model: BackOfficeModel;
     preview: ModelPreview;
   } | null>(null);
+  const supported = (type: BackOfficeField["type"]) => orderedListFields || !isOrderedListField(type);
   const shownObjects = [...model.objects,nativeModel("task"),nativeModel("deadline")];
   const object = shownObjects.find(o => o.id === objectId);
   const displayedObject = object && displayBackOfficeObject(object);
@@ -569,7 +575,7 @@ export function ModelEditor({
                 {t("back_office.basic_hint")}
               </p>
               <div className="bo-type-grid">
-                {basicFieldTypes
+                {basicFieldTypes.filter(supported)
                   .filter(type => backOfficeFieldTypeLabel(type).toLocaleLowerCase().includes(typeQuery.toLocaleLowerCase()))
                   .map(type => (
                     <ListItem
@@ -641,10 +647,10 @@ export function ModelEditor({
                     label: editing && label === displayBackOfficeField(editing, object.id).label ? editing.label : label,
                     type: fieldType,
                     target: fieldType === "relation" ? target : undefined,
-                    multiple,
+                    multiple: !isOrderedListField(fieldType) && multiple,
                     visibility,
                     required,
-                    options: options
+                    options: isOrderedListField(fieldType) ? [] : options
                       .split(",")
                       .map((value) => value.trim())
                       .filter(Boolean),
@@ -702,7 +708,7 @@ export function ModelEditor({
                           BackOfficeFieldSchema.shape.type.safeParse(value);
                         if (parsed.success) setFieldType(parsed.data);
                       }}
-                      options={BackOfficeFieldSchema.shape.type.options.map(
+                      options={BackOfficeFieldSchema.shape.type.options.filter(supported).map(
                         (type) => ({ value: type, label: backOfficeFieldTypeLabel(type) }),
                       )}
                     />

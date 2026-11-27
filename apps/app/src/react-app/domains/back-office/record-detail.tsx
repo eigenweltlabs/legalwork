@@ -7,6 +7,7 @@ import {
   History,
   LockKeyhole,
   Maximize2,
+  Pencil,
   MoreVertical,
   RotateCcw,
   X,
@@ -266,7 +267,8 @@ export function RecordDetail({
                     )}
                   </label>
                   <div className="bo-property-value">
-                    {field.type === "relation" && !canEdit ? display : <Popover.Root
+                    {field.type === "linkList" && display}
+                    {field.type === "linkList" && !canEdit ? null : field.type === "relation" && !canEdit ? display : <Popover.Root
                       open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
@@ -281,8 +283,8 @@ export function RecordDetail({
                           />
                         }
                       >
-                        {display}
-                        {(value === null || value === undefined || value === "") && (
+                        {field.type === "linkList" ? <Pencil size={13} /> : display}
+                        {field.type !== "linkList" && (value === null || value === undefined || value === "") && (
                           <span className="bo-muted">{field.label}</span>
                         )}
                       </Popover.Trigger>
@@ -315,6 +317,15 @@ export function RecordDetail({
                   </div>
                 </div>
               })}
+            {record.fieldPreviews?.map(field => (
+              <div className="bo-property" key={field.id}>
+                <span className="bo-read-only-field-label"><LockKeyhole size={13} aria-hidden="true" />{field.label}</span>
+                <div className="bo-read-only-field">
+                  {field.value !== null && <span>{field.value}</span>}
+                  <small className="bo-muted">{t(field.value === null ? "back_office.field_preview_unavailable" : "back_office.field_preview_update")}</small>
+                </div>
+              </div>
+            ))}
             {children}
           </div>
           {error && (

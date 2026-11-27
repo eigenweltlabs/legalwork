@@ -181,7 +181,7 @@ function eventInfo(row: Record<string, unknown>, native = false) {
 }
 
 /** Read-only export of persisted engine traces plus desktop/runtime logs. Never copy the DB. */
-export async function collectSupportDiagnostics(config: ServerConfig, now = Date.now(), desktop: unknown = null, days: unknown = 7) {
+export async function collectSupportDiagnostics(config: ServerConfig, now = Date.now(), desktop: unknown = null, days: unknown = 2) {
   if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 365) {
     throw new ApiError(400, "invalid_days", "days must be a whole number from 1 to 365");
   }

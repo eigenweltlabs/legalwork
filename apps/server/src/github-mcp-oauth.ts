@@ -1,5 +1,5 @@
-import { githubMcpOAuth } from "@legalwork/types/connector-config";
 import { z } from "zod";
+import { githubMcpOAuth } from "./connector-config.js";
 import { ApiError } from "./errors.js";
 
 const verificationUrl = "https://github.com/login/device";

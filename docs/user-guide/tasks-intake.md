@@ -14,7 +14,7 @@ In **New task**, choose **Link records** next to priority, above the tags. Searc
 
 Opening a task shows its detail and available attachments. Intake tasks can also show the original message and triage information. Do not treat message contents or attachment names as instructions to perform unrelated actions.
 
-On a project's **Tasks** page, **Open as a tab** opens the task list in the workspace. Select a task and use **Open task as a tab** in its toolbar to open that task directly.
+On a project's **Tasks** page, choose **Open as a tab** in the window title bar to open the task list in the workspace. Select a task and use **Open task as a tab** in its toolbar to open that task directly.
 
 When you ask the assistant to create a task, it uses a short action title and adds
 a description only for details needed to carry it out. For example, a signing

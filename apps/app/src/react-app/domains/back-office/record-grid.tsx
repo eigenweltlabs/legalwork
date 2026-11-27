@@ -285,6 +285,8 @@ export function RecordGrid({
   const display = useCallback((record: BackOfficeRecord, id: string) => {
     const value = sheet?.fieldValue ? sheet.fieldValue(record, id) : record.values[id],
       field = fieldById.get(id);
+    if (field?.type === "linkList" && Array.isArray(value))
+      return value.map(item => typeof item === "object" && "url" in item ? item.label + " " + item.url : "").join(" ");
     if (field?.type === "file") {
       const files = BackOfficeFilesSchema.safeParse(value);
       return files.success ? files.data.map((file) => file.name).join(" ") : "";

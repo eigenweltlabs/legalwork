@@ -185,6 +185,7 @@ import { registerViewRoutes } from "./routes/views.js";
 import { WikiStore } from "./wiki/store.js";
 import { WikiSync } from "./wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiForDirectory, wikiAgentCanAccess } from "./wiki/access.js";
+import { registerSupportRoutes } from "./routes/support.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -2089,6 +2090,7 @@ function createRoutes(
     updateSharing: (id, input) => wikiSync.updateSharing(id, input), stopSharing: (id) => wikiSync.stopSharing(id),
     join: (input) => wikiSync.join(input), rename: (id, name) => wikiSync.rename(id, name) });
 
+  registerSupportRoutes({ routes, config, jsonResponse, readJsonBodyLimited });
   registerCoreRoutes({
     routes,
     config,

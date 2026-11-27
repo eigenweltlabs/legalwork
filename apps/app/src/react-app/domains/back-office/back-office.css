@@ -339,6 +339,14 @@
   place-items: center;
 }
 
+.bo-ordered-values { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bo-ordered-values a { color: var(--t-accent-primary); text-decoration: underline; }
+.bo-grid-cell > .bo-ordered-values { max-height: 6em; overflow: auto; }
+.bo-list-rows { display: grid; gap: 8px; max-height: 40vh; overflow: auto; }
+.bo-list-rows fieldset { display: grid; gap: 4px; min-width: 0; }
+.bo-list-rows legend { color: var(--bo-muted); font-size: 12px; }
+.bo-list-actions { display: flex; justify-content: flex-end; gap: 4px; }
+
 .bo-relation-values {
   display: flex;
   align-items: center;
@@ -1105,6 +1113,18 @@
 .bo-property > label > svg {
   flex-shrink: 0;
 }
+
+.bo-read-only-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--bo-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.bo-read-only-field-label svg { flex-shrink: 0; }
+.bo-read-only-field { display: grid; gap: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bo-read-only-field small { font-size: 11px; }
 
 .bo-property-value > button {
   height: auto;
