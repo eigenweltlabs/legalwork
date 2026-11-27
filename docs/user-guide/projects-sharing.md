@@ -56,6 +56,7 @@ Filters constrain new selections. If someone later becomes inactive, changes typ
 | Calendar | Review dates and supporting deadline records. |
 | Tabular Review | Create or reopen a saved document-comparison table. |
 | Dashboards | Open saved live dashboards or snapshot reports. |
+| Back Office tab | Choose **+ > Back Office** in the workspace tab bar to use the directory in your workspace. |
 
 On **Project Home**, expand **Scheduled tasks** below **Project details**. Select a task to open its schedule and run history in **Scheduled**.
 

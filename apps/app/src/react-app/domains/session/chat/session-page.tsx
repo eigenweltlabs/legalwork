@@ -5,6 +5,7 @@ import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
 import { WorkspaceHeaderTarget } from "../../back-office/time-workspace-header";
 import { timePage } from "../../back-office/time-routes";
+import { BackOfficeWorkspaceTab, useOpenBackOfficeWorkspaceAction } from "../../back-office/back-office-workspace";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
@@ -876,6 +877,13 @@ export function SessionPage(props: SessionPageProps) {
     } : null
   ), [closeVoicePanel, realtimeVoiceSupported, voiceSidePanelOpen]);
   useControlAction(closeVoicePanelControlAction);
+  const backOfficeSessions = useMemo(() => [
+    ...controlSessionIds,
+    ...(props.selectedSessionId ? [props.selectedSessionId] : []),
+    ...(props.sidebar.workspaceSessionGroups.find(group => group.workspace.id === props.selectedWorkspaceId)?.sessions.map(session => session.id) ?? []),
+  ], [controlSessionIds, props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups]);
+  const showWorkspacePanel = useCallback(() => setCurrentSidePanel("panel"), [setCurrentSidePanel]);
+  useOpenBackOfficeWorkspaceAction(props.legalworkServerClient ? props.selectedWorkspaceId : null, backOfficeSessions, showWorkspacePanel);
   const [showDelayedSessionLoadingState, setShowDelayedSessionLoadingState] = useState(false);
 
   // A reload may restore a wiki page focused beside the chat named in the URL.
@@ -1152,6 +1160,9 @@ export function SessionPage(props: SessionPageProps) {
             onClose={closeRightPane}
             projectId={props.selectedWorkspaceId}
             renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
+            renderBackOffice={(tab, active) => props.legalworkServerClient
+              ? <BackOfficeWorkspaceTab client={props.legalworkServerClient} scope={workspaceScope} tab={tab} active={active} />
+              : <p className="p-6">{t("projects.connecting")}</p>}
             onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
             onDropChat={(ids, pane, edge) => {
               let destination = pane;

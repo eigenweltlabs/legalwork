@@ -111,6 +111,11 @@
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
     },
     {
+      "id": "back-office-workspace-tab",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/back-office-workspace.tsx"
+    },
+    {
       "id": "back-office-history",
       "guide": "back-office.md",
       "source": "apps/app/src/react-app/domains/back-office/history-panel.tsx"

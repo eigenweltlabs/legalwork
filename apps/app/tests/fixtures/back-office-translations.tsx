@@ -73,7 +73,7 @@ try {
   assert.ok(document.body.textContent?.includes("Mandanten"));
   assert.ok(!document.body.textContent?.includes("File number"));
   await click("Erstellen");
-  assert.ok(document.querySelector('input[aria-label="Name: Akte"]'));
+  assert.ok(document.querySelector('textarea[aria-label="Name: Akte"]'));
   assert.ok(document.querySelector("aside")?.textContent?.includes("Erstellt am"));
   assert.ok(document.querySelector("aside")?.textContent?.includes("Zuletzt aktualisiert"));
   await click("Status bearbeiten");
@@ -81,7 +81,7 @@ try {
   await click("Abgeschlossen");
   assert.equal(store.records("local", actor, "matters")[0].values.status, "Closed");
   await language("en");
-  assert.ok(document.querySelector('input[aria-label="Matter name"]'));
+  assert.ok(document.querySelector('textarea[aria-label="Matter name"]'));
   assert.ok(document.querySelector("aside")?.textContent?.includes("Closed"));
   assert.ok(document.body.textContent?.includes("File number"));
   assert.deepEqual(model, original, "Language changes and record edits preserve the original schema");

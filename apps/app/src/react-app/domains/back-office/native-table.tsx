@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useBackOfficeNavigate, useBackOfficeSearchParams } from "./back-office-navigation";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { Plus } from "lucide-react";
 import {
@@ -192,8 +192,8 @@ export function NativeTable({
   children?: ReactNode;
 }) {
   const cache = useQueryClient(),
-    navigate = useNavigate(),
-    [params] = useSearchParams(),
+    navigate = useBackOfficeNavigate(),
+    [params] = useBackOfficeSearchParams(),
     locale = useLocale();
   const object = useMemo(() => nativeModel(kind), [kind, locale]),
     options = useMemo(() => choices(kind), [kind, locale]);

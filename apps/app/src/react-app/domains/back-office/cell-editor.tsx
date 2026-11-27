@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { toast } from "@/components/ui/sonner";
 import { Plus, X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
-import { Button, Input } from "twenty-ui/primitives/input";
+import { Button, Input, Textarea } from "twenty-ui/primitives/input";
 import { ListItem } from "twenty-ui/primitives/navigation";
 import { RecordAvatar as Avatar } from "./record-colors";
 import type {
@@ -26,7 +26,7 @@ import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 
-function focusEditorInput(input: HTMLInputElement | null) {
+function focusEditorInput(input: HTMLInputElement | HTMLTextAreaElement | null) {
   input?.focus({ preventScroll: true });
 }
 
@@ -42,6 +42,7 @@ export function CellEditor({
   canTab,
   allowedRelationIds,
   onTab,
+  multiline,
 }: {
   field: BackOfficeField;
   record?: BackOfficeRecord;
@@ -54,6 +55,7 @@ export function CellEditor({
   canTab?: (backward: boolean) => boolean;
   allowedRelationIds?: readonly string[];
   onTab?: (event: KeyboardEvent<HTMLElement>) => void;
+  multiline?: boolean;
 }) {
   const locale = useLocale();
   const duration = isTimeDurationField(record?.objectId, field.id);
@@ -298,21 +300,24 @@ export function CellEditor({
                 ]}
               />
             ) : (
-              <Input
-                ref={focusEditorInput}
-                size="sm"
-                aria-label={field.label}
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                type={
-                  duration ? "text" : field.type === "datetime"
-                    ? "datetime-local"
-                    : field.type === "number" || field.type === "currency"
-                      ? "number"
-                      : "text"
-                }
-                step="any"
-              />
+              multiline && field.type === "text"
+                ? <Textarea ref={focusEditorInput} size="sm" rows={4} aria-label={field.label} value={text}
+                    onValueChange={setText} />
+                : <Input
+                    ref={focusEditorInput}
+                    size="sm"
+                    aria-label={field.label}
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                    type={
+                      duration ? "text" : field.type === "datetime"
+                        ? "datetime-local"
+                        : field.type === "number" || field.type === "currency"
+                          ? "number"
+                          : "text"
+                    }
+                    step="any"
+                  />
             )}
             {!onTab && <Button
               type="submit"

@@ -25,7 +25,7 @@ describe("project view navigation", () => {
     });
   }
   test("global pages and chat routes are not project overviews", () => {
-    for (const path of ["/home", "/tasks", "/files", "/workspace/a/session", "/workspace/a/session/sessions", "/workspace/a/settings/files"]) {
+    for (const path of ["/home", "/tasks", "/files", "/workspace/a/session", "/workspace/a/session/sessions", "/workspace/a/settings/files", "/workspace/a/back-office"]) {
       expect(projectViewFromPath(path)).toBeUndefined();
     }
   });

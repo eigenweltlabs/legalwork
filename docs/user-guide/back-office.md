@@ -6,6 +6,8 @@ Open **Back Office** from the global sidebar. Choose **Matters**, **Clients** (G
 
 Record identity colors, including matters and tasks, use a stable chromatic palette. Grey, white and black are not assigned as identity or status-tag colors. Neutral surfaces, text, borders and unavailable controls keep their normal appearance.
 
+In a project workspace, choose **+ > Back Office** to open the full directory in a new tab. Repeat to keep several tables or saved views open. Each tab shows the current table name and remembers its own view. Drag tabs into separate panes to see them side by side. You can also ask the assistant to open a Back Office table or saved view there. The tabs use your existing directory and permissions.
+
 Open **More > Tasks** or **More > Deadlines** for the same records used by Tasks and Calendar. Open **Tasks** in the sidebar for the task list, sessions, files and workflow actions. In **Calendar**, choose **Deadlines** to switch to the table. Project tables show that project's records.
 
 Click a cell or open the name to edit in the sidebar. A task's status, priority, assignee, due date, tags and description update the original task. Deadlines use their project's calendar, reminders and history. Moving a calculated deadline asks for an override reason. Under **Data model**, both schemas are locked.
@@ -28,6 +30,10 @@ Clients link directly to a person or an organisation. There is no separate Clien
 
 A table scrolls continuously through its records. Search, filters, sorting and column totals cover the full result set. **Select all rows** selects every matching record, including rows below the screen. Check the selected count before choosing **Archive** or **Restore**.
 
+Drag the resize handle at a column's right edge to change its width. With the handle focused, use **Left Arrow** and **Right Arrow** for small adjustments. Drag the column name to move the column.
+
+Choose **Options > Row height**. **Compact** uses single-line cells, **Tall** gives all rows more room and wraps text up to three lines, and **Fit to text** grows each row to show the full text. Your choice is remembered for that table or saved view on this device. Open a record to read its full text and line breaks in the right-hand panel. When editing a text field there, press **Enter** to add a line break and select **Save** to keep the changes.
+
 ### Filtering records
 
 Use **Search records** beside **Filter** to search the current object's readable fields, including linked record names. Results update as you type and combine with active filters. The × in the search box clears the search. Search stays visible in Table, Kanban, Calendar and List.
@@ -40,7 +46,7 @@ Filtering applies to Table, Kanban, Calendar and List. For a saved view, choose 
 
 ### Working with the assistant
 
-The assistant can link record names in its answers. Click a record link to open that item in Back Office.
+The assistant can link record names in its answers. Click a record link to open the item in a **Back Office** tab beside the chat. Chat links reuse that tab while your other Back Office tabs keep their own views.
 
 The main Assistant and ordinary project chats can read and update Back Office records, including custom objects. Ask for the result you need, for example, “Create a project for this client's acquisition and connect the client and matter.” The agent discovers your current model and project fields, checks for existing records, creates missing records supported by your request or sources, and links them through project metadata. It verifies the saved links before reporting completion. Creating a project does not automatically create billing records or fill unknown details.
 
