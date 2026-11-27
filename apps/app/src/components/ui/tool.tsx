@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils"
 import {
   ChevronDown,
   Ban,
-  CircleAlert,
 } from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
 import { t } from "@/i18n";
@@ -99,17 +98,13 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
       >
         <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
           <span className="transition-opacity group-hover:opacity-0">
-            {denied ? <Ban className="size-4" /> : isError ? (
-              <CircleAlert className="text-destructive size-4" />
-            ) : (
-              <Icon className="size-3.5" />
-            )}
+            {denied ? <Ban className="size-4" /> : <Icon className="size-3.5" />}
           </span>
           <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />
         </span>
         <span className={cn("min-w-0 truncate", inFlight && "lw-tool-shimmer")}>{label}</span>
         {isError ? (
-          <span className="text-destructive shrink-0 text-xs">{t("tool_run.failed")}</span>
+          <span className="shrink-0 text-xs opacity-50">· {t("tool_run.failed")}</span>
         ) : null}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden text-sm transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
@@ -133,7 +128,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
             )
           ) : null}
           {isError && toolPart.errorText ? (
-            <pre className="text-destructive whitespace-pre-wrap wrap-break-word">
+            <pre className="whitespace-pre-wrap wrap-break-word opacity-80">
               {toolPart.errorText}
             </pre>
           ) : null}
