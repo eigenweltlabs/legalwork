@@ -21,6 +21,7 @@ const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { createLegalworkServerClient, LegalworkServerError } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
+const { BackOfficeTabNavigationProvider } = await import("../../src/react-app/domains/back-office/back-office-navigation");
 const { ProjectMatterClients } = await import("../../src/react-app/domains/workspace/project-matter-clients");
 const { ProjectProperties } = await import("../../src/react-app/domains/workspace/project-properties");
 const { projectFieldsSchema } = await import("@legalwork/types/workspace");
@@ -116,6 +117,22 @@ try {
   await click("Edit Clients");
   const selectedClient = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')].find(row => row.textContent?.includes("Case client"));
   assert.ok(selectedClient); await act(async () => selectedClient.click()); await key("Search Clients", "Escape");
+
+  const linkedPath = "/back-office/matters?record=" + matter.id;
+  function LinkedMatterTab() {
+    const [path, setPath] = useState(linkedPath);
+    return <BackOfficeTabNavigationProvider path={path} onNavigate={setPath}>
+      <button onClick={() => setPath(linkedPath)}>Open linked record</button>
+      <BackOfficePage client={client} />
+    </BackOfficeTabNavigationProvider>;
+  }
+  await act(async () => root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/workspace/example/session/chat"]}><LinkedMatterTab /></MemoryRouter></QueryClientProvider>));
+  assert.equal(input("Matter name").value, "Acquisition");
+  await click("Close record");
+  assert.equal(document.querySelector("aside.bo-detail"), null);
+  await click("Open linked record");
+  assert.equal(input("Matter name").value, "Acquisition", "Clicking the same saved citation reopens a closed record");
+
   await render(true);
   assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");
   assert.equal(button("Edit Client").textContent?.trim(), t("projects.empty_value"));

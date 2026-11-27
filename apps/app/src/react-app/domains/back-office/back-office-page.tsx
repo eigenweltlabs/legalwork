@@ -8,9 +8,9 @@ import { NativeBacklinks } from "./native-backlinks";
 import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { useBackOfficeLocation, useBackOfficeNavigate } from "./back-office-navigation";
+import { useBackOfficeLocation, useBackOfficeNavigate, useBackOfficeSearchParams } from "./back-office-navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
 import {
@@ -101,11 +101,11 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
   const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
-  const recordParam = new URLSearchParams(location.search).get("record");
-  const archivedParam = new URLSearchParams(location.search).get("archived") === "true";
+  const [params, setParams] = useBackOfficeSearchParams();
+  const recordParam = params.get("record");
+  const archivedParam = params.get("archived") === "true";
   const [detailId, setDetailId] = useState<string | null>(recordParam),
     [error, setError] = useState("");
-  const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const creations = useRef(new Map<string, Promise<BackOfficeRecord>>());
@@ -121,6 +121,21 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(archivedParam);
+  const changeLinkedRecord = (id: string | null) => {
+    if (!recordParam || recordParam === id) return;
+    setParams(current => {
+      const next = new URLSearchParams(current);
+      if (id) next.set("record", id);
+      else next.delete("record");
+      if (archived) next.set("archived", "true");
+      else next.delete("archived");
+      return next;
+    }, { replace: true });
+  };
+  const openRecord = (record: BackOfficeRecord) => {
+    setDetailId(record.id);
+    changeLinkedRecord(record.id);
+  };
   const directoryView = timesheet ? "timesheets" : selected;
   const protectedDirectory = Boolean(timesheet || embeddedObject);
   const credential = protectedDirectory ? calendarClientScope(client)[1] : undefined;
@@ -632,7 +647,7 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
               onReviewLocal={pendingDetail ? () => { setError(""); setSyncDetailsOpen(true); } : undefined}
               finance={data.permissions.finance}
               userId={data.permissions.userId}
-              onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
+              onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); changeLinkedRecord(null); }}
               onSave={save}
               onOpen={openRecord}
             >
