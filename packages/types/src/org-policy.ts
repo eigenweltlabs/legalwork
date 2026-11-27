@@ -65,11 +65,12 @@ const PermissionRuleSchema = z.union([
 ]);
 export type PermissionRule = z.infer<typeof PermissionRuleSchema>;
 /** The tools of Settings → Safety, plus authorized folders (`external_directory`). */
-export const ORG_POLICY_PERMISSION_TOOLS = ["edit", "bash", "external_directory"] as const;
+export const ORG_POLICY_PERMISSION_TOOLS = ["edit", "bash", "webfetch", "external_directory"] as const;
 export type OrgPolicyPermissionTool = (typeof ORG_POLICY_PERMISSION_TOOLS)[number];
 const ToolPermissionsSchema = z.strictObject({
   edit: PermissionRuleSchema.optional(),
   bash: PermissionRuleSchema.optional(),
+  webfetch: PermissionRuleSchema.optional(),
   external_directory: PermissionRuleSchema.optional(),
 });
 

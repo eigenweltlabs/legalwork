@@ -45,6 +45,10 @@ Firm policies can supply models, connectors or settings and can lock individual 
 
 If your firm allows a provider that uses your own API key or sign-in, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not connect you. If your firm supplies the key, its models become available when that key is available; ask your administrator if it is missing.
 
+## Web Search permissions
+
+Open **Settings > Tool Permissions > Web Search** and choose **Allow**, **Ask first** or **Never allow**. This existing permission covers managed web searches, page reads and web downloads. **Ask first** requests approval before sending a request; **Never allow** removes the managed search and page-read tools from the agent. Your firm can enforce a minimum under **Policies > Tool Permissions > Web Search** on the Model API platform. Stricter saved member settings still apply. Models, browser tools and commands keep their separate permissions.
+
 ## Access and secrets
 
 Authorizing a folder allows the worker to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Remote worker roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.

@@ -22,7 +22,7 @@ test("a firm search restriction has a clear error without becoming an allowance 
     expect(error).toMatchObject({ status: 403, code: "web_search_disabled_by_admin" });
     expect(error.message).toContain("disabled by your firm's administrator");
     expect(error.message).toContain("continue using chat models and local files");
-    expect(error.message).toContain("Model API Policies page");
+    expect(error.message).toContain("Policies → Tool Permissions");
     expect(error.message).toContain("Do not retry or use another search route");
     expect(error.message).not.toContain("private");
     expect(eigenweltUsageLimitFromText(error.message)).toBeNull();

@@ -2,44 +2,6 @@ import { expect, test } from "bun:test";
 import { LegalWorkSandbox } from "./legalwork-sandbox.js";
 import { nativePluginTestRuntime, nativeTestInvocation } from "./native-plugin-test-support.js";
 
-test("firm policy removes and restores search before a new turn while preserving fetch and shell", async () => {
-  const runtime = nativePluginTestRuntime();
-  let enabled = true, failed = false;
-  const api = Bun.serve({ port: 0, fetch(request) {
-    const path = new URL(request.url).pathname;
-    if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: "/Users/lawyer/Matter" }] });
-    if (path.includes("/sandbox/session/")) return Response.json({ enabled: false, networkMode: "allow", shell: "Bash", platform: "linux", cwd: "/workspace" });
-    expect(new URL(request.url).pathname).toBe("/web-search/policy");
-    return failed ? new Response("unavailable", { status: 503 }) : Response.json({ enabled });
-  } });
-  const previous = process.env.LEGALWORK_SERVER_URL;
-  process.env.LEGALWORK_SERVER_URL = api.url.origin;
-  try {
-    await runtime.start(LegalWorkSandbox);
-    const prompt = () => runtime.hook("session", "prompt", { sessionID: "ses_policy", prompt: { text: "Synthetic next turn" } });
-    expect(runtime.tools.has("legalwork_websearch")).toBe(true);
-    enabled = false;
-    await prompt();
-    expect(runtime.tools.has("legalwork_websearch")).toBe(false);
-    expect(runtime.tools.has("legalwork_webfetch")).toBe(true);
-    expect(runtime.tools.has("legalwork_shell")).toBe(true);
-    await expect(runtime.hook("tool", "execute.before", { tool: "legalwork_websearch" })).rejects.toThrow("unavailable for this firm");
-    enabled = true;
-    await prompt();
-    expect(runtime.tools.has("legalwork_websearch")).toBe(true);
-    failed = true;
-    await prompt();
-    expect(runtime.tools.has("legalwork_websearch")).toBe(false);
-    expect(runtime.tools.has("legalwork_webfetch")).toBe(true);
-    failed = false;
-    await prompt();
-    expect(runtime.tools.has("legalwork_websearch")).toBe(true);
-  } finally {
-    await runtime.close(); api.stop(true);
-    if (previous === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous;
-  }
-});
-
 test("native sandbox removes host tools, guards shell creation and preserves managed execution output and cancellation", async () => {
   const directory = "/matter/native-sandbox";
   const runtime = nativePluginTestRuntime(directory);
@@ -54,7 +16,6 @@ test("native sandbox removes host tools, guards shell creation and preserves man
   const api = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     expect(request.headers.get("authorization")).toBe("Bearer sandbox-test");
-    if (path === "/web-search/policy") return Response.json({ enabled: true });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: directory }] });
     if (path.includes("/sandbox/session/")) return Response.json({ enabled, networkMode: "approve", shell: "Bash", platform: "linux", cwd: "/workspace" });
     const body: unknown = await request.json();

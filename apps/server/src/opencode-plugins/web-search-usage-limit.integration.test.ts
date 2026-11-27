@@ -26,7 +26,6 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN).each(cases)("released Code
   let agentSawAllowance = false;
   const relay = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/web-search/policy") return Response.json({ enabled: true });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: workspace }] });
     if (path.includes("/sandbox/session/")) return Response.json({ enabled: false, networkMode: "allow", shell: "Bash", platform: "darwin", cwd: workspace });
     if (path.endsWith("/sandbox/web")) {

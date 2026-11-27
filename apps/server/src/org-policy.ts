@@ -265,7 +265,7 @@ function changedScopes(before: Stored | null, beforeState: OrgPolicyState | null
 
 async function fetchJson(url: string, token: string, init: { etag?: string } = {}): Promise<{ status: number; body: unknown }> {
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(init.etag ? { "If-None-Match": init.etag } : {}) },
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "X-LegalWork-Policy-Tools": "webfetch", ...(init.etag ? { "If-None-Match": init.etag } : {}) },
     redirect: "error",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });

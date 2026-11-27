@@ -76,7 +76,7 @@ export async function webResult(input: WebInput, url: string, response: Outbound
         const disabled = z.object({ detail: z.object({ code: z.literal("web_search_disabled_by_admin") }) }).safeParse(payload);
         if (disabled.success) throw new ApiError(403, "web_search_disabled_by_admin",
           "Web search is disabled by your firm's administrator. You can continue using chat models and local files. " +
-          "Ask your administrator to enable web search on the Model API Policies page. Do not retry or use another search route to bypass this restriction.");
+          "Ask your administrator to review Web Search under Policies → Tool Permissions on the Model API platform. Do not retry or use another search route to bypass this restriction.");
       }
       throw new ApiError(403, "web_search_not_allowed",
         "Paid web search is not allowed for this account. Ask your firm admin to check your subscription, paid seat and enabled EU/US regions on the Model API Models page.");

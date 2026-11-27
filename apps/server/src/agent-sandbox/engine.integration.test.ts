@@ -49,7 +49,6 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
   let sequence = 0;
   const fixture = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/web-search/policy") return Response.json({ enabled: true });
     if (path.includes("/sandbox/session/")) return Response.json({ enabled: true, networkMode: "approve", shell: "Bash", platform: "linux", cwd: "/workspace" });
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }] });
     if (path === "/workspace/matter/sandbox/execute") {

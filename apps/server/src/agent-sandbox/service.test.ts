@@ -692,6 +692,33 @@ test("paid AWS search retains the network approval boundary and never forwards c
   expect(net.sent).toHaveLength(1);
 });
 
+test.each(["allow", "ask", "deny"] satisfies Array<"allow" | "ask" | "deny">)("the existing webfetch permission governs paid search before network I/O (%s), with sandboxing off", async effect => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect }]);
+  await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+  await writeEigenweltConnection(f.config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active", features: ["premium_models"] }) });
+  await writeCachedEigenweltPaidManifest(f.config, { baseURL: "https://gateway.example/v1", apiKey: "synthetic-key", models: [] });
+  const net = observedWebNetwork([{ status: 200, headers: {}, bodyBase64: Buffer.from(JSON.stringify({ provider: "aws", region: "eu-west-1", results: [] })).toString("base64") }]);
+  const input = webInputSchema.parse({ kind: "search", query: "public statute", sessionID: "search-policy", agent: "build" });
+  const running = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+  if (effect === "ask") {
+    const [approval] = await waitForWebApproval(f.service);
+    expect(net.sent).toEqual([]);
+    expect(net.resolved).toEqual([]);
+    expect(approval.network?.body).toContain("public statute");
+    f.service.approvals.respond(approval.id, "allow");
+  }
+  const result = await running;
+  if (effect === "deny") {
+    expect(result).toBeInstanceOf(Error);
+    expect(String(result)).toContain("webfetch is blocked");
+    expect(net.sent).toEqual([]);
+    expect(net.resolved).toEqual([]);
+  } else {
+    expect(result).toMatchObject({ metadata: { provider: "aws" } });
+    expect(net.sent).toHaveLength(1);
+  }
+});
+
 test("web requests inherit parent settings and stricter agent permissions", async () => {
   const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });

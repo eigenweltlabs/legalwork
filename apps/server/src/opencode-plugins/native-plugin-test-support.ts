@@ -10,8 +10,6 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter", opti
   const setupDirectory = directory;
   const hooks = new Map<string, Hook[]>();
   const tools = new Map<string, Info>();
-  const toolTransforms: Array<(value: ToolEditor) => void> = [];
-  let baseTools: Map<string, Info> | undefined;
   const histories = new Map<string, unknown[]>();
   const sessions = new Map<string, { agent?: string; parentID?: string; permissions?: NativePermissionRule[]; model?: { providerID: string; id: string }; metadata?: Record<string, unknown> }>();
   const permissions: unknown[] = [];
@@ -76,15 +74,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter", opti
       if (property === "tool") return {
         list: async () => [...tools].map(([id, tool]) => ({ ...tool, id })),
         hook: (name: string, callback: Hook) => register(`tool.${name}`, callback),
-        transform: async (callback: (value: ToolEditor) => void) => {
-          baseTools ??= new Map(tools);
-          toolTransforms.push(callback); callback(editor); return { dispose: async () => {} };
-        },
-        reload: async () => {
-          tools.clear();
-          for (const [id, tool] of baseTools ?? []) tools.set(id, tool);
-          for (const transform of toolTransforms) transform(editor);
-        },
+        transform: async (callback: (value: ToolEditor) => void) => { callback(editor); return { dispose: async () => {} }; },
       };
       if (property === "shell") return { hook: (name: string, callback: Hook) => register(`shell.${name}`, callback) };
       if (property === "event") return { subscribe: ({ signal }: { signal: AbortSignal }) => {
