@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type ToolUIPart, type ReasoningUIPart } from "ai";
-import { Ban, ChevronDown, CircleAlert, ListChecks } from "lucide-react";
+import { Ban, ChevronDown, ListChecks } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { isEnvVarRequestToolPart, isQuestionToolPart } from "@/lib/build-in-tools";
 import { isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
@@ -21,7 +21,6 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
   const following = useRef(true);
   const tools = parts.filter(isToolUIPart);
   const activeTool = tools.findLast(isToolPartInFlight);
-  const failedTool = tools.findLast(part => part.state === "output-error" && !isToolPermissionDenied(part));
   const deniedTool = tools.some(isToolPermissionDenied);
   const latestTool = activeTool ?? tools.at(-1);
   const working = active || Boolean(activeTool);
@@ -29,7 +28,6 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
   const label = useActivityLabel(
     activeTool ? getToolRunActivityLabel(activeTool)
       : active ? t("tool_run.reviewing_results")
-      : failedTool ? t("tool_run.action_failed")
       : deniedTool ? t("tool_run.permission_denied") : t("tool_run.completed"),
     active && !activeTool,
   );
@@ -56,8 +54,7 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
       <Icon className="size-4 shrink-0" strokeWidth={1.6} aria-hidden />
       <span role="status" aria-live="polite" className={cn("min-w-0 truncate", working && !needsInput && "lw-tool-shimmer")} title={label}>{label}</span>
       {tools.length > 0 && <span className="shrink-0 text-xs tabular-nums opacity-50">· {countLabel}</span>}
-      {failedTool && <CircleAlert className="size-3.5 shrink-0 text-destructive" aria-label={t("tool_run.failed")} />}
-      {deniedTool && !failedTool && <Ban className="size-3.5 shrink-0" aria-label={t("tool_run.permission_denied")} />}
+      {deniedTool && <Ban className="size-3.5 shrink-0" aria-label={t("tool_run.permission_denied")} />}
       <ChevronDown className="size-3.5 shrink-0 opacity-50 transition-[transform,opacity] group-hover:opacity-100 group-data-panel-open:rotate-180" aria-hidden />
     </CollapsibleTrigger>
     <CollapsibleContent>
@@ -72,7 +69,7 @@ export function ToolRun({ parts, showDetails, renderTool, active = false, defaul
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
               <PartIcon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
               <span className={cn("truncate", isToolPartInFlight(part) && "lw-tool-shimmer")}>{getToolHistoryLabel(part)}</span>
-              {part.state === "output-error" && !isToolPermissionDenied(part) && <span className="shrink-0 text-xs text-destructive">{t("tool_run.failed")}</span>}
+              {part.state === "output-error" && !isToolPermissionDenied(part) && <span className="shrink-0 text-xs opacity-50">· {t("tool_run.failed")}</span>}
             </div>}
         </div>;
         })}

@@ -83,7 +83,6 @@ export function getToolHistoryLabel(part: ToolPart): string {
   const innerTools = codeModeToolLabel(part);
   if (innerTools) return innerTools;
   if (isToolPermissionDenied(part)) return t("tool_run.permission_denied");
-  if (part.state === "output-error") return t("tool_run.action_failed");
   if (isAppCapabilitiesToolPart(part)) return t("tool_run.checked_app_capabilities");
   if (nameOf(part) === "legalwork_assistant_set_name") return t("assistant.name_saved");
   if (nameOf(part) === "legalwork_assistant_attention") return t("assistant.attention_checked");
