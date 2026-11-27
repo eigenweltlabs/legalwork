@@ -1,6 +1,6 @@
 /** Brand marks bundled in `public/` as `ext-<slug>.svg`; sources are documented in docs/nango-connectors.md. */
 const BUNDLED_BRAND_ICONS = new Set([
-  "box", "dropbox", "egnyte", "google", "googlecloud", "notion",
+  "box", "dropbox", "egnyte", "github", "google", "googlecloud", "notion",
   "gmail", "googlecalendar", "googledrive", "microsoftoutlook", "microsoftonedrive", "microsoftsharepoint",
 ]);
 

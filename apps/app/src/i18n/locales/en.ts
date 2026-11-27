@@ -4356,6 +4356,8 @@ export default {
   "mcp.auth.client_registration_required":
     "This provider requires your firm's registered app credentials. Open connection setup to enter them.",
   "mcp.auth.complete_connection": "Complete connection",
+  "mcp.auth.github_device_instructions": "Enter this one-time code on GitHub, then approve access for LegalWork.",
+  "mcp.auth.github_open_and_copy": "Copy code and open GitHub",
   "mcp.auth.connect_server": "Connect {server}",
   "mcp.auth.connected_body": "{server} authorized access successfully.",
   "mcp.auth.connected_title": "Connected",
@@ -4460,6 +4462,8 @@ export default {
   "mcp.quick_connect_egnyte_title": "Egnyte",
   "mcp.quick_connect_everlaw_desc": "Query the firm's Everlaw eDiscovery projects for documents, binders, and Bates metadata. US endpoint — org admin enables OAuth.",
   "mcp.quick_connect_everlaw_title": "Everlaw",
+  "mcp.quick_connect_github_desc": "Access repositories, issues, and pull requests through GitHub’s official MCP server.",
+  "mcp.quick_connect_github_note": "Sign in with GitHub to connect your public repositories.",
   "mcp.quick_connect_google_cloud_storage_desc": "Read and write matter files in the firm's Google Cloud Storage buckets, governed by IAM permissions.",
   "mcp.quick_connect_google_cloud_storage_title": "Google Cloud Storage",
   "mcp.quick_connect_highq_desc": "Read-only access to the firm's HighQ sites, documents, and iSheets. Enter your HighQ instance and site.",

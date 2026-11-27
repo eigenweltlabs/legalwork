@@ -4434,6 +4434,8 @@ const de = {
   "mcp.auth.client_registration_required":
     "Dieser Anbieter erfordert die registrierten App-Zugangsdaten Ihrer Kanzlei. Öffnen Sie die Verbindungseinrichtung, um sie einzutragen.",
   "mcp.auth.complete_connection": "Verbindung abschließen",
+  "mcp.auth.github_device_instructions": "Geben Sie diesen einmaligen Code bei GitHub ein und erlauben Sie LegalWork den Zugriff.",
+  "mcp.auth.github_open_and_copy": "Code kopieren und GitHub öffnen",
   "mcp.auth.connect_server": "{server} verbinden",
   "mcp.auth.connected_body": "{server} hat den Zugriff erfolgreich autorisiert.",
   "mcp.auth.connected_title": "Verbunden",
@@ -4552,6 +4554,10 @@ const de = {
   "mcp.quick_connect_everlaw_desc":
     "Fragen Sie die Everlaw-eDiscovery-Projekte der Kanzlei nach Dokumenten, Bindern und Bates-Metadaten ab. US-Endpunkt, die Organisationsadministration aktiviert OAuth.",
   "mcp.quick_connect_everlaw_title": "Everlaw",
+  "mcp.quick_connect_github_desc":
+    "Greifen Sie über den offiziellen GitHub-MCP-Server auf Repositorys, Issues und Pull Requests zu.",
+  "mcp.quick_connect_github_note":
+    "Melden Sie sich bei GitHub an, um Ihre öffentlichen Repositorys zu verbinden.",
   "mcp.quick_connect_google_cloud_storage_desc":
     "Lesen und schreiben Sie Aktendateien in den Google-Cloud-Storage-Buckets der Kanzlei, gesteuert über IAM-Berechtigungen.",
   "mcp.quick_connect_google_cloud_storage_title": "Google Cloud Storage",

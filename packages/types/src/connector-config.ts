@@ -1,3 +1,11 @@
+// Public client ID of the Eigenwelt Labs OAuth App for the built-in connector.
+export const githubMcpOAuth = {
+  name: "github",
+  url: "https://api.githubcopilot.com/mcp/",
+  clientId: "Ov23lidcnfp7D6xTjrjo",
+  scope: "public_repo offline_access",
+};
+
 export type ConnectorConfig = {
   type: "remote" | "local";
   url?: string;

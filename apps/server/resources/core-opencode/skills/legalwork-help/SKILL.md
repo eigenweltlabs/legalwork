@@ -33,6 +33,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Cloud drives, network storage, or moving and copying connected files | [connected-storage.md](references/connected-storage.md) |
 | Website logins, the general legal-research skill, research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
 | Integration categories, installed connections, connector detail pages, multiple named connections, browser or Computer Use | [integrations.md](references/integrations.md) |
+| GitHub connector, OAuth app setup, GitHub repositories, issues or pull requests in LegalWork | [integrations.md](references/integrations.md#github) |
 | Wiki, Legal Research / Rechtliche Recherche, research starter selection, jurisdiction/area browsing, proposed folders, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
