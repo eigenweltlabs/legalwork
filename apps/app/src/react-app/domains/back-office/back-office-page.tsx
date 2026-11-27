@@ -1,16 +1,16 @@
 import { isLoopbackLegalworkServerUrl } from "@/app/lib/legalwork-server";
-import type { WorkdayModelOption } from "@legalwork/types/time-capture";
 import { timePage } from "./time-routes";
 import { timeTrackingProfile } from "./time-tracking-profile";
-import { TimesheetWorkspace } from "./timesheet-workspace";
+import { TimesheetWorkspace, type InvoiceRegister } from "./timesheet-workspace";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
 import { NativeBacklinks } from "./native-backlinks";
 import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
+import { useBackOfficeLocation, useBackOfficeNavigate, useBackOfficeSearchParams } from "./back-office-navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
 import {
@@ -45,7 +45,7 @@ import { calendarClientScope } from "../calendar/calendar-cache";
 import { applySavedRecord, backOfficeReadFailure, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeReadFailure, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
-import { ValueDisplay } from "./record-values";
+import { RecordChip, ValueDisplay } from "./record-values";
 import { RecordDetail } from "./record-detail";
 import { creatableRecordObject } from "./record-creation-values";
 import { ModelEditor } from "./model-editor";
@@ -83,28 +83,30 @@ function canEditDirectoryRecord(record: BackOfficeRecord, team: boolean, userId:
     (record.ownerId === userId && !["Submitted", "Approved", "Invoiced", "Written off"].includes(String(record.values.status)));
 }
 
-export function BackOfficePage({ client, embeddedObject, workdayModels, billingSettings }: {
+export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister, active = true, onTitleChange }: {
   client: LegalworkServerClient;
-  workdayModels?: WorkdayModelOption[];
   embeddedObject?: "timeEntries" | "invoices";
   billingSettings?: boolean;
+  invoiceRegister?: InvoiceRegister;
+  active?: boolean;
+  onTitleChange?: (title: string) => void;
 }) {
   const locale = useLocale();
   const parentDialogContainer = useContext(DirectoryDialogContainer);
   const [recordPane, setRecordPane] = useState<HTMLDivElement | null>(null);
-  const location = useLocation(),
-    navigate = useNavigate(),
+  const location = useBackOfficeLocation(),
+    navigate = useBackOfficeNavigate(),
     cache = useQueryClient();
   const timesheet = billingSettings ? "billing-settings" : embeddedObject ? undefined : timePage(location.pathname);
   const DirectoryTheme = timesheet ? Fragment : BackOfficeTheme;
   const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
-  const recordParam = new URLSearchParams(location.search).get("record");
-  const archivedParam = new URLSearchParams(location.search).get("archived") === "true";
+  const [params, setParams] = useBackOfficeSearchParams();
+  const recordParam = params.get("record");
+  const archivedParam = params.get("archived") === "true";
   const [detailId, setDetailId] = useState<string | null>(recordParam),
     [error, setError] = useState("");
-  const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const creations = useRef(new Map<string, Promise<BackOfficeRecord>>());
@@ -120,6 +122,21 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(archivedParam);
+  const changeLinkedRecord = (id: string | null) => {
+    if (!recordParam || recordParam === id) return;
+    setParams(current => {
+      const next = new URLSearchParams(current);
+      if (id) next.set("record", id);
+      else next.delete("record");
+      if (archived) next.set("archived", "true");
+      else next.delete("archived");
+      return next;
+    }, { replace: true });
+  };
+  const openRecord = (record: BackOfficeRecord) => {
+    setDetailId(record.id);
+    changeLinkedRecord(record.id);
+  };
   const directoryView = timesheet ? "timesheets" : selected;
   const protectedDirectory = Boolean(timesheet || embeddedObject);
   const credential = protectedDirectory ? calendarClientScope(client)[1] : undefined;
@@ -138,10 +155,11 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
         return failure;
       }
     },
-    refetchInterval: 30_000,
+    refetchInterval: active ? 30_000 : false,
   });
   const outcome = query.data;
   const data = outcome && "records" in outcome && (protectedDirectory || !query.isError) ? outcome : undefined;
+
   const directoryError = query.error ?? (outcome && "loadError" in outcome ? outcome.loadError : undefined);
   useEffect(() => () => { conflictDecision.current?.(false); }, [selected, data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model]);
   const team = Boolean(data && data.scope !== "local");
@@ -181,6 +199,10 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
       !isInternalBackOfficeObject(object.id),
   );
   const object = useMemo(() => rawObject && displayBackOfficeObject(rawObject), [rawObject, locale]);
+  const tabTitle = selected === "data-model" ? t("back_office.data_model") : native ? nativeModel(native).plural : object?.plural;
+  useEffect(() => {
+    if (tabTitle) onTitleChange?.(tabTitle);
+  }, [tabTitle, onTitleChange]);
   const archiveKey = [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model];
   const archivedRecords = useQuery({
     queryKey: archiveKey,
@@ -200,6 +222,9 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
         !isInternalBackOfficeObject(object.id),
     );
   const billingTarget = detail?.objectId === "matters" ? "matter" : detail?.objectId === "clients" ? "client" : undefined;
+  const invoicedEntries = detail?.objectId === "invoices" && !pendingDetail
+    ? records.filter(record => record.objectId === "timeEntries" && record.values.invoice === detail.id)
+    : [];
   const timeTracking = useQuery(timeTrackingProfile(billingTarget || billingSettings ? client : null));
   const request = (path: string, body: unknown, method = "POST") =>
     client.backOffice(path, { method, body, team });
@@ -476,9 +501,9 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,credential,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            onSaveView={saveView} client={client} directory={data} page={timesheet} workdayModels={workdayModels}
+            onSaveView={saveView} client={client} directory={data} page={timesheet}
             directoryRefresh={directoryError ? { error: directoryError, fetching: query.isFetching, retry: () => void query.refetch() } : undefined}
-            renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
+            renderRecords={(objectId, invoiceRegister) => <BackOfficePage key={objectId} client={client} embeddedObject={objectId} invoiceRegister={invoiceRegister} />}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor
@@ -505,7 +530,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
           )}
           {data && object && !timesheet && (
             <>
-              <header className="bo-object-header">
+              {!invoiceRegister && <header className="bo-object-header">
                 <h1>
                   <ObjectIcon id={object.id} size={16} />
                   {object.plural}
@@ -561,7 +586,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                     </Dropdown.ActionItem>
                   </DirectoryMenu>
                 </div>
-              </header>
+              </header>}
               <RecordGrid
                 key={JSON.stringify([object.id, client.baseUrl, data.directoryId, data.permissions.userId, data.permissions.principalKey, team])}
                 columnScope={JSON.stringify([client.baseUrl, data.scope, data.directoryId, data.permissions.userId, data.permissions.principalKey])}
@@ -580,6 +605,7 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
                 onSaveView={saveView}
                 archived={archived}
                 onArchivedChange={setArchived}
+
               />
             </>
           )}
@@ -626,10 +652,21 @@ export function BackOfficePage({ client, embeddedObject, workdayModels, billingS
               onReviewLocal={pendingDetail ? () => { setError(""); setSyncDetailsOpen(true); } : undefined}
               finance={data.permissions.finance}
               userId={data.permissions.userId}
-              onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
+              onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); changeLinkedRecord(null); }}
               onSave={save}
               onOpen={openRecord}
             >
+              {invoicedEntries.length > 0 && (
+                <div className="bo-property">
+                  <label>
+                    <ObjectIcon id="timeEntries" size={13} />
+                    {t("back_office.timeEntries.plural")}
+                  </label>
+                  <div className="bo-relation-values">
+                    {invoicedEntries.map(entry => <RecordChip key={entry.id} record={entry} onOpen={openRecord} />)}
+                  </div>
+                </div>
+              )}
               {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
                 {timeTracking.data?.enabled !== false && billingTarget && data.directoryId && (
                   <><Link className="bo-time-secondary" to={"/settings/billing?" + new URLSearchParams({

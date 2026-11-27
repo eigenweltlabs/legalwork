@@ -19,6 +19,7 @@ type RowProps = {
   trailing?: ReactNode;
   onFocus?: () => void;
   fieldValue?: (record: BackOfficeRecord, fieldId: string) => BackOfficeValue | undefined;
+  renderCell?: (record: BackOfficeRecord, field: BackOfficeField) => ReactNode;
   record: BackOfficeRecord;
   index: number;
   top?: number;
@@ -45,7 +46,7 @@ type RowProps = {
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
-  sheet, blank, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
+  sheet, blank, leading, details, trailing, onFocus, fieldValue, renderCell, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
   selected, editing, readOnlyFields, allowedRelationIds, canTab, onEdit, onError, onSelect, onMove, onOpen, openOnRowClick, onSave,
 }: RowProps) {
   const popupId = useId();
@@ -73,7 +74,8 @@ export const RecordGridRow = memo(function RecordGridRow({
           onCheckedChange={checked => onSelect(record.id, checked)} />}
       </div>
       {fields.map((field, column) => {
-        const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+        const customCell = renderCell?.(record, field);
+        const canEdit = customCell === undefined && editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
         const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && (field.type === "datetime" || field.type === "date")));
         const active = canEdit && editing?.field === field.id;
         const close = (focus = true) => {
@@ -104,7 +106,7 @@ export const RecordGridRow = memo(function RecordGridRow({
               }
             }}
           >
-            {inline && active && editing ? (
+            {customCell !== undefined ? customCell : inline && active && editing ? (
               <InlineCellEditor duration={isTimeDurationField(record.objectId, field.id)} preserveOnExit={sheet} commitUnchanged={sheet && record.revision === 0} field={field} value={valueFor(editing.base, field.id)}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={close} onError={onError}

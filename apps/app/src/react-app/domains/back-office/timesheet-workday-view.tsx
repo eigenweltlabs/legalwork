@@ -13,7 +13,7 @@ import { ItemDescriptionInput } from "@/react-app/design-system/item-detail";
 import { DialogFooter } from "@/components/ui/dialog";
 import { appointmentBookingId, appointmentSeed, rangeInstant, TimelineEntryDialog, type SaveTimelineEntry, type TimelineBooking, type TimelineEntrySeed } from "./timeline-time-entry";
 import type { WorkdayGuideline } from "@legalwork/types/time-capture";
-import { TimeSelect } from "./time-settings-controls";
+import { TimeRecordPicker, TimeSelect } from "./time-settings-controls";
 import { captureChargeMinutes, draftRules, workdayBillableMinutes, type CaptureProposal, type CaptureState, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
@@ -391,7 +391,7 @@ export function WorkdayCorrectionForm({
           maxLength={2000} onChange={event => setNarrative(event.currentTarget.value)} />
       </label>
       <label className="grid gap-1.5 text-sm">{t("timesheets.workday.matter")}
-        <TimeSelect label={t("timesheets.workday.matter")} value={matter} onChange={setMatter}
+        <TimeRecordPicker label={t("timesheets.workday.matter")} value={matter} onChange={setMatter}
           placeholder={t("timesheets.workday.choose")} options={[{ id: "", name: t("timesheets.workday.unassigned") }, ...options]} />
       </label>
       <div className="grid grid-cols-2 gap-3">
@@ -423,7 +423,7 @@ export function WorkdayCorrectionForm({
           <TimeEntryInput value={minutes} onValueChange={setMinutes} />
         </label>
         <label className="grid gap-1.5 text-sm">{t("timesheets.workday.target")}
-          <TimeSelect label={t("timesheets.workday.target")} value={target} options={options}
+          <TimeRecordPicker label={t("timesheets.workday.target")} value={target} options={options}
             placeholder={t("timesheets.workday.choose")} onChange={setTarget} />
         </label>
         {total && +minutes > 0 && +minutes < total && target && target !== matter &&

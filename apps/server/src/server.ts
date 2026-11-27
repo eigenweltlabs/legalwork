@@ -38,6 +38,7 @@ import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
 import { searchSessionContents, searchFileContents } from "./content-search.js";
 import { CorpusService } from "./corpus/service.js";
+import { serverCorpusFolderAccess } from "./corpus/folder-access.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { readSystemOneSettings, systemOne } from "./systemone.js";
 import { listProjectContents, readProjectContent, type ProjectContentSources } from "./project-contents.js";
@@ -233,7 +234,6 @@ import {
   writeLegalworkRuntimeConfigFile,
   publishRuntimeConfigChanges,
 } from "./legalwork-runtime-config.js";
-import { providerRepairNotices } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { createCustomProviderModelRefresh, providerBaseURL, readModelRefreshSettings, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
 import { runtimeEngineConfiguration, upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
@@ -1993,7 +1993,7 @@ function createRoutes(
     };
   });
   registerBackOfficeRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
-  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, corpusFolders: serverCorpusFolderAccess(config, approvals), jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable,resolveWorkspace,startChat: startTimeReview});
@@ -2809,14 +2809,6 @@ function createRoutes(
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     return jsonResponse({ migrated: true, keys, legacyKeys: legacy.keys, userOpencodeKeys: user.keys, updatedAt, legacyError: legalwork.error });
-  });
-
-  // Providers the startup self-heal dropped from this workspace's stored
-  // config (retired free tier / a block the engine cannot parse), so the app
-  // can tell the user instead of the engine silently refusing to start.
-  addRoute(routes, "GET", "/workspace/:id/provider-repairs", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse({ removed: providerRepairNotices(workspace.id) });
   });
 
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {

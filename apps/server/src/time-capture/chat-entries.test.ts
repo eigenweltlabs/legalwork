@@ -51,7 +51,7 @@ test("the private chat translates or removes saved records and workflow entries 
       const request = requests[0];
       expect(request).toMatchObject({ action, sessionID: "workday-source-test", workspaceId: "time-review", canRemember: false });
       expect(request.description).toContain(action === "timekeeping.entry.remove" ? "Recorded:" :
-        action === "timekeeping.billing.policy" ? "Effective from" : "Review this revision");
+        action === "timekeeping.billing.policy" ? "Effective from" : "marks the selected time as invoiced");
       before?.();
       const body = { reply, sessionID: request.sessionID, workspaceId: request.workspaceId };
       // The agent cannot answer its own approval or create a permanent deletion grant.
@@ -148,19 +148,24 @@ test("the private chat translates or removes saved records and workflow entries 
     expect(created.entries).toContainEqual(expect.objectContaining({ id: locked.id }));
     const saved = await applyBilling({ type: "submit", entries: [{ id: locked.id, revision: locked.revision }] });
     expect(saved.entries).toContainEqual(expect.objectContaining({ id: locked.id, status: "confirmed", revision: locked.revision }));
-    const { invoiceDraft } = await applyBilling({ type: "prepareInvoice", draft: {
+    const createInvoice = { type: "createInvoice", requestId: randomUUID(), invoice: {
       matterId: matter.id, clientId: client.id, period: { from: lockedDate, to: lockedDate },
       entries: [{ id: locked.id, revision: locked.revision }], wording: [], adjustmentVersions: [], pricing: { mode: "hourly" },
-    } });
-    const invoiceRef = { id: invoiceDraft!.id, revision: invoiceDraft!.revision };
-    const approve = { type: "approveInvoice", ...invoiceRef };
-    await expect(withDecision(applyBilling(approve), "deny", undefined, "timekeeping.billing.approveInvoice")).rejects.toThrow("did not approve");
-    await withDecision(applyBilling(approve), "allow", undefined, "timekeeping.billing.approveInvoice");
-    const issue = { type: "issueInvoice", ...invoiceRef, requestId: randomUUID() };
-    const issued = await withDecision(applyBilling(issue), "allow", undefined, "timekeeping.billing.issueInvoice");
-    expect(issued.invoices).toMatchObject([{ number: 1, draftId: invoiceRef.id }]);
-    expect((await applyBilling(issue)).invoices).toEqual(issued.invoices);
-    expect(await pending()).toEqual([]);
+    } };
+    await expect(applyBilling({ type: "prepareInvoice", draft: createInvoice.invoice }))
+      .rejects.toThrow();
+    await expect(withDecision(applyBilling(createInvoice), "deny", undefined, "timekeeping.billing.createInvoice")).rejects.toThrow("did not approve");
+    const savedInvoice = await withDecision(applyBilling(createInvoice), "allow", undefined, "timekeeping.billing.createInvoice");
+    const invoice = savedInvoice.invoices.find((row: { number: number }) => row.number === 1);
+    expect(invoice).toMatchObject({ number: 1, currency: "EUR", totalMinor: 8333 });
+    expect(savedInvoice.invoiceDraft).toBeUndefined();
+    expect((await fetch(base + "/back-office/timesheet/invoices/" + invoice.id + "/document?format=pdf", {
+      headers: hostHeaders,
+    })).status).toBe(404);
+    expect(JSON.parse(await billing.execute({ action: "read", invoiceNumber: 1 }))).toMatchObject({
+      number: 1, client: "Example", billingAddress: "1 Test Square", currency: "EUR", totalMinor: 8333,
+      entries: [{ date: lockedDate, matter: "Lease", narrative: original, hourlyRate: 250, amountMinor: 8333 }],
+    });
     const [approved] = (await chat({ date: lockedDate, action: "list_entries" })).entries;
     expect(approved).toMatchObject({ status: "invoiced", editable: false, removable: false });
     for (const action of ["remove_entry", "update_entry"]) {
@@ -176,4 +181,4 @@ test("the private chat translates or removes saved records and workflow entries 
     await server.stop();
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 12_000);

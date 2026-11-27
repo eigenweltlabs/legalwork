@@ -1,3 +1,4 @@
+import type { TimeEntry, TimesheetCommand, TimesheetState } from "@legalwork/types/timesheet";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ window.document.write("<!doctype html><html><head></head><body></body></html>");
 for (const [key, value] of Object.entries({
   window, document: window.document, navigator: window.navigator, sessionStorage: window.sessionStorage, localStorage: window.localStorage,
   HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement, HTMLTextAreaElement: window.HTMLTextAreaElement,
-  Element: window.Element, Node: window.Node, Event: window.Event, DOMRect: window.DOMRect,
+  Element: window.Element, Node: window.Node, NodeFilter: window.NodeFilter, Event: window.Event, DOMRect: window.DOMRect,
   MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
   getComputedStyle: window.getComputedStyle.bind(window),
   requestAnimationFrame: window.requestAnimationFrame.bind(window),
@@ -124,9 +125,11 @@ const capture = (values: Partial<TimeCaptureSheet> = {}): TimeCaptureSheet => ({
   proposals: [], drafts: {}, date: first, dates: [first], selectDate: () => {},
   privateAvailable: false, act: async action => { privateActions.push(action); return true; }, openSource: () => {}, ...values,
 });
-const render = async (capture: TimeCaptureSheet, records = directory.records) => {
+const render = async (capture: TimeCaptureSheet, records = directory.records, workflow?: TimesheetState,
+  command?: (command: TimesheetCommand) => Promise<TimesheetState>) => {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><BackOfficeTheme>
-    <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={state} capture={capture}
+    <TimeRecordSheet onSaveView={async view => view} client={client} directory={{ ...directory, records: [...records, ...clientRecords, newMatter, singleClientMatter] }} state={workflow ?? state} capture={capture}
+      firmCommand={workflow ? command ?? (async () => workflow) : undefined} submit={workflow ? async () => {} : undefined}
       workspace={(entries, renderProposal) => <>{entries}<aside>{capture.proposals.map(proposal => {
         const details = renderProposal(proposal);
         return details && <div key={proposal.key} data-private-proposal={proposal.key}>{details}</div>;
@@ -232,6 +235,21 @@ try {
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.decline")));
   assert.ok(button(proposalDetails(proposal.key), t("timesheets.sheet.accept")));
   assert.equal(proposalDetails(proposal.key).querySelector("textarea")?.value, "Generated private wording");
+  const matterInput = proposalDetails(proposal.key).querySelector<HTMLInputElement>(
+    'input[role="combobox"][aria-label="' + t("timesheets.workday.matter") + '"]',
+  );
+  assert.ok(matterInput, "calendar proposals use the searchable matter picker");
+  await act(async () => matterInput.focus());
+  await act(async () => matterInput.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    assert.ok(setValue);
+    setValue.call(matterInput, "Second");
+    matterInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  assert.deepEqual([...document.querySelectorAll('[role="option"]')].map(option => option.textContent), ["Second matter"]);
+  await act(async () => matterInput.blur());
+
   assert.equal(privateActions.length, 0);
   assert.equal(writes.length, 0);
   const privateInput = await editProposal(proposal.key, "textarea", "Edited privately");
@@ -729,6 +747,158 @@ try {
   root = createRoot(host);
   await render(formatCapture, [workerContact, createdRows.get(formatRow.id)!]);
   assert.equal(cell(row(formatRow.id), 4).textContent, "2:18", "reopening preserves format and stored time");
+  const workflow = TimesheetStateSchema.parse({ ...state, scope: "team", service: "workflow", supportsInvoiceDrafts: true,
+    entries: [{ id: formatRow.id, date: first, matterId: matter, clientId: primary, activity: "RES", narrative: "Billable work",
+      workerId: "worker", authorId: "worker", workedMinutes: 15, billableMinutes: 15, billable: true,
+      status: "confirmed", revision: 5, source: "manual", history: [] }] });
+  await render(formatCapture, [workerContact, formatRow], workflow);
+  assert.match(row(formatRow.id).textContent ?? "", /Approved/);
+  assert.ok(!host.textContent?.includes("Submit period"));
+  await render(formatCapture, [workerContact, formatRow], { ...workflow, policies: [
+    { scope: "firm", targetId: "firm", revision: 1, effectiveFrom: first, reviewerId: "another-person" },
+  ] });
+  assert.match(row(formatRow.id).textContent ?? "", /Ready to submit/);
+  assert.ok(!button(host, "Submit period").disabled);
+
+  // A firm booking has a new record ID. The firm cache can publish it while
+  // the private draft is still cached and its billable-time editor is open.
+  const bookingDraftId = crypto.randomUUID(), bookedId = crypto.randomUUID();
+  let persisted = { date: first, revision: 1, values: {
+    ...formatRow.values, name: "Research", billingNarrative: "Research", matter: singleClientMatter.id, client: primary,
+    timekeeper: "member:worker", startedAt: first, recordedMinutes: 30, billableMinutes: 30,
+  } };
+  let committed = false;
+  let patchesAfterBooking = 0;
+  const staleCapture = capture({ privateAvailable: true, drafts: { [bookingDraftId]: persisted }, writeDraft: async action => {
+    if (action.changes === null) return null;
+    if (committed) {
+      patchesAfterBooking++;
+      throw new LegalworkServerError(409, "private_draft_conflict", "The draft was already booked.", { draft: null });
+    }
+    persisted = { ...persisted, revision: persisted.revision + 1, values: { ...persisted.values, ...action.changes } };
+    return persisted;
+  } });
+  const beforeBooking = { ...workflow, entries: [] };
+  const createReply = Promise.withResolvers<TimesheetState>();
+  const commands: TimesheetCommand[] = [];
+  let booked: TimeEntry | undefined;
+  const command = async (request: TimesheetCommand) => {
+    commands.push(request);
+    if (request.type === "create") {
+      assert.equal(request.requestId, bookingDraftId);
+      booked = { ...request.entry, id: bookedId, groupId: bookingDraftId, revision: 1, workerId: "worker", authorId: "worker",
+        status: "confirmed", source: "manual", history: [] };
+      return createReply.promise;
+    }
+    assert.equal(request.type, "update");
+    assert.equal(request.id, bookedId);
+    assert.equal(request.revision, 1);
+    assert.equal(request.entry.billableMinutes, 20);
+    assert.ok(booked);
+    return { ...beforeBooking, entries: [{ ...booked, ...request.entry, revision: 2 }] };
+  };
+  await render(staleCapture, [workerContact], beforeBooking, command);
+  const bookingNarrative = await enter(row(bookingDraftId), 3, "Checked the research");
+  await act(async () => bookingNarrative.blur());
+  assert.ok(booked, "the firm create is pending");
+  await enter(row(bookingDraftId), 5, "20");
+  committed = true;
+  const booking = { ...beforeBooking, entries: [booked] };
+  await render(staleCapture, [workerContact], booking, command);
+  assert.ok(visible(bookedId));
+  assert.match(row(bookedId).textContent ?? "", /Approved/);
+  assert.equal(visible(bookingDraftId), false, "the newly approved entry replaces the cached draft before the create returns");
+  await act(async () => {
+    createReply.resolve(booking);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  });
+  assert.deepEqual(commands.map(request => request.type), ["create", "update"], "the focused edit is saved once against the approved row");
+  assert.equal(cell(row(bookedId), 5).textContent, "0:20");
+  assert.equal(patchesAfterBooking, 0, "the old inline editor cannot write to a consumed private draft");
+  assert.equal(visible(bookingDraftId), false);
+
+  const chooseRounding = TimesheetStateSchema.parse({ ...workflow, entries: [], policies: [
+    { scope: "firm", targetId: "firm", effectiveFrom: first, revision: 1, incrementMinutes: 6, rounding: "choose" },
+  ] });
+  for (const choice of [{ label: "0:54", minutes: 54 }, { label: "Non-billable", minutes: 0 }]) {
+    const chooseId = crypto.randomUUID(), chosenId = crypto.randomUUID();
+    const chooseCapture = capture({ drafts: { [chooseId]: { date: first, revision: 1, values: {
+      ...persisted.values, recordedMinutes: 50, billableMinutes: null,
+    } } } });
+    const bookings: TimeEntry[] = [];
+    await render(chooseCapture, [workerContact], chooseRounding, async request => {
+      assert.equal(request.type, "create");
+      assert.equal(request.requestId, chooseId);
+      bookings.push({ ...request.entry, id: chosenId, groupId: chooseId, authorId: "worker", workerId: "worker",
+        status: "confirmed", source: "manual", revision: 1, history: [] });
+      return { ...chooseRounding, entries: bookings };
+    });
+    assert.match(row(chooseId).textContent ?? "", /Choose billable time in 6-minute increments/);
+    assert.ok(button(row(chooseId), "0:48"));
+    assert.equal(bookings.length, 0, "an entry requiring a choice stays private until a billable amount is chosen");
+    await act(async () => button(row(chooseId), choice.label).click());
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].workedMinutes, 50);
+    assert.equal(bookings[0].billableMinutes, choice.minutes);
+    assert.equal(bookings[0].billable, choice.minutes > 0);
+    assert.ok(visible(chosenId));
+    assert.equal(visible(chooseId), false);
+  }
+
+  const shortTimer = captureProposalSchema.parse({ ...proposal, key: crypto.randomUUID(), digest: "e".repeat(64),
+    source: "stopwatch", activity: "", narrative: "Checked a reference", workedMinutes: null,
+    startAt: first + "T09:00:00Z", endAt: first + "T09:00:10Z" });
+  const singleClientProposal = { ...proposal, key: crypto.randomUUID(), digest: "a".repeat(64), matterId: singleClientMatter.id, workedMinutes: 20 };
+  const missingClient = { ...workflow.entries[0], clientId: "", billableMinutes: 20 };
+  let billingState = { ...workflow, entries: [missingClient] };
+  const billingRequests: TimesheetCommand[] = [];
+  const book = async (request: TimesheetCommand) => {
+    billingRequests.push(request);
+    if (request.type === "create") {
+      const entry: TimeEntry = { ...missingClient, ...request.entry, id: crypto.randomUUID(),
+        groupId: request.requestId, revision: 1, source: "suggestion" };
+      billingState = { ...billingState, entries: [...billingState.entries, entry] };
+    } else {
+      assert.ok(request.type === "update");
+      assert.equal(request.id, missingClient.id);
+      assert.equal(request.revision, missingClient.revision);
+      billingState = { ...billingState, entries: billingState.entries.map(entry => entry.id === request.id
+        ? { ...entry, ...request.entry, revision: entry.revision + 1 } : entry) };
+    }
+    return billingState;
+  };
+  const timerCapture = capture({ proposals: [shortTimer, singleClientProposal], privateAvailable: true, drafts: {
+    [singleClientProposal.key]: { date: first, proposalDigest: singleClientProposal.digest, values: { client: null } },
+  } });
+  const clientLabel = t("timesheets.sheet.bill_to");
+  await render(timerCapture, [workerContact], billingState, book);
+  await act(async () => button(proposalDetails(shortTimer.key), t("timesheets.sheet.accept")).click());
+  const durationInput = proposalDetails(shortTimer.key).querySelector('[data-field="recordedMinutes"]');
+  assert.equal(durationInput?.getAttribute("aria-invalid"), "true");
+  const durationError = durationInput?.getAttribute("aria-describedby");
+  assert.ok(durationError);
+  assert.equal(document.getElementById(durationError)?.textContent, t("timesheets.ledger.valid_worked"));
+  assert.equal(billingRequests.length, 0, "a sub-minute stopwatch cannot bypass booking validation");
+  await chooseProposalOption(proposalDetails(shortTimer.key), clientLabel, "Secondary client", "Unrelated client");
+  assert.equal(proposalDetails(shortTimer.key).querySelector<HTMLInputElement>('[data-field="billableMinutes"]')?.value, "0:10");
+  await editProposal(shortTimer.key, 'input[data-field="recordedMinutes"]', "1");
+  await act(async () => button(proposalDetails(shortTimer.key), t("timesheets.sheet.accept")).click());
+  assert.equal(billingRequests.length, 1);
+  assert.ok(billingRequests[0].type === "create");
+  assert.equal(billingRequests[0].entry.workedMinutes, 1);
+  assert.equal(billingRequests[0].entry.clientId, secondary);
+
+  assert.equal(proposalDetails(singleClientProposal.key).querySelector(`[aria-label="${clientLabel}"]`), null);
+  await act(async () => button(proposalDetails(singleClientProposal.key), t("timesheets.sheet.accept")).click());
+  assert.ok(billingRequests[1]?.type === "create", host.querySelector(`[data-private-proposal="${singleClientProposal.key}"]`)?.textContent);
+  assert.equal(billingRequests[1].entry.clientId, primary);
+
+  await chooseProposalOption(row(missingClient.id), clientLabel, "Primary client", "Unrelated client");
+  assert.ok(billingRequests[2].type === "update");
+  assert.equal(billingRequests[2].entry.clientId, primary);
+  assert.equal(billingRequests[2].entry.billableMinutes, 20);
+  await render(capture(), [workerContact], billingState, book);
+  assert.equal(cell(row(missingClient.id), 6).textContent, "Approved");
   console.log("Time record sheet regressions passed");
 } finally {
   await act(async () => root.unmount());

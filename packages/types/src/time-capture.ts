@@ -42,7 +42,7 @@ export type WorkdaySchedule = z.infer<typeof workdayScheduleSchema>;
 export const defaultWorkdayRunTime = "18:00";
 
 export function workdaySchedule(settings: Pick<CaptureSettings, "schedule" | "intervalMinutes">): WorkdaySchedule {
-  return settings.schedule ?? (Boolean(settings.intervalMinutes) ? { frequency: "hourly" } : { frequency: "daily", times: [defaultWorkdayRunTime] });
+  return settings.schedule ?? (settings.intervalMinutes ? { frequency: "hourly" } : { frequency: "never" });
 }
 export const captureSettingsSchema = z.strictObject({
   calendar: z.boolean(),

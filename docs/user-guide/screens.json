@@ -91,9 +91,9 @@
       "source": "apps/app/src/react-app/domains/back-office/time-workspace-stopwatch.tsx"
     },
     {
-      "id": "invoice-draft-preview",
+      "id": "invoice-creation",
       "guide": "time-tracking.md",
-      "source": "apps/app/src/react-app/domains/back-office/billing-invoice-pdf.tsx"
+      "source": "apps/app/src/react-app/domains/back-office/billing-invoice-draft.tsx"
     },
     {
       "id": "billing-review",
@@ -109,6 +109,11 @@
       "id": "project-field-editor",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
+    },
+    {
+      "id": "back-office-workspace-tab",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/back-office-workspace.tsx"
     },
     {
       "id": "back-office-history",

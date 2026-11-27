@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useBackOfficeNavigate } from "./back-office-navigation";
 import { z } from "@legalwork/types/back-office";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { ListItem } from "twenty-ui/primitives/navigation";
@@ -32,7 +32,7 @@ export function NativeBacklinks({
     [kind, setKind] = useState<NativeKind>("task"),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false);
-  const navigate = useNavigate(),
+  const navigate = useBackOfficeNavigate(),
     cache = useQueryClient();
   const query = useQuery({
     queryKey: [

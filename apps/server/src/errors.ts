@@ -1,6 +1,10 @@
 import type { ApiErrorBody } from "./types.js";
 import { basename } from "node:path";
 
+// Bundled entry points (e.g. dist/project-storage-paths.js) carry their own copy
+// of this class. A shared brand keeps their errors from becoming generic 500s.
+const brand = Symbol.for("legalwork.ApiError");
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -11,6 +15,12 @@ export class ApiError extends Error {
     this.status = status;
     this.code = code;
     this.details = details;
+    Object.defineProperty(this, brand, { value: true });
+  }
+
+  static [Symbol.hasInstance](value: unknown): boolean {
+    if (this !== ApiError) return Function.prototype[Symbol.hasInstance].call(this, value);
+    return value instanceof Error && Reflect.get(value, brand) === true;
   }
 }
 

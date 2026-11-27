@@ -413,12 +413,15 @@ export function TasksPane(props: TasksPaneProps) {
   };
 
   const pageLayout = !props.embedded && !showingDetail;
+  const selectedProjectId = selectedTask?.projectId;
+  const onOpenInProject = props.onOpenInProject;
+  const openSelectedTask = selectedTask && selectedProjectId && onOpenInProject ? () => {
+    if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
+    attachments.closeThen(() => onOpenInProject(selectedProjectId, selectedTask));
+  } : undefined;
   const detail = selectedTask && detailMode !== "panel" ? (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {selectedTask.projectId && props.onOpenInProject && <div className={cn("flex justify-end px-4 pt-2", detailMode === "modal" && "pe-12")}><Button variant="ghost" size="sm" onClick={() => {
-        if (hasUnsavedSessionDocument(draftScope, `task:${selectedTask.id}`)) { toast.info(t("workspace.finish_task_edit")); return; }
-        attachments.closeThen(() => props.onOpenInProject?.(selectedTask.projectId!, selectedTask));
-      }}>{t(props.projectId ? "workspace.open_overview_tab" : "workspace.open_in_project")}</Button></div>}
+      {openSelectedTask && (!props.projectId || attachmentTab) && <div className={cn("flex justify-end px-4 pt-2", detailMode === "modal" && "pe-12")}><Button variant="ghost" size="sm" onClick={openSelectedTask}>{t(props.projectId ? "workspace.open_task_tab" : "workspace.open_in_project")}</Button></div>}
       {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
       <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
         key={selectedTask.id}
@@ -438,6 +441,7 @@ export function TasksPane(props: TasksPaneProps) {
         busy={busy}
         accountUserId={access.accountUserId}
         onBack={() => setSelectedTaskId(null)}
+        onOpenTaskTab={props.projectId ? openSelectedTask : undefined}
         onPatch={async (patch) => {
           const result = await updateTask.mutateAsync({ taskId: selectedTask.id, patch });
           selectedDraft?.reconcile(result.task);

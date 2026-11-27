@@ -239,6 +239,35 @@ test("issued numbers follow legacy, pins approvals, download is reproducible and
   expect(state(ben).invoices).toHaveLength(0);
 });
 
+test("creates a numbered invoice with linked time and no files, safely retrying the same request", async () => {
+  const { store, create, d, run } = await fixture();
+  const client = create("clients", { name: "Client without a billing address" });
+  const matter = create("matters", { name: "Work to invoice", clients: [client.id] });
+  const [recorded] = run(owner, { type: "create", requestId: randomUUID(),
+    entry: { ...d, matterId: matter.id, clientId: client.id } }).entries;
+  const [submitted] = run(owner, { type: "submit", entries: sel(recorded) }).entries;
+  const [approved] = run(eva, { type: "approve", entries: sel(submitted) }).entries;
+  const command: TimesheetCommand = { type: "createInvoice", requestId: randomUUID(), invoice: prepareInvoice([approved]).draft };
+  expect(() => run(ben, command)).toThrow();
+  expect(() => run(owner, command)).toThrow();
+
+  const saved = run(eva, command);
+  const [invoice] = saved.invoices;
+  expect(invoice).toMatchObject({ number: 1, recordOnly: true, totalMinor: 10000, clientId: client.id });
+  expect(invoice.approval).toBeUndefined();
+  expect(saved.invoiceDraft).toBeUndefined();
+  expect(saved.entries[0]).toMatchObject({ id: approved.id, revision: approved.revision + 1, status: "invoiced" });
+  expect(store.raw("local", invoice.id)?.values).toMatchObject({ invoiceNumber: "1", status: "Issued", client: client.id, matter: matter.id });
+  expect(store.raw("local", approved.id)?.values.invoice).toBe(invoice.id);
+  expect(readTimeDocument(store, "local", invoice.id)).not.toHaveProperty("document");
+  expect(store.db.get("SELECT id FROM bo_invoice_files WHERE scope=? AND id=?", ["local", invoice.id])).toBeFalsy();
+  expect(run(eva, command).invoices).toEqual(saved.invoices);
+  expect(() => run(eva, { ...command, invoice: { ...command.invoice,
+    pricing: { mode: "fixed", currency: "EUR", amountMinor: 1000, showHours: false },
+  } })).toThrow(/request ID/);
+  expect(() => run(eva, { ...command, requestId: randomUUID() })).toThrow(/no longer open/);
+});
+
 test.each([
   { currency: "KWD", agreementMinor: 1235, exactAmount: { amountMinor: 12345, minorUnitScale: 1000 }, rate: 12.345, minutes: 60, total: 12.345, compatibilityMinor: 1235 },
   { currency: "JPY", agreementMinor: 735, rate: 7.35, minutes: 30, total: 4, compatibilityMinor: 400 },

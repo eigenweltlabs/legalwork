@@ -11,7 +11,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
-import { Button, Input } from "twenty-ui/primitives/input";
+import { Button } from "twenty-ui/primitives/input";
 import { RecordAvatar as Avatar } from "./record-colors";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Tabs } from "twenty-ui/primitives/navigation";
@@ -139,10 +139,9 @@ export function RecordDetail({
           name={String(record.values.name)}
           colorSeed={record.id}
         />
-        <Input
+        <textarea
           className="bo-detail-name"
-          variant="plain"
-          size="sm"
+          rows={1}
           aria-label={t("back_office.record_name", { name: object.label })}
           placeholder={object.fields.find(field => field.id === "name")?.label}
           autoFocus={focusName}
@@ -254,6 +253,10 @@ export function RecordDetail({
               )
               .map((field) => {
                 const canEdit = editable && !readOnlyFields?.includes(field.id) && !(onReviewLocal && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+                const value = record.values[field.id];
+                const display = (
+                  <ValueDisplay objectId={record.objectId} field={field} value={value} records={records} onOpen={onOpen} />
+                );
                 return <div className="bo-property" key={field.id}>
                   <label>
                     <FieldIcon field={field} />
@@ -263,7 +266,7 @@ export function RecordDetail({
                     )}
                   </label>
                   <div className="bo-property-value">
-                    <Popover.Root
+                    {field.type === "relation" && !canEdit ? display : <Popover.Root
                       open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
@@ -278,15 +281,8 @@ export function RecordDetail({
                           />
                         }
                       >
-                        <ValueDisplay objectId={record.objectId}
-                          field={field}
-                          value={record.values[field.id]}
-                          records={records}
-                          onOpen={onOpen}
-                        />
-                        {(record.values[field.id] === null ||
-                          record.values[field.id] === undefined ||
-                          record.values[field.id] === "") && (
+                        {display}
+                        {(value === null || value === undefined || value === "") && (
                           <span className="bo-muted">{field.label}</span>
                         )}
                       </Popover.Trigger>
@@ -304,6 +300,7 @@ export function RecordDetail({
                             }}
                           >
                             {edit?.field === field.id && <CellEditor
+                              multiline
                               record={edit.base}
                               field={field}
                               value={field.multiple || field.type === "multiselect" ? record.values[field.id] : edit.base.values[field.id]}
@@ -314,7 +311,7 @@ export function RecordDetail({
                           </DirectoryEditorPopup>
                         </Popover.Positioner>
                       </Popover.Portal>
-                    </Popover.Root>
+                    </Popover.Root>}
                   </div>
                 </div>
               })}

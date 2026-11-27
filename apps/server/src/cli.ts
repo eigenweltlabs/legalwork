@@ -28,7 +28,6 @@ import {
 } from "./legalwork-runtime-config.js";
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
-import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependencies.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
@@ -86,9 +85,6 @@ if (!config.readOnly) {
     await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { skipCloudPin: managedEngine && !workspace.contentPath });
   }
 }
-// Validate saved providers before building engine configuration. Only retired
-// app-owned definitions are removed; invalid user connections remain intact.
-await repairAllWorkspaceRuntimeProviders(config);
 // Connectors are shared by every workspace; fold what earlier builds stored
 // per workspace or in files into the shared row before the engine config
 // file is built from it.

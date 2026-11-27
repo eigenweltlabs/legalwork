@@ -3,8 +3,8 @@ import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { randomUUID } from "node:crypto";
 import { setMaxListeners } from "node:events";
 import { readdir, realpath, lstat } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
-import { ApiError } from "../errors.js";
+import { extname, isAbsolute, join, resolve } from "node:path";
+import { ApiError, findApiError } from "../errors.js";
 import type { WorkspaceInfo } from "../types.js";
 import type { SystemOneRequest, SystemOneResponse, SystemOneSelection } from "../systemone-schema.js";
 import { within } from "../reviews/storage.js";
@@ -15,17 +15,21 @@ import { CORPUS_FALLBACKS, CorpusQuerySchema, type CorpusQuery, type CorpusRow, 
 import { CorpusStore } from "./storage.js";
 
 const TTL = 60 * 60_000;
-type Job = SavedCorpusJob & { workspace: string; contentPath?: string; controller: AbortController; done: Promise<void>; checkpoint?: ReturnType<typeof setTimeout>; saving?: Promise<void> };
+type Job = SavedCorpusJob & { workspace: string; contentPath?: string; folders?: string[]; controller: AbortController; done: Promise<void>; checkpoint?: ReturnType<typeof setTimeout>; saving?: Promise<void> };
+/** Resolves a folder outside the project after verifying or requesting approval. */
+export type CorpusFolderApproval = (path: string) => Promise<{ folder: string; canonical: string }>;
+// Files from an approved outside folder are read from that folder, not the project.
+const sourceRoot = (job: Job, path: string) => isAbsolute(path) && job.folders?.find(folder => within(folder, path)) || job.contentPath;
 export function validateDocumentQuestion(input: CorpusQuery) {
   if (!input.paths?.length || !input.question) throw new ApiError(400, "corpus_input", "Supply files or folders and a question about ONE document. The same question is applied independently to every file.");
   if (input.kind === "classification" && !input.options) throw new ApiError(400, "corpus_choices", "Classification requires explicit answer options.");
   if (input.kind === "yes_no" && input.options) throw new ApiError(400, "corpus_choices", "Use classification for fixed answer options; yes_no uses Yes and No.");
   if (input.options && new Set(input.options.map(value => value.toLocaleLowerCase())).size !== input.options.length) throw new ApiError(400, "corpus_choices", "Classification options must be unique.");
 }
-export async function discoverCorpus(workspace: string, paths: string[], enginePath = workspace) {
-  const root = resolve(workspace), engine = await realpath(enginePath), files = new Map<string, boolean>(), visited = new Set<string>();
+export async function discoverCorpus(workspace: string, paths: string[], enginePath = workspace, approve?: CorpusFolderApproval) {
+  const root = resolve(workspace), engine = await realpath(enginePath), files = new Map<string, boolean>(), visited = new Set<string>(), folders = new Set<string>();
   let skipped = 0;
-  async function visit(input: string, explicit = false, scope = { root, alias: root, content: root }) {
+  async function visit(input: string, explicit = false, scope: { root: string; alias: string; content: string; outside?: true } = { root, alias: root, content: root }) {
     const requested = resolve(scope.root, input);
     if (!within(scope.root, requested) && !within(scope.alias, requested)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
     const info = await lstat(requested);
@@ -40,15 +44,24 @@ export async function discoverCorpus(workspace: string, paths: string[], engineP
         await visit(join(absolute, entry.name), false, scope);
       }
     } else if (info.isFile()) {
-      files.set(resolveWorkspaceFile({ path: engine, contentPath: scope.content }, absolute).reference, CORPUS_EXTENSIONS.has(extname(absolute).toLowerCase()));
+      files.set(scope.outside ? absolute : resolveWorkspaceFile({ path: engine, contentPath: scope.content }, absolute).reference, CORPUS_EXTENSIONS.has(extname(absolute).toLowerCase()));
     } else skipped++;
   }
   for (const path of paths) {
-    const location = resolveWorkspaceFile({ path: enginePath, contentPath: root }, path, { allowRoot: true });
+    let location;
+    try { location = resolveWorkspaceFile({ path: enginePath, contentPath: root }, path, { allowRoot: true }); }
+    catch (error) {
+      // Only an absolute path outside the project can be approved; other path errors stand.
+      if (!approve || findApiError(error)?.code !== "file_access_denied") throw error;
+      const { folder, canonical } = await approve(path);
+      folders.add(canonical);
+      await visit(resolve(path), true, { root: canonical, alias: folder, content: canonical, outside: true });
+      continue;
+    }
     const canonical = await realpath(location.root);
     await visit(location.path, true, { root: canonical, alias: resolve(location.root), content: resolve(location.root) === root ? canonical : root });
   }
-  return { files: [...files].map(([path, supported]) => ({ path, supported })), skipped };
+  return { files: [...files].map(([path, supported]) => ({ path, supported })), skipped, folders: [...folders] };
 }
 export class CorpusService {
   private jobs = new Map<string, Job>();
@@ -79,7 +92,7 @@ export class CorpusService {
       void this.persist(job).catch(error => console.error("[jev-search] Could not save progress", error));
     }, 500);
   }
-  async query(workspace: WorkspaceInfo, raw: unknown, requestId?: string) {
+  async query(workspace: WorkspaceInfo, raw: unknown, requestId?: string, approve?: CorpusFolderApproval) {
     const input = CorpusQuerySchema.parse(raw);
     if (input.evidencePath && !input.jobId) throw new ApiError(400, "corpus_input", "Use jobId and evidencePath to retrieve saved source context.");
     for (const [id, job] of this.jobs) if (job.status !== "running" && Date.now() - job.createdAt > TTL) this.jobs.delete(id);
@@ -110,8 +123,8 @@ export class CorpusService {
           question: input.question!, kind: input.kind, options: input.kind === "classification" ? [...new Set([...(input.options ?? []), ...CORPUS_FALLBACKS])] : undefined, selection: { providerId: "", model: "" }, done: Promise.resolve() };
         this.jobs.set(job.id, job);
         try {
-          const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!, workspace.path);
-          job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped;
+          const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!, workspace.path, approve);
+          job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped; job.folders = sources.folders;
           await this.persist(job);
           const current = job;
           job.done = this.run(current, input, sources.files);
@@ -128,7 +141,7 @@ export class CorpusService {
       if (input.cancel) throw new ApiError(400, "corpus_input", "Retrieve evidence or cancel, not both.");
       const row = job.rows.find(row => row.path === input.evidencePath);
       if (!row?.sourceHash) throw new ApiError(404, "corpus_source", "This query has no prepared source for that file.");
-      const source = await this.backend.extract(job.workspace, row.path, AbortSignal.timeout(120_000), job.contentPath);
+      const source = await this.backend.extract(job.workspace, row.path, AbortSignal.timeout(120_000), sourceRoot(job, row.path));
       if (source.hash !== row.sourceHash) throw new ApiError(409, "corpus_source_changed", "The source changed after this query. Run it again before using this evidence.");
       const chunk = splitReviewEvidence(source.pages)[input.evidenceChunk];
       if (!chunk) throw new ApiError(404, "corpus_source", "This source chunk does not exist.");
@@ -169,7 +182,7 @@ export class CorpusService {
         await this.documents.run(job.id, "documents", signal, async () => {
           if (!file.supported) { job.rows.push({ path: file.path, status: "unsupported", answer: null, confidence: null, error: "Unsupported file type; no classification attempted." }); return; }
           try {
-            const source = await this.extraction.run(job.id, "extract", signal, () => this.backend.extract(job.workspace, file.path, signal, job.contentPath));
+            const source = await this.extraction.run(job.id, "extract", signal, () => this.backend.extract(job.workspace, file.path, signal, sourceRoot(job, file.path)));
             const row = await this.classify(job, input, source, signal);
             job.rows.push({ path: file.path, extraction: source.extraction, sourceHash: source.hash, ...row });
           } catch (error) { job.rows.push({ path: file.path, status: "error", answer: null, confidence: null, error: signal.aborted ? "Query cancelled or timed out." : error instanceof Error ? error.message.slice(0, 500) : "Document processing failed." }); }

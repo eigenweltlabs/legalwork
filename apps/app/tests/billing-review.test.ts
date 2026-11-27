@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 
-test("review keeps stale selections out of approvals and preserves invoice preview", () => {
+test("review keeps stale selections out of approvals and creates invoices directly", () => {
   const result = Bun.spawnSync(
     [process.execPath, fileURLToPath(new URL("./fixtures/billing-review.tsx", import.meta.url))],
     {

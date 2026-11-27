@@ -1,8 +1,9 @@
 import { useViewPortals } from "@/react-app/domains/views/view-portals";
 import { useViewHost } from "@/react-app/domains/views/view-host";
 import { parseViewReference, viewPanelTab } from "@/react-app/domains/views/view-reference";
-import { useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
-import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
+import { usePanelTabDestination, useRequestOpenTask, useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
+import { projectViewTab } from "@/react-app/domains/session/panel/panel-tab-store";
+import { isBackOfficePath } from "@/react-app/domains/back-office/back-office-navigation";
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -365,6 +366,7 @@ function MarkdownBlockInner({
 }: MarkdownBlockInnerProps) {
   const requestOpenTask = useRequestOpenTask();
   const requestViewTab = useRequestPanelTab();
+  const workspaceDestination = usePanelTabDestination()?.kind === "workspace";
   const viewHost = useViewHost();
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -442,7 +444,11 @@ function MarkdownBlockInner({
       const appLink = event.target.closest<HTMLElement>("a[data-legalwork-app-link]");
       if (appLink) {
         event.preventDefault(); event.stopPropagation();
-        requestAppLink(appLink.dataset.legalworkAppLink ?? "");
+        const href = appLink.dataset.legalworkAppLink ?? "";
+        const path = parseAppLink(href);
+        if (workspaceDestination && path && isBackOfficePath(path)) {
+          requestViewTab(projectViewTab("back-office", t("sidebar.backOffice"), path), { besideChat: true });
+        } else requestAppLink(href);
         return;
       }
 
@@ -561,7 +567,7 @@ function MarkdownBlockInner({
       root.removeEventListener("click", handleClick);
       root.removeEventListener("contextmenu", handleContextMenu);
     };
-  }, [html, onOpenTarget, openTargets, requestViewTab, viewHost, navigate]);
+  }, [html, onOpenTarget, openTargets, requestViewTab, viewHost, navigate, workspaceDestination]);
 
   if (!html) {
     return null;

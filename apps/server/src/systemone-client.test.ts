@@ -60,6 +60,21 @@ function serving(handler: (req: Request) => Response | Promise<Response>) {
 }
 
 describe("SystemOne wire contract", () => {
+  test("accepts Microsoft Decision answers through either managed alias and preserves the served model", async () => {
+    const decision = { ...response, model: "Microsoft-Decision-1.1" };
+    for (const model of ["EigenJev", "TypeSafeJev"]) {
+      const server = serving(async (req) => {
+        expect(req.headers.get("authorization")).toBe("Bearer secret");
+        expect(await req.json()).toEqual({ ...request, model });
+        return Response.json(decision);
+      });
+      try {
+        expect(await callSystemOne({ ...target, model, endpoint: server.endpoint }, request)).toEqual(decision);
+      } finally {
+        server.stop();
+      }
+    }
+  });
   test("accepts all three types, structured content and fractional scores", () => {
     expect(SystemOneRequestSchema.parse(request)).toEqual(request);
     expect(validateSystemOneResponse(request, response)).toEqual(response);

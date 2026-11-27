@@ -14,6 +14,7 @@ import { mkdir, opendir, readFile, readdir, realpath, rename, rm, stat, writeFil
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
+import { announceSyncChange } from "../app-sync-events.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
@@ -34,6 +35,7 @@ const FILE_SESSION_MAX_FILE_BYTES = 5_000_000;
 const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
 const FILE_LIST_MAX_ENTRIES = 2000;
+const projectNotesPath = /^Notes(?:\/[^/]+\.md)?$/i;
 // Reuse ICU collation instead of constructing it for every sort comparison.
 const fileNameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
@@ -616,7 +618,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   };
 
   const recordWorkspaceFileEvent = (workspaceId: string, input: { type: "write" | "delete" | "rename" | "mkdir"; path: string; toPath?: string; revision?: string }) => {
-    return fileSessions.recordWorkspaceEvent({ workspaceId, ...input });
+    fileSessions.recordWorkspaceEvent({ workspaceId, ...input });
+    if (projectNotesPath.test(input.path) || (input.toPath && projectNotesPath.test(input.toPath)))
+      announceSyncChange(config, "projectNotes");
   };
 
   addRoute(routes, "GET", "/workspace/:id/inbox", "client", async (ctx) => {

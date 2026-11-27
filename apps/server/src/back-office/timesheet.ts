@@ -105,6 +105,7 @@ function issue(
   actor: BackOfficeActor,
   draft: TimeInvoiceDraft,
   profileId?: string,
+  recordOnly?: true,
 ) {
   const { currency, snapshot, totalMinor, input, approval } = draft;
   const { scope } = state;
@@ -146,7 +147,7 @@ function issue(
   const scale = currencyScale(currency),
     invoice: TimeInvoice = {
       id: randomUUID(),
-      draftId: draft.id,
+      ...(recordOnly ? { recordOnly } : { draftId: draft.id }),
       number,
       currency,
       clientId: input.clientId,
@@ -158,13 +159,13 @@ function issue(
       billingMode: input.pricing.mode,
       showHours: draft.showHours,
       approval,
-      snapshot,
+      snapshot: recordOnly ? { ...snapshot, template: { ...snapshot.template, word: undefined } } : snapshot,
     };
   writeTimeDocument(store, scope, {
     id: invoice.id,
     kind: "invoice",
     value: invoice,
-    document: renderInvoice(snapshot.template, {
+    document: recordOnly ? undefined : renderInvoice(snapshot.template, {
       number,
       date: snapshot.date,
       currency,
@@ -191,7 +192,8 @@ function issue(
       invoice: invoice.id,
     });
   }
-  store.db.run("DELETE FROM bo_timesheets WHERE scope=? AND id=?", [scope, invoiceDraftKey(actor.userId, profileId)]);
+  if (!recordOnly)
+    store.db.run("DELETE FROM bo_timesheets WHERE scope=? AND id=?", [scope, invoiceDraftKey(actor.userId, profileId)]);
 }
 
 function requireInvoiceAuthority(state: TimesheetState, actor: BackOfficeActor) {
@@ -288,6 +290,13 @@ function apply(
   if (command.type === "submit" && command.entries.some(entry => entry.shareOriginal))
     timeError("Only confirmed entries can be shared. The original proposal stays on this device.",403);
   if (!actor.edit) timeError("Directory edit permission is required.", 403);
+  if (command.type === "createInvoice") {
+    requireInvoiceAuthority(state, actor);
+    const invoice = buildInvoiceDraft(invoiceTimeState(state), command.invoice, entry => canInvoiceEntry(state, entry, actor),
+      entry => validateInvoiceEntry(state, actor, entry), digest);
+    issue(store, state, actor, invoice, undefined, true);
+    return;
+  }
   if (command.type === "prepareInvoice" || command.type === "reviewInvoiceWording" || command.type === "approveInvoice" || command.type === "issueInvoice") {
     reviewInvoice(store, state, actor, command, advice, context);
     return;

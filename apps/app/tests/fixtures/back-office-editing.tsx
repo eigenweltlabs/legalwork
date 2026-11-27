@@ -57,7 +57,7 @@ const reset = async () => {
   saved.length = 0; failure = "";
 };
 function input(label: string) {
-  const element = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+  const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`);
   assert.ok(element, `Missing input ${label}`);
   return element;
 }
@@ -65,7 +65,7 @@ async function type(label: string, text: string) {
   await act(async () => {
     const element = input(label);
     element.focus();
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set;
     assert.ok(setter);
     setter.call(element, text);
     element.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -129,6 +129,18 @@ try {
   await act(async () => input("Matter name").blur());
   assert.equal(saved[0].record.revision, 1);
   assert.equal(input("Matter name").value, "Name draft");
+
+  await reset();
+  await render(<RecordDetail client={client} team={false} historyAccessKey="local" record={original}
+    object={{ ...object, fields: [...object.fields.filter(item => item.id !== field.id), field] }} records={[original]}
+    editable finance userId="owner" width={400} onWidthChange={() => {}} onClose={() => {}} onOpen={() => {}} onSave={onSave} />);
+  const editNotes = document.querySelector<HTMLButtonElement>('button[aria-label="Edit Notes"]');
+  assert.ok(editNotes);
+  await act(async () => editNotes.click());
+  assert.equal(input("Notes").tagName, "TEXTAREA");
+  await type("Notes", "First line\nSecond line");
+  await act(async () => input("Notes").closest("form")?.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  assert.equal(saved[0].values.notes, "First line\nSecond line");
 
   await reset();
   const timeObject = defaultBackOfficeModel().objects.find(item => item.id === "timeEntries");
