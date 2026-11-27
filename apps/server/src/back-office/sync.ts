@@ -45,7 +45,7 @@ export async function backOfficePlatform(
   const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
   const buckets = baseline && directoryBuckets(baseline);
   const response = await intakeRequest(client, "POST", "/api/back-office", {
-    protocol: 1, orderedListFields: true, changes, cursor: 0,
+    protocol: 1, orderedListFields: true, readOnlyFieldPreviews: true, changes, cursor: 0,
     recordBuckets: buckets && directoryBucketHashes(buckets, text => createHash("sha256").update(text).digest("hex")),
   });
   const snapshot = buckets && response && typeof response === "object" && "recordDelta" in response
@@ -114,7 +114,7 @@ export async function syncBackOffice(config: ServerConfig, options: { uploadOnly
           const position = store.directoryPosition(scope, actor);
           const client = { ...requireIntakeClient(await requireBackOfficePrincipal(config, initialPrincipal)), signal };
           const response = BackOfficeSnapshotSchema.pick({ accepted: true, conflicts: true }).parse(await intakeRequest(client, "POST", "/api/back-office", {
-            protocol: 1, orderedListFields: true, changes: chunk, cursor: position?.cursor ?? 0, page: { access: position?.access ?? null },
+            protocol: 1, orderedListFields: true, readOnlyFieldPreviews: true, changes: chunk, cursor: position?.cursor ?? 0, page: { access: position?.access ?? null },
           }));
           store.acknowledgeUploads(scope, actor, response.accepted);
           if (response.conflicts.length || response.accepted.length < chunk.length) break;

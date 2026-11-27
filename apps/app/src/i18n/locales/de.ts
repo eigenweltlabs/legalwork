@@ -811,6 +811,8 @@ const de = {
   "back_office.list.add": "Eintrag hinzufügen",
   "back_office.list.invalid_text": "Gib in jeder Zeile Text ein oder entferne die leere Zeile.",
   "back_office.list.invalid_link": "Gib für jeden Link eine Bezeichnung und eine vollständige Adresse mit http:// oder https:// ein.",
+  "back_office.field_preview_update": "In dieser Version schreibgeschützt. Aktualisiere LegalWork zum Bearbeiten.",
+  "back_office.field_preview_unavailable": "Nicht unterstütztes Feld. Aktualisiere LegalWork zum Anzeigen oder Bearbeiten.",
   "back_office.field_type.relation": "Verknüpfung",
   "back_office.field.file_number": "Aktenzeichen",
   "back_office.field.lead_lawyer": "Sachbearbeiter",

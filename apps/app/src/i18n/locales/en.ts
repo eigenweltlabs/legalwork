@@ -821,6 +821,8 @@ export default {
   "back_office.list.add": "Add item",
   "back_office.list.invalid_text": "Enter text in each row or remove the blank row.",
   "back_office.list.invalid_link": "Give each link a label and a full http:// or https:// address.",
+  "back_office.field_preview_update": "Read-only in this version. Update LegalWork to edit.",
+  "back_office.field_preview_unavailable": "Unsupported field. Update LegalWork to view or edit it.",
   "back_office.field_type.relation": "Relation",
   "back_office.field.file_number": "File number",
   "back_office.field.lead_lawyer": "Lead lawyer",

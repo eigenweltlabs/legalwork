@@ -74,6 +74,8 @@ Click the list cell in the table, or edit the field in the record panel. Choose 
 
 In a shared directory, sync with a platform that supports ordered lists before adding these fields. Older apps continue to sync and edit the fields they can display. Update LegalWork to see and edit lists, create records that require a list, or change shared data models and saved views that use lists. If a record creation is queued with an update message, open **More actions > Team sync** to review it.
 
+If your version supports previews for newer fields, open a record and select **Home** to see those fields. They show the field name and a read-only preview when available. Update LegalWork to open the full field or edit it.
+
 Open **Back Office > Data model > choose an object > Settings**. Under **Fields shown when creating a record**, select the fields that should appear immediately, then **Save**. Other fields remain under **More details**. Required fields cannot be hidden. This configuration controls the short forms in project and relation pickers. The record sidebar shows the full list of properties. The initial Matter selection is Clients and File number in addition to the required Name. Editing the data model requires model-management permission. Team configuration requires a platform version that supports this setting.
 
 ### People and types

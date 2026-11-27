@@ -317,6 +317,15 @@ export function RecordDetail({
                   </div>
                 </div>
               })}
+            {record.fieldPreviews?.map(field => (
+              <div className="bo-property" key={field.id}>
+                <span className="bo-read-only-field-label"><LockKeyhole size={13} aria-hidden="true" />{field.label}</span>
+                <div className="bo-read-only-field">
+                  {field.value !== null && <span>{field.value}</span>}
+                  <small className="bo-muted">{t(field.value === null ? "back_office.field_preview_unavailable" : "back_office.field_preview_update")}</small>
+                </div>
+              </div>
+            ))}
             {children}
           </div>
           {error && (

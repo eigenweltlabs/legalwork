@@ -66,6 +66,8 @@ Shared directories require platform support. Updated clients and servers adverti
 
 The platform omits unsupported fields, values, and view settings from older clients’ sync responses. Page positions and record bucket hashes follow the client’s projection, so upgrading restores the full directory. Older clients can edit supported fields, and the platform preserves values they did not receive. Creating a record with a required list or saving a model or view that uses lists requires an updated client. History uses the same capability and withholds original payloads when the display is redacted. No SQL migration is required.
 
+Clients that advertise `readOnlyFieldPreviews: true` also receive authorized previews for unsupported fields on records. The record panel shows each field name, optional plain text, and an update prompt. Previews are separate from writable values, saved views, and history. Clients without preview support receive the directory with those fields omitted.
+
 ## File fields
 
 Template 4 adds Signed agreement and Invoice PDF. File values contain immutable descriptors (UUID, owning record/field, filename, size, MIME type and SHA-256), rather than paths. Custom file fields support one or up to twenty files, each capped at 10 MiB. Native payloads live below the runtime directory in `back-office-files`; reading requires current record and field access. A required-file draft can reserve a record UUID and save with explicit `create: true` after attaching its files.

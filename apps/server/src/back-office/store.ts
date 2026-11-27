@@ -461,7 +461,7 @@ export class BackOfficeStore {
   ) {
     if (scope === "local") return;
     if (kind === "record" && revision > 0) {
-      const record = BackOfficeRecordSchema.parse(data);
+      const { fieldPreviews: _fieldPreviews, ...record } = BackOfficeRecordSchema.parse(data);
       data = {
         ...record,
         values: Object.fromEntries(Object.entries(record.values).filter(([id]) => changedFields?.includes(id))),
@@ -1175,7 +1175,9 @@ export class BackOfficeStore {
         }
         // An unsent field can be absent from the platform snapshot but still
         // present in the authorized projection. That is not an access change.
-        if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
+        if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) ||
+            previous.fieldPreviews?.some(field => !projected.fieldPreviews?.some(next => next.id === field.id)) ||
+            previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         if (previous && JSON.stringify(previous) === JSON.stringify(projected)) continue;
         if (incremental) changedIds.push(record.id);
         this.db.run(
@@ -1251,7 +1253,8 @@ export class BackOfficeStore {
           continue;
         }
         const next = readableBackOfficeRecord(record, object, actor);
-        if (canonicalBackOfficeAudit(record.values) !== canonicalBackOfficeAudit(next.values)) {
+        if (canonicalBackOfficeAudit(record.values) !== canonicalBackOfficeAudit(next.values) ||
+            canonicalBackOfficeAudit(record.fieldPreviews ?? null) !== canonicalBackOfficeAudit(next.fieldPreviews ?? null)) {
           this.db.run("UPDATE bo_records SET data=? WHERE scope=? AND id=?", [JSON.stringify(next), scope, record.id]);
           revoked = true;
         }

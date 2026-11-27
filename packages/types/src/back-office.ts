@@ -137,7 +137,14 @@ export const BackOfficeCreateBatchSchema = z.strictObject({
     members: z.array(z.string().min(1).max(200)).max(500).optional(),
   })).min(1).max(500),
 });
-export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.transform(
+export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.extend({
+  fieldPreviews: z.array(z.object({
+    id: identifier,
+    label: BackOfficeFieldSchema.shape.label,
+    visibility: BackOfficeFieldSchema.shape.visibility.unwrap(),
+    value: z.string().max(512).nullable(),
+  })).max(100).optional(),
+}).transform(
   (record) => {
     // Retire the preview template's provider-specific field without losing import identity.
     const { actaportId, ...values } = record.values;
@@ -646,8 +653,16 @@ export function readableBackOfficeRecord(
   object: BackOfficeObject,
   actor: BackOfficeActor,
 ): BackOfficeRecord {
+  const { fieldPreviews, ...data } = record;
+  const previews = fieldPreviews?.filter(field =>
+    !object.fields.some(supported => supported.id === field.id) &&
+    (field.visibility === "normal" ||
+      (field.visibility === "finance" && actor.finance) ||
+      (field.visibility === "private" && record.ownerId === actor.userId)),
+  );
   return {
-    ...record,
+    ...data,
+    ...(previews?.length ? { fieldPreviews: previews } : {}),
     values: Object.fromEntries(
       Object.entries(record.values).filter(([id]) => {
         const field = object.fields.find((field) => field.id === id);

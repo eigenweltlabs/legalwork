@@ -293,6 +293,23 @@ try {
   await type("Link label 1", "Other guide");
   await button("Save");
   assert.deepEqual(saved[0].values.links, [{ label: "Other guide", url: "http://example.test/other" }]);
+
+  await reset();
+  const previewRecord = BackOfficeRecordSchema.parse({
+    ...listRecord,
+    fieldPreviews: [
+      { id: "futureField", label: "Reference files", visibility: "normal", value: "First file\nSecond file" },
+      { id: "previewUnavailable", label: "Review details", visibility: "normal", value: null },
+    ],
+  });
+  await render(<RecordDetail client={client} team={false} historyAccessKey="local" record={previewRecord}
+    object={{ ...object, fields: [nameField, linkList] }} records={[previewRecord]} editable finance userId="owner" width={400}
+    onWidthChange={() => {}} onClose={() => {}} onOpen={() => {}} onSave={onSave} />);
+  assert.match(host.textContent ?? "", /Reference filesFirst file\nSecond fileRead-only in this version/);
+  assert.match(host.textContent ?? "", /Review detailsUnsupported field\. Update LegalWork to view or edit it\./);
+  assert.equal(host.querySelector('[aria-label="Edit Reference files"]'), null);
+  assert.equal(host.querySelector('[aria-label="Edit Review details"]'), null);
+  assert.ok(host.querySelector('[aria-label="Edit Links"]'));
   console.log("All editing regressions passed");
 } finally {
   await act(async () => root.unmount());
