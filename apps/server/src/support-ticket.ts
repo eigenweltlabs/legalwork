@@ -1,3 +1,5 @@
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 import { z } from "zod";
 import type { StartupSupportView } from "@legalwork/types/desktop-ipc";
 import { resolveServerConfig } from "./config.js";
@@ -9,8 +11,12 @@ import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { createDiagnosticRedactor } from "./support-diagnostics.js";
 import type { ServerConfig } from "./types.js";
 
-export const supportTicketInput = z.strictObject({ description: z.string().trim().min(1).max(3000) });
+export const supportTicketInput = z.strictObject({
+  description: z.string().trim().min(1).max(3000),
+  logDays: z.int().min(1).max(365).optional(),
+});
 const receiptSchema = z.object({ ticketId: z.string().min(1), attachedLogs: z.boolean() });
+const compressLogs = promisify(gzip);
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;
 const SUPPORT_ORIGINS = new Set([
   EIGENWELT_BOOTSTRAP_PLATFORM_URL,
@@ -109,8 +115,8 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
   if (!account) throw new ApiError(401, "support_sign_in_required", "Sign in with Eigenwelt to send a support ticket.");
   const cleaned = createDiagnosticRedactor().clean({ description: input.description });
   const { description } = supportTicketInput.parse(cleaned);
-  const choice = await support.confirm({ description, email: account.userEmail }, signal);
-  if ((choice !== "with_logs" && choice !== "without_logs") || signal.aborted) return { submitted: false, reason: "cancelled" };
+  const decision = await support.confirm({ description, email: account.userEmail, logDays: input.logDays ?? 2 }, signal);
+  if (decision.choice === "cancel" || signal.aborted) return { submitted: false, reason: "cancelled" };
 
   const token = await ensureFreshPlatformToken(config);
   const currentConnection = await readEigenweltConnection(config);
@@ -119,16 +125,19 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
       current.orgId !== account.orgId || current.userEmail !== account.userEmail || current.platformURL !== account.platformURL)
     throw new ApiError(401, "support_account_changed", "Your sign-in changed or expired. Reopen the support dialog to submit the report.");
 
-  let logs: string | undefined;
-  if (choice === "with_logs") {
-    try { logs = await support.collectLogs(); }
-    catch { throw new ApiError(503, "support_log_collection_failed", "LegalWork could not collect the Support Logs. You can try again or choose Send without logs."); }
+  let detailedLogs: string | undefined;
+  if (decision.choice === "with_logs") {
+    try {
+      const exported = await support.collectLogs(decision.logDays, signal);
+      if (!exported) throw new Error("Detailed support export was empty.");
+      detailedLogs = (await compressLogs(exported)).toString("base64");
+    } catch {
+      throw new ApiError(503, "support_log_collection_failed", "LegalWork could not collect the detailed support logs. Try again or choose Send without logs.");
+    }
   }
-  const body = JSON.stringify({ description, ...(logs ? { logs } : {}) });
-  if (choice === "with_logs" && !logs)
-    throw new ApiError(503, "support_log_collection_failed", "LegalWork could not collect the Support Logs.");
+  const body = JSON.stringify({ description, ...(detailedLogs ? { detailedLogs } : {}) });
   if (Buffer.byteLength(body) > MAX_REQUEST_BYTES)
-    throw new ApiError(413, "support_logs_too_large", "This Support Logs export is too large to attach. You can choose Send without logs.");
+    throw new ApiError(413, "support_logs_too_large", "This detailed log export is too large to attach. Choose a shorter period or export the full file from Settings > Updates.");
   const latest = await readEigenweltConnection(config);
   if (latest.platformToken !== token || latest.account?.userId !== account.userId ||
       latest.account.orgId !== account.orgId || latest.account.userEmail !== account.userEmail ||
@@ -159,7 +168,7 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
       throw new ApiError(503, "support_unavailable", "The Eigenwelt Labs support inbox is temporarily unavailable.");
   }
   const receipt = receiptSchema.safeParse(result);
-  if (!response.ok || !receipt.success || receipt.data.attachedLogs !== Boolean(logs))
+  if (!response.ok || !receipt.success || receipt.data.attachedLogs !== Boolean(detailedLogs))
     throw new ApiError(502, "support_delivery_unknown", "LegalWork could not confirm delivery of the support ticket. Avoid sending it again until delivery has been checked.");
   return { submitted: true, ...receipt.data };
 }

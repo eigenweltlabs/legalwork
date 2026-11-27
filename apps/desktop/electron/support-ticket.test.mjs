@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { createSupportTicketConfirmations } from "./support-ticket.mjs";
 
-const report = { email: "tester@example.test", description: "The PDF tool failed." };
+const report = { email: "tester@example.test", description: "The PDF tool failed.", logDays: 2 };
 const channel = "legalwork:support-ticket:confirmation";
 
 function renderer() {
@@ -25,9 +25,9 @@ test("the app asks for a one-time choice and accepts all three outcomes", async 
     assert.ok(view);
     assert.deepEqual(view, { ...report, id: view.id });
     assert.equal(messages.at(-1), view);
-    assert.equal(broker.reply(contents, view.id, expected), true);
+    assert.equal(broker.reply(contents, view.id, expected, 10), true);
     assert.equal(broker.reply(contents, view.id, "with_logs"), false);
-    assert.equal(await choice, expected);
+    assert.deepEqual(await choice, expected === "with_logs" ? { choice: expected, logDays: 10 } : { choice: expected });
     assert.equal(messages.at(-1), null);
   }
   assert.equal(contents.listenerCount("destroyed"), 0);
@@ -45,12 +45,13 @@ test("an interrupted chat and a different window cannot approve a report", async
   assert.equal(broker.read(other), null);
   assert.equal(broker.reply(other, original.id, "with_logs"), false);
   assert.equal(broker.reply(contents, original.id, "approve"), false);
-  assert.equal(await broker.request(contents, report, controller.signal), "cancel");
+  assert.equal(broker.reply(contents, original.id, "with_logs", 0), false);
+  assert.deepEqual(await broker.request(contents, report, controller.signal), { choice: "cancel" });
   controller.abort();
-  assert.equal(await choice, "cancel");
+  assert.deepEqual(await choice, { choice: "cancel" });
 
   const replacement = broker.request(contents, report, new AbortController().signal);
   assert.equal(broker.reply(contents, original.id, "with_logs"), false);
   contents.emit("did-start-navigation", {}, "https://example.test", false, true);
-  assert.equal(await replacement, "cancel");
+  assert.deepEqual(await replacement, { choice: "cancel" });
 });

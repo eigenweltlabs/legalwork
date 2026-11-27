@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { EIGENWELT_BOOTSTRAP_PLATFORM_URL, EIGENWELT_DEPLOYMENTS } from "./native-shared-values.js";
 import { startServer } from "./server.js";
@@ -59,7 +60,9 @@ test.each([
   const root = await mkdtemp(join(tmpdir(), "legalwork-chat-support-"));
   const sessionId = "ses_support";
   const workspace: WorkspaceInfo = { id: "ws_support", name: "Support", path: root, workspaceType: "local", preset: "starter" };
-  let choice: Awaited<ReturnType<DesktopSupport["confirm"]>> = "cancel";
+  let choice: Awaited<ReturnType<DesktopSupport["confirm"]>> = { choice: "cancel" };
+  let expectedSuggestion = 2;
+  const detailedExport = JSON.stringify({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 12 }, events: ["Synthetic entry"] });
   let logCollections = 0;
   let platformUnavailable = false;
   const requests: { authorization: string | null; report: unknown }[] = [];
@@ -71,10 +74,10 @@ test.each([
     logFormat: "pretty", logRequests: false,
     desktopSupport: {
       confirm: async report => {
-        expect(report).toEqual({ email: "tester@example.test", description: "The model could not read a PDF." });
+        expect(report).toEqual({ email: "tester@example.test", description: "The model could not read a PDF.", logDays: expectedSuggestion });
         return choice;
       },
-      collectLogs: async () => { logCollections++; return "LegalWork support bundle\nSynthetic entry"; },
+      collectLogs: async days => { expect(days).toBe(12); logCollections++; return detailedExport; },
       readChatLog: () => [],
     },
   };
@@ -91,9 +94,11 @@ test.each([
     if (destination.pathname !== "/api/desktop/support") return originalFetch(input, init);
     expect(destination.origin).toBe(platform);
     const report = JSON.parse(String(init?.body));
+    const attachedLogs = typeof report.detailedLogs === "string";
+    if (attachedLogs) report.detailedLogs = gunzipSync(Buffer.from(report.detailedLogs, "base64")).toString("utf8");
     requests.push({ authorization: new Headers(init?.headers).get("authorization"), report });
     if (platformUnavailable) throw new Error("Connection closed without confirmation");
-    return Response.json({ ticketId: "SUP-42", attachedLogs: "logs" in report }, { status: 201 });
+    return Response.json({ ticketId: "SUP-42", attachedLogs }, { status: 201 });
   }, { preconnect: originalFetch.preconnect }));
   try {
     const url = `http://127.0.0.1:${server.port}/agent/support/ticket`;
@@ -127,18 +132,20 @@ test.each([
     expect(requests).toHaveLength(0);
     expect(logCollections).toBe(0);
 
-    choice = "without_logs";
+    choice = { choice: "without_logs" };
     expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: false });
     expect(requests[0]).toEqual({ authorization: "Bearer access-support", report });
     expect(logCollections).toBe(0);
 
-    choice = "with_logs";
-    expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
-    expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, logs: "LegalWork support bundle\nSynthetic entry" } });
+    choice = { choice: "with_logs", logDays: 12 };
+    expectedSuggestion = 7;
+    expect(await (await submit({ ...report, logDays: 7 })).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
+    expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport } });
     expect(logCollections).toBe(1);
     expect(requests).toHaveLength(2);
 
-    choice = "without_logs";
+    choice = { choice: "without_logs" };
+    expectedSuggestion = 2;
     platformUnavailable = true;
     const failed = await submit();
     expect(failed.status).toBe(502);

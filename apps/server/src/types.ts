@@ -134,8 +134,9 @@ export interface RecorderBridge {
 }
 
 export type DesktopSupport = {
-  confirm: (report: { description: string; email: string }, signal: AbortSignal) => Promise<"with_logs" | "without_logs" | "cancel">;
-  collectLogs: () => Promise<string>;
+  confirm: (report: Omit<import("@legalwork/types/desktop-ipc").SupportTicketConfirmation, "id">, signal: AbortSignal) =>
+    Promise<import("@legalwork/types/desktop-ipc").SupportTicketDecision>;
+  collectLogs: (days: number, signal: AbortSignal) => Promise<string>;
   readChatLog: (sessionId: string) => string[];
 };
 

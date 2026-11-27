@@ -74,7 +74,7 @@ export function defaultSupportBundleFileName() {
 }
 
 /** Collect desktop traces locally; the server removes chat bodies and credentials before returning the export. */
-export async function collectTechnicalSupportBundle({ app, runtimeManager, serverInfo, days = 7, fetchImpl = fetch }) {
+export async function collectTechnicalSupportBundle({ app, runtimeManager, serverInfo, days = 2, signal = undefined, fetchImpl = fetch }) {
   if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error("Choose a whole number of days from 1 to 365.");
   if (!serverInfo.running || !serverInfo.baseUrl || !serverInfo.hostToken) {
     throw new Error("Start the local LegalWork service before exporting technical diagnostics.");
@@ -116,11 +116,12 @@ export async function collectTechnicalSupportBundle({ app, runtimeManager, serve
     runtime, logs, logsError, logFileLimit: 10,
     sidecarVersions: sidecarVersionsPath ? readFileTail(sidecarVersionsPath, 16_000) : null,
   };
+  const timeout = AbortSignal.timeout(60_000);
   const response = await fetchImpl(`${serverInfo.baseUrl}/diagnostics/export`, {
     method: "POST",
     headers: { "X-LegalWork-Host-Token": serverInfo.hostToken, "Content-Type": "application/json" },
     body: JSON.stringify({ desktop, days }),
-    signal: AbortSignal.timeout(60_000),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
   if (!response.ok) throw new Error("Technical diagnostics could not be collected from the local service.");
   const diagnostics = await response.json();

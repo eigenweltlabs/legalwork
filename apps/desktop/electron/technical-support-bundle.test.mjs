@@ -13,13 +13,13 @@ test("combines runtime diagnostics and app logs via the local server's message-r
     const text = await collectTechnicalSupportBundle({ app: { getVersion: () => "0.2.18", getName: () => "LegalWork", isPackaged: true, getPath: () => logs },
       runtimeManager: { collectRuntimeDiagnostics: async () => ({ engine: { running: true, pid: 123 } }) },
       serverInfo: { running: true, baseUrl: "http://127.0.0.1:9999", hostToken: "secret-fixture" },
-      fetchImpl: async (url, options) => { requests.push({ url, options }); return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 7 }, desktop: { runtime: { engine: { pid: 123 } } } }); } });
+      fetchImpl: async (url, options) => { requests.push({ url, options }); return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 2 }, desktop: { runtime: { engine: { pid: 123 } } } }); } });
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, "http://127.0.0.1:9999/diagnostics/export");
     assert.equal(requests[0].options.method, "POST");
     assert.equal(requests[0].options.headers["X-LegalWork-Host-Token"], "secret-fixture");
     const body = JSON.parse(requests[0].options.body);
-    assert.equal(body.days, 7);
+    assert.equal(body.days, 2);
     assert.equal(body.desktop.app.version, "0.2.18");
     assert.equal(body.desktop.runtime.engine.pid, 123);
     assert.match(body.desktop.logs[0].lines[0], /UI bridge unreachable/);
@@ -35,7 +35,7 @@ test("asynchronous runtime failures remain visible in an otherwise usable export
     serverInfo: { running: true, baseUrl: "http://127.0.0.1:9999", hostToken: "fixture" },
     fetchImpl: async (_url, options) => {
       assert.deepEqual(JSON.parse(options.body).desktop.runtime, { error: "engine status probe failed" });
-      return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 7 } });
+      return Response.json({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 2 } });
     },
   });
 });

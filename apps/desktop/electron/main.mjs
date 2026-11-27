@@ -385,7 +385,7 @@ async function showSupportLogsProgressWindow(parent) {
 // path, or null when the user cancels the dialog. `runtimeManager` is created
 // later at module scope; the click/IPC always happens after startup, so the
 // late binding via closure is safe.
-async function collectSupportLogsAndReveal(technical = false, days = 7) {
+async function collectSupportLogsAndReveal(technical = false, days = 2) {
   let defaultDir;
   try {
     defaultDir = app.getPath("desktop");
@@ -406,7 +406,7 @@ async function collectSupportLogsAndReveal(technical = false, days = 7) {
   const progressWindow = await showSupportLogsProgressWindow(parent);
   try {
     if (technical) {
-      const text = await collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days });
+      const text = await collectDetailedSupportLogs(days);
       writeFileSync(filePath, text, { encoding: "utf8", mode: 0o600 });
       shell.showItemInFolder(filePath);
       return filePath;
@@ -1198,6 +1198,11 @@ async function collectSupportLogsText() {
   return buildSupportBundleText({ app, runtimeManager, network });
 }
 
+/** @param {number} days @param {AbortSignal} [signal] */
+async function collectDetailedSupportLogs(days, signal) {
+  return collectTechnicalSupportBundle({ app, runtimeManager, serverInfo: await runtimeManager.legalworkServerInfo(), days, signal });
+}
+
 const supportTicketConfirmations = createSupportTicketConfirmations();
 
 const runtimeManager = createRuntimeManager({
@@ -1209,10 +1214,10 @@ const runtimeManager = createRuntimeManager({
     confirm: (report, signal) => {
       const focused = BrowserWindow.getFocusedWindow()?.webContents;
       const contents = focused && isAppUrl(focused.getURL()) ? focused : mainWindow?.webContents;
-      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve("cancel");
+      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve({ choice: "cancel" });
       return supportTicketConfirmations.request(contents, report, signal);
     },
-    collectLogs: collectSupportLogsText,
+    collectLogs: collectDetailedSupportLogs,
     readChatLog: (sessionId) => readChatSupportLog(app, sessionId),
   },
   desktopRoot: path.resolve(__dirname, ".."),
@@ -1984,9 +1989,9 @@ const desktopCommandHandlers = {
     if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return null;
     return supportTicketConfirmations.read(event.sender);
   },
-  "supportTicketConfirmationReply": async (event, id, choice) => {
+  "supportTicketConfirmationReply": async (event, id, choice, logDays) => {
     if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return false;
-    return supportTicketConfirmations.reply(event.sender, id, choice);
+    return supportTicketConfirmations.reply(event.sender, id, choice, logDays);
   },
   "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {
