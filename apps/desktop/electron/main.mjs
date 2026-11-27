@@ -1211,11 +1211,11 @@ const runtimeManager = createRuntimeManager({
   modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
   getApprovalWindow: () => mainWindow,
   desktopSupport: {
-    confirm: (report, signal) => {
+    confirm: (signal) => {
       const focused = BrowserWindow.getFocusedWindow()?.webContents;
       const contents = focused && isAppUrl(focused.getURL()) ? focused : mainWindow?.webContents;
-      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve({ choice: "cancel" });
-      return supportTicketConfirmations.request(contents, report, signal);
+      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve("cancel");
+      return supportTicketConfirmations.request(contents, signal);
     },
     collectLogs: collectDetailedSupportLogs,
     readChatLog: (sessionId) => readChatSupportLog(app, sessionId),
@@ -1989,9 +1989,9 @@ const desktopCommandHandlers = {
     if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return null;
     return supportTicketConfirmations.read(event.sender);
   },
-  "supportTicketConfirmationReply": async (event, id, choice, logDays) => {
+  "supportTicketConfirmationReply": async (event, id, choice) => {
     if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return false;
-    return supportTicketConfirmations.reply(event.sender, id, choice, logDays);
+    return supportTicketConfirmations.reply(event.sender, id, choice);
   },
   "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {

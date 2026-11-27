@@ -115,8 +115,8 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
   if (!account) throw new ApiError(401, "support_sign_in_required", "Sign in with Eigenwelt to send a support ticket.");
   const cleaned = createDiagnosticRedactor().clean({ description: input.description });
   const { description } = supportTicketInput.parse(cleaned);
-  const decision = await support.confirm({ description, email: account.userEmail, logDays: input.logDays ?? 2 }, signal);
-  if (decision.choice === "cancel" || signal.aborted) return { submitted: false, reason: "cancelled" };
+  const choice = await support.confirm(signal);
+  if (choice === "cancel" || signal.aborted) return { submitted: false, reason: "cancelled" };
 
   const token = await ensureFreshPlatformToken(config);
   const currentConnection = await readEigenweltConnection(config);
@@ -126,9 +126,9 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
     throw new ApiError(401, "support_account_changed", "Your sign-in changed or expired. Reopen the support dialog to submit the report.");
 
   let detailedLogs: string | undefined;
-  if (decision.choice === "with_logs") {
+  if (choice === "with_logs") {
     try {
-      const exported = await support.collectLogs(decision.logDays, signal);
+      const exported = await support.collectLogs(input.logDays ?? 2, signal);
       if (!exported) throw new Error("Detailed support export was empty.");
       detailedLogs = (await compressLogs(exported)).toString("base64");
     } catch {
@@ -137,7 +137,7 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
   }
   const body = JSON.stringify({ description, ...(detailedLogs ? { detailedLogs } : {}) });
   if (Buffer.byteLength(body) > MAX_REQUEST_BYTES)
-    throw new ApiError(413, "support_logs_too_large", "This detailed log export is too large to attach. Choose a shorter period or export the full file from Settings > Updates.");
+    throw new ApiError(413, "support_logs_too_large", "This detailed log export is too large to attach. Ask LegalWork to use a shorter period, or export the full file from Settings > Updates.");
   const latest = await readEigenweltConnection(config);
   if (latest.platformToken !== token || latest.account?.userId !== account.userId ||
       latest.account.orgId !== account.orgId || latest.account.userEmail !== account.userEmail ||

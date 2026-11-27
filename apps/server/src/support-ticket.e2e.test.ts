@@ -60,10 +60,9 @@ test.each([
   const root = await mkdtemp(join(tmpdir(), "legalwork-chat-support-"));
   const sessionId = "ses_support";
   const workspace: WorkspaceInfo = { id: "ws_support", name: "Support", path: root, workspaceType: "local", preset: "starter" };
-  let choice: Awaited<ReturnType<DesktopSupport["confirm"]>> = { choice: "cancel" };
-  let expectedSuggestion = 2;
-  const detailedExport = JSON.stringify({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days: 12 }, events: ["Synthetic entry"] });
-  let logCollections = 0;
+  let choice: Awaited<ReturnType<DesktopSupport["confirm"]>> = "cancel";
+  const detailedExport = (days: number) => JSON.stringify({ format: "legalwork-technical-diagnostics", schemaVersion: 2, scope: { days }, events: ["Synthetic entry"] });
+  const logCollections: number[] = [];
   let platformUnavailable = false;
   const requests: { authorization: string | null; report: unknown }[] = [];
   const config: ServerConfig = {
@@ -73,11 +72,8 @@ test.each([
     readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli",
     logFormat: "pretty", logRequests: false,
     desktopSupport: {
-      confirm: async report => {
-        expect(report).toEqual({ email: "tester@example.test", description: "The model could not read a PDF.", logDays: expectedSuggestion });
-        return choice;
-      },
-      collectLogs: async days => { expect(days).toBe(12); logCollections++; return detailedExport; },
+      confirm: async () => choice,
+      collectLogs: async days => { logCollections.push(days); return detailedExport(days); },
       readChatLog: () => [],
     },
   };
@@ -130,27 +126,27 @@ test.each([
     expect((await submit({ ...report, logs: "invented by the model" })).status).toBe(400);
     expect(await (await submit()).json()).toEqual({ submitted: false, reason: "cancelled" });
     expect(requests).toHaveLength(0);
-    expect(logCollections).toBe(0);
+    expect(logCollections).toHaveLength(0);
 
-    choice = { choice: "without_logs" };
+    choice = "without_logs";
     expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: false });
     expect(requests[0]).toEqual({ authorization: "Bearer access-support", report });
-    expect(logCollections).toBe(0);
+    expect(logCollections).toHaveLength(0);
 
-    choice = { choice: "with_logs", logDays: 12 };
-    expectedSuggestion = 7;
+    choice = "with_logs";
+    expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
+    expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport(2) } });
     expect(await (await submit({ ...report, logDays: 7 })).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
-    expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport } });
-    expect(logCollections).toBe(1);
-    expect(requests).toHaveLength(2);
+    expect(requests[2]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport(7) } });
+    expect(logCollections).toEqual([2, 7]);
+    expect(requests).toHaveLength(3);
 
-    choice = { choice: "without_logs" };
-    expectedSuggestion = 2;
+    choice = "without_logs";
     platformUnavailable = true;
     const failed = await submit();
     expect(failed.status).toBe(502);
     expect(await failed.json()).toMatchObject({ code: "support_delivery_unknown" });
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(4);
   } finally {
     fetchMock.mockRestore();
     await server.stop();

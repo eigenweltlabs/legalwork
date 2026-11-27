@@ -16,9 +16,8 @@ import type { WorkspaceWire } from "./workspace.js";
 
 export type SupportContact = { name: string; phone: string; email: string; calendarUrl: string; endsAt: string };
 export type StartupSupportView = { authenticated: boolean; contact: SupportContact | null; unavailable?: boolean };
-export type SupportTicketConfirmation = { id: string; email: string; description: string; logDays: number };
+export type SupportTicketConfirmation = { id: string };
 export type SupportTicketChoice = "cancel" | "without_logs" | "with_logs";
-export type SupportTicketDecision = { choice: "cancel" | "without_logs" } | { choice: "with_logs"; logDays: number };
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -473,8 +472,8 @@ export type DesktopCommandMap = {
   supportBundleCollect: { args: []; result: { path: string | null } };
   startupSupport: { args: [includeContact: boolean]; result: StartupSupportView };
   supportTicketConfirmationGet: { args: []; result: SupportTicketConfirmation | null };
-  supportTicketConfirmationReply: { args: [id: string, choice: SupportTicketChoice, logDays?: number]; result: boolean };
-  /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
+  supportTicketConfirmationReply: { args: [id: string, choice: SupportTicketChoice]; result: boolean };
+  /** Export diagnostic traces with chat message bodies removed. Defaults to 2 days of chat activity. */
   technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };

@@ -33,11 +33,9 @@ test.skipIf(!binary)("normal chats can diagnose and only advertise ticket submis
       configuration: { agents: { legalwork: { mode: "primary" } }, permissions: [{ action: "*", resource: "*", effect: "allow" }] },
       setup: async config => {
         config.desktopSupport = {
-          confirm: async report => {
-            expect(report.description).toBe(description);
-            expect(report.logDays).toBe(7);
+          confirm: async () => {
             confirmations++;
-            return { choice: "cancel" };
+            return "cancel";
           },
           collectLogs: async () => { throw new Error("The user cancelled."); },
           readChatLog: () => ["PDF not supported. Confidential file name."],
