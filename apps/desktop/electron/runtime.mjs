@@ -601,7 +601,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch, desktopSupport, opencodeCandidateBuild = undefined }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch, desktopSupport = undefined, opencodeCandidateBuild = undefined }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     showMessageBox: async (window, options) => {

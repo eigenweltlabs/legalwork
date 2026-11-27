@@ -17,12 +17,6 @@ const SUPPORT_ORIGINS = new Set([
   ...Object.values(EIGENWELT_DEPLOYMENTS).map(deployment => deployment.platform),
 ]);
 
-export type DesktopSupport = {
-  confirm: (report: { description: string; email: string }, signal: AbortSignal) => Promise<"with_logs" | "without_logs" | "cancel">;
-  collectLogs: () => Promise<string>;
-  readChatLog: (sessionId: string) => string[];
-};
-
 function authenticatedSupportAccount(connection: Awaited<ReturnType<typeof readEigenweltConnection>>) {
   const { account, platformToken, refreshToken, platformTokenExpiresAt } = connection;
   if (!account?.userId || !account.userEmail ||

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { EIGENWELT_BOOTSTRAP_PLATFORM_URL, EIGENWELT_DEPLOYMENTS } from "./native-shared-values.js";
 import { startServer } from "./server.js";
-import { readStartupSupport, type DesktopSupport } from "./support-ticket.js";
-import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import { readStartupSupport } from "./support-ticket.js";
+import type { DesktopSupport, ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
 
 test("startup support checks the saved account without a running server or readable startup configuration", async () => {
