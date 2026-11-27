@@ -5,6 +5,7 @@ export type McpOAuthPhase = "idle" | "preparing" | "waiting" | "completing" | "s
 export type McpOAuthState = {
   phase: McpOAuthPhase;
   authorizationUrl?: string;
+  userCode?: string;
   instructions?: string;
   mode?: "auto" | "code";
   manual?: boolean;
@@ -13,7 +14,7 @@ export type McpOAuthState = {
 };
 
 export type McpOAuthDriver = {
-  start: () => Promise<{ authorizationUrl?: string; expiresAt?: number; instructions?: string; mode?: "auto" | "code"; manual?: boolean }>;
+  start: () => Promise<{ authorizationUrl?: string; expiresAt?: number; instructions?: string; mode?: "auto" | "code"; manual?: boolean; userCode?: string }>;
   complete: (code: string, response?: { iss?: string }) => Promise<{ status: string; error?: string }>;
   receiveCode?: (state: string) => Promise<{ code: string; iss?: string }>;
   /** Native attempts own callbacks and validate completion on the engine. */
@@ -149,7 +150,7 @@ export function createMcpOAuthFlow(options: {
           clearTimeout(attempt.timer);
           attempt.timer = setTimeout(() => fail(attempt, new Error(t("mcp.auth.sign_in_timed_out"))), Math.max(0, auth.expiresAt - Date.now()));
         }
-        publish({ phase: "waiting", authorizationUrl: url.href, instructions: auth.instructions, mode: auth.mode, manual: auth.manual, notice: driver.notice });
+        publish({ phase: "waiting", authorizationUrl: url.href, userCode: auth.userCode, instructions: auth.instructions, mode: auth.mode, manual: auth.manual, notice: driver.notice });
         // Register the callback before opening the browser (fast SSO can return immediately).
         if (driver.wait) {
           void driver.wait().then(result => {
@@ -165,6 +166,7 @@ export function createMcpOAuthFlow(options: {
             (error: unknown) => fail(attempt, error),
           );
         }
+        if (auth.userCode) return;
         try {
           await options.openBrowser(url.href);
         } catch {
@@ -186,7 +188,7 @@ export function createMcpOAuthFlow(options: {
       }
     },
     async submit(input: string) {
-      if (!current || state.phase !== "waiting" || !state.authorizationUrl) return;
+      if (!current || state.phase !== "waiting" || !state.authorizationUrl || state.userCode) return;
       const attempt = current;
       try {
         const code = parseMcpOAuthCallback(input, state.authorizationUrl);

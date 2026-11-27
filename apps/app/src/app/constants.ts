@@ -2,6 +2,7 @@ import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
 import { deriveMcpServerName } from "./mcp-identity";
+import { githubMcpOAuth } from "@legalwork/types/connector-config";
 import {
   BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS,
   extensionContribution,
@@ -195,6 +196,18 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
     iconSlug: "notion",
     iconSrc: "/ext-notion.svg",
+  },
+  {
+    name: "GitHub",
+    serverName: githubMcpOAuth.name,
+    get description() { return t("mcp.quick_connect_github_desc"); },
+    url: githubMcpOAuth.url,
+    type: "remote",
+    kind: "mcp",
+    iconSlug: "github",
+    oauth: true,
+    oauthConfig: { clientId: githubMcpOAuth.clientId, scope: githubMcpOAuth.scope },
+    get setupNote() { return t("mcp.quick_connect_github_note"); },
   },
   // Law-firm document, eDiscovery, contract, and legal-research connectors.
   // Endpoints verified against live vendor docs (mid-2026). Entries marked

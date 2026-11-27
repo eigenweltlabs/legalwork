@@ -267,22 +267,36 @@ export function McpAuthModal(props: McpAuthModalProps) {
           {waiting && state.authorizationUrl ? (
             <div className="space-y-4 rounded-[20px] border border-dls-border bg-dls-hover p-4">
               <p className="text-sm font-medium">{t("mcp.auth.waiting_authorization")}</p>
-              <p className="text-xs text-dls-secondary">{state.notice ?? t("mcp.auth.approve_in_browser")}</p>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => void flow.reopen()}>{t("mcp.auth.open_sign_in_page")}</Button>
-                <Button variant="outline" onClick={() => {
-                  void navigator.clipboard.writeText(state.authorizationUrl ?? "").then(() => setCopied(true), () => setActionError(t("mcp.auth.copy_failed")));
-                }}>{copied ? t("mcp.auth.copied") : t("mcp.auth.copy_link")}</Button>
-              </div>
-              {state.instructions ? <p className="whitespace-pre-wrap text-sm">{state.instructions}</p> : null}
-              {state.mode !== "auto" || state.manual ? <details open={Boolean(state.notice) || state.mode === "code"}>
-                <summary className="cursor-pointer text-xs font-medium">{t("mcp.auth.finish_with_callback")}</summary>
-                <div className="mt-3 space-y-3">
-                  <p className="text-xs text-dls-secondary">{t("mcp.auth.callback_help")}</p>
-                  <TextInput label={t("mcp.auth.callback_label")} placeholder={t("mcp.auth.callback_placeholder")} value={callbackInput} onChange={(event) => setCallbackInput(event.currentTarget.value)} />
-                  <Button onClick={() => void flow.submit(callbackInput)} disabled={!callbackInput.trim()}>{t("mcp.auth.complete_connection")}</Button>
+              {state.userCode ? (
+                <>
+                  <p className="text-xs text-dls-secondary">{state.notice ?? t("mcp.auth.github_device_instructions")}</p>
+                  <code className="block select-all font-mono text-xl font-semibold">{state.userCode}</code>
+                  <Button render={<a href={state.authorizationUrl} target="_blank" rel="noopener noreferrer" />} onClick={(event) => {
+                    if (state.userCode) void navigator.clipboard?.writeText(state.userCode).catch(() => setActionError(t("mcp.auth.copy_failed")));
+                    if (isDesktopRuntime()) {
+                      event.preventDefault();
+                      void flow.reopen();
+                    }
+                  }}>{t("mcp.auth.github_open_and_copy")}</Button>
+                </>
+              ) : <>
+                <p className="text-xs text-dls-secondary">{state.notice ?? t("mcp.auth.approve_in_browser")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => void flow.reopen()}>{t("mcp.auth.open_sign_in_page")}</Button>
+                  <Button variant="outline" onClick={() => {
+                    void navigator.clipboard.writeText(state.authorizationUrl ?? "").then(() => setCopied(true), () => setActionError(t("mcp.auth.copy_failed")));
+                  }}>{copied ? t("mcp.auth.copied") : t("mcp.auth.copy_link")}</Button>
                 </div>
-              </details> : null}
+                {state.instructions ? <p className="whitespace-pre-wrap text-sm">{state.instructions}</p> : null}
+                {state.mode !== "auto" || state.manual ? <details open={Boolean(state.notice) || state.mode === "code"}>
+                  <summary className="cursor-pointer text-xs font-medium">{t("mcp.auth.finish_with_callback")}</summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-dls-secondary">{t("mcp.auth.callback_help")}</p>
+                    <TextInput label={t("mcp.auth.callback_label")} placeholder={t("mcp.auth.callback_placeholder")} value={callbackInput} onChange={(event) => setCallbackInput(event.currentTarget.value)} />
+                    <Button onClick={() => void flow.submit(callbackInput)} disabled={!callbackInput.trim()}>{t("mcp.auth.complete_connection")}</Button>
+                  </div>
+                </details> : null}
+              </>}
             </div>
           ) : null}
         </div>

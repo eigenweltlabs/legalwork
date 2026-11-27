@@ -30,6 +30,16 @@ SharePoint and Dropbox each have one provider entry in **Files & storage**. Use 
 
 For Dropbox, give the file connection a name, choose its folder and access, then choose **Connect Dropbox**. Complete the sign-in in the browser. The setup dialog stays open until Dropbox confirms sign-in. Cancelling or failing a new sign-in removes the unfinished connection; it is not reported as a completed connection. An existing account that needs sign-in is marked **Sign in to use it** on its detail page.
 
+## GitHub
+
+The GitHub connector gives the assistant access to repositories, issues, and pull requests through GitHub's official MCP server. Sign in using your GitHub account. GitHub requests the `repo` scope, which grants read and write access to public and private repositories within your account's access. [GitHub OAuth scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps)
+
+1. Open **Settings > Integrations**, search for **GitHub**, select it, and choose **Connect**.
+2. Choose **Copy code and open GitHub**. Paste the one-time code on GitHub and approve the LegalWork app.
+3. Return to LegalWork and select **Done** after it confirms the connection. Find **GitHub** under **Installed** or in the chat tool picker's **Integrations** group.
+
+If the code expires, restart sign-in to get a new one. If your organization restricts third-party apps, ask its GitHub administrator to approve the app. [GitHub OAuth device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow)
+
 ## Austrian RIS
 
 The built-in Austrian RIS integration searches Austria's official legal information system. It can search legislation and decisions, read legal texts and historical versions, check validity on a date, and inspect related publications and changes. It is based on [Matteo Bürgler’s RIS MCP server](https://github.com/mburgler/ris-mcp-worker).

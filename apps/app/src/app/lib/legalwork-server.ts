@@ -3250,7 +3250,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // Connectors are shared by every workspace the server hosts unless a
     // caller asks for one workspace's own entry.
     startMcpOAuth: (workspaceId: string, server: string) =>
-      requestJson<import("@opencode/client").IntegrationAttempt & { integrationID: string; callback: { redirectUri: string } }>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/start`, {
+      requestJson<import("@opencode/client").IntegrationAttempt & { integrationID: string } & ({ callback: { redirectUri: string } } | { userCode: string })>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/start`, {
         method: "POST", token, hostToken, body: { server }, timeoutMs: timeouts.mcpSetup,
       }),
     mcpOAuthStatus: (workspaceId: string, attempt: { integrationID: string; attemptID: string }) =>
