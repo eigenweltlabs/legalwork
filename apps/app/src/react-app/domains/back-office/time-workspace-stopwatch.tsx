@@ -55,7 +55,7 @@ export function useTimeWorkspaceStopwatch(client: LegalworkServerClient, profile
   return { ...query, change };
 }
 
-function elapsed(startedAt: string, now: number) {
+export function stopwatchElapsed(startedAt: string, now: number) {
   const seconds = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
   const values = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60];
   return values.slice(values[0] > 0 ? 0 : 1).map(value => String(value).padStart(2, "0")).join(":");
@@ -79,7 +79,7 @@ export function TimeWorkspaceStopwatch({ stopwatch, matters }: { stopwatch: Retu
   const startRetry = useRef<Extract<StopwatchAction, { type: "start" }>>(undefined);
   const available = Boolean(stopwatch.data) && !stopwatch.isError;
   const active = available ? stopwatch.data?.active : undefined;
-  const clock = active ? elapsed(active.startedAt, now) : null;
+  const clock = active ? stopwatchElapsed(active.startedAt, now) : null;
   useEffect(() => {
     if (!active?.startedAt) return;
     setNow(Date.now());

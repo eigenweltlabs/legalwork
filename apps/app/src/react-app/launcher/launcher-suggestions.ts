@@ -8,9 +8,14 @@ export function matchesSortSuggestion(raw: string) {
   return query.length >= 2 && ["sort", "sorted", "sort by", "sorting", "sortieren", "sortierung", "sortiert", "reihenfolge"].some(word => word.startsWith(query));
 }
 
+export function matchesStopwatchSuggestion(raw: string) {
+  const query = raw.trim().toLocaleLowerCase();
+  return query.length >= 2 && ["stopwatch", "timer", "time", "timekeeping", "time tracking", "stoppuhr", "zeit", "zeiterfassung"].some(word => word.startsWith(query));
+}
+
 /** Explicit Assistant intent always precedes filters, shortcuts, history and result matches. */
 export function prioritizeLauncherSuggestions<T extends { id: string }>(rows: T[], shortcutCategory?: string) {
-  const rank = (id: string) => id === "search:assistant" ? 0 : id === "search:sort" ? 1 : id.startsWith("filter:source:") ? 2 : id === "action:browser" ? 3 : id === `category:${shortcutCategory}` ? 4 : 5;
+  const rank = (id: string) => id === "search:assistant" ? 0 : id === "search:sort" ? 1 : id === "search:stopwatch" ? 2 : id.startsWith("filter:source:") ? 3 : id === "action:browser" ? 4 : id === `category:${shortcutCategory}` ? 5 : 6;
   return [...rows].sort((a, b) => rank(a.id) - rank(b.id));
 }
 

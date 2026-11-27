@@ -107,6 +107,30 @@ open until the work returns a final result.
 ## Mini-bar: search and act from any app
 
 The mini-bar runs on this computer and uses your existing projects and Assistant.
+
+### Stopwatch and time tracking
+
+From the unfiltered search, type **timer**, **stopwatch**, **time**, **Stoppuhr** or
+**Zeiterfassung**, then press **Enter** on **Stopwatch**. The same action is in the
+start suggestions; while a timer is running it moves to the top and shows its
+elapsed time. This is the same timer as **Time** and the floating microphone bar.
+Closing the mini-bar or restarting LegalWork does not reset it.
+
+Use **Tab** to reach **Matter (optional)** and **Quick note**. Search a matter by
+name or reference, use the arrow keys and **Enter** to choose it, then press
+**⌘Enter** (**Ctrl+Enter** on Windows) to start or stop. A project in the foreground
+does not assign its name as a billing matter. You can leave the matter blank and
+assign it later. Changing the matter of a running timer applies to the entire
+interval. **Esc** returns to your search without stopping the timer.
+
+Stopping saves the interval for review. It does not automatically bill it or ask
+an AI model to assess your day. Choose **Open Time in app**, or **Right Arrow >
+Open in app** on the Stopwatch suggestion, to review the day timeline and save
+a time entry. If time tracking is disabled, enable it in **Settings > Time tracking**;
+an already running timer can still be stopped. Stopwatch controls work on the
+local desktop server and do not require the personal Assistant's AI plan.
+
+### Open the mini-bar
 No cloud Assistant setup or project replication is required.
 
 Project and wiki files use the same document folders as the main app, including

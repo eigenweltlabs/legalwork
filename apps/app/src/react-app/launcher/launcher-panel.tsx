@@ -2,17 +2,18 @@ import { categoryKeys, sourceKeys, inputKeys, type TranslationKey } from "./laun
 import { workspaceContentPath } from "@legalwork/types/workspace";
 import { conversationTarget, resultChatProject, startLauncherResultChat, type ResultChatAction } from "./launcher-result-chat";
 import { LauncherProjectChatPicker } from "./launcher-project-chat-picker";
-import { launcherCreationActions, type LauncherCreationAction, matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "./launcher-suggestions";
+import { launcherCreationActions, type LauncherCreationAction, matchesAssistantSuggestion, matchesSortSuggestion, matchesStopwatchSuggestion, prioritizeLauncherSuggestions } from "./launcher-suggestions";
 import { LauncherResultOrigin } from "./launcher-result-origin";
 import { useLauncherFileVisibility } from "./launcher-file-visibility";
 import { LauncherTransferForm, type LauncherTransfer } from "./launcher-transfer-form";
 import { LauncherCreateForm, excerptText, type LauncherCreate } from "./launcher-create-form";
+import { LauncherStopwatch, LauncherStopwatchClock, useLauncherStopwatch } from "./launcher-stopwatch";
 import type { LauncherFormState } from "./launcher-form";
 import { LauncherQuickActionForm, type LauncherQuickActionRequest, type LauncherQuickActionValues } from "./launcher-quick-action-form";
 import { launcherBrowserRoute, launcherFileRoute } from "./launcher-handoff";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, ArrowDownUp, Calculator, CalendarDays, Clipboard, Folder, Globe, MessageSquare, FilePlus2, EyeOff, Eye, ListChecks, Loader2, Mic, MoreHorizontal, MousePointerSquareDashed, Paperclip, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
+import { ArrowLeft, BookOpen, ArrowDownUp, Calculator, CalendarDays, Clipboard, Folder, Globe, MessageSquare, FilePlus2, EyeOff, Eye, ListChecks, Loader2, Mic, MoreHorizontal, MousePointerSquareDashed, Paperclip, Timer, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
 import type { LauncherActionKind, LauncherSort, LauncherWorkspaceContext, AssistantContextItem, AssistantExecutionTarget, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherCapture, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
 import { LauncherSortSchema, LAUNCHER_SEARCH_KINDS, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
@@ -164,6 +165,8 @@ export function LauncherPanel() {
   const [pendingContext, setPendingContext] = useState<{ context: LauncherWorkspaceContext | null } | null>(null);
   const invocationContext = surface === "panel" && desktop ? store.invocationContext : store.invocationContext ?? null;
   const [transfer, setTransfer] = useState<LauncherTransfer | null>(null);
+  const [stopwatchOpen, setStopwatchOpen] = useState(false);
+  const timer = useLauncherStopwatch(client, store.visible && desktop);
   const [creation, setCreation] = useState<LauncherCreate | null>(null);
   const [saveImage, setSaveImage] = useState<{ source: CaptureSaveSource; initial: { workspaceId: string; folder: string } } | null>(null);
   const openSaveImage = (source: CaptureSaveSource) => {
@@ -191,7 +194,7 @@ export function LauncherPanel() {
     if (previous.busy !== next.busy && desktop && surface === "panel") void launcherWindowControl(next.busy ? "dialog-begin" : "dialog-end").catch(() => undefined);
     setChildFormState(next);
   }, [desktop, surface]);
-  const formActive = Boolean(pendingQuestion || pickingChatProject || creation || saveImage || transfer || quickActionRequest || openChoice || childFormState.active);
+  const formActive = Boolean(pendingQuestion || pickingChatProject || stopwatchOpen || creation || saveImage || transfer || quickActionRequest || openChoice || childFormState.active);
   const [parkedDrafts, setParkedDrafts] = useState<Array<Pick<typeof store, "input" | "context" | "target" | "workspaceContext" | "conversation">>>([]);
   const [scrollExpansion, setScrollExpansion] = useState<{ view: string; category: LauncherSearchKind | null } | null>(null);
   const [sending, setSending] = useState(false);
@@ -206,7 +209,7 @@ export function LauncherPanel() {
   const dragDepth = useRef(0);
   const pastedText = useRef(false);
   const expandedByScroll = scrollExpansion?.view === store.view && scrollExpansion.category === store.category;
-  const expanded = expandedByScroll || store.view === "conversation" || store.view === "work" || store.view === "detail" || store.view === "hidden" || Boolean(pendingQuestion || pickingChatProject || creation || saveImage || transfer || quickActionRequest || openChoice || store.approval);
+  const expanded = expandedByScroll || store.view === "conversation" || store.view === "work" || store.view === "detail" || store.view === "hidden" || Boolean(pendingQuestion || pickingChatProject || stopwatchOpen || creation || saveImage || transfer || quickActionRequest || openChoice || store.approval);
   useEffect(() => {
     if (surface !== "panel" || !desktop || !store.visible) return;
     void launcherWindowControl("resize", { height: expanded ? 520 : 346 }).catch(() => undefined);
@@ -217,7 +220,7 @@ export function LauncherPanel() {
     setScrollExpansion(null);
     navigation.current = new LauncherNavigationHistory();
     setParkedDrafts(items => items.map(item => ({ ...item, context: persistentContext(item.context) })));
-    if (!childForm.current.busy) { setCreation(null); setSaveImage(null); setQuickActionRequest(null); }
+    if (!childForm.current.busy) { setStopwatchOpen(false); setCreation(null); setSaveImage(null); setQuickActionRequest(null); }
     setPendingQuestion(null); setModelSetup(null);
     setPickingChatProject(false); newChatOperation.current = null;
     setActionProject(null); setPendingContext(null);
@@ -1298,8 +1301,19 @@ export function LauncherPanel() {
       inputRef.current?.focus();
     },
   }));
+  const openTimeInApp = () => openInApp("/time");
+  const stopwatchRow: NavigationRow = {
+    id: "home:stopwatch", title: t("timesheets.source.stopwatch"), Icon: Timer,
+    meta: timer.available && timer.stopwatch.data?.active ? <LauncherStopwatchClock startedAt={timer.stopwatch.data.active.startedAt} /> : undefined,
+    run: () => { setStopwatchOpen(true); },
+    openInApp: () => { void Promise.resolve(openTimeInApp()).catch(error => notify({ tone: "error", text: String(error) })); },
+  };
+  const stopwatchSupported = desktop && timer.supported;
+  const stopwatchRunning = stopwatchSupported && timer.available && Boolean(timer.stopwatch.data?.active);
+  const stopwatchSuggestion = stopwatchSupported && !hasSearchChips && matchesStopwatchSuggestion(searchText);
   const suggestionRows: NavigationRow[] = showingCreationChoices ? creationRows : mode === "search" && !calculation ? prioritizeLauncherSuggestions([
     ...(sortSuggestion ? [sortRow] : []),
+    ...(stopwatchSuggestion ? [{ ...stopwatchRow, id: "search:stopwatch", hideId: stopwatchRow.id }] : []),
     ...browserRows,
     ...typedFilters,
     ...(store.category && !store.input.trim() ? [] : categoryRows.filter(row => (browsing || row.id !== `category:${store.category}`) && !(row.id === "category:projects" && sourceFilters.some(filter => filter.files?.sourceKind === "project")))),
@@ -1333,6 +1347,7 @@ export function LauncherPanel() {
   const captureMatches = searchText.trim() && !store.category ? captureRows.filter(row =>
     (row.title + " " + row.id.replace("home:", "").replace("-", " ")).toLocaleLowerCase().includes(searchText.trim().toLocaleLowerCase())) : [];
   const homeRows: NavigationRow[] = [
+    ...(stopwatchRunning ? [stopwatchRow] : []),
     ...(activeProject ? [appChatRow] : []),
     ...parkedDrafts.map((draft, index) => ({ id: `home:parked-draft:${index}`, title: t("launcher.flow.continue_draft"), subtitle: draft.workspaceContext?.workspaceName ?? t("assistant.title"), meta: draft.workspaceContext ? workspaceOrigin(draft.workspaceContext.workspaceId, draft.workspaceContext.workspaceName) : undefined, Icon: MessageSquare, run: async () => { useLauncherStore.setState({ ...draft, view: "conversation" }); if (draft.conversation) await adoptDraft(draft.conversation.conversationId, true); setParkedDrafts(previous => previous.filter(item => item !== draft)); } })),
     ...(invocationContext?.document ? [{ id: "home:summarize-view", title: t("launcher.suggest.summarize_document"), subtitle: invocationContext.document.name, Icon: FilePlus2, run: summarizeDocument }] : []),
@@ -1341,6 +1356,7 @@ export function LauncherPanel() {
     })),
     ...searchRoots.filter(visibleResult).map(result => ({ id: `home:folder:${result.id}`, title: result.title, Icon: Folder, result, run: () => showDetail(result) })),
     ...categoryRows.map(row => ({ ...row, subtitle: row.id !== "category:projects" ? invocationContext?.workspaceName : undefined, meta: row.id !== "category:projects" && invocationContext ? workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName) : undefined, run: () => { const context = invocationContext; store.setScope(context && row.id !== "category:projects" ? { id: context.workspaceId, name: context.workspaceName } : null); return row.run(); } })),
+    ...(stopwatchSupported && !stopwatchRunning ? [stopwatchRow] : []),
     ...(invocationContext ? [{ id: "home:create-task", title: t("launcher.flow.create_task"), subtitle: invocationContext.workspaceName, meta: workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName), Icon: ListChecks, run: () => openCreate("task", { name: "" }) }] : []),
     ...(desktop && !voice?.meeting ? [recordMeetingRow] : []),
     ...captureRows,
@@ -1395,6 +1411,7 @@ export function LauncherPanel() {
     if (pickingChatProject) { closeChatPicker(); return; }
     if (quickActionRequest) { setQuickActionRequest(null); refocusEntry(); return; }
     if (saveImage) { setSaveImage(null); refocusEntry(); return; }
+    if (stopwatchOpen) { setStopwatchOpen(false); refocusEntry(); return; }
     if (creation) { setCreation(null); refocusEntry(); return; }
     if (transfer) { setTransfer(null); refocusEntry(); return; }
     if (openChoice) { setOpenChoice(null); refocusEntry(); return; }
@@ -1439,7 +1456,7 @@ export function LauncherPanel() {
   };
   // Shared by the entry and home rows; native menus get first refusal.
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || isComposingKeyEvent(event) || pendingQuestion || pickingChatProject || creation || saveImage || transfer || quickActionRequest || actionProject) return;
+    if (event.defaultPrevented || isComposingKeyEvent(event) || pendingQuestion || pickingChatProject || stopwatchOpen || creation || saveImage || transfer || quickActionRequest || actionProject) return;
     const key = event.key;
     if (key === "Escape") { event.preventDefault(); event.stopPropagation(); void goBack(); return; }
     const modifier = isMacPlatform() ? event.metaKey : event.ctrlKey || (key === "Enter" && event.metaKey);
@@ -1645,7 +1662,8 @@ export function LauncherPanel() {
         onScroll={event => {
           if (!expanded && shouldExpandLauncherList(event.currentTarget)) setScrollExpansion({ view: store.view, category: store.category });
         }}>
-        {pendingQuestion ? <div onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void goBack(); } }}>
+        {stopwatchOpen ? <LauncherStopwatch key={timer.profileId ?? "loading"} client={client} timer={timer} onFormStateChange={updateChildForm}
+          onClose={() => { setStopwatchOpen(false); refocusEntry(); }} onOpenApp={openTimeInApp} /> : pendingQuestion ? <div onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void goBack(); } }}>
           <p className="px-3 py-2 text-sm" role="status">{modelSetup ? t("launcher.question.no_model", { project: modelSetup }) : t(workspaces.length ? "launcher.question.project_prompt" : "launcher.question.no_projects")}</p>
           {modelSetup || !workspaces.length ? <div className="flex gap-2 px-3 pb-2">
             <Button size="sm" autoFocus onClick={() => { void openInApp(modelSetup ? "/settings/ai" : "/projects"); }}>{t(modelSetup ? "model_picker.connect_provider" : "launcher.kind.projects")}</Button>

@@ -1896,8 +1896,8 @@ export function createLegalworkServerClient(options: LegalworkServerClientOption
       requestJson<(CaptureProposal & { projectName?: string })[]>(baseUrl, "/private-timesheet/activity?" + new URLSearchParams({ profileId, date, zone }), { token, hostToken, signal }),
     observeActivity: (profileId:string, observations: {projectId:string|null;stream:string;kind:"foreground"|"passive"|"agent"|"window";title?:string;surface?:"chat"|"document"|"view";sessionId?:string;watching?:boolean;agentVisibility?:"foreground"|"background";start:number;end:number}[]) =>
       requestJson<{ok:boolean}>(baseUrl, "/private-timesheet/activity", {token,hostToken,method:"POST",body:{profileId, observations}}),
-    privateStopwatch: (action?: StopwatchAction, profileId?: string) =>
-      requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId ? "?profileId=" + encodeURIComponent(profileId) : ""), {
+    privateStopwatch: (action?: StopwatchAction, profileId?: string, includeMatters = false) =>
+      requestJson<StopwatchState>(baseUrl, "/private-timesheet/stopwatch" + (profileId || includeMatters ? "?" + new URLSearchParams({ ...(profileId ? { profileId } : {}), ...(includeMatters ? { includeMatters: "1" } : {}) }) : ""), {
         token, hostToken, method: action ? "POST" : "GET", body: action,
       }),
     privateTimeConversation: (profileId: string, signal?: AbortSignal) =>
