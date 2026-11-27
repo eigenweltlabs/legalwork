@@ -104,6 +104,7 @@ import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addi
 import { BackOfficePage } from "@/react-app/domains/back-office/back-office-page";
 import { TimeTrackingSettingsView } from "@/react-app/domains/settings/pages/time-tracking-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
+import { LauncherSettingsView } from "@/react-app/domains/settings/pages/launcher-view";
 import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
@@ -226,6 +227,7 @@ function parseSettingsPath(pathname: string): {
     case "time-tracking":
     case "billing":
     case "recorder":
+    case "launcher":
     case "debug":
       return { tab: head, redirectPath: null };
     case "skills":
@@ -2400,6 +2402,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
           />
         );
+      case "launcher":
+        return <LauncherSettingsView client={legalworkClient} />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

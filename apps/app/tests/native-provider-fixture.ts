@@ -1,6 +1,6 @@
-import { OpenCode, type IntegrationInfo, type ProviderInfo } from "@opencode/client";
+import { OpenCode, type ConfigEntry, type IntegrationInfo, type ProviderInfo } from "@opencode/client";
 
-export function nativeProviderFixture(input: { failMethods?: boolean; onReload?: () => void; connected?: Set<string>; activeSessions?: string[] } = {}) {
+export function nativeProviderFixture(input: { failMethods?: boolean; onReload?: () => void; connected?: Set<string>; activeSessions?: string[]; config?: ConfigEntry[] } = {}) {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   const connected = input.connected ?? new Set<string>();
   const location = { directory: "/preview", projectID: "preview" };
@@ -20,7 +20,7 @@ export function nativeProviderFixture(input: { failMethods?: boolean; onReload?:
     if (path === "/api/info") return Response.json({ version: "2.1.4", pid: process.pid });
     if (path === "/api/session/active") return Response.json({data:Object.fromEntries((input.activeSessions ?? []).map(id=>[id,{type:"running"}]))});
     if (path === "/api/location/reload") { input.onReload?.(); return new Response(null, { status: 204 }); }
-    if (path === "/api/config") return Response.json([]);
+    if (path === "/api/config") return Response.json(input.config ?? []);
     if (path === "/api/provider") {
       const data: ProviderInfo[] = [...connected].map(id => ({ id, name: id, integrationID: id, activation: "auto", package: "@opencode/ai/providers/openai-compatible" }));
       return Response.json({ location, data });

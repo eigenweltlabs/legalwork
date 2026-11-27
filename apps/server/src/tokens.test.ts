@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 import { tmpdir } from "node:os";
@@ -58,4 +58,23 @@ describe("application tokens", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+});
+
+test("Raycast handoffs expire and become invalid when the credential rotates", () => {
+  const tokens = new TokenService(createTestConfig());
+  const token = tokens.rotateRaycast(true);
+  const request = new Request("http://localhost/launcher/raycast/handoff", { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const invocation = { id: "fixture", source: "raycast", action: "ask", query: "Synthetic question" } satisfies Parameters<TokenService["stageRaycast"]>[1];
+  const now = spyOn(Date, "now").mockReturnValue(1000);
+  try {
+    const expired = tokens.stageRaycast(request, invocation);
+    if (!expired) throw new Error("Expected a staged handoff");
+    now.mockReturnValue(61_000);
+    expect(tokens.consumeRaycast(expired)).toBeNull();
+    const pending = tokens.stageRaycast(request, invocation);
+    if (!pending) throw new Error("Expected a staged handoff");
+    expect(tokens.rotateRaycast(true)).not.toBe(token);
+    expect(tokens.consumeRaycast(pending)).toBeNull();
+    expect(tokens.stageRaycast(request, invocation)).toBeNull();
+  } finally { now.mockRestore(); }
 });

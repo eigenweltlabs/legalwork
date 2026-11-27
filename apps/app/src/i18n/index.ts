@@ -266,7 +266,7 @@ export const t = (
   let out = result;
   for (const [k, v] of Object.entries(params)) {
     if (k === "lng") continue;
-    out = out.replace(`{${k}}`, String(v));
+    out = out.replaceAll(`{${k}}`, () => String(v));
   }
   return out;
 };
@@ -289,13 +289,10 @@ export const initLocale = (): Language => {
     console.warn("Failed to read language preference:", e);
   }
 
+  const previousPreference = preferenceValue;
   preferenceValue = isLanguagePreference(stored) ? stored : SYSTEM_LANGUAGE;
   const resolved = preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue;
-
-  localeValue = resolved;
-  if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", resolved);
-  }
-
-  return resolved;
+  applyLocale(firmLanguage ?? resolved);
+  if (previousPreference !== preferenceValue) notify();
+  return localeValue;
 };

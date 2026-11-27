@@ -83,7 +83,7 @@ export function queuedPromptPayload(execution: z.infer<typeof prompt>) {
   const { kind, model, agent, ...payload } = execution;
   return payload;
 }
-export const queueInputSchema = z.object({ id: z.string().uuid(), draft: queuedDraftSchema, execution: queueExecutionSchema, editToken: z.string().uuid().optional() });
+export const queueInputSchema = z.object({ id: z.string().uuid(), draft: queuedDraftSchema, execution: queueExecutionSchema, editToken: z.string().uuid().optional(), messageId: z.string().regex(/^msg_[A-Za-z0-9]{10,60}$/).optional() });
 export const queueEditSchema = z.object({ token: z.string().uuid(), expires: z.number() });
 export const queueEntrySchema = queueInputSchema.omit({ editToken: true }).extend({
   status: z.enum(["queued", "sending", "accepted", "failed", "uncertain"]), edit: queueEditSchema.optional(), lastEditToken: z.string().optional(), error: z.string().optional(), dispatchRevision: z.number().optional(),

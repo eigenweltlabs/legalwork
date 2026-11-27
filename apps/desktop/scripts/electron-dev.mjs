@@ -200,6 +200,7 @@ process.once("SIGTERM", () => void stopAll(143));
 
 // Dev worktrees need the same engine SDK and Node runtime resources as packaged builds.
 runSync(nodeCmd, [resolve(__dirname, "build-browser-controller.mjs")], { cwd: desktopRoot });
+runSync(nodeCmd, [resolve(__dirname, "build-windows-launcher.mjs")], { cwd: desktopRoot });
 runSync(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], { cwd: desktopRoot });
 runSync(nodeCmd, [resolve(__dirname, "prepare-opencode-sdk.mjs")], { cwd: desktopRoot });
 

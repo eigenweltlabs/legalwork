@@ -78,6 +78,35 @@ test("closing the routed chat once survives stale route renders and later naviga
   expect(panels.getState().sessions[scope].tabs).toEqual([]);
 });
 
+for (const chatSide of ["left", "right"] satisfies Array<"left" | "right">) {
+  test(`a new chat route uses the saved ${chatSide} pane instead of the focused pane`, () => {
+    const panels = createPanelTabStore();
+    const scope = `workspace:route-chat-${chatSide}`;
+    const actions = panels.getState();
+    actions.setOpening(scope, { chatSide });
+    actions.setWorkspaceWidth(scope, 1200);
+    actions.adoptChat(scope, "existing", "Existing chat");
+    actions.openTab(scope, { id: "document", type: "artifact", label: "Contract", value: "Contract.docx", preview: "word" });
+    actions.selectTab(scope, "document");
+    const before = panels.getState().sessions[scope];
+    const order = layoutLeaves(before.tree);
+    const destination = order[chatSide === "left" ? 0 : 1];
+    expect(before.focusedPaneId).toBe(order[chatSide === "left" ? 1 : 0]);
+
+    const input = { scope, sessionId: "new", label: "New chat", previousRoute: `${scope}:existing`, restoringTab: false };
+    const route = syncRouteChatTab(panels, input);
+    // The launcher removes its one-time markers without changing the chat route.
+    syncRouteChatTab(panels, { ...input, previousRoute: route });
+
+    const after = panels.getState().sessions[scope];
+    expect(after.focusedPaneId).toBe(destination);
+    expect(after.activeTabId).toBe("chat:new");
+    expect(after.tree).toEqual(before.tree);
+    expect(after.panes.find(pane => pane.id === destination)?.tabIds).toEqual(["chat:existing", "chat:new"]);
+    expect(after.panes.find(pane => pane.id === before.focusedPaneId)?.tabIds).toEqual(["document"]);
+  });
+}
+
 test("opening a recent chat preserves the destination project's split geometry and document tabs", () => {
   const panels = createPanelTabStore();
   const scope = "workspace:destination";

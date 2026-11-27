@@ -445,17 +445,17 @@ html[lang=de] body[data-state=error] #bar {
 #meeting-description { display:block; margin-top:4px; font-size:11px; color:var(--muted) }
 #meeting-record { width:auto; height:28px; padding:0 10px; border-radius:7px; background:var(--primary); color:var(--primary-fg); font-size:11px; font-weight:600 }
 
-/* The timer stays beside the microphone. Only the meeting action expands on hover. */
+/* The timer stays beside the microphone. Meeting and Assistant actions expand on hover. */
 body[data-state=idle] #bar { --action-space:0px; gap:0 }
 body[data-state=idle][data-stopwatch-available=true] #bar { --action-space:32px }
-body[data-state=idle] #bar[data-hovered=true] { --action-space:32px }
-body[data-state=idle][data-stopwatch-available=true] #bar[data-hovered=true] { --action-space:64px }
+body[data-state=idle] #bar[data-hovered=true] { --action-space:64px }
+body[data-state=idle][data-stopwatch-available=true] #bar[data-hovered=true] { --action-space:96px }
 body[data-state=idle] #bar #start,
 body[data-state=idle] #bar #stopwatch:not([hidden]),
-body[data-state=idle] #bar[data-hovered=true] #meeting-start {
+body[data-state=idle] #bar[data-hovered=true] :is(#meeting-start,#assistant) {
   display:flex; flex:none; width:28px; height:26px; padding:0;
 }
-body[data-state=idle] #bar :is(#stopwatch,#meeting-start) { margin-inline-start:4px }
+body[data-state=idle] #bar :is(#stopwatch,#meeting-start,#assistant) { margin-inline-start:4px }
 :is(#meeting-start,#stopwatch) { gap:6px; border-radius:7px }
 .action-hint { flex:none; font-size:11px; font-weight:500; white-space:nowrap }
 :is(#meeting-start,#stopwatch) svg { flex:none; width:16px; height:16px }
@@ -468,7 +468,7 @@ body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar {
   flex-direction:column; justify-content:flex-start; border-radius:999px;
   height:calc(28px + var(--action-space)); margin-top:var(--action-space);
 }
-body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar :is(#meeting-start,#stopwatch:not([hidden])) {
+body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar :is(#meeting-start,#assistant,#stopwatch:not([hidden])) {
   margin:4px 0 0; height:28px; border-radius:50%;
 }
 #bar .action-hint {
@@ -569,6 +569,11 @@ body[data-state=copied] #copy-instructions {
   color:var(--muted); font-size:12px; line-height:1.5;
 }
 body[data-state=copied] #dismiss { display:flex; grid-column:3; grid-row:1; align-self:start }
+/* The Assistant shares the idle action layout with recording and the timer. */
+#assistant { display:none; position:relative; border-radius:7px; align-items:center; justify-content:center }
+#assistant svg { flex:none; width:16px; height:16px }
+#assistant-badge { position:absolute; top:-4px; right:-4px; min-width:14px; height:14px; padding:0 3px; border-radius:7px; background:#2563eb; color:#fff; font-size:9px; font-weight:600; line-height:14px; text-align:center }
+body[data-companion-recording=true] #assistant svg { color:#dc2626 }
 
 /* Keep the timer accessible while the bar shows a recording or its result. */
 body:not([data-state=idle]) #bar #stopwatch:not([hidden]) {
@@ -592,8 +597,8 @@ body[data-state=idle][data-stopwatch-running=true] #bar:not([data-hovered=true])
 }
 #stopwatch-feedback:not(:empty) { display:block; margin-top:3px; color:var(--muted) }
 
-/* Identical enabled hover treatment for all three idle actions. */
-body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch):not(:disabled)[data-hovered=true] {
+/* Identical enabled hover treatment for all idle actions. */
+body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch,#assistant):not(:disabled)[data-hovered=true] {
   background:var(--hover); color:var(--ink); box-shadow:none;
 }
 #stopwatch-panel {

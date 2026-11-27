@@ -2,18 +2,46 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { PDFDocument } from "pdf-lib";
-import { searchFileContents } from "./content-search.js";
+import { Database } from "bun:sqlite";
+import { MANAGED_ENGINE_DB_FILENAME } from "./managed-opencode-db.js";
+import { nonemptySessionIds, searchFileContents, searchSessionContents } from "./content-search.js";
 import { DocumentPreparation } from "./document-preparation/service.js";
 import { OcrManager } from "./ocr/manager.js";
 import { OcrService } from "./ocr/service.js";
 import { extractCorpusText } from "./corpus/extract.js";
 import { documentMatches } from "./corpus/passages.js";
 import { reviewSourcePage } from "./reviews/source-page.js";
-import type { WorkspaceInfo } from "./types.js";
+import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
+test("launcher history lists populated chats regardless of title, including their first message", async () => {
+  const root = await mkdtemp(join(tmpdir(), "launcher-chat-history-"));
+  const config = { configPath: join(root, "server.json") } as ServerConfig;
+  const workspace: WorkspaceInfo = { id: "project", name: "Project", path: root, preset: "starter", workspaceType: "local" };
+  const db = new Database(join(root, MANAGED_ENGINE_DB_FILENAME));
+  try {
+    db.exec("CREATE TABLE session_v2 (id TEXT, directory TEXT, title TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE session_message (session_id TEXT, id TEXT, type TEXT, seq INTEGER, data TEXT)");
+    const directory = process.platform === "win32" ? root.replaceAll("\\", "/") : root;
+    for (const [id, scope, title, archived] of [
+      ["empty", directory, "Renamed but empty", 0], ["used", directory, "New chat", 0],
+      ["setup", directory, "New chat", 0], ["foreign", directory + "/elsewhere", "New chat", 0],
+      ["archived", directory, "New chat", 1],
+    ] as const) db.query("INSERT INTO session_v2 VALUES (?,?,?,1,?)").run(id, scope, title, archived);
+    const append = db.query("INSERT INTO session_message VALUES (?, 'message', ?, 1, '{}')");
+    for (const id of ["used", "foreign", "archived"]) append.run(id, "user");
+    append.run("setup", "system");
+    const listed = () => searchSessionContents(config, workspace, "", new AbortController().signal, { requireMessages: true });
+    expect((await listed()).items.map(item => item.id)).toEqual(["used"]);
+    expect([...await nonemptySessionIds(config, workspace, ["used", "empty", "foreign", "archived"])]).toEqual(["used"]);
+    append.run("empty", "user");
+    expect(await nonemptySessionIds(config, workspace)).toEqual(new Set(["empty", "used"]));
+    expect((await listed()).items.map(item => item.id).sort()).toEqual(["empty", "used"]);
+  } finally { db.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 async function fixture(fail = false, layoutAvailable = true) {
   const scratch = fileURLToPath(new URL("../../../.legalwork/scratch/", import.meta.url));
   await mkdir(scratch, { recursive: true });

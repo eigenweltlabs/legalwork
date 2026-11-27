@@ -10,7 +10,7 @@ import { isViewFile, copyViewFile, StoredViewSchema } from "../views/schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, opendir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, opendir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
@@ -1354,6 +1354,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       path: ctx.url.searchParams.get("path"),
       baseUpdatedAt: ctx.url.searchParams.has("baseUpdatedAt") ? Number(ctx.url.searchParams.get("baseUpdatedAt")) : undefined,
       force: ctx.url.searchParams.get("force") === "true", createOnly: ctx.url.searchParams.get("createOnly") === "true",
+      requireExistingParent: ctx.url.searchParams.get("requireExistingParent") === "true",
       dataBase64: undefined,
     } : await readJsonBody(ctx.request);
     const requestedPath = String(body.path ?? "");
@@ -1381,7 +1382,18 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     });
 
     return withFileWriteLock(absPath, async () => {
-      const before = (await exists(absPath)) ? await stat(absPath) : null;
+      const parent = dirname(absPath);
+      let target = absPath;
+      if (body.requireExistingParent === true) {
+        const root = await realpath(workspaceContentPath(workspace)).catch(() => null);
+        const directory = await realpath(parent).catch(() => null);
+        if (!root || !directory || !(await stat(directory)).isDirectory()) {
+          throw new ApiError(404, "dir_not_found", "The selected folder no longer exists.");
+        }
+        if (!within(root, directory)) throw new ApiError(403, "invalid_path", "Choose a folder inside the project.");
+        target = join(directory, basename(absPath));
+      }
+      const before = (await exists(target)) ? await stat(target) : null;
       if (before && !before.isFile()) {
         throw new ApiError(400, "invalid_path", "Path must point to a file");
       }
@@ -1391,14 +1403,14 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         throw new ApiError(409, "conflict", "File changed since it was loaded", { baseUpdatedAt, currentUpdatedAt: beforeUpdatedAt });
       }
 
-      await ensureDir(dirname(absPath));
-      const tmp = `${absPath}.tmp-${shortId()}`;
+      if (body.requireExistingParent !== true) await ensureDir(parent);
+      const tmp = `${target}.tmp-${shortId()}`;
       try {
         if (binary) await receiveRequestFile(ctx.request, tmp, PDF_MAX_BYTES);
         else if (bytes) await writeFile(tmp, bytes);
-        await rename(tmp, absPath);
+        await rename(tmp, target);
       } finally { await rm(tmp, { force: true }); }
-      const after = await stat(absPath);
+      const after = await stat(target);
       const revision = fileRevision(after);
       recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
       await recordAudit(workspace.path, {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { activeCaptureProfile } from "./time-capture/profile.js";
+import { openTimekeepingProject } from "./time-capture/chat-project.js";
 import { StoredViewSchema, ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwork/types/views";
 import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
@@ -14,6 +15,7 @@ import { registerLocalProject } from "./routes/workspaces.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./wiki/agent-access.js";
+import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import type { ServerConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [], roots: string[] = [];
@@ -21,12 +23,12 @@ afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
-async function fixture(readOnly = false) {
+async function fixture(readOnly = false, recorder?: ServerConfig["recorder"]) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-api-"));
   roots.push(root);
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "wiki-collaborator", hostToken: "wiki-host", configPath: join(root, "server.json"),
-    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [], readOnly,
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [], readOnly, recorder,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   const server = await startServer(config);
@@ -44,6 +46,117 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+
+  test("launcher discovery does not present the private timekeeping workspace as a project", async () => {
+    const { request, config } = await fixture();
+    const profile = await activeCaptureProfile(config);
+    const workspace = await openTimekeepingProject(config, profile.profileId, () => {});
+    expect(config.workspaces.some(item => item.id === workspace.id)).toBe(true);
+    for (const query of ["", "Timekeeping"]) {
+      const response = await request("/launcher/search?kinds=projects&q=" + query);
+      expect(response.status).toBe(200);
+      const result = z.object({ items: z.array(z.object({ id: z.string() })) }).parse(await response.json());
+      expect(result.items.some(item => item.id === workspace.id)).toBe(false);
+    }
+  });
+
+  test("launcher search and preview apply private wiki visibility to projects and search folders", async () => {
+    const { request } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Synthetic Private Wiki", template: "blank" })).json());
+    const path = "HiddenFixture.md";
+    const text = "Synthetic private wiki body.";
+    expect((await request(`/wikis/${wiki.id}/page`, "owner", "PUT", { path, content: text })).status).toBe(200);
+    const search = "/launcher/search?kinds=projects,files&q=Synthetic";
+    const owner = await request(search);
+    expect(owner.status).toBe(200);
+    expect(await owner.text()).toContain("Synthetic Private Wiki");
+    const folderResult = await request("/launcher/folders", "owner", "POST", { path: wiki.root, name: "Synthetic Private Folder" });
+    const { folder } = z.object({ folder: z.object({ id: z.string() }) }).parse(await folderResult.json());
+    const hidden = await request(search, "collaborator");
+    expect(hidden.status).toBe(200);
+    const results = await hidden.text();
+    expect(results).not.toContain(wiki.workspaceId);
+    expect(results).not.toContain("Synthetic Private Wiki");
+    expect(results).not.toContain("Synthetic Private Folder");
+    const preview = `/launcher/preview?kind=files&id=${path}`;
+    expect(await (await request(preview + "&workspaceId=" + wiki.workspaceId)).text()).toContain(text);
+    expect((await request(preview + "&workspaceId=" + wiki.workspaceId, "collaborator")).status).toBe(404);
+    expect((await request(preview + "&folderId=" + folder.id, "collaborator")).status).toBe(404);
+    expect(await (await request("/launcher/folders", "collaborator")).text()).not.toContain(folder.id);
+    const { token } = z.object({ token: z.string() }).parse(await (await request("/launcher/raycast/pairing", "owner", "POST")).json());
+    for (const reference of [{ workspaceId: wiki.workspaceId }, { workspaceId: null, folderId: folder.id }]) {
+      const response = await fetch(new URL("/launcher/raycast/handoff", folderResult.url), {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ id: "hidden-wiki-command", source: "raycast", action: "open", resultAction: "summarize",
+          result: { kind: "files", id: path, sourceId: "fixture-source", ...reference } }),
+      });
+      expect(response.status).toBe(404);
+    }
+  });
+
+  test("launcher recording discovery follows owner access and paired Raycast can only discover titles", async () => {
+    const meta: AudioRecordingMeta = { id: "fixture_recording", title: "Synthetic Protected Meeting", createdAt: Date.now() - 10,
+      durationMs: 1200, language: "auto", modelId: null, sources: ["microphone"], folderPath: "/fixture", audioPath: null,
+      transcriptPath: null, sizeBytes: 100, segmentCount: 1, status: "complete", error: null };
+    const recorder: NonNullable<ServerConfig["recorder"]> = {
+      status: () => ({ available: true, recordingActive: false, liveTranscriptActive: false, fileName: null, error: null }),
+      setLiveTranscript(_enabled, path) { return this.status(path); },
+      listRecordings: async () => [meta, { ...meta, id: "ephemeral", title: "Synthetic Ephemeral", ephemeral: true }],
+      readRecording: async () => ({ meta, segments: [{ id: "segment", startMs: 0, endMs: 1200, text: "Synthetic transcript", final: true }] }),
+    };
+    const { request, base } = await fixture(false, recorder);
+    const search = "/launcher/search?kinds=recordings&q=Synthetic";
+    const preview = `/launcher/preview?kind=recordings&id=${meta.id}`;
+    const library = "/recorder/recordings";
+    const owner = await (await request(search)).text();
+    expect(owner).toContain(meta.title);
+    expect(owner).not.toContain("Synthetic Ephemeral");
+    expect(await (await request(library)).text()).toContain(meta.title);
+    expect(await (await request(preview)).text()).toContain("Synthetic transcript");
+    const hidden = await request(search, "collaborator");
+    expect(hidden.status).toBe(200);
+    expect(await hidden.text()).not.toContain(meta.title);
+    expect((await request(preview, "collaborator")).status).toBe(403);
+    expect((await request(library, "collaborator")).status).toBe(403);
+    const { token } = z.object({ token: z.string() }).parse(await (await request("/launcher/raycast/pairing", "owner", "POST")).json());
+    const raycast = (path: string) => fetch(base + path, { headers: { authorization: `Bearer ${token}` } });
+    const titles = await (await raycast(search)).text();
+    expect(titles).toContain(meta.title);
+    expect(titles).not.toContain("Synthetic transcript");
+    expect((await raycast(preview)).status).toBe(401);
+    expect((await raycast(library)).status).toBe(401);
+  });
+
+  test("Raycast pairing scopes the issued token and revokes it and pending commands on disable", async () => {
+    const { request, base } = await fixture();
+    const pairing = "/launcher/raycast/pairing", handoff = "/launcher/raycast/handoff";
+    const payload = { id: "fixture-command", source: "raycast", action: "ask", query: "Synthetic private question" };
+    const send = (token: string, path: string, method = "GET", body?: unknown) => fetch(base + path, {
+      method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    expect((await request(pairing, "collaborator", "POST")).status).toBe(401);
+    expect((await request(handoff, "collaborator", "POST", payload)).status).toBe(401);
+    const { token } = z.object({ token: z.string() }).parse(await (await request(pairing, "owner", "POST")).json());
+    expect((await send(token, "/launcher/search?q=fixture")).status).toBe(200);
+    expect((await send(token, "/recorder/recordings")).status).toBe(401);
+    expect((await send(token, "/launcher/context/made-up/consume", "POST")).status).toBe(401);
+    const stage = async () => {
+      const result = await send(token, handoff, "POST", payload);
+      expect(result.status).toBe(200);
+      const body = await result.json();
+      expect(body).toEqual({ id: expect.any(String) });
+      return z.object({ id: z.string().uuid() }).parse(body).id;
+    };
+    const ref = handoff + "/" + await stage();
+    expect((await send(token, ref, "POST")).status).toBe(401);
+    expect(await (await request(ref, "owner", "POST")).json()).toEqual({ invocation: payload });
+    expect((await request(ref, "owner", "POST")).status).toBe(404);
+    const pending = handoff + "/" + await stage();
+    expect((await request(pairing, "owner", "DELETE")).status).toBe(200);
+    expect((await send(token, "/launcher/search?q=fixture")).status).toBe(401);
+    expect((await send(token, handoff, "POST", payload)).status).toBe(401);
+    expect((await request(pending, "owner", "POST")).status).toBe(404);
+  });
 
   test("human page saves and asset attachments provide filename-only workday evidence", async () => {
     const { request, config } = await fixture();

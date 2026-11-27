@@ -10,7 +10,7 @@ const CHANNEL = "legalwork:dictation-hud";
 
 /** A non-activating control bar: clicking it must preserve the paste target. */
 export class DictationHud {
-  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string, includeMatters?: boolean) => Promise<unknown> }} actions */
+  /** @param {{ onStart: () => void, onStop: () => void, onCancel: () => void, onMicrophoneMenu?: () => void, onSetup?: () => void, onAssistant?: () => void, onMeetingStart?: () => void, onMeetingStop?: () => void, onMeetingDismiss?: () => void, onMeetingOpen?: () => void, stopwatchRequest?: (action?: {type: string, id: string}, profileId?: string, includeMatters?: boolean) => Promise<unknown> }} actions */
   constructor(actions) {
     this.actions = actions;
     /** @type {BrowserWindow | null} */
@@ -32,6 +32,8 @@ export class DictationHud {
     this.locale = null;
     /** @type {Pick<import("@legalwork/types/audio").AudioSystemDictationStatus, "miniBarEnabled" | "enabled" | "registered" | "shortcutCaptureActive" | "mode" | "accelerator" | "platform" | "appearance">} */
     this.status = { miniBarEnabled: false, appearance: "app", enabled: false, registered: false, shortcutCaptureActive: false, mode: "tap", accelerator: "", platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux" };
+    /** The floating companion: a handle into the Assistant with quiet attention and recording status. */
+    this.companion = { badge: true, attention: 0, recording: false };
     this.hideTimer = null;
     this.settleKey = "";
     this.updateVersion = 0;
@@ -69,6 +71,7 @@ export class DictationHud {
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();
       if (action === "meeting-open") this.actions.onMeetingOpen?.();
+      if (action === "assistant-open") { this.actions.onAssistant?.(); return; }
       if (this.meeting && this.meeting.state !== "idle") return;
       if (action === "microphone-menu" && this.state === "idle") this.actions.onMicrophoneMenu?.();
       if (action === "start" && this.state === "idle") {
@@ -98,6 +101,12 @@ export class DictationHud {
 
   get displayState() {
     return this.meeting && this.meeting.state !== "idle" ? `meeting-${this.meeting.state}` : this.state;
+  }
+
+  /** @param {{ badge: boolean, attention: number, recording: boolean }} state */
+  async setCompanion(state) {
+    this.companion = { ...this.companion, ...state };
+    await this.setState(this.state, this.message, this.locale);
   }
 
   /** @param {import('@legalwork/types/audio').AudioMeetingStatus} status */
@@ -284,6 +293,7 @@ export class DictationHud {
     this.window.webContents.send(`${CHANNEL}:state`, {
       state: this.displayState,
       meeting: this.meeting,
+      companion: this.companion,
       stopwatch: this.stopwatchState,
       message: this.message,
       microphoneName: this.microphoneName,

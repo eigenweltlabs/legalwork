@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:">
+  <meta name="color-scheme" content="light dark">
+  <title>Capture Window</title>
+  <style>
+    body { margin: 20px; color: CanvasText; background: Canvas; font: 14px system-ui; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; }
+    h1 { font-size: 16px; margin: 0; }
+    button { color: inherit; border: 1px solid GrayText; border-radius: 8px; background: Canvas; padding: 8px; cursor: pointer; font: inherit; }
+    button:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+    #sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    #sources button { display: grid; gap: 8px; min-width: 0; }
+    img { width: 100%; height: 130px; object-fit: contain; }
+    span { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <header><h1 id="title">Choose a window to capture</h1><button id="cancel" type="button">Cancel</button></header>
+  <main id="sources" aria-labelledby="title"></main>
+  <script src="window-picker.js"></script>
+</body>
+</html>

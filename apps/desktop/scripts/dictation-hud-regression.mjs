@@ -61,7 +61,7 @@ app.whenReady().then(async () => {
     }
     return structuredClone(timerState);
   };
-  const hud = new DictationHud({ stopwatchRequest: testingStopwatch ? stopwatchRequest : undefined, onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
+  const hud = new DictationHud({ stopwatchRequest: testingStopwatch ? stopwatchRequest : undefined, onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onAssistant: () => actions.push("assistant-open"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
   try {
     if (output) await mkdir(output, { recursive: true });
     await writeFile(hud.positionPath, JSON.stringify({ dock: "top" }));
@@ -113,6 +113,11 @@ app.whenReady().then(async () => {
     };
     const center = id => window.webContents.executeJavaScript(`(() => {const r=document.getElementById('${id}').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
     if (testingStopwatch) {
+      // The dock cases own the synthetic pointer; native focus changes belong
+      // to the separate display-following tests below.
+      hud.stopWatchingDisplay?.();
+      hud.stopWatchingDisplay = null;
+      hud.focusedDisplayId = null;
       const read = source => window.webContents.executeJavaScript(source);
       const move = point => input({ type: "mouseMove", ...point });
       const click = async point => {
@@ -128,16 +133,19 @@ app.whenReady().then(async () => {
         await hud.setState("idle", "", dock === "bottom" ? "en" : "de");
         move({ x: 220, y: 8 });
         await delay(400);
-        const mic = await center("start");
         const compact = () => read(`(() => {
           const bar = document.getElementById("bar").getBoundingClientRect();
           return [bar.width, bar.height, getComputedStyle(document.getElementById("stopwatch")).pointerEvents];
         })()`);
         const resting = dock === "bottom" ? [62, 28, "auto"] : [30, 60, "auto"];
+        await waitFor(async () => JSON.stringify(await compact()) === JSON.stringify(resting), dock + " finishes collapsing before measurement");
         assert.deepEqual(await compact(), resting, dock + " shows the timer before hover");
+        const mic = await center("start");
         const timer = await center("stopwatch");
         move(mic);
         await delay(400);
+        const expanded = dock === "bottom" ? [126, 28, "auto"] : [30, 124, "auto"];
+        await waitFor(async () => JSON.stringify(await compact()) === JSON.stringify(expanded), dock + " finishes expanding before measurement");
         const pinnedMic = await center("start");
         assert.ok(Math.hypot(mic.x - pinnedMic.x, mic.y - pinnedMic.y) <= 2, dock + " keeps the microphone anchored");
         const axis = dock === "bottom" ? "x" : "y";
@@ -159,8 +167,13 @@ app.whenReady().then(async () => {
             return r.width > 0 && r.height > 0 && r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom;
           });
           return [buttons.map(b => b.id), box.width, box.height, getComputedStyle(document.getElementById("meeting-start-label")).opacity];
-        })()`), [["start", "stopwatch", "meeting-start"], dock === "bottom" ? 94 : 30, dock === "bottom" ? 28 : 92, "1"]);
+        })()`), [["start", "stopwatch", "meeting-start", "assistant"], dock === "bottom" ? 126 : 30, dock === "bottom" ? 28 : 124, "1"]);
         assert.deepEqual(await center("stopwatch"), timer, dock + " keeps the timer anchored on hover");
+        const assistant = await center("assistant");
+        assert.ok(assistant[axis] > previous[axis], dock + " keeps Assistant after the meeting action");
+        await click(assistant);
+        assert.deepEqual(actions.splice(0), ["assistant-open"], "Assistant opens independently of capture");
+        assert.equal(timerState.active, null, "opening Assistant does not start a stopwatch");
         await click(timer);
         assert.equal(await read('document.querySelector("#stopwatch-confirm").disabled'), false);
         await read(`(() => {

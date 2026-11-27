@@ -109,9 +109,8 @@ function timestamp(ms: number) {
     : `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export async function readRecordingTranscript(source: Source, id: string, input: unknown, authorize?: (meta: AudioRecordingMeta) => Promise<void>) {
+export async function readAuthorizedRecording(source: Source, id: string, authorize?: (meta: AudioRecordingMeta) => Promise<void>) {
   parse(recordingId, id);
-  const query = parse(recordingReadQuery, input);
   if (!source.recorder?.readRecording) unavailable();
   if (authorize) {
     if (!source.recorder.listRecordings) unavailable();
@@ -124,6 +123,12 @@ export async function readRecordingTranscript(source: Source, id: string, input:
   // Recheck after I/O: a project association or a chat grant can change while
   // approval or disk reads are pending. Never return content under stale access.
   if (authorize) await authorize(detail.meta);
+  return detail;
+}
+
+export async function readRecordingTranscript(source: Source, id: string, input: unknown, authorize?: (meta: AudioRecordingMeta) => Promise<void>) {
+  const query = parse(recordingReadQuery, input);
+  const detail = await readAuthorizedRecording(source, id, authorize);
   const offset = query.offset ?? 0, limit = query.limit ?? 20000;
   const segments = detail.segments.filter(segment => segment.final);
   const content = segments.map(segment => {

@@ -201,6 +201,7 @@ export const SETTINGS_TAB_VALUES = [
   "recovery",
   "office-addins",
   "recorder",
+  "launcher",
   "time-tracking",
   "billing",
   "debug",

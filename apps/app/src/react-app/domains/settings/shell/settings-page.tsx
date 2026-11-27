@@ -27,7 +27,7 @@ import {
   UserCircle,
   Wrench,
   Zap,
-} from "lucide-react";
+ Command } from "lucide-react";
 
 import {
   SidebarContent,
@@ -116,6 +116,8 @@ function getSettingsTabIcon(tab: SettingsTab) {
       return Timer;
     case "recorder":
       return Mic;
+    case "launcher":
+      return Command;
     case "debug":
       return Bug;
     default:
@@ -187,6 +189,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("timesheets.workspace_title");
     case "recorder":
       return t("recorder.settings_tab_label");
+    case "launcher":
+      return t("launcher.settings.tab_label");
     case "debug":
       return t("settings.tab_debug");
     case "general":
@@ -250,6 +254,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("timeWorkspace.settingsDescription");
     case "recorder":
       return t("recorder.settings_tab_description");
+    case "launcher":
+      return t("launcher.settings.tab_description");
     case "debug":
       return t("settings.tab_description_debug");
     case "general":
@@ -277,6 +283,8 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   if (isDesktopRuntime()) tabs.splice(3, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
   if (isDesktopRuntime()) tabs.splice(3, 0, "recorder");
+  // The launcher follows the Assistant it belongs to.
+  tabs.splice(tabs.indexOf("assistant") + 1, 0, "launcher");
   if (developerMode) tabs.push("debug");
   return tabs;
 }

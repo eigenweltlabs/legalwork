@@ -36,12 +36,13 @@ test("the built native shared boundary runs in plain Node without workspace pack
     await mkdir(join(root, "node_modules"));
     await symlink(dirname(createRequire(import.meta.url).resolve("zod/package.json")), join(root, "node_modules", "zod"), "dir");
     const executed = spawnSync("node", ["--input-type=module", "-e", `
-      import {EIGENWELT_DEPLOYMENTS, automaticAssistantBrowserModel, inferNativeDefaultVariant, isInternalSession, isRetiredRemoteWorkspace, LegalMemoryPermissionReplySchema, ScheduledTaskMessageSchema, isReviewWorkerSession, browserPasswordRequestSchema, codeModeWidgetResults, toolDisplayText} from ${JSON.stringify(new URL(`file://${output}`).href)};
+      import {LauncherSearchFolderSchema, launcherResultActions, EIGENWELT_DEPLOYMENTS, automaticAssistantBrowserModel, inferNativeDefaultVariant, isInternalSession, isRetiredRemoteWorkspace, LegalMemoryPermissionReplySchema, ScheduledTaskMessageSchema, isReviewWorkerSession, browserPasswordRequestSchema, codeModeWidgetResults, toolDisplayText} from ${JSON.stringify(new URL(`file://${output}`).href)};
       if (EIGENWELT_DEPLOYMENTS.eu.platform !== 'https://eu.platform.eigenweltlabs.com' || EIGENWELT_DEPLOYMENTS.us.platform !== 'https://us.platform.eigenweltlabs.com') throw new Error('missing regional endpoint configuration');
       if (automaticAssistantBrowserModel([{providerID:'eigenwelt',id:'fixture',name:'GPT-6.1 Terra (EU)'}])?.id !== 'fixture') throw new Error('missing browser model default');
       if (inferNativeDefaultVariant({headers:{'X-Mode':'careful'},variants:[{id:'Careful',headers:{'x-mode':'careful'}}]}) !== 'Careful') throw new Error('variant inference changed');
       if (typeof isInternalSession !== 'function' || typeof isRetiredRemoteWorkspace !== 'function' || typeof isReviewWorkerSession !== 'function') throw new Error('missing runtime guard');
       if (typeof codeModeWidgetResults !== 'function' || toolDisplayText([{type:'text',text:'retained tool output'}]) !== 'retained tool output') throw new Error('missing shared chat tool helpers');
+      if (!LauncherSearchFolderSchema.safeParse || typeof launcherResultActions !== 'function') throw new Error('missing launcher runtime exports');
       if (!LegalMemoryPermissionReplySchema.safeParse || !ScheduledTaskMessageSchema.safeParse || !browserPasswordRequestSchema.safeParse) throw new Error('missing runtime schema');
     `], { cwd: root, encoding: "utf8" });
     expect(executed.status, executed.stderr).toBe(0);

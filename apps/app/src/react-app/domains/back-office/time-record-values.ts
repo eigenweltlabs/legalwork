@@ -95,4 +95,3 @@ export function proposalValues(proposal: CaptureProposal, state: TimesheetState,
 export function isUntitledStopwatch(proposal: CaptureProposal) {
   return proposal.source === "stopwatch" && !proposal.suggested && !proposal.activity && !proposal.parentDigest && (!proposal.narrative.trim() || proposal.narrative === "Stopwatch");
 }
-

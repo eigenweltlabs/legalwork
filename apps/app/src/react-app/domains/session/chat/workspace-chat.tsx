@@ -48,7 +48,7 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);
   const providers = useProviderListQuery({ client, baseUrl: props.opencodeBaseUrl, directory: props.workspaceRoot || undefined });
-  const assistant = useChatModelPreferences(Boolean(props.assistantDate), providers.data);
+  const assistant = useChatModelPreferences(Boolean(props.assistantChat), providers.data);
   const defaults = useMemo(() => ({ model: props.selectedModel, variant: props.modelVariant }), [props.selectedModel, props.modelVariant]);
   const timekeeping = Boolean(props.timekeeping);
   const savedModel = props.timekeeping?.model;
@@ -56,14 +56,14 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
   const savedChoiceKey = JSON.stringify([key, savedModel?.workspaceId, savedModel?.providerID, savedModel?.modelID]);
   const changingFrom = useRef<string | null>(null);
   const selection = useMemo(() => {
-    if (props.assistantDate) return { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant };
+    if (props.assistantChat) return { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant };
     if (foreignModel && savedModel) return { model: savedModel, variant: null };
     return timekeeping ? resolveTimekeepingChatModel(providers.data, stored, savedModel, defaults) : stored ?? defaults;
-  }, [props.assistantDate, assistant.model, assistant.variant, foreignModel, timekeeping, providers.data, stored, savedModel, defaults]);
+  }, [props.assistantChat, assistant.model, assistant.variant, foreignModel, timekeeping, providers.data, stored, savedModel, defaults]);
   useEffect(() => {
-    if (!props.assistantDate && !timekeeping && defaults.model.providerID && defaults.model.modelID)
+    if (!props.assistantChat && !timekeeping && defaults.model.providerID && defaults.model.modelID)
       useSessionModelStore.getState().initialize(key, defaults);
-  }, [key, props.assistantDate, timekeeping, defaults]);
+  }, [key, props.assistantChat, timekeeping, defaults]);
   const picker = useModelPicker({ client, baseUrl: props.opencodeBaseUrl, workspaceRoot: props.workspaceRoot, listenForDefaults: false });
   // Matching IDs can refer to different endpoints in different projects.
   const unavailable = foreignModel || Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
@@ -89,7 +89,7 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
     }
   };
   const select = (model: ModelRef) => {
-    if (props.assistantDate) assistant.onModelChange(model);
+    if (props.assistantChat) assistant.onModelChange(model);
     else {
       chooseSessionModel(model, selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null, true);
       if (!props.timekeeping) props.onModelChange(model);
@@ -97,7 +97,7 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
     picker.setCompactOpen(false); picker.setOpen(false);
   };
   const selectBehavior = (model: ModelRef, variant: string | null) => {
-    if (props.assistantDate) assistant.onSelectionChange({ model, variant });
+    if (props.assistantChat) assistant.onSelectionChange({ model, variant });
     else chooseSessionModel(model, variant, false);
   };
   const modelSettings: ModelSettings = {

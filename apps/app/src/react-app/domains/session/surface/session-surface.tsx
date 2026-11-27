@@ -177,6 +177,8 @@ export type SessionSurfaceProps = {
     modelChanged: (model: ModelRef, confirm?: boolean) => void;
     context: string;
   };
+  assistantChat?: boolean;
+  /** Only a daily Assistant session can page into adjacent days. */
   assistantDate?: string;
   assistantName?: string;
   assistantHeader?: ReactNode;
@@ -209,7 +211,7 @@ export type SessionSurfaceProps = {
   aiPlansGate?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
-  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => void | Promise<void>;
+  onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean; queue?: Omit<QueueInput, "execution">; modelSelection?: { model: ModelRef; variant: string | null } }) => void | Promise<void | { preserveDraft: boolean }>;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
   attachmentsDisabledReason: string | null;
@@ -558,7 +560,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // Also needed while a connect notice may show: a firm on the Knowledge
     // Hub plan is signed in with no model and gets its own wording.
     enabled:
-      Boolean(props.assistantDate) || props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
+      Boolean(props.assistantChat) || props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
   const subscriptionEndedNoticeVisible = hasEndedEigenweltSubscription(eigenweltEntitlementsQuery.data) &&
@@ -979,9 +981,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
   const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
   const displayedMessages = useMemo(() => mergeAssistantOutgoingMessages(
-    props.assistantDate ? assistantBubbleMessages(history.messages, snapshot, chatStreaming) : history.messages,
+    props.assistantChat ? assistantBubbleMessages(history.messages, snapshot, chatStreaming) : history.messages,
     outgoingMessages, outgoingScope, sharedQueue.state,
-  ), [props.assistantDate, history.messages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
+  ), [props.assistantChat, history.messages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state]);
   const pastSections = history.sections.filter(section => section.sessionId !== props.sessionId);
   const pastMessageIds = new Set(pastSections.flatMap(section => section.messages.map(message => message.id)));
   const dailyDate = props.timekeeping?.date ?? props.assistantDate;
@@ -1028,12 +1030,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   useEffect(() => {
-    if (props.active === false || props.assistantDate) return;
+    if (props.active === false || props.assistantChat) return;
     if (!autoOpenTarget || chatStreaming) return;
     if (autoOpenedTargetRef.current === autoOpenTarget.id) return;
     autoOpenedTargetRef.current = autoOpenTarget.id;
     props.onOpenTarget?.(autoOpenTarget, { auto: true }, props.sessionId);
-  }, [props.assistantDate, props.active, autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
+  }, [props.assistantChat, props.active, autoOpenTarget, chatStreaming, props.onOpenTarget, props.sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1893,7 +1895,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (!searchMessageId || !searchMessagePresent) return;
     const frame = requestAnimationFrame(() => {
-      if (sessionScroll.jumpToMessage(searchMessageId)) useSearchNavigation.getState().setTarget(null);
+      if (sessionScroll.jumpToMessage(searchMessageId, "auto", true)) useSearchNavigation.getState().setTarget(null);
     });
     return () => cancelAnimationFrame(frame);
   }, [searchMessageId, searchMessagePresent, sessionScroll.jumpToMessage]);
@@ -1990,7 +1992,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   return (
     <DevProfiler id="SessionSurface">
     <SessionCostProvider client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} busy={chatStreaming}>
-    <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
+    <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantChat ? "" : undefined}>
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
@@ -2031,14 +2033,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onScroll={(event) => { sessionScroll.handleScroll(event); if (history.onScroll()) jumpToLatest(); }}
           className={cn(
             "lw-session-transcript absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-4 md:px-8",
-            props.assistantDate && "[&_[data-user-message-bubble]]:bg-blue-3",
+            props.assistantChat && "[&_[data-user-message-bubble]]:bg-blue-3",
             props.realtimeVoiceActive && "pointer-events-none",
           )}
         >
           <div ref={contentRef} className={cn("lw-session-column", emptyWelcome && "flex min-h-full flex-col justify-center")}>
             {history.loading && <div role="status" className="pointer-events-none sticky top-0 z-10 h-0 overflow-visible text-center"><span className="inline-block rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">{t("assistant.loading_history")}</span></div>}
             {history.error && <div className="sticky top-0 z-10 h-0 overflow-visible text-center"><button type="button" className="rounded-full bg-background px-3 py-1 text-xs text-muted-foreground" onClick={history.retry}>{t("assistant.history_failed")} · {t("scheduled.retry")}</button></div>}
-            <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
+            <div className={cn(props.assistantChat && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
             {showOnboarding && !pastSections.length && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
@@ -2063,7 +2065,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 )}
               </div>
             ) : displayedMessages.length === 0 && effectiveActivityStatus !== "idle" ? (
-              props.assistantDate ? null : <div className="px-6 py-12"><AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} /></div>
+              props.assistantChat ? null : <div className="px-6 py-12"><AssistantWaitingCard label={getSessionActivityStatusLabel(effectiveActivityStatus)} /></div>
             ) : displayedMessages.length === 0 && snapshot && snapshot.messages.length === 0 && error ? (
               <SessionErrorCard
                 error={error}
@@ -2084,7 +2086,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
                     <MessageListProvider
-                      assistantChat={Boolean(props.assistantDate)}
+                      assistantChat={Boolean(props.assistantChat)}
                       legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
@@ -2103,7 +2105,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       {dailyDate && <AssistantHistory assistantChat={Boolean(props.assistantDate)} client={props.client} workspaceId={props.workspaceId} sections={pastSections} onboarding={props.assistantOnboarding?.state} />}
                       {dailyDate && pastSections.length > 0 && <AssistantDateDivider date={dailyDate} />}
                       <MessageList
-                        showWelcome={!props.assistantDate}
+                        showWelcome={!props.assistantChat}
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId, scope) => {
                           const subscriptionRecovery = renderSubscriptionRecovery(error,
@@ -2124,9 +2126,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                           />;
                         }}
                         messages={currentDisplayedMessages}
-                        assistantTyping={Boolean(props.assistantDate) && assistantIsWriting(renderedMessages, snapshot, chatStreaming)}
-                        status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
-                        retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
+                        assistantTyping={Boolean(props.assistantChat) && assistantIsWriting(renderedMessages, snapshot, chatStreaming)}
+                        status={props.assistantChat && (props.activePermission || props.activeQuestion) ? "ready" : status}
+                        retryStatus={props.assistantChat && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
@@ -2160,7 +2162,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
           />
         )}
-        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} client={opencodeClient} assistantChat={Boolean(props.assistantDate)} />
+        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} client={opencodeClient} assistantChat={Boolean(props.assistantChat)} />
       </div>
 
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",
@@ -2181,7 +2183,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         ) : null}
         <DevProfiler id="SessionComposer">
         <ReactSessionComposer
-          assistantName={props.assistantDate ? props.assistantName ?? t("assistant.title") : undefined}
+          assistantName={props.assistantChat ? props.assistantName ?? t("assistant.title") : undefined}
           active={props.active}
           draft={draft}
           mentions={mentions}
@@ -2295,7 +2297,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 {hasActivePlan ? (
                   <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />
                 ) : null}
-                {props.activePermission && !props.assistantDate ? (
+                {props.activePermission && !props.assistantChat ? (
                   <PermissionApprovalPanel
                     permission={props.activePermission}
                     onOpenSession={props.onOpenInteractionSession}

@@ -158,7 +158,7 @@ export class SessionMessageQueue {
           if (!action.editToken) return; // A retried enqueue is idempotent.
           if (entry.lastEditToken === action.editToken) return;
           if (inFlight(entry) || entry.edit?.token !== action.editToken) throw conflict();
-          Object.assign(entry, { draft: action.draft, execution: action.execution, status: "queued", lastEditToken: action.editToken, contentRevision: queue.revision + 1 });
+          Object.assign(entry, { draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued", lastEditToken: action.editToken, contentRevision: queue.revision + 1 });
           delete entry.edit; delete entry.error; delete entry.delivery;
         } else {
           if (action.editToken) throw conflict();
@@ -169,7 +169,7 @@ export class SessionMessageQueue {
             queue.paused = false; delete queue.pauseReason;
             queue.resumeRevision = queue.revision + 1;
           }
-          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued", contentRevision: queue.revision + 1 });
+          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued", contentRevision: queue.revision + 1 });
         }
       } else if (action.type === "steer") {
         if (queue.completedIds.includes(action.id)) return;
@@ -378,6 +378,11 @@ export class SessionMessageQueue {
 
 const queues = new WeakMap<ServerConfig, SessionMessageQueue>();
 export function registeredMessageQueue(config: ServerConfig) { return queues.get(config); }
+export function getMessageQueue(config: ServerConfig) {
+  const queue = queues.get(config);
+  if (!queue) throw new Error("The message queue is not ready.");
+  return queue;
+}
 export function registerMessageQueue(config: ServerConfig, transport: QueueTransport) {
   const directory = join(dirname(config.configPath || process.env.LEGALWORK_RUNTIME_DB || join(homedir(), ".config/legalwork/config.json")), "message-queues");
   const queue = new SessionMessageQueue(directory, transport, () => announceSyncChange(config, "queues")); queues.set(config, queue); return queue;
