@@ -54,7 +54,8 @@ test("the chat reads scoped guidelines, publishes privately and edits the same s
       const request = new Request(url, { method: "POST", body: JSON.stringify({ date, ...body }) });
       const result = await match.handler({ config, params: match.params, url, request,
         approvals: new ApprovalService(config.approval), reloadEvents: new ReloadEventStore(), tokens: new TokenService(config),
-        actor: { type: "remote", scope }, agentAccess: { directory: root, workspace } });
+        actor: { type: "remote", scope }, agentAccess: { actor: { type: "remote", scope }, directory: root, workspace,
+          sessionId: "workday-chat", originSessionId: "workday-chat", generation: "test" } });
       return result.json();
     }
     await expect(call({ action: "read" }, "collaborator")).rejects.toMatchObject({ status: 403 });

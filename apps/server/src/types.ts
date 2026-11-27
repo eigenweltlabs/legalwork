@@ -159,6 +159,7 @@ export interface ServerConfig {
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */
   requestHostApproval?: HostApprovalHandler;
+  desktopSupport?: import("./support-ticket.js").DesktopSupport;
   /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
   agentSandboxEnabled?: boolean;
   /** Host-owned admission boundary for native project automation discovery. */

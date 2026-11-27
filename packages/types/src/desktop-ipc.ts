@@ -14,6 +14,9 @@
  */
 import type { WorkspaceWire } from "./workspace.js";
 
+export type SupportContact = { name: string; phone: string; email: string; calendarUrl: string; endsAt: string };
+export type StartupSupportView = { authenticated: boolean; contact: SupportContact | null; unavailable?: boolean };
+
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
   configured: boolean;
@@ -465,6 +468,7 @@ export type DesktopCommandMap = {
   runtimeStatus: { args: []; result: unknown };
   /** Write a token-free support-log bundle and reveal it in the file manager. */
   supportBundleCollect: { args: []; result: { path: string | null } };
+  startupSupport: { args: [includeContact: boolean]; result: StartupSupportView };
   /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
   technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };

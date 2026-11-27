@@ -52,9 +52,20 @@ Configuration changes can require an engine reload. Use the reload prompt when o
 
 Open **Settings > Updates** to see the current version, release channel and last check. Use the available check, download and install/restart controls. Background checking and automatic-download preferences are separate. A check reporting an error or unsupported runtime does not mean the app is up to date. Active work can block or warn before restart. Browser/development/package-manager environments may not support the same updater as an installed desktop build.
 
-If the desktop app is stuck on its startup or migration screen, click **Check for updates** in the bottom-right corner. It opens the same Updates controls without waiting for the workspace to finish loading. The controls stay open if startup finishes while you are using them. The startup error screen also offers this button and **Collect logs for support**. During an active migration, keep LegalWork open until it finishes; the update controls retain the normal installation and restart checks.
+If the desktop app is stuck on its startup or migration screen, click **Check for updates** in the bottom-right corner. It opens the Updates controls before the workspace finishes loading. The controls stay open if startup finishes while you are using them. During an active migration, keep LegalWork open until it finishes.
+
+If startup fails, choose **Update and restart** to check for an update and install it if available. Choose **Restart LegalWork** to restart directly. If you are signed in with Eigenwelt, **Get help** shows the on-call contact or the support email. **Collect logs for support** saves a copy of the startup logs for you to review.
 
 On Windows, verifying a downloaded update can take a minute or two. Keep LegalWork open while it prepares the installer. If an older version repeatedly reports a signature-check command error, quit LegalWork and run the matching official installer from the LegalWork download page. This retains your existing app profile; you do not need to uninstall the app or delete its settings.
+
+## Get support in chat
+
+1. Select **Help** above **Settings** in the bottom-left sidebar, then select **Ask LegalWork** to open a blank support chat in your last project. Describe what failed or select a starter prompt to fill the composer. You can edit the prompt before sending. Include the feature or model you were using and what you expected to happen. If the model cannot respond, select a working model in the same chat and ask again.
+2. Ask LegalWork can diagnose app errors by checking recent technical errors in this chat and suggest a fix, such as choosing a compatible model or clarifying how to use a tool.
+3. To report the issue, sign in with Eigenwelt in the desktop app and ask the assistant to send a support ticket. Review the description in the LegalWork Support dialog. Your account email and user ID are included so the support team can identify your account.
+4. Choose **Send without logs** for the description alone, **Send with logs** to include the **Support Logs** from **Settings > Updates**, or **Cancel** to close the dialog. The logs can contain file paths or error details. You can save and inspect the export from Updates first. LegalWork sends the report when you choose a send option and returns a ticket reference in chat when delivery is confirmed.
+
+If you are signed in with Eigenwelt, the **For urgent issues:** section of the Help menu shows who is on duty. Select **Phone**, **Email** or **Calendar** to reach them. If nobody is on duty or their contact details are unavailable, the section shows a single **Email** button that opens a draft to chris@eigenweltlabs.com.
 
 ## Diagnostics and recovery
 

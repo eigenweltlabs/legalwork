@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     };
   },
   shell: {
+    openSupportPhone(phone) {
+      return ipcRenderer.invoke("legalwork:shell:openSupportPhone", phone);
+    },
     openExternal(url) {
       return ipcRenderer.invoke("legalwork:shell:openExternal", url);
     },

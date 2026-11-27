@@ -8,9 +8,10 @@ import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import { t } from "@/i18n";
 import "./session-surfaces.css"
 
-export function WelcomeHeading() {
+export function WelcomeHeading({ variant }: { variant?: "support" } = {}) {
   const wiki = useContext(ChatWorkspaceContext) === "wiki"
-  const headline = t(wiki ? "session_welcome.wiki_headline" : "session_welcome.headline")
+  const support = variant === "support"
+  const headline = t(support ? "support.welcome_headline" : wiki ? "session_welcome.wiki_headline" : "session_welcome.headline")
   return (
     <motion.div
       className="lw-session-welcome-heading"
@@ -20,7 +21,7 @@ export function WelcomeHeading() {
       }}
     >
       <h2 className="lw-session-welcome-title">
-        {t("session_welcome.greeting")}{" "}
+        {t(support ? "support.welcome_greeting" : "session_welcome.greeting")}{" "}
         <span className="sr-only">{headline}</span>
         <span aria-hidden="true">
           {Array.from(headline, (letter, index) => (
@@ -29,14 +30,14 @@ export function WelcomeHeading() {
         </span>
       </h2>
       <p className="lw-session-welcome-description">
-        {t(wiki ? "session_welcome.wiki_subtitle" : "session_welcome.subtitle")}
+        {t(support ? "support.welcome_subtitle" : wiki ? "session_welcome.wiki_subtitle" : "session_welcome.subtitle")}
       </p>
     </motion.div>
   )
 }
 
 /** A quiet, one-time entrance for each empty conversation. */
-export function WelcomeSurface({ children, replayKey }: { children: ReactNode; replayKey: string }) {
+export function WelcomeSurface({ children, replayKey, variant }: { children: ReactNode; replayKey: string; variant?: "support" }) {
   const reduceMotion = useReducedMotion()
 
   return (
@@ -51,13 +52,13 @@ export function WelcomeSurface({ children, replayKey }: { children: ReactNode; r
         visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.075 } },
       }}
     >
-      <WelcomeHeading />
+      <WelcomeHeading variant={variant} />
       {children}
     </motion.section>
   )
 }
 
-export function SessionWelcome() {
+export function SessionWelcome({ variant }: { variant?: "support" }) {
   const { sessionId } = useMessageList()
-  return <WelcomeSurface replayKey={sessionId}><TaskSuggestions /></WelcomeSurface>
+  return <WelcomeSurface replayKey={sessionId} variant={variant}><TaskSuggestions variant={variant} /></WelcomeSurface>
 }

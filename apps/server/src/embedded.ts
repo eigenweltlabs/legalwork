@@ -63,6 +63,7 @@ export type EmbeddedServerOptions = CliArgs & {
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
   /** Host-owned approval presentation for manual mode. */
   requestHostApproval?: ServerConfig["requestHostApproval"];
+  desktopSupport?: ServerConfig["desktopSupport"];
   /** When true, spawn a managed OpenCode child process. */
   manageOpencode?: boolean;
   /** Host-only existing execution boundary; desktop defaults to protected. */
@@ -135,6 +136,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.engineProjectTrustRequired = managedEngine;
   config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
+  config.desktopSupport = options.desktopSupport;
   config.pickDirectory = options.pickDirectory ?? null;
   config.renderHtmlPdf = options.renderHtmlPdf;
   if (managedEngine) config.projectsDirectory = options.projectsDirectory || localProjectsDirectory();

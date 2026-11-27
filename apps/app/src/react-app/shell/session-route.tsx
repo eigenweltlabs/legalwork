@@ -1942,7 +1942,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string }) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId?: string; paneId?: string; support?: boolean }) => {
     const embedded = Boolean(timeSection && timeChatWorkspace?.id === workspaceId);
     const workspace = embedded ? timeChatWorkspace : workspaces.find((item) => item.id === workspaceId);
     if (workspace?.preset === "main-assistant" || workspaceId === assistant.data?.workspace.id) {
@@ -1969,7 +1969,10 @@ export function SessionRoute() {
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
       setRouteError(null);
       const session = unwrap(
-        await createSessionView(workspaceClient,{ directory: workspace.path?.trim() || undefined }),
+        await createSessionView(workspaceClient, {
+          directory: workspace.path?.trim() || undefined,
+          ...(options?.support ? { metadata: { legalworkSupport: true } } : {}),
+        }),
       );
       registerEmptySession(session.id);
       // The UI calls this "New Chat" now, but the analytics names stay as they
@@ -2035,6 +2038,18 @@ export function SessionRoute() {
       }
     }
   }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces, timeChatWorkspace, timeSection, assistant.data?.workspace.id]);
+
+  const supportChatRequest = useRef<string | null>(null);
+  useEffect(() => {
+    if (location.state?.askLegalWork !== true || !client || loading || supportChatRequest.current === location.key) return;
+    const preferredProjectId = readLastProjectId() ?? readActiveWorkspaceId();
+    const workspace = sidebarWorkspaces.find(item => item.id === preferredProjectId) ?? sidebarWorkspaces[0];
+    if (workspace && retryingWorkspaceIds.includes(workspace.id)) return;
+    supportChatRequest.current = location.key;
+    navigate("/home", { replace: true, state: null });
+    if (workspace) void handleCreateChatInWorkspace(workspace.id, { support: true });
+    else setNewChatOpen(true);
+  }, [client, handleCreateChatInWorkspace, loading, location.key, location.state, navigate, retryingWorkspaceIds, sidebarWorkspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we

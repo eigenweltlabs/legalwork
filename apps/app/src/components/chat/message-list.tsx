@@ -1097,6 +1097,7 @@ function MessageGroup({
 
 interface SessionMessageListProps {
   showWelcome?: boolean
+  welcomeVariant?: "support"
   renderUsageLimit?: UsageLimitRenderer
 
   eigenweltPlan?: EigenweltBudgetPlan
@@ -1128,7 +1129,7 @@ export function MessageList(props: SessionMessageListProps | PlainTextMessageLis
   return <SessionMessageList {...props} />;
 }
 
-function SessionMessageList({ showWelcome = true, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: SessionMessageListProps) {
+function SessionMessageList({ showWelcome = true, welcomeVariant, eigenweltPlan = null, messages: rawMessages, status, assistantTyping, retryStatus, renderUsageLimit }: SessionMessageListProps) {
   const { assistantChat, showThinking } = useMessageList();
   const messages = React.useMemo(() => assistantChat ? assistantChatMessages(rawMessages) : rawMessages, [assistantChat, rawMessages]);
   const reactions = React.useMemo(() => assistantChat ? assistantReactions(rawMessages) : new Map<string, string>(), [assistantChat, rawMessages]);
@@ -1152,7 +1153,7 @@ function SessionMessageList({ showWelcome = true, eigenweltPlan = null, messages
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={messageListClass}>
-      {showWelcome && messages.length === 0 && <SessionWelcome />}
+      {showWelcome && messages.length === 0 && <SessionWelcome variant={welcomeVariant} />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {

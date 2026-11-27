@@ -2104,6 +2104,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       {dailyDate && pastSections.length > 0 && <AssistantDateDivider date={dailyDate} />}
                       <MessageList
                         showWelcome={!props.assistantDate}
+                        welcomeVariant={snapshot?.session.metadata?.legalworkSupport === true ? "support" : undefined}
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId, scope) => {
                           const subscriptionRecovery = renderSubscriptionRecovery(error,

@@ -188,7 +188,8 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   if (method === "POST" && /^\/wikis\/[^/]+\/sessions\/[^/]+\/projects\/[^/]+\/access$/.test(pathname)) return true;
   if (method === "POST" && /^\/workspace\/[^/]+\/view-generations\/[^/]+$/.test(pathname)) return true;
   if (method === "POST" && pathname === "/back-office/dashboard-query") return true;
-  if (method === "GET" && pathname === "/agent/file-workspace") return true;
+  if (method === "GET" && ["/agent/file-workspace", "/agent/support/diagnostics", "/agent/support/ticket"].includes(pathname)) return true;
+  if (method === "POST" && pathname === "/agent/support/ticket") return true;
   if (method === "GET" && pathname === "/wikis/file-policy") return true;
   if (method === "GET" && (pathname === "/workspaces" || pathname === "/wikis")) return true;
   if (method === "GET" && /^\/wikis\/(?!deleted$|team$)[^/]+$/.test(pathname)) return true;
@@ -283,7 +284,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
     if (!source.success || source.data.sourceSessionId !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this chat's own delegation context.");
   }
-  const workspace = toolWorkspaceId || pathname === "/agent/file-workspace" ? await fileWorkspace(config, origin) : undefined;
+  const workspace = toolWorkspaceId || ["/agent/file-workspace", "/agent/support/diagnostics"].includes(pathname) ? await fileWorkspace(config, origin) : undefined;
   if (toolWorkspaceId) {
     const preview = pathname.match(/\/sessions\/([^/]+)\/view-previews$/);
     if (preview && decodeURIComponent(preview[1]) !== sessionId)

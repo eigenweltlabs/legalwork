@@ -43,6 +43,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Firm infrastructure region, EU/US hosting or account routing | [settings-privacy.md](references/settings-privacy.md#firm-infrastructure-region) |
 | Show costs, prompt or conversation cost, token breakdown, cached input or unavailable model pricing | [settings-privacy.md](references/settings-privacy.md#show-prompt-and-conversation-costs) |
 | Setup | [getting-started.md](references/getting-started.md) |
+| Support in chat, sending a ticket or attaching support logs | [troubleshooting.md](references/troubleshooting.md#get-support-in-chat) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 
 Answer the question directly and briefly. For setup, give the ordinary path and necessary prerequisites; explain alternative methods only if relevant or requested. Reuse the page's `legalwork://app/...` links as natural labels, for example [Connectors](legalwork://app/settings/extensions/mcp). Clicking one navigates inside LegalWork. Do not invent destinations or turn an explanation into a settings change.

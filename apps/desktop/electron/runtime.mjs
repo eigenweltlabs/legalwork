@@ -601,7 +601,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, modelDownloadFetch, desktopSupport, opencodeCandidateBuild = undefined }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     showMessageBox: async (window, options) => {
@@ -819,9 +819,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return { port: await findFreePort(host), preferredPort };
   }
 
-  async function ensureDevModePaths() {
+  function devModePaths() {
     const root = path.join(userDataDir, "legalwork-dev-data");
-    const paths = {
+    return {
       homeDir: path.join(root, "home"),
       xdgConfigHome: path.join(root, "xdg", "config"),
       xdgDataHome: path.join(root, "xdg", "data"),
@@ -829,7 +829,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       xdgStateHome: path.join(root, "xdg", "state"),
       opencodeConfigDir: path.join(root, "config", "opencode"),
     };
+  }
 
+  async function ensureDevModePaths() {
+    const paths = devModePaths();
     for (const dir of Object.values(paths)) {
       await mkdir(dir, { recursive: true });
     }
@@ -1361,6 +1364,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return { vault, lock: vaultLock, browserPasswords: new BrowserPasswordStore(vault) };
   }
 
+  /** @param {boolean} includeContact */
+  async function startupSupport(includeContact) {
+    const env = process.env.LEGALWORK_DEV_MODE === "1"
+      ? { ...process.env, XDG_CONFIG_HOME: devModePaths().xdgConfigHome }
+      : process.env;
+    const configPath = inProcessServer?.config?.configPath || resolveLegalworkServerConfigPath(env);
+    const directory = path.dirname(locateEmbeddedServerPath());
+    const { readStartupSupport } = await import(pathToFileURL(path.join(directory, "support-ticket.js")).href);
+    return readStartupSupport(configPath, includeContact);
+  }
+
   async function startLegalworkServer(options) {
     const previousSelection = { id: embeddedWorkspaceId, path: embeddedRequestedPath };
     const currentPort = legalworkServerState.port;
@@ -1454,6 +1468,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // LEGALWORK_APPROVAL_MODE or server.json approval.mode setting.
       defaultApprovalMode: "auto",
       requestHostApproval,
+      desktopSupport,
       configPath: serverConfigPath,
       workspaces: workspacePaths,
       token: tokens.clientToken,
@@ -2304,6 +2319,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     },
     runtimeStatus,
     collectRuntimeDiagnostics,
+    startupSupport,
     engineInfo,
     engineDoctor,
     engineInstall,

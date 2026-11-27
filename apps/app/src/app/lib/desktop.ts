@@ -64,6 +64,7 @@ declare global {
       };
       shell?: {
         openExternal?: (url: string) => Promise<void>;
+        openSupportPhone?: (phone: string) => Promise<void>;
         relaunch?: () => Promise<void>;
       };
       system?: {
@@ -319,6 +320,12 @@ export async function openDesktopUrl(url: string): Promise<void> {
   if (typeof window !== "undefined") {
     window.open(url, "_blank", "noopener,noreferrer");
   }
+}
+
+export async function openSupportPhone(phone: string): Promise<void> {
+  const openPhone = window.__LEGALWORK_ELECTRON__?.shell?.openSupportPhone;
+  if (openPhone) await openPhone(phone);
+  else window.location.href = `tel:${phone}`;
 }
 
 export async function openDesktopPath(target: string): Promise<void> {
