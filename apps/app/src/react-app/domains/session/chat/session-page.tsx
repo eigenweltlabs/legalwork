@@ -1160,8 +1160,8 @@ export function SessionPage(props: SessionPageProps) {
             onClose={closeRightPane}
             projectId={props.selectedWorkspaceId}
             renderProjectView={wikiWorkspace ? undefined : (view, active) => renderProjectView(view, true, active)}
-            renderBackOffice={(path, active) => props.legalworkServerClient
-              ? <BackOfficeWorkspaceTab client={props.legalworkServerClient} scope={workspaceScope} path={path} active={active} />
+            renderBackOffice={(tab, active) => props.legalworkServerClient
+              ? <BackOfficeWorkspaceTab client={props.legalworkServerClient} scope={workspaceScope} tab={tab} active={active} />
               : <p className="p-6">{t("projects.connecting")}</p>}
             onOpenTabWindow={isElectronRuntime() ? tab => { void openWorkspaceWindow(props.selectedWorkspaceId, tab).catch(() => toast.error(t("projects.open_in_new_window_failed"))); } : undefined}
             onDropChat={(ids, pane, edge) => {

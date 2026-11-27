@@ -10,7 +10,7 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { writeProjectFileDrag } from "@/app/lib/project-file-drag";
 import { acceptsProjectViewDrag, readProjectViewDrag, startProjectViewDrag } from "../sidebar/project-view-drag";
-import { projectViewTab, samePanelTab } from "./panel-tab-store";
+import { newBackOfficeTab, projectViewTab, samePanelTab, type ProjectViewTab } from "./panel-tab-store";
 import { projectViewLabel } from "./project-view";
 export { projectViewLabel } from "./project-view";
 import { PanelTabDestinationProvider } from "./panel-tab-destination";
@@ -137,7 +137,7 @@ type SidePanelProps = {
   onOpenWiki?: (pane: string) => void;
   onOpenWikiGraph?: (pane: string) => void;
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
-  renderBackOffice?: (path: string | undefined, active: boolean) => React.ReactNode;
+  renderBackOffice?: (tab: ProjectViewTab, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
   renderWikiTab?: (tab: WikiPanelTab) => React.ReactNode;
@@ -386,8 +386,10 @@ type SidePanelTabProps = {
 function SidePanelTab({ tab, page, onReorder, workspaceId, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
   const tabRef = React.useRef<HTMLDivElement>(null);
   const sourceName = useProjectFiles()?.projects.find(project => project.projectId === fileSource?.projectId)?.name;
+  const backOffice = tab.type === "project-view" && tab.view === "back-office";
   const label = tab.type === "artifact" && tab.value && !tab.storage
-    ? projectFileDisplayName(tab.value, tab.label) : tab.type === "project-view" ? projectViewLabel(tab.view) : page?.label ?? tab.label;
+    ? projectFileDisplayName(tab.value, tab.label) : tab.type === "project-view" && !backOffice ? projectViewLabel(tab.view) : page?.label ?? tab.label;
+  const title = backOffice && label !== projectViewLabel("back-office") ? `${projectViewLabel("back-office")} · ${label}` : label;
 
   React.useEffect(() => {
     if (active) {
@@ -415,7 +417,7 @@ function SidePanelTab({ tab, page, onReorder, workspaceId, fileSource, projectId
           if (fileSource) { writeProjectFileDrag(event.dataTransfer, fileSource, projectId); event.dataTransfer.effectAllowed = "copyMove"; }
           if (projectId) {
             if (tab.type === "chat") startSessionDrag(event.dataTransfer, projectId, tab.sessionId);
-            else if (tab.type === "project-view") startProjectViewDrag(event.dataTransfer, projectId, tab.view);
+            else if (tab.type === "project-view" && tab.view !== "back-office") startProjectViewDrag(event.dataTransfer, projectId, tab.view);
             else if (tab.type === "task" || tab.type === "review" || tab.type === "recording") startProjectItemDrag(event.dataTransfer, projectId, tab);
           }
           const surface = tabRef.current?.querySelector<HTMLElement>("[aria-pressed]");
@@ -439,7 +441,7 @@ function SidePanelTab({ tab, page, onReorder, workspaceId, fileSource, projectId
               if (button.isConnected && (document.activeElement === document.body || document.activeElement === button)) button.focus();
             });
           }}
-          title={fileSource ? `${label} · ${sourceName ?? fileSource.projectId} / ${fileSource.path}` : preview ? `${label} · ${t("workspace.preview_hint")}` : label}
+          title={fileSource ? `${label} · ${sourceName ?? fileSource.projectId} / ${fileSource.path}` : preview ? `${label} · ${t("workspace.preview_hint")}` : title}
           aria-label={t("side_panel.select_tab", { label })}
         >
           {tab.type === "browser" ? (
@@ -1156,8 +1158,10 @@ function SidePanelContent({
                 ...(renderProjectView ? ["calendar", "reviews", "tasks", "dashboards"] as const : []),
                 ...(renderBackOffice ? ["back-office"] as const : []),
               ] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
-                const tab = projectViewTab(view, projectViewLabel(view));
                 const store = usePanelTabStore.getState();
+                const label = projectViewLabel(view);
+                if (view === "back-office") { store.openTab(sessionId, newBackOfficeTab(label), pane.id); return; }
+                const tab = projectViewTab(view, label);
                 const existing = store.sessions[sessionId]?.tabs.find(item => samePanelTab(sessionId, item, tab));
                 if (existing) store.selectTab(sessionId, existing.id);
                 else store.openTab(sessionId, tab, pane.id);
@@ -1248,7 +1252,7 @@ function SidePanelContent({
           : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)
-          : tab.type === "project-view" ? (tab.view === "back-office" ? renderBackOffice?.(tab.backOfficePath, visible) : renderProjectView?.(tab.view, visible))
+          : tab.type === "project-view" ? (tab.view === "back-office" ? renderBackOffice?.(tab, visible) : renderProjectView?.(tab.view, visible))
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "recording" ? <RecordingTranscriptPanel sessionId={sessionId} tab={tab} onClose={() => closeDocumentTab(tab)} />

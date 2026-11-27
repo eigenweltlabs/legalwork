@@ -46,6 +46,10 @@ export function projectViewTab(view: ProjectView, label: string, backOfficePath?
   return { id: `project-view:${view}`, type: "project-view", view, label,
     ...(view === "back-office" && backOfficePath && isBackOfficePath(backOfficePath) ? { backOfficePath } : {}) };
 }
+export function newBackOfficeTab(label: string): ProjectViewTab {
+  const tab = projectViewTab("back-office", label);
+  return { ...tab, id: `${tab.id}:${crypto.randomUUID()}` };
+}
 export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string; parentID?: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
 export function chatPanelTab(sessionId: string, label: string, parentID?: string): ChatPanelTab {
@@ -147,7 +151,10 @@ function restoredTab(value: unknown): PanelTab | null {
   if (typeof value.label === "string") {
     if (value.type === "workspace-page") return { id: value.id, type: value.type, label: value.label };
     if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
-    if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label, typeof value.backOfficePath === "string" ? value.backOfficePath : undefined);
+    if (value.type === "project-view" && isProjectView(value.view)) {
+      const tab = projectViewTab(value.view, value.label, typeof value.backOfficePath === "string" ? value.backOfficePath : undefined);
+      return tab.view === "back-office" && value.id.startsWith(`${tab.id}:`) ? { ...tab, id: value.id } : tab;
+    }
     if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label, typeof value.parentID === "string" ? value.parentID : undefined);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
@@ -169,7 +176,7 @@ export type PanelTabStore = {
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
-  setBackOfficePath: (sessionId: string, path: string) => void;
+  setBackOfficePath: (sessionId: string, tabId: string, path: string) => void;
   resolveViewTab: (draftId: string, saved: ViewPanelTab) => void;
   replaceTab: (tabId: string, replacement: PanelTab) => void;
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
@@ -300,8 +307,9 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   // the file was opened locally, from connected storage, or through a source link.
   if (existing?.type === "artifact" && tab.type === "artifact" && existing.id !== tab.id) {
     tab = { ...existing, ...tab, id: existing.id, value: existing.value, storage: existing.storage, sourceProject: existing.sourceProject, preview: existing.preview };
-  } else if (existing?.type === "view" && tab.type === "view") {
-    // Link labels are hints. The mounted viewer updates its authoritative record title.
+  } else if ((existing?.type === "view" && tab.type === "view") ||
+    (existing?.type === "project-view" && existing.view === "back-office" && tab.type === "project-view" && tab.view === "back-office")) {
+    // The mounted view sets its label from the loaded content.
     tab = { ...existing, ...tab, label: existing.label };
   } else if (existing) tab = { ...existing, ...tab };
   else if (session.tabs.some(entry => entry.id === tab.id)) {
@@ -585,10 +593,10 @@ export const createPanelTabStore = (storage?: () => StateStorage) => create<Pane
         if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
         return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
       }),
-      setBackOfficePath: (sessionId, path) => set(state => {
+      setBackOfficePath: (sessionId, tabId, path) => set(state => {
         const session = state.sessions[sessionId];
-        const tab = session?.tabs.find(item => item.type === "project-view" && item.view === "back-office");
-        if (!isBackOfficePath(path) || !session || tab?.type !== "project-view" || tab.backOfficePath === path) return state;
+        const tab = session?.tabs.find(item => item.id === tabId);
+        if (!isBackOfficePath(path) || !session || tab?.type !== "project-view" || tab.view !== "back-office" || tab.backOfficePath === path) return state;
         return updateSession(state, sessionId, { ...session, tabs: session.tabs.map(item => item === tab ? { ...tab, backOfficePath: path } : item) });
       }),
       openTab: (sessionId, tab, paneId, edge, options) => set(state => {

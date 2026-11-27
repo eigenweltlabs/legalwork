@@ -121,9 +121,11 @@ try {
   const linkedPath = "/back-office/matters?record=" + matter.id;
   function LinkedMatterTab() {
     const [path, setPath] = useState(linkedPath);
+    const [title, setTitle] = useState("");
     return <BackOfficeTabNavigationProvider path={path} onNavigate={setPath}>
+      <output aria-label="Back Office tab title">{title}</output>
       <button onClick={() => setPath(linkedPath)}>Open linked record</button>
-      <BackOfficePage client={client} />
+      <BackOfficePage client={client} onTitleChange={setTitle} />
     </BackOfficeTabNavigationProvider>;
   }
   await act(async () => root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/workspace/example/session/chat"]}><LinkedMatterTab /></MemoryRouter></QueryClientProvider>));
@@ -132,6 +134,11 @@ try {
   assert.equal(document.querySelector("aside.bo-detail"), null);
   await click("Open linked record");
   assert.equal(input("Matter name").value, "Acquisition", "Clicking the same saved citation reopens a closed record");
+  const tabTitle = document.querySelector('output[aria-label="Back Office tab title"]');
+  assert.equal(tabTitle?.textContent, "Matters");
+  await click("People");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  assert.equal(tabTitle?.textContent, "People", "Selecting a table updates the workspace tab title");
 
   await render(true);
   assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");

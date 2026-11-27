@@ -1,19 +1,22 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useControlAction, type LegalworkControlAction } from "../../shell/control/control-provider";
-import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../session/panel/panel-tab-store";
+import { projectViewTab, usePanelTabStore, workspacePanelKey, type ProjectViewTab } from "../session/panel/panel-tab-store";
 import { BackOfficeTabNavigationProvider, backOfficePathFor, openBackOfficeArgs } from "./back-office-navigation";
 import { BackOfficePage } from "./back-office-page";
 
-export function BackOfficeWorkspaceTab({ client, scope, path, active }: {
+export function BackOfficeWorkspaceTab({ client, scope, tab, active }: {
   client: LegalworkServerClient;
   scope: string;
-  path?: string;
+  tab: ProjectViewTab;
   active: boolean;
 }) {
-  return <BackOfficeTabNavigationProvider path={path} onNavigate={target => usePanelTabStore.getState().setBackOfficePath(scope, target)}>
-    <div className="bo-workspace-tab"><BackOfficePage client={client} active={active} /></div>
+  const updateTitle = useCallback((title: string) => {
+    usePanelTabStore.getState().updateTabLabel(scope, tab.id, title);
+  }, [scope, tab.id]);
+  return <BackOfficeTabNavigationProvider path={tab.backOfficePath} onNavigate={target => usePanelTabStore.getState().setBackOfficePath(scope, tab.id, target)}>
+    <div className="bo-workspace-tab"><BackOfficePage client={client} active={active} onTitleChange={updateTitle} /></div>
   </BackOfficeTabNavigationProvider>;
 }
 

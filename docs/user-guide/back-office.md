@@ -6,7 +6,7 @@ Open **Back Office** from the global sidebar. Choose **Matters**, **Clients** (G
 
 Record identity colors, including matters and tasks, use a stable chromatic palette. Grey, white and black are not assigned as identity or status-tag colors. Neutral surfaces, text, borders and unavailable controls keep their normal appearance.
 
-In a project workspace, choose **+ > Back Office** in the tab bar to open the full directory beside your work. Choose an object or a saved view inside the tab. You can also ask the assistant to open a Back Office table or saved view there. The tab uses your existing directory and permissions.
+In a project workspace, choose **+ > Back Office** to open the full directory in a new tab. Repeat to keep several tables or saved views open. Each tab shows the current table name and remembers its own view. Drag tabs into separate panes to see them side by side. You can also ask the assistant to open a Back Office table or saved view there. The tabs use your existing directory and permissions.
 
 Open **More > Tasks** or **More > Deadlines** for the same records used by Tasks and Calendar. Open **Tasks** in the sidebar for the task list, sessions, files and workflow actions. In **Calendar**, choose **Deadlines** to switch to the table. Project tables show that project's records.
 
@@ -46,7 +46,7 @@ Filtering applies to Table, Kanban, Calendar and List. For a saved view, choose 
 
 ### Working with the assistant
 
-The assistant can link record names in its answers. Click a record link to open the item in your workspace's **Back Office** tab beside the chat. Clicking another record link opens that item in the same tab.
+The assistant can link record names in its answers. Click a record link to open the item in a **Back Office** tab beside the chat. Chat links reuse that tab while your other Back Office tabs keep their own views.
 
 The main Assistant and ordinary project chats can read and update Back Office records, including custom objects. Ask for the result you need, for example, “Create a project for this client's acquisition and connect the client and matter.” The agent discovers your current model and project fields, checks for existing records, creates missing records supported by your request or sources, and links them through project metadata. It verifies the saved links before reporting completion. Creating a project does not automatically create billing records or fill unknown details.
 

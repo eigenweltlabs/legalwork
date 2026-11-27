@@ -83,12 +83,13 @@ function canEditDirectoryRecord(record: BackOfficeRecord, team: boolean, userId:
     (record.ownerId === userId && !["Submitted", "Approved", "Invoiced", "Written off"].includes(String(record.values.status)));
 }
 
-export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister, active = true }: {
+export function BackOfficePage({ client, embeddedObject, billingSettings, invoiceRegister, active = true, onTitleChange }: {
   client: LegalworkServerClient;
   embeddedObject?: "timeEntries" | "invoices";
   billingSettings?: boolean;
   invoiceRegister?: InvoiceRegister;
   active?: boolean;
+  onTitleChange?: (title: string) => void;
 }) {
   const locale = useLocale();
   const parentDialogContainer = useContext(DirectoryDialogContainer);
@@ -198,6 +199,10 @@ export function BackOfficePage({ client, embeddedObject, billingSettings, invoic
       !isInternalBackOfficeObject(object.id),
   );
   const object = useMemo(() => rawObject && displayBackOfficeObject(rawObject), [rawObject, locale]);
+  const tabTitle = selected === "data-model" ? t("back_office.data_model") : native ? nativeModel(native).plural : object?.plural;
+  useEffect(() => {
+    if (tabTitle) onTitleChange?.(tabTitle);
+  }, [tabTitle, onTitleChange]);
   const archiveKey = [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model];
   const archivedRecords = useQuery({
     queryKey: archiveKey,
