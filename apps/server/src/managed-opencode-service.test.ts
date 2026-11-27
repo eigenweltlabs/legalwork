@@ -11,10 +11,10 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 const password = "synthetic-private-registration";
 
-async function registered(pid: number, url: string) {
+async function registered(pid: number, url: string, secret: string | null = password) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-service-registration-")); roots.push(root);
   const directory = join(root, "state", "opencode"); await mkdir(directory, { recursive: true });
-  const file = join(directory, "service-legalwork.json"), text = JSON.stringify({ pid, url, password });
+  const file = join(directory, "service-legalwork.json"), text = JSON.stringify({ pid, url, password: secret ?? undefined });
   await writeFile(file, text, { mode: 0o600 });
   return { directory, file, text, options: { stateDirectory: join(root, "state"), configDirectory: join(root, "config") } };
 }
@@ -32,7 +32,7 @@ async function expectSetAside(f: Awaited<ReturnType<typeof registered>>) {
   expect(await readFile(join(f.directory, name), "utf8")).toBe(f.text);
 }
 
-test("a registration whose PID now belongs to a process started after it is set aside without signalling that process", async () => {
+test("a registration whose PID now belongs to a process started after it is set aside without signalling that process or connecting", async () => {
   // Windows reuses PIDs quickly, often for LegalWork's own next processes.
   const reused = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   const server = net.createServer(), url = await listening(server);
@@ -40,16 +40,20 @@ test("a registration whose PID now belongs to a process started after it is set 
   try {
     if (!reused.pid) throw new Error("Expected a live fixture process");
     const f = await registered(reused.pid, url);
+    // Models the test machine, where the file predates the process that now
+    // has its PID. The check reads neither the file time nor the PID.
     const written = new Date(Date.now() - 90 * 60_000); await utimes(f.file, written, written);
-    const kill = spyOn(process, "kill"), stop = spyOn(Service, "stop");
-    try { await stopManagedOpencodeService(f.options); expect(kill).not.toHaveBeenCalled(); expect(stop).not.toHaveBeenCalled(); }
-    finally { kill.mockRestore(); stop.mockRestore(); }
+    const kill = spyOn(process, "kill"), stop = spyOn(Service, "stop"), request = spyOn(globalThis, "fetch");
+    try {
+      await stopManagedOpencodeService(f.options);
+      expect(kill).not.toHaveBeenCalled(); expect(stop).not.toHaveBeenCalled(); expect(request).not.toHaveBeenCalled();
+    } finally { kill.mockRestore(); stop.mockRestore(); request.mockRestore(); }
     expect(reused.exitCode).toBe(null); expect(reused.signalCode).toBe(null);
     await expectSetAside(f);
   } finally { reused.kill(); }
 });
 
-for (const status of [200, 503]) test(`an engine answering ${status} with the registered password and PID is stopped through its registration`, async () => {
+for (const status of [200, 503]) test(`an engine answering ${status} with the registered PID is stopped through its registration`, async () => {
   let requests = 0;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     requests++; expect(request.headers.get("authorization")).toBe(`Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`);
@@ -63,8 +67,26 @@ for (const status of [200, 503]) test(`an engine answering ${status} with the re
   } finally { stop.mockRestore(); server.stop(true); }
 });
 
-test("another program answering on the registered port proves the registration stale", async () => {
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ version: "unrelated", pid: 9999 }) });
+test("an engine registered without a password is asked without credentials", async () => {
+  const authorization: (string | null)[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    authorization.push(request.headers.get("authorization")); return Response.json({ pid: 4242 });
+  } });
+  const stop = spyOn(Service, "stop").mockImplementation(async () => {});
+  try {
+    const f = await registered(4242, server.url.origin, null);
+    await stopManagedOpencodeService(f.options);
+    expect(authorization).toEqual([null]); expect(stop).toHaveBeenCalledWith({ file: f.file, pty: "clear" });
+  } finally { stop.mockRestore(); server.stop(true); }
+});
+
+const foreignAnswers: [string, () => Response][] = [
+  ["another PID", () => Response.json({ version: "unrelated", pid: 9999 })],
+  ["a refusal without a PID", () => new Response("Unauthorized", { status: 401 })],
+  ["a page that is not JSON", () => new Response("<html></html>", { headers: { "content-type": "text/html" } })],
+];
+for (const [answer, respond] of foreignAnswers) test(`a program answering on the registered port with ${answer} proves the registration stale`, async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: respond });
   const stop = spyOn(Service, "stop");
   try {
     const f = await registered(4242, server.url.origin);
@@ -73,12 +95,22 @@ test("another program answering on the registered port proves the registration s
   } finally { stop.mockRestore(); server.stop(true); }
 });
 
+test("a listener that resets every connection proves the registration stale", async () => {
+  const server = net.createServer(socket => socket.destroy());
+  const stop = spyOn(Service, "stop");
+  try {
+    const f = await registered(4242, await listening(server));
+    await stopManagedOpencodeService(f.options);
+    expect(stop).not.toHaveBeenCalled(); await expectSetAside(f);
+  } finally { stop.mockRestore(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
 test("a listener that accepts but never answers blocks startup and keeps the registration", async () => {
   const sockets: net.Socket[] = [], server = net.createServer(socket => { sockets.push(socket); });
   const stop = spyOn(Service, "stop");
   try {
     const f = await registered(4242, await listening(server));
-    await expect(stopManagedOpencodeService(f.options)).rejects.toThrow("does not answer");
+    await expect(stopManagedOpencodeService(f.options)).rejects.toThrow("LegalWork's previous engine does not respond.");
     expect(stop).not.toHaveBeenCalled(); expect(await readdir(f.directory)).toEqual(["service-legalwork.json"]);
   } finally {
     stop.mockRestore(); for (const socket of sockets) socket.destroy();
