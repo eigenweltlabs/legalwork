@@ -20,7 +20,7 @@ test.skipIf(!binary)("normal chats can diagnose and only advertise ticket submis
     const names = body.tools.map(tool => tool.function.name);
     toolsSeen.push({ names, messages: body.messages });
     const next = toolsSeen.length === 1 ? { name: "execute", input: { code: `return await tools.${diagnostics}({});` } }
-      : toolsSeen.length === 3 ? { name: ticket, input: { description } } : undefined;
+      : toolsSeen.length === 3 ? { name: ticket, input: { description, logDays: 7 } } : undefined;
     return nativeChatResponse(next, toolsSeen.length);
   } });
   let confirmations = 0;
@@ -35,8 +35,9 @@ test.skipIf(!binary)("normal chats can diagnose and only advertise ticket submis
         config.desktopSupport = {
           confirm: async report => {
             expect(report.description).toBe(description);
+            expect(report.logDays).toBe(7);
             confirmations++;
-            return "cancel";
+            return { choice: "cancel" };
           },
           collectLogs: async () => { throw new Error("The user cancelled."); },
           readChatLog: () => ["PDF not supported. Confidential file name."],
