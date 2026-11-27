@@ -32,6 +32,7 @@ import { EngineProjectRecovery } from "../../workspace/engine-project-approval";
 /** @jsxImportSource react */
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, Plus, Settings2, X, Zap } from "lucide-react";
@@ -609,6 +610,7 @@ export function SessionPage(props: SessionPageProps) {
   const [filesHeaderWidth, setFilesHeaderWidth] = useState(300);
   const page = timePage(location.pathname);
   const [workspaceHeaderTarget, setWorkspaceHeaderTarget] = useState<HTMLDivElement | null>(null);
+  const [reviewTabActionTarget, setReviewTabActionTarget] = useState<HTMLDivElement | null>(null);
   const [viewerHeaderTarget, setViewerHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [filesHeaderTarget, setFilesHeaderTarget] = useState<HTMLDivElement | null>(null);
   const sidebarProviderStyle: CSSProperties & Record<"--sidebar-width" | "--sidebar-width-icon", string> = {
@@ -1201,10 +1203,35 @@ export function SessionPage(props: SessionPageProps) {
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : <WorkspaceHeaderTarget.Provider value={workspaceHeaderTarget}><EmbeddedWorkspaceChat.Provider value={props.selectEmbeddedWorkspace ? { workspaceId: props.runtimeWorkspaceId ?? "", selectWorkspace: props.selectEmbeddedWorkspace, render: renderChat, renderPanel: renderWorkspacePanel } : null}>{props.mainView}</EmbeddedWorkspaceChat.Provider></WorkspaceHeaderTarget.Provider>;
   const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
+  const renderProjectTabAction = (view: ProjectView, review?: { id: string; name: string } | null, disabled = false) => {
+    const label = t("workspace.open_overview_tab");
+    return (
+      <Button variant="ghost" size="sm" title={label} aria-label={label} disabled={disabled} onClick={() => {
+        openTab(workspaceScope, review
+          ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name }
+          : projectViewTab(view, projectViewLabel(view)));
+        navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
+      }}>
+        <PanelsTopLeft aria-hidden className="size-4" />
+        <span className="hidden sm:inline">{label}</span>
+      </Button>
+    );
+  };
   const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "dashboards" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); if (!timeWorkspaceActive) navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
   ) : view === "reviews" ? (
-    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews
+      overview={inWorkspace}
+      localNavigation={!inWorkspace}
+      renderOpenInWorkspace={!inWorkspace && active && reviewTabActionTarget
+        ? (review, disabled) => createPortal(renderProjectTabAction("reviews", review, disabled), reviewTabActionTarget)
+        : undefined}
+      onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)}
+      key={props.selectedWorkspaceId}
+      client={props.legalworkServerClient}
+      workspaceId={props.runtimeWorkspaceId}
+      projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId}
+    /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : view === "files" ? <ProjectFilesPage
     local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: contentRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: false, active, onOpenFile: openWorkspaceFileEntry }}
     connected={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, onOpenFile: openLegalMemoryFile, onOpenStorageFile: openStorageFile, onConnectStorage: props.sidebar.onShowFileStorage }}
@@ -1340,6 +1367,9 @@ export function SessionPage(props: SessionPageProps) {
               {props.busyHint && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.busyHint}</span>}
             </div>
             <div className="flex items-center gap-1.5 text-gray-10 titlebar-no-drag">
+              {props.projectPage && (props.projectPage === "reviews"
+                ? <div ref={setReviewTabActionTarget} />
+                : renderProjectTabAction(props.projectPage))}
               {/* Revert/redo moved to per-message actions */}
               {props.selectedWorkspaceId && isElectronRuntime() ? (
                 <WorkspaceWindowButton workspaceId={props.selectedWorkspaceId} showButton={!hasMainView} />
@@ -1682,12 +1712,6 @@ export function SessionPage(props: SessionPageProps) {
           <PanelTabDestinationProvider destination={{ kind: "workspace", workspaceId: props.selectedWorkspaceId }}>
           <WorkspaceTabDropTarget projectId={props.selectedWorkspaceId} projectName={workspaceName} sessionTitle={id => sessionTitleForId(props.sidebar.workspaceSessionGroups, id) || t("session.default_title")} onOpen={async () => { navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} hint={false} className="flex h-full min-h-0 flex-col">
             <section className="flex h-full min-h-0 flex-col" aria-label={projectViewLabel(view)}>
-            {view !== "reviews" && <div className="flex shrink-0 justify-end px-5 pt-2">
-              <Button variant="ghost" size="sm" onClick={() => {
-                openTab(workspaceScope, projectViewTab(view, projectViewLabel(view)));
-                navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace");
-              }}><PanelsTopLeft className="size-4" />{t("workspace.open_overview_tab")}</Button>
-            </div>}
             <div className="min-h-0 flex-1 overflow-auto">{renderProjectView(view, false, props.projectPage === view)}</div>
           </section>
           </WorkspaceTabDropTarget>
