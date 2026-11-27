@@ -15,6 +15,22 @@ import { CORPUS_FALLBACKS, CorpusQuerySchema, type CorpusQuery, type CorpusRow, 
 import { CorpusStore } from "./storage.js";
 
 const TTL = 60 * 60_000;
+/** Larger searches first report their size; repeating the identical call within the window starts them. */
+export const CORPUS_SCOPE_CHECK_FILES = 500;
+const SCOPE_CHECK_TTL = 15 * 60_000;
+const relativePath = (path: string) => path.replace(/\\/g, "/").replace(/^\.(?:\/|$)/, "").replace(/\/+$/, "");
+/** File counts per subfolder directly below each requested folder, largest first. */
+export function scopeFolders(files: { path: string }[], paths: string[]) {
+  const roots = paths.map(relativePath).sort((a, b) => b.length - a.length), counts = new Map<string, number>();
+  for (const file of files.map(file => relativePath(file.path))) {
+    const root = roots.find(root => !root || file.startsWith(`${root}/`));
+    const rest = root === undefined ? "" : file.slice(root ? root.length + 1 : 0), slash = rest.indexOf("/");
+    if (slash < 0) continue;
+    const folder = (root ? `${root}/` : "") + rest.slice(0, slash);
+    counts.set(folder, (counts.get(folder) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([path, files]) => ({ path, files }));
+}
 type Job = SavedCorpusJob & { workspace: string; contentPath?: string; folders?: string[]; controller: AbortController; done: Promise<void>; checkpoint?: ReturnType<typeof setTimeout>; saving?: Promise<void> };
 /** Resolves a folder outside the project after verifying or requesting approval. */
 export type CorpusFolderApproval = (path: string) => Promise<{ folder: string; canonical: string }>;
@@ -65,6 +81,7 @@ export async function discoverCorpus(workspace: string, paths: string[], engineP
 }
 export class CorpusService {
   private jobs = new Map<string, Job>();
+  private scopeChecks = new Map<string, number>();
   // One shared pool per server, not sixteen new slots per tool call.
   private documents = new ReviewQueue(16);
   private extraction = new ReviewQueue(2);
@@ -124,6 +141,15 @@ export class CorpusService {
         this.jobs.set(job.id, job);
         try {
           const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!, workspace.path, approve);
+          const scope = JSON.stringify([workspace.path, [...input.paths!].sort(), input.question, input.kind, input.options]);
+          for (const [key, expires] of this.scopeChecks) if (expires < Date.now()) this.scopeChecks.delete(key);
+          if (sources.files.length > CORPUS_SCOPE_CHECK_FILES && !this.scopeChecks.delete(scope)) {
+            this.scopeChecks.set(scope, Date.now() + SCOPE_CHECK_TTL);
+            this.jobs.delete(job.id);
+            const folders = scopeFolders(sources.files, input.paths!);
+            return { status: "scope_check", total: sources.files.length, folders: folders.slice(0, 30), foldersTruncated: folders.length > 30,
+              guidance: `Not started: this search would read ALL ${sources.files.length} files. Search only the folders or files that can hold the answer. If every file really needs to be searched, repeat this exact call to start it.` };
+          }
           job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped; job.folders = sources.folders;
           await this.persist(job);
           const current = job;
