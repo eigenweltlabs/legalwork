@@ -531,6 +531,15 @@ describe("built-in Zen provider", () => {
   });
 });
 
+test.each(["allow", "ask", "deny"] satisfies Array<"allow" | "ask" | "deny">)("the existing Web Search setting reaches the native web tool permission (%s)", async effect => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect }] }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const settings = await readSettings(config, "ws_1");
+  expect(permissionAction(settings.configuration.permissions ?? [], "webfetch", "https://example.org")).toBe(effect);
+  expect(permissionAction(settings.configuration.permissions ?? [], "legalwork_webfetch", "https://example.org")).toBe(effect);
+});
+
 describe("eigenwelt paid provider injection", () => {
   test("serves every registered workspace, whichever one the firm signed in from", async () => {
     const { config } = await setup();

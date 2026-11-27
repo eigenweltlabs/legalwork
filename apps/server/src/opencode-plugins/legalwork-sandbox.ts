@@ -83,7 +83,7 @@ export const LegalWorkSandbox = Plugin.define({
         },
       }));
       for (const kind of webKinds) {
-        editor.add(nativeTool(ctx, {
+        const webTool = nativeTool(ctx, {
           name: kind === "fetch" ? "legalwork_webfetch" : "legalwork_websearch",
           description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using regional AWS search for paid LegalWork accounts or Exa for free accounts, following this chat's network setting and web permissions. The firm's Model API region policy controls search location. If both EU and US are enabled, the hosted chat model supplies a preference; BYOK or unknown models default to EU. The query is sent only after any required approval. Paid queries must be at most 200 characters; use the default type and livecrawl. Use legalwork_webfetch to read complete source pages.",
           schema: kind === "fetch" ? webFetchArgs : webSearchArgs,
@@ -111,7 +111,9 @@ export const LegalWorkSandbox = Plugin.define({
             return { output: result, metadata: { ...result.metadata, title: result.title },
               content: [{ type: "text", text: result.output }, ...(result.attachments ?? []).map(file => ({ type: file.type, mime: file.mime, uri: file.url }))] };
           },
-        }));
+        });
+        // Reuse Settings → Tool Permissions → Web Search for both web tools.
+        editor.add({ ...webTool, options: { ...webTool.options, permission: "legalwork_webfetch" } });
       }
       editor.add(nativeTool(ctx, {
         name: "legalwork_shell",

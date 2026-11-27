@@ -299,6 +299,8 @@ export async function buildLegalworkRuntimeSettings(
     { action: "legalwork_project_set_instructions", resource: "*", effect:
       permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "allow" },
   ];
+  // Keep the existing webfetch setting under the native web tools' permission identity.
+  permission.push(...permission.filter(rule => rule.action === "webfetch").map(rule => ({ ...rule, action: "legalwork_webfetch" })));
   // The firm's instructions too, for every agent the member works with (scheduled runs included).
   const agentPrompt = withFirmInstructions(
     personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT,

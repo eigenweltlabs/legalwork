@@ -49,6 +49,7 @@ async function setup() {
         return Response.json({ schemaVersion: 1, revision: platform.revision, secrets: platform.secrets ?? {} });
       }
       if (url.endsWith("/api/desktop/policy")) {
+        expect(headers.get("x-legalwork-policy-tools")).toBe("webfetch");
         if (headers.get("if-none-match") === `"${platform.revision}"`) return new Response(null, { status: 304 });
         return Response.json({
           schemaVersion: 1,

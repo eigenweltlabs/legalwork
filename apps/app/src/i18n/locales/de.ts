@@ -4707,9 +4707,9 @@ const de = {
   "tool_permissions.ask_before_shell": "Vor dem Ausführen von Computerbefehlen fragen",
   "tool_permissions.ask_before_shell_desc":
     "LegalWork holt Ihre Zustimmung ein, bevor es Befehle auf diesem Rechner ausführt.",
-  "tool_permissions.block_internet": "Internetzugriff blockieren",
+  "tool_permissions.block_internet": "Websuche blockieren",
   "tool_permissions.block_internet_desc":
-    "Verhindert, dass LegalWork Seiten abruft und Inhalte aus dem Web lädt.",
+    "Verhindert, dass LegalWork im Web sucht, Seiten abruft und Webinhalte herunterlädt.",
   "tool_permissions.advanced_title": "Regeln pro Tool",
   "tool_permissions.advanced_desc":
     "Legen Sie fest, was bei jeder Art von Aktion passiert. „Erlauben“ führt sie ohne Rückfrage aus, „Erst fragen“ holt jedes Mal Ihre Zustimmung ein, „Nie erlauben“ blockiert sie vollständig.",
@@ -4722,8 +4722,8 @@ const de = {
   "tool_permissions.tool_bash": "Computerbefehle",
   "tool_permissions.tool_bash_desc":
     "Befehle auf diesem Rechner ausführen, sofern keine Befehlsregel unten greift.",
-  "tool_permissions.tool_webfetch": "Internetzugriff",
-  "tool_permissions.tool_webfetch_desc": "Seiten lesen und Inhalte aus dem Web laden.",
+  "tool_permissions.tool_webfetch": "Websuche",
+  "tool_permissions.tool_webfetch_desc": "Im Web suchen, Seiten lesen und Webinhalte herunterladen.",
   "tool_permissions.tool_doom_loop": "Schutz vor Wiederholungsschleifen",
   "tool_permissions.tool_doom_loop_desc":
     "Was passiert, wenn LegalWork dieselbe Aktion viele Male hintereinander wiederholt.",
