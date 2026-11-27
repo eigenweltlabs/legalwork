@@ -52,7 +52,7 @@ import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtim
 import { architectureInfo, findArchitectureDownload, normalizeRuntimeArch, resolveSystemArch as nativeSystemArch } from "./architecture.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, collectTechnicalSupportBundle, defaultSupportBundleFileName, readChatSupportLog } from "./support-bundle.mjs";
-import { confirmSupportTicket } from "./support-ticket.mjs";
+import { createSupportTicketConfirmations } from "./support-ticket.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
@@ -1198,16 +1198,20 @@ async function collectSupportLogsText() {
   return buildSupportBundleText({ app, runtimeManager, network });
 }
 
+const supportTicketConfirmations = createSupportTicketConfirmations();
+
 const runtimeManager = createRuntimeManager({
   app,
   // Chromium networking follows the system/PAC proxy and enterprise certificates.
   modelDownloadFetch: (url, init) => session.defaultSession.fetch(url, { ...init, credentials: "omit" }),
   getApprovalWindow: () => mainWindow,
   desktopSupport: {
-    confirm: (report, signal) => confirmSupportTicket({
-      window: mainWindow, showMessageBox: (window, options) => dialog.showMessageBox(window, options),
-      locale: app.getLocale(), report, signal,
-    }),
+    confirm: (report, signal) => {
+      const focused = BrowserWindow.getFocusedWindow()?.webContents;
+      const contents = focused && isAppUrl(focused.getURL()) ? focused : mainWindow?.webContents;
+      if (!contents || contents.isDestroyed() || !isAppUrl(contents.getURL())) return Promise.resolve("cancel");
+      return supportTicketConfirmations.request(contents, report, signal);
+    },
     collectLogs: collectSupportLogsText,
     readChatLog: (sessionId) => readChatSupportLog(app, sessionId),
   },
@@ -1975,6 +1979,14 @@ const desktopCommandHandlers = {
     if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.sender.getURL()))
       throw new Error("Startup support is available only in the LegalWork window.");
     return runtimeManager.startupSupport(includeContact === true);
+  },
+  "supportTicketConfirmationGet": async (event) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return null;
+    return supportTicketConfirmations.read(event.sender);
+  },
+  "supportTicketConfirmationReply": async (event, id, choice) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isAppUrl(event.senderFrame.url)) return false;
+    return supportTicketConfirmations.reply(event.sender, id, choice);
   },
   "technicalSupportBundleCollect": async (event, ...args) => ({ path: await collectSupportLogsAndReveal(true, args[0]?.days) }),
   "runtimeStatus": async (event, ...args) => {

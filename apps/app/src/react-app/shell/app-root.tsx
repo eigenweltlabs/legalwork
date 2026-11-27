@@ -26,6 +26,7 @@ import { StealthMode } from "./stealth-mode";
 import { DesktopTimeActivityListener } from "./desktop-time-activity";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { AssistantNotificationsListener } from "./assistant-notifications-listener";
+import { SupportTicketDialog } from "./support-ticket-dialog";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -192,6 +193,7 @@ export function AppRoot() {
       <TaskNotificationsListener />
       <OrgPolicyRoot />
       <AssistantNotificationsListener />
+      <SupportTicketDialog />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

@@ -1,39 +1,56 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { confirmSupportTicket } from "./support-ticket.mjs";
+import { createSupportTicketConfirmations } from "./support-ticket.mjs";
 
 const report = { email: "tester@example.test", description: "The PDF tool failed." };
-const window = () => Object.assign(new EventEmitter(), { isDestroyed: () => false });
+const channel = "legalwork:support-ticket:confirmation";
 
-test("the desktop support dialog distinguishes cancellation and both send choices", async () => {
-  const parent = window();
-  for (const [response, expected] of [[0, "cancel"], [1, "without_logs"], [2, "with_logs"]]) {
-    const choice = await confirmSupportTicket({
-      window: parent, locale: "en", report, signal: new AbortController().signal,
-      async showMessageBox(target, options) {
-        assert.equal(target, parent);
-        assert.deepEqual(options.buttons, ["Cancel", "Send without logs", "Send with logs"]);
-        assert.equal(options.defaultId, options.cancelId);
-        assert.match(options.detail, /tester@example\.test/);
-        assert.match(options.detail, /The PDF tool failed/);
-        return { response };
-      },
-    });
-    assert.equal(choice, expected);
+function renderer() {
+  const events = new EventEmitter();
+  return Object.assign(events, {
+    isDestroyed: () => false,
+    send(event, value) { events.emit("message", event, value); },
+  });
+}
+
+test("the app asks for a one-time choice and accepts all three outcomes", async () => {
+  const broker = createSupportTicketConfirmations();
+  const contents = renderer();
+  const messages = [];
+  contents.on("message", (event, value) => { assert.equal(event, channel); messages.push(value); });
+  for (const expected of ["cancel", "without_logs", "with_logs"]) {
+    const choice = broker.request(contents, report, new AbortController().signal);
+    const view = broker.read(contents);
+    assert.ok(view);
+    assert.deepEqual(view, { ...report, id: view.id });
+    assert.equal(messages.at(-1), view);
+    assert.equal(broker.reply(contents, view.id, expected), true);
+    assert.equal(broker.reply(contents, view.id, "with_logs"), false);
+    assert.equal(await choice, expected);
+    assert.equal(messages.at(-1), null);
   }
-  assert.equal(parent.listenerCount("closed"), 0);
+  assert.equal(contents.listenerCount("destroyed"), 0);
+  assert.equal(contents.listenerCount("did-start-navigation"), 0);
 });
 
-test("an interrupted chat cannot approve a late dialog response", async () => {
+test("an interrupted chat and a different window cannot approve a report", async () => {
+  const broker = createSupportTicketConfirmations();
+  const contents = renderer();
+  const other = renderer();
   const controller = new AbortController();
-  const choice = await confirmSupportTicket({
-    window: window(), locale: "en", report, signal: controller.signal,
-    async showMessageBox(_target, options) {
-      controller.abort();
-      assert.equal(options.signal.aborted, true);
-      return { response: 2 };
-    },
-  });
-  assert.equal(choice, "cancel");
+  const choice = broker.request(contents, report, controller.signal);
+  const original = broker.read(contents);
+  assert.ok(original);
+  assert.equal(broker.read(other), null);
+  assert.equal(broker.reply(other, original.id, "with_logs"), false);
+  assert.equal(broker.reply(contents, original.id, "approve"), false);
+  assert.equal(await broker.request(contents, report, controller.signal), "cancel");
+  controller.abort();
+  assert.equal(await choice, "cancel");
+
+  const replacement = broker.request(contents, report, new AbortController().signal);
+  assert.equal(broker.reply(contents, original.id, "with_logs"), false);
+  contents.emit("did-start-navigation", {}, "https://example.test", false, true);
+  assert.equal(await replacement, "cancel");
 });

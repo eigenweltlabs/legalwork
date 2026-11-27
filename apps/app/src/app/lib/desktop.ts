@@ -1,4 +1,5 @@
 import type { DesktopActivitySample } from "@legalwork/types/time-capture";
+import type { SupportTicketConfirmation } from "@legalwork/types/desktop-ipc";
 import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 import { fetchDesktopText } from "./desktop-text-fetch";
@@ -59,6 +60,7 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      onSupportTicketConfirmation?: (callback: (confirmation: SupportTicketConfirmation | null) => void) => () => void;
       files?: {
         copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
       };

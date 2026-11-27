@@ -1,31 +1,63 @@
-/** This dialog authorizes a single report. A close, timeout or interrupted chat cancels it. */
-export async function confirmSupportTicket({ window, showMessageBox, locale, report, signal }) {
-  if (signal.aborted || !window || window.isDestroyed()) return "cancel";
-  const german = /^de(?:[-_]|$)/i.test(locale);
-  const options = german ? {
-    title: "LegalWork-Support",
-    message: "Support-Ticket an Eigenwelt Labs senden?",
-    detail: `Ihr Konto (${report.email}) und Ihre Benutzer-ID werden mitgesendet. Möchten Sie die Support-Protokolle aus Einstellungen > Updates anhängen? Sie können Dateipfade und vertrauliche Inhalte aus Fehlermeldungen enthalten.\n\n${report.description}`,
-    buttons: ["Abbrechen", "Ohne Protokolle senden", "Mit Protokollen senden"],
-  } : {
-    title: "LegalWork Support",
-    message: "Send this support ticket to Eigenwelt Labs?",
-    detail: `Your account email (${report.email}) and user ID are included. Would you like to attach the Support Logs from Settings > Updates? They may include file paths and confidential details from error messages.\n\n${report.description}`,
-    buttons: ["Cancel", "Send without logs", "Send with logs"],
-  };
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  window.once("closed", abort);
-  try {
-    const choice = await showMessageBox(window, {
-      ...options, type: "question", defaultId: 0, cancelId: 0, noLink: true,
-      signal: AbortSignal.any([signal, controller.signal]),
+import { randomUUID } from "node:crypto";
+
+/** @typedef {import("@legalwork/types/desktop-ipc").SupportTicketConfirmation} SupportTicketConfirmation */
+/** @typedef {import("@legalwork/types/desktop-ipc").SupportTicketChoice} SupportTicketChoice */
+/** @typedef {Pick<import("electron").WebContents, "send" | "isDestroyed"> & Pick<import("node:events").EventEmitter, "on" | "once" | "removeListener">} ConfirmationRenderer */
+
+const confirmationEvent = "legalwork:support-ticket:confirmation";
+
+export function createSupportTicketConfirmations() {
+  /** @type {Map<ConfirmationRenderer, { view: SupportTicketConfirmation, finish: (choice: SupportTicketChoice) => void }>} */
+  const pending = new Map();
+
+  /**
+   * @param {ConfirmationRenderer | undefined} contents
+   * @param {Omit<SupportTicketConfirmation, "id">} report
+   * @param {AbortSignal} signal
+   * @returns {Promise<SupportTicketChoice>}
+   */
+  function request(contents, report, signal) {
+    if (!contents || contents.isDestroyed() || signal.aborted || pending.has(contents)) return Promise.resolve("cancel");
+    const view = { ...report, id: randomUUID() };
+    return new Promise(resolve => {
+      /** @param {SupportTicketChoice} choice */
+      const finish = (choice) => {
+        if (pending.get(contents)?.view !== view) return;
+        pending.delete(contents);
+        signal.removeEventListener("abort", cancel);
+        contents.removeListener("destroyed", cancel);
+        contents.removeListener("render-process-gone", cancel);
+        contents.removeListener("did-start-navigation", navigating);
+        resolve(choice);
+        if (!contents.isDestroyed()) {
+          try { contents.send(confirmationEvent, null); } catch { /* The renderer is closing. */ }
+        }
+      };
+      const cancel = () => finish("cancel");
+      /** @param {import("electron").Event} _event @param {string} _url @param {boolean} isInPlace @param {boolean} isMainFrame */
+      const navigating = (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) cancel();
+      };
+      pending.set(contents, { view, finish });
+      signal.addEventListener("abort", cancel, { once: true });
+      contents.once("destroyed", cancel);
+      contents.once("render-process-gone", cancel);
+      contents.on("did-start-navigation", navigating);
+      try { contents.send(confirmationEvent, view); } catch { cancel(); }
     });
-    if (signal.aborted || controller.signal.aborted) return "cancel";
-    if (choice.response === 2) return "with_logs";
-    if (choice.response === 1) return "without_logs";
-    return "cancel";
-  } finally {
-    window.removeListener("closed", abort);
   }
+
+  return {
+    request,
+    /** @param {ConfirmationRenderer} contents */
+    read: (contents) => pending.get(contents)?.view ?? null,
+    /** @param {ConfirmationRenderer} contents @param {string} id @param {unknown} choice */
+    reply(contents, id, choice) {
+      const entry = pending.get(contents);
+      if (!entry || entry.view.id !== id) return false;
+      if (choice !== "cancel" && choice !== "without_logs" && choice !== "with_logs") return false;
+      entry.finish(choice);
+      return true;
+    },
+  };
 }

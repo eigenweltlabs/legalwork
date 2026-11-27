@@ -76,6 +76,12 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
       ipcRenderer.removeListener("legalwork:app-error", handler);
     };
   },
+  onSupportTicketConfirmation(callback) {
+    const channel = "legalwork:support-ticket:confirmation";
+    const handler = (_event, confirmation) => callback(confirmation);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
   shell: {
     openSupportPhone(phone) {
       return ipcRenderer.invoke("legalwork:shell:openSupportPhone", phone);
