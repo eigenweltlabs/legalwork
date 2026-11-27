@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CircleHelp, MessageCircle } from "lucide-react";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -16,13 +16,13 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
   workspaceId: string;
   onAsk: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [reserveContact, setReserveContact] = useState(false);
+  const menuId = useId();
+  const [{ open, reserveContact, lookup }, setMenu] = useState({ open: false, reserveContact: false, lookup: 0 });
   const account = useEigenweltEntitlements({ client, workspaceId });
   const identity = account.data?.connected ? account.data.account : null;
   const checkingAccount = account.isLoading;
   const contact = useQuery({
-    queryKey: ["support-contact", client?.baseUrl, identity?.userId, identity?.orgId],
+    queryKey: ["support-contact", menuId, open ? lookup : null, client?.baseUrl, identity?.userId, identity?.orgId],
     queryFn: async ({ signal }) => client ? (await client.supportContact(signal)).contact : null,
     enabled: Boolean(open && reserveContact && client && identity),
     gcTime: 0,
@@ -33,11 +33,18 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
     },
   });
 
+  function changeOpen(nextOpen: boolean) {
+    setMenu(current => {
+      if (current.open === nextOpen) return current;
+      // Scope the contact result to this opening, including a rapid close and reopen.
+      return nextOpen
+        ? { open: true, reserveContact: Boolean(identity || checkingAccount), lookup: current.lookup + 1 }
+        : { ...current, open: false };
+    });
+  }
+
   return (
-    <Popover open={open} onOpenChange={nextOpen => {
-      if (nextOpen) setReserveContact(Boolean(identity || checkingAccount));
-      setOpen(nextOpen);
-    }}>
+    <Popover open={open} onOpenChange={changeOpen}>
       <Tooltip>
         <PopoverTrigger render={<TooltipTrigger render={
           <Button variant="ghost" size="icon" aria-label={t("support.title")}
@@ -58,7 +65,7 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
         </PopoverHeader>
         <Button variant="outline"
           className="w-full justify-between rounded-lg border-foreground/35 bg-transparent font-semibold shadow-xs hover:border-foreground/55 hover:bg-foreground/5"
-          onClick={() => { setOpen(false); onAsk(); }}>
+          onClick={() => { changeOpen(false); onAsk(); }}>
           <span className="flex items-center gap-2">
             <MessageCircle aria-hidden className="size-4" />{t("support.ask")}
           </span>

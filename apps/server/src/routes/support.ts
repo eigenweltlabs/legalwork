@@ -23,7 +23,9 @@ export function registerSupportRoutes({ routes, config, jsonResponse, readJsonBo
 
   addRoute(routes, "GET", "/support/contact", "host-token", async ctx => {
     if (ctx.agentAccess) throw new ApiError(403, "support_contact_denied", "Open the LegalWork Help menu to view support contacts.");
-    return jsonResponse(await readSupportContact(config, ctx.request.signal));
+    const response = jsonResponse(await readSupportContact(config, ctx.request.signal));
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   });
 
   addRoute(routes, "GET", "/agent/support/diagnostics", "client", async ctx => {

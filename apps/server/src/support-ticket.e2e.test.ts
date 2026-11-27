@@ -83,6 +83,7 @@ test.each([
     const destination = new URL(String(input));
     if (destination.pathname === "/api/desktop/support/contact") {
       expect(destination.origin).toBe(platform);
+      expect(init?.cache).toBe("no-store");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access-support");
       return Response.json({ contact: { name: "On-call tester", phone: "+4930123456", email: "support@example.test",
         calendarUrl: "https://example.test/book", endsAt: "2029-11-27T15:00:00.000Z", ignored: "private" } });
@@ -121,7 +122,9 @@ test.each([
       accessTokenExpiresAt: Date.now() + 600_000,
     });
     expect(await (await fetch(url, { headers: agentHeaders })).json()).toEqual({ available: true });
-    expect(await (await fetchContact()).json()).toEqual({ contact: { name: "On-call tester", phone: "+4930123456",
+    const supportContact = await fetchContact();
+    expect(supportContact.headers.get("Cache-Control")).toBe("no-store");
+    expect(await supportContact.json()).toEqual({ contact: { name: "On-call tester", phone: "+4930123456",
       email: "support@example.test", calendarUrl: "https://example.test/book", endsAt: "2029-11-27T15:00:00.000Z" } });
     expect((await submit({ ...report, logs: "invented by the model" })).status).toBe(400);
     expect(await (await submit()).json()).toEqual({ submitted: false, reason: "cancelled" });

@@ -67,7 +67,7 @@ async function fetchSupportContact(config: Pick<ServerConfig, "configPath">, con
     const platformURL = eigenweltConnectionPlatformUrl(connection);
     if (!SUPPORT_ORIGINS.has(platformURL)) throw new Error("Unexpected platform.");
     const response = await fetch(new URL("/api/desktop/support/contact", platformURL), {
-      headers: { Authorization: `Bearer ${token}` }, redirect: "error",
+      headers: { Authorization: `Bearer ${token}` }, redirect: "error", cache: "no-store",
       signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
     });
     if (response.status === 401 || response.status === 403)

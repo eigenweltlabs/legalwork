@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -17,20 +17,22 @@ import { t } from "@/i18n";
 import { MigrationProgressView } from "./migration-progress";
 
 function StartupSupportHelp() {
-  const [open, setOpen] = useState(false);
+  const helpId = useId();
+  const [{ open, lookup }, setHelp] = useState({ open: false, lookup: 0 });
   const account = useQuery({
     queryKey: ["startup-support", "account"], queryFn: () => desktopBridge.startupSupport(false),
     gcTime: 0, retry: false,
   });
   const contact = useQuery({
-    queryKey: ["startup-support", "contact"], queryFn: () => desktopBridge.startupSupport(true),
+    queryKey: ["startup-support", "contact", helpId, open ? lookup : null], queryFn: () => desktopBridge.startupSupport(true),
     enabled: open && account.data?.authenticated === true, refetchInterval: open ? 30_000 : false,
     gcTime: 0, retry: false,
   });
   if (!account.data?.authenticated || contact.data?.authenticated === false) return null;
   return (
     <div className="grid w-full gap-3">
-      <Button variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Button variant="outline" size="sm" aria-expanded={open}
+        onClick={() => setHelp(current => current.open ? { ...current, open: false } : { open: true, lookup: current.lookup + 1 })}>
         {t("boot.get_help")}
       </Button>
       {open && <div className="text-left text-foreground">

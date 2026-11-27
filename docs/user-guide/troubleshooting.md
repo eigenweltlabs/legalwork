@@ -65,7 +65,7 @@ On Windows, verifying a downloaded update can take a minute or two. Keep LegalWo
 3. To report the issue, sign in with Eigenwelt in the desktop app and ask the assistant to send a support ticket. Review the report description in chat. LegalWork includes your account email and user ID so the support team can identify your account.
 4. In the confirmation dialog, choose **Send with logs** to include the detailed export, **Send without logs** to send the report alone, or close the dialog to cancel. Detailed logs cover two days by default. For an older issue, ask LegalWork in chat to include more days. You can review the same export from **Settings > Updates** first. LegalWork returns a ticket reference in chat when delivery is confirmed.
 
-If you are signed in with Eigenwelt, the **For urgent issues:** section of the Help menu shows who is on duty. Select **Phone**, **Email** or **Calendar** to reach them. If nobody is on duty or their contact details are unavailable, the section shows a single **Email** button that opens a draft to chris@eigenweltlabs.com.
+If you are signed in with Eigenwelt, LegalWork checks who is on duty each time you open **Help**. The **For urgent issues:** section shows the current contact. Select **Phone**, **Email** or **Calendar** to reach them. If nobody is on duty or their contact details are unavailable, the section shows a single **Email** button that opens a draft to chris@eigenweltlabs.com.
 
 ## Diagnostics and recovery
 
