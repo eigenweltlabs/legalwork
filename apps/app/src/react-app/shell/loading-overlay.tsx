@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { supportAccountQueryOptions } from "../domains/connections/eigenwelt-entitlements";
 import { useUpdateCheckRequestStore } from "../domains/settings/state/update-check-request";
 import { SupportContactActions } from "../domains/session/sidebar/support-contact-actions";
 import { desktopBridge, relaunchDesktopApp, supportBundleCollect } from "../../app/lib/desktop";
@@ -19,10 +20,7 @@ import { MigrationProgressView } from "./migration-progress";
 function StartupSupportHelp() {
   const helpId = useId();
   const [{ open, lookup }, setHelp] = useState({ open: false, lookup: 0 });
-  const account = useQuery({
-    queryKey: ["startup-support", "account"], queryFn: () => desktopBridge.startupSupport(false),
-    gcTime: 0, retry: false,
-  });
+  const account = useQuery(supportAccountQueryOptions());
   const contact = useQuery({
     queryKey: ["startup-support", "contact", helpId, open ? lookup : null], queryFn: () => desktopBridge.startupSupport(true),
     enabled: open && account.data?.authenticated === true, refetchInterval: open ? 30_000 : false,

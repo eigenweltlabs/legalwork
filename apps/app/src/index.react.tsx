@@ -9,6 +9,7 @@ import { getLegalWorkDeployment } from "./app/lib/legalwork-deployment";
 import { bootstrapTheme } from "./app/theme";
 import { isDesktopRuntime } from "./app/utils";
 import { initLocale } from "./i18n";
+import { supportAccountQueryOptions } from "./react-app/domains/connections/eigenwelt-entitlements";
 import { getReactQueryClient } from "./react-app/infra/query-client";
 import {
   createDefaultPlatform,
@@ -33,7 +34,9 @@ root.dataset.legalworkDeployment = getLegalWorkDeployment();
 
 const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
-const Router = isDesktopRuntime() ? HashRouter : BrowserRouter;
+const desktop = isDesktopRuntime();
+const Router = desktop ? HashRouter : BrowserRouter;
+if (desktop) void queryClient.prefetchQuery(supportAccountQueryOptions());
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>

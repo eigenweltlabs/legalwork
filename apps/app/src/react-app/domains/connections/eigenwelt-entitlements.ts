@@ -7,6 +7,8 @@ import type {
   EigenweltFeature,
   LegalworkServerClient,
 } from "../../../app/lib/legalwork-server";
+import { desktopBridge } from "../../../app/lib/desktop";
+import { isDesktopRuntime } from "../../../app/lib/runtime-env";
 import { getReactQueryClient } from "../../infra/query-client";
 
 /**
@@ -21,6 +23,15 @@ import { getReactQueryClient } from "../../infra/query-client";
 const EIGENWELT_ENTITLEMENTS_ROOT = ["eigenwelt-entitlements"] as const;
 let lastAccessErrorRefreshAt = 0;
 
+export function supportAccountQueryOptions() {
+  return queryOptions({
+    queryKey: ["support-account"],
+    queryFn: () => desktopBridge.startupSupport(false),
+    enabled: isDesktopRuntime(),
+    retry: false,
+  });
+}
+
 export function eigenweltEntitlementsQueryKey() {
   return EIGENWELT_ENTITLEMENTS_ROOT;
 }
@@ -29,6 +40,7 @@ export function eigenweltEntitlementsQueryKey() {
 export function invalidateEigenweltEntitlements() {
   const queryClient = getReactQueryClient();
   void queryClient.invalidateQueries({ queryKey: EIGENWELT_ENTITLEMENTS_ROOT });
+  void queryClient.invalidateQueries({ queryKey: supportAccountQueryOptions().queryKey });
 }
 
 /** Live and saved errors can describe the same failure repeatedly. Refresh
