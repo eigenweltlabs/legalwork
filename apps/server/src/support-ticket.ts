@@ -170,5 +170,5 @@ export async function submitSupportTicket(config: ServerConfig, input: z.infer<t
   const receipt = receiptSchema.safeParse(result);
   if (!response.ok || !receipt.success || receipt.data.attachedLogs !== Boolean(detailedLogs))
     throw new ApiError(502, "support_delivery_unknown", "LegalWork could not confirm delivery of the support ticket. Avoid sending it again until delivery has been checked.");
-  return { submitted: true, ...receipt.data };
+  return { submitted: true, attachedLogs: receipt.data.attachedLogs };
 }

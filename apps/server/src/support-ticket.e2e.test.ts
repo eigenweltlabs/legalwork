@@ -132,14 +132,14 @@ test.each([
     expect(logCollections).toHaveLength(0);
 
     choice = "without_logs";
-    expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: false });
+    expect(await (await submit()).json()).toEqual({ submitted: true, attachedLogs: false });
     expect(requests[0]).toEqual({ authorization: "Bearer access-support", report });
     expect(logCollections).toHaveLength(0);
 
     choice = "with_logs";
-    expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
+    expect(await (await submit()).json()).toEqual({ submitted: true, attachedLogs: true });
     expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport(2) } });
-    expect(await (await submit({ ...report, logDays: 7 })).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
+    expect(await (await submit({ ...report, logDays: 7 })).json()).toEqual({ submitted: true, attachedLogs: true });
     expect(requests[2]).toEqual({ authorization: "Bearer access-support", report: { ...report, detailedLogs: detailedExport(7) } });
     expect(logCollections).toEqual([2, 7]);
     expect(requests).toHaveLength(3);
