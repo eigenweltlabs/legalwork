@@ -7,6 +7,7 @@ import {
   History,
   LockKeyhole,
   Maximize2,
+  Pencil,
   MoreVertical,
   RotateCcw,
   X,
@@ -266,7 +267,8 @@ export function RecordDetail({
                     )}
                   </label>
                   <div className="bo-property-value">
-                    {field.type === "relation" && !canEdit ? display : <Popover.Root
+                    {field.type === "linkList" && display}
+                    {field.type === "linkList" && !canEdit ? null : field.type === "relation" && !canEdit ? display : <Popover.Root
                       open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
@@ -281,8 +283,8 @@ export function RecordDetail({
                           />
                         }
                       >
-                        {display}
-                        {(value === null || value === undefined || value === "") && (
+                        {field.type === "linkList" ? <Pencil size={13} /> : display}
+                        {field.type !== "linkList" && (value === null || value === undefined || value === "") && (
                           <span className="bo-muted">{field.label}</span>
                         )}
                       </Popover.Trigger>

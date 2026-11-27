@@ -9,6 +9,7 @@ import {
   type BackOfficeRecord,
   type BackOfficeSnapshot,
   BackOfficeViewSchema,
+  BackOfficeFieldSchema,
   BackOfficeRecordSchema,
 } from "./schema.js";
 import { applyImport, parseCsv, previewImport } from "./import.js";
@@ -173,6 +174,22 @@ const snapshot = (
   cursor: 1,
   accepted,
   conflicts: [],
+});
+
+test("shared list fields need an affirmative capability before staging writes", async () => {
+  const store = await database();
+  store.bindAccount("firm", owner);
+  const team = { ...owner, replicaId: store.replicaId("firm")! };
+  const baseline = snapshot([]);
+  store.receive("firm", baseline, team);
+  const candidate = structuredClone(baseline.model);
+  candidate.objects[0].fields.push(BackOfficeFieldSchema.parse({ id: "items", label: "Items", type: "textList" }));
+  expect(store.previewModel("firm", team, candidate, candidate.revision).valid).toBe(false);
+  expect(() => store.saveModel("firm", team, candidate, candidate.revision)).toThrow("Update the firm platform");
+  expect(store.pending("firm")).toHaveLength(0);
+  store.receive("firm", { ...baseline, orderedListFields: true }, team);
+  expect(store.previewModel("firm", team, candidate, candidate.revision).valid).toBe(true);
+  expect(store.saveModel("firm", team, candidate, candidate.revision).revision).toBe(candidate.revision + 1);
 });
 
 describe("Back Office records and protected model", () => {

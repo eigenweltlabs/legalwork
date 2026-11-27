@@ -58,6 +58,12 @@ Saved views include layout type, icon, Kanban grouping, calendar date field and 
 
 Record movement uses renderer pointer events rather than OS-native HTML dragging. It cancels on pointer release/cancel, Escape, window blur, visibility loss and unmount. Keyboard users can change stage/date through the field editors. Native drag automation was stopped after an OS input issue; the replacement pointer gesture has type/build coverage but still needs a human interaction check.
 
+## Ordered list fields
+
+Custom `textList` fields store ordered string arrays; `linkList` fields store ordered arrays of `{label,url}` with absolute HTTP(S) URLs. A list edit replaces one field under the ordinary expected-value and record revision checks. CSV uses a JSON array in one quoted cell for these fields. The default template and multiselect representation are unchanged.
+
+Shared directories require support in the platform's Back Office field/value schemas and validation. Updated clients and servers advertise `orderedListFields: true` on the existing sync request and snapshot. The native server caches support per account-bound replica; missing support blocks introducing these types or staging dependent records. Update the platform and all clients that need to read a directory before introducing a list. No SQL migration is required.
+
 ## File fields
 
 Template 4 adds Signed agreement and Invoice PDF. File values contain immutable descriptors (UUID, owning record/field, filename, size, MIME type and SHA-256), rather than paths. Custom file fields support one or up to twenty files, each capped at 10 MiB. Native payloads live below the runtime directory in `back-office-files`; reading requires current record and field access. A required-file draft can reserve a record UUID and save with explicit `create: true` after attaching its files.

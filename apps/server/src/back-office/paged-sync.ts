@@ -53,6 +53,7 @@ export async function pullDirectory(
         try {
           raw = await intakeRequest(client, "POST", "/api/back-office", {
             protocol: 1,
+            orderedListFields: true,
             cursor: since,
             changes: first ? changes : [],
             page: { access, through, after },

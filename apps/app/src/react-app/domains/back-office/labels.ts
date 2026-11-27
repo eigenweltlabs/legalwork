@@ -238,6 +238,8 @@ const fieldTypeTranslationKeys: Record<BackOfficeField["type"], string> = {
   "date": "review.date",
   "select": "back_office.field_type.select",
   "multiselect": "back_office.field_type.multiselect",
+  "textList": "back_office.field_type.text_list",
+  "linkList": "back_office.field_type.link_list",
   "currency": "back_office.filters.currency",
   "email": "calendar.email_reminder",
   "file": "assistant.file",

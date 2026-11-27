@@ -1,4 +1,5 @@
-import { isInternalBackOfficeObject } from "@legalwork/types/back-office";
+import { OrderedListEditor } from "./ordered-list-editor";
+import { isInternalBackOfficeObject, isOrderedListField } from "@legalwork/types/back-office";
 import { allRecordsTarget, nativeKind } from "./native-model";
 import { NativeDateEditor } from "./native-date-editor";
 import { useTimeDurationFormat } from "./time-duration-controls";
@@ -68,6 +69,7 @@ export function CellEditor({
   const target = field.type === "relation" && !allowedRelationIds ? creatableRecordObject(creation?.state, targetId) : undefined;
   const [creating, setCreating] = useState(false), [created, setCreated] = useState<{ record: BackOfficeRecord; replica?: string }[]>([]);
   const [text, setText] = useState(() => {
+    if (isOrderedListField(field.type)) return "";
     if (field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))) {
       const date = new Date(value);
       return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -149,6 +151,7 @@ export function CellEditor({
     await save(multiple ? next : record.id, true, multiple ? selected : undefined);
   }} /></LocalCreationScope.Provider>;
   if (record && nativeKind(record.objectId) && field.id === "due") return <NativeDateEditor value={typeof value === "string"?value:""} required={field.required} onSave={onSave} onCancel={onCancel}/>;
+  if (isOrderedListField(field.type)) return <OrderedListEditor field={field} value={value} onSave={onSave} onCancel={onCancel} />;
   if (field.type === "file")
     return (
       <FileCellEditor

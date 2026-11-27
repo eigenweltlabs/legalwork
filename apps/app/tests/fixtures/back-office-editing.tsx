@@ -40,9 +40,9 @@ const onSave = async (record: BackOfficeRecord, values: Record<string, BackOffic
   saved.push({ record, values });
   if (fail) throw new Error("Save failed; draft must survive");
 };
-function Row({ record, popup = false, sheet = false }: { record: BackOfficeRecord; popup?: boolean; sheet?: boolean }) {
+function Row({ record, popup = false, sheet = false, column = field }: { record: BackOfficeRecord; popup?: boolean; sheet?: boolean; column?: typeof field }) {
   const [editing, setEditing] = useState<EditingCell | null>(null);
-  return <RecordGridRow sheet={sheet} record={record} index={0} template="32px 200px" fields={[popup ? nameField : field]}
+  return <RecordGridRow sheet={sheet} record={record} index={0} template="32px 200px" fields={[popup ? nameField : column]}
     records={[record]} recordById={new Map([[record.id, record]])} editable userId="owner" selected={false}
     editing={editing ?? undefined} onEdit={setEditing} onError={message => { failure = message; }}
     onSelect={() => {}} onMove={() => {}} onOpen={() => {}} onSave={onSave} />;
@@ -242,6 +242,57 @@ try {
   await act(async () => input("Notes").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
   assert.equal(saved.length, 1, "Tab confirms a copied private row even when its cell is unchanged");
   assert.equal(saved[0].values.notes, original.values.notes);
+  await reset();
+  const textList = BackOfficeFieldSchema.parse({ id: "items", label: "Items", type: "textList" });
+  const linkList = BackOfficeFieldSchema.parse({ id: "links", label: "Links", type: "linkList" });
+  const listRecord = { ...original, values: { ...original.values, items: ["North, West", "South"], links: [{ label: "Guide", url: "https://example.test/guide" }] } };
+  const button = (label: string) => {
+    const element = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label") === label || button.textContent?.trim() === label);
+    assert.ok(element, label);
+    return act(async () => element.click());
+  };
+  await render(<Row record={listRecord} column={textList} />);
+  assert.deepEqual([...host.querySelectorAll('[role="listitem"]')].map(item => item.textContent), ["North, West", "South"]);
+  await openCell();
+  await button("Add item");
+  await type("Item 3", "East, Ridge");
+  await button("Remove item 2");
+  await button("Move down");
+  await render(<Row record={{ ...listRecord, revision: 2 }} column={textList} />);
+  await button("Save");
+  assert.deepEqual(saved[0].values.items, ["East, Ridge", "North, West"]);
+  assert.equal(saved[0].record.revision, 1);
+
+  await reset();
+  const openedUrls: string[] = [];
+  Object.defineProperty(window, "__LEGALWORK_ELECTRON__", { configurable: true, value: { shell: { openExternal: async (url: string) => { openedUrls.push(url); } } } });
+  const verifyLink = async () => {
+    const link = host.querySelector<HTMLAnchorElement>('a[href="https://example.test/guide"]');
+    assert.equal(link?.textContent, "Guide");
+    assert.equal(link.closest("button"), null);
+    await act(async () => link.click());
+    assert.equal(document.querySelector('input[type="url"]'), null, "Opening a link must not edit the field");
+  };
+  await render(<Row record={listRecord} column={linkList} />);
+  assert.deepEqual(openedUrls, []);
+  await verifyLink();
+  await reset();
+  const linksDetail = (editable: boolean) => <RecordDetail client={client} team={false} historyAccessKey="local" record={listRecord}
+    object={{ ...object, fields: [nameField, linkList] }} records={[listRecord]} editable={editable} finance userId="owner" width={400}
+    onWidthChange={() => {}} onClose={() => {}} onOpen={() => {}} onSave={onSave} />;
+  await render(linksDetail(false));
+  await verifyLink();
+  assert.deepEqual(openedUrls, [listRecord.values.links[0].url, listRecord.values.links[0].url]);
+  await render(linksDetail(true));
+  await button("Edit Links");
+  await type("Web address 1", "ftp://example.test/guide");
+  await button("Save");
+  assert.equal(saved.length, 0);
+  assert.match(document.querySelector('[role="alert"]')?.textContent ?? "", /https:/);
+  await type("Web address 1", "http://example.test/other");
+  await type("Link label 1", "Other guide");
+  await button("Save");
+  assert.deepEqual(saved[0].values.links, [{ label: "Other guide", url: "http://example.test/other" }]);
   console.log("All editing regressions passed");
 } finally {
   await act(async () => root.unmount());
