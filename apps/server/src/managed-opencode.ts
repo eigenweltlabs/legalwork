@@ -301,7 +301,6 @@ export async function createManagedOpencodeServer(options: {
   if (options.service && options.parentLease) throw new Error("A managed engine cannot combine native service and stdin lease modes.");
   const serviceEnv = options.service ? await prepareManagedOpencodeService({ ...options.service,
     filename: identity.serviceFilename,
-    executablePath: command,
   }, password) : {};
   await options.beforeSpawn?.();
   Object.assign(env, {

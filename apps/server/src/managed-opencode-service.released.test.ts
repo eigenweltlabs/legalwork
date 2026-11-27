@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -40,6 +41,35 @@ test.skipIf(!binary)("released service uses private authenticated registration a
     await stopManagedOpencodeService({ configDirectory, stateDirectory });
     expect(second.running()).toBe(false);
   } finally { await second?.close(); await first.close(); await rm(root, { recursive: true, force: true }); }
+}, 45_000);
+
+test.skipIf(!binary)("after its host is killed, the next start stops the verified engine or sets its stale registration aside", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-service-host-kill-")));
+  const registration = join(root, "state", "opencode", await expectedOpencodeServiceFilename(binary!));
+  const host = spawn(process.execPath, [join(import.meta.dir, "managed-recovery.test-support.ts"), root, binary!, "service", "0"], { stdio: ["ignore", "ignore", "inherit"] });
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const until = async (condition: () => Promise<boolean>) => { const deadline = Date.now() + 30_000; while (!await condition()) { if (Date.now() > deadline) throw new Error("Host-kill fixture did not settle."); await Bun.sleep(20); } };
+  let pid = 0, gone = false;
+  try {
+    await until(async () => { pid = await readFile(join(root, "ready.json"), "utf8").then(text => JSON.parse(text).pid, () => 0); return pid > 0; });
+    expect(JSON.parse(await readFile(registration, "utf8")).pid).toBe(pid);
+    host.kill("SIGKILL");
+    await until(async () => host.signalCode === "SIGKILL");
+    // macOS and Linux keep the engine running, and the next start stops it once
+    // it identifies itself. Windows ends it with its host; the file is set aside.
+    const orphaned = process.platform !== "win32";
+    if (orphaned) expect(alive(pid)).toBe(true); else await until(async () => !alive(pid));
+    await stopManagedOpencodeService({ configDirectory: join(root, "config"), stateDirectory: join(root, "state") });
+    await until(async () => !alive(pid)); gone = true;
+    const files = await readdir(join(root, "state", "opencode"));
+    expect(files.filter(name => !name.includes(".stale-"))).toEqual([]);
+    expect(files.some(name => name.includes(".stale-"))).toBe(!orphaned);
+  } finally {
+    if (host.exitCode === null && host.signalCode === null) host.kill("SIGKILL");
+    // Once the engine is gone its PID may already belong to another process.
+    if (pid > 0 && !gone && alive(pid)) process.kill(pid, "SIGKILL");
+    await rm(root, { recursive: true, force: true });
+  }
 }, 45_000);
 
 test.skipIf(!binary)("released service resumes an interrupted native turn and its durable inbox without client replay", async () => {
