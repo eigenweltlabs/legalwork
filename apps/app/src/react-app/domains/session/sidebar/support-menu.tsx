@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
+import { cn } from "@/lib/utils";
 import { useEigenweltEntitlements } from "../../connections/eigenwelt-entitlements";
 import { SupportContactActions } from "./support-contact-actions";
 
@@ -16,12 +17,14 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
   onAsk: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [reserveContact, setReserveContact] = useState(false);
   const account = useEigenweltEntitlements({ client, workspaceId });
   const identity = account.data?.connected ? account.data.account : null;
+  const checkingAccount = account.isLoading;
   const contact = useQuery({
     queryKey: ["support-contact", client?.baseUrl, identity?.userId, identity?.orgId],
     queryFn: async ({ signal }) => client ? (await client.supportContact(signal)).contact : null,
-    enabled: Boolean(open && client && identity),
+    enabled: Boolean(open && reserveContact && client && identity),
     gcTime: 0,
     retry: false,
     refetchInterval: (query) => {
@@ -31,7 +34,10 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
   });
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={nextOpen => {
+      if (nextOpen) setReserveContact(Boolean(identity || checkingAccount));
+      setOpen(nextOpen);
+    }}>
       <Tooltip>
         <PopoverTrigger render={<TooltipTrigger render={
           <Button variant="ghost" size="icon" aria-label={t("support.title")}
@@ -39,11 +45,15 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
         }><CircleHelp className="size-[18px]" strokeWidth={1.6} /></TooltipTrigger>} />
         <TooltipContent side="right" sideOffset={10}>{t("support.title")}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="end" sideOffset={12} className="w-80 max-w-[calc(100vw-1.5rem)] gap-3.5">
-        <PopoverHeader>
+      <PopoverContent side="right" align="end" sideOffset={12}
+        className={cn(
+          "w-80 max-w-[calc(100vw-1.5rem)] gap-3.5 data-starting-style:scale-100 data-ending-style:scale-100",
+          reserveContact ? "h-60" : "h-40",
+        )}>
+        <PopoverHeader className="min-h-0 flex-1 overflow-y-auto">
           <PopoverTitle className="text-sm">{t("support.title")}</PopoverTitle>
           <PopoverDescription className="text-xs leading-relaxed">
-            {t(identity && isDesktopRuntime() ? "support.description" : "support.description_signed_out")}
+            {t((identity || checkingAccount) && isDesktopRuntime() ? "support.description" : "support.description_signed_out")}
           </PopoverDescription>
         </PopoverHeader>
         <Button variant="outline"
@@ -54,8 +64,10 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
           </span>
           <ArrowRight aria-hidden className="size-3.5 opacity-80" />
         </Button>
-        {identity && <SupportContactActions contact={contact.data ?? null}
-          loading={contact.isPending} unavailable={contact.isError} />}
+        {reserveContact && <div className="h-[4.5625rem] shrink-0">
+          {(identity || checkingAccount) && <SupportContactActions contact={contact.data ?? null}
+            loading={checkingAccount || contact.isPending} unavailable={contact.isError} />}
+        </div>}
       </PopoverContent>
     </Popover>
   );

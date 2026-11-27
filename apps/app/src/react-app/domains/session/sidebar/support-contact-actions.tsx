@@ -19,7 +19,7 @@ export function SupportContactActions({ contact, loading, unavailable }: {
   const openContact = (action: () => Promise<void>) => { void action().catch(() => toast.error(t("support.open_failed"))); };
 
   return (
-    <section className="grid gap-2 border-t border-border/70 pt-3" aria-label={urgentHeading}>
+    <section className="grid grid-rows-[1.25rem_2rem] gap-2 border-t border-border/70 pt-3" aria-label={urgentHeading}>
       <h3 className="min-w-0 truncate text-sm font-medium" title={urgentHeading}>{urgentHeading}</h3>
       {loading ? (
         <div className="flex h-8 items-center justify-center text-muted-foreground">
