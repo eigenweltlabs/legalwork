@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { EIGENWELT_BOOTSTRAP_PLATFORM_URL } from "./native-shared-values.js";
+import { EIGENWELT_BOOTSTRAP_PLATFORM_URL, EIGENWELT_DEPLOYMENTS } from "./native-shared-values.js";
 import { startServer } from "./server.js";
 import { readStartupSupport, type DesktopSupport } from "./support-ticket.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -51,12 +51,17 @@ test("startup support checks the saved account without a running server or reada
   }
 });
 
-test("support ticket requires a chat and sign-in, and only attaches logs after the desktop choice", async () => {
+test.each([
+  ["shared", EIGENWELT_BOOTSTRAP_PLATFORM_URL],
+  ["EU", EIGENWELT_DEPLOYMENTS.eu.platform],
+  ["US", EIGENWELT_DEPLOYMENTS.us.platform],
+])("%s support sends each confirmed report only to the account's Platform", async (_, platform) => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-chat-support-"));
   const sessionId = "ses_support";
   const workspace: WorkspaceInfo = { id: "ws_support", name: "Support", path: root, workspaceType: "local", preset: "starter" };
   let choice: Awaited<ReturnType<DesktopSupport["confirm"]>> = "cancel";
   let logCollections = 0;
+  let platformUnavailable = false;
   const requests: { authorization: string | null; report: unknown }[] = [];
   const config: ServerConfig = {
     configPath: join(root, "server.json"), host: "127.0.0.1", port: 0,
@@ -76,14 +81,18 @@ test("support ticket requires a chat and sign-in, and only attaches logs after t
   const server = await startServer(config);
   const originalFetch = globalThis.fetch;
   const fetchMock = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input) === `${EIGENWELT_BOOTSTRAP_PLATFORM_URL}/api/desktop/support/contact`) {
+    const destination = new URL(String(input));
+    if (destination.pathname === "/api/desktop/support/contact") {
+      expect(destination.origin).toBe(platform);
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access-support");
       return Response.json({ contact: { name: "On-call tester", phone: "+4930123456", email: "support@example.test",
         calendarUrl: "https://example.test/book", endsAt: "2029-11-27T15:00:00.000Z", ignored: "private" } });
     }
-    if (String(input) !== `${EIGENWELT_BOOTSTRAP_PLATFORM_URL}/api/desktop/support`) return originalFetch(input, init);
+    if (destination.pathname !== "/api/desktop/support") return originalFetch(input, init);
+    expect(destination.origin).toBe(platform);
     const report = JSON.parse(String(init?.body));
     requests.push({ authorization: new Headers(init?.headers).get("authorization"), report });
+    if (platformUnavailable) throw new Error("Connection closed without confirmation");
     return Response.json({ ticketId: "SUP-42", attachedLogs: "logs" in report }, { status: 201 });
   }, { preconnect: originalFetch.preconnect }));
   try {
@@ -107,7 +116,7 @@ test("support ticket requires a chat and sign-in, and only attaches logs after t
 
     await writeEigenweltConnection(config, {
       account: { userId: "user_support", userName: null, userEmail: "tester@example.test", orgId: "org_support", orgName: "Support Test" },
-      platformToken: "access-support", platformURL: EIGENWELT_BOOTSTRAP_PLATFORM_URL,
+      platformToken: "access-support", platformURL: platform,
       accessTokenExpiresAt: Date.now() + 600_000,
     });
     expect(await (await fetch(url, { headers: agentHeaders })).json()).toEqual({ available: true });
@@ -127,6 +136,14 @@ test("support ticket requires a chat and sign-in, and only attaches logs after t
     expect(await (await submit()).json()).toEqual({ submitted: true, ticketId: "SUP-42", attachedLogs: true });
     expect(requests[1]).toEqual({ authorization: "Bearer access-support", report: { ...report, logs: "LegalWork support bundle\nSynthetic entry" } });
     expect(logCollections).toBe(1);
+    expect(requests).toHaveLength(2);
+
+    choice = "without_logs";
+    platformUnavailable = true;
+    const failed = await submit();
+    expect(failed.status).toBe(502);
+    expect(await failed.json()).toMatchObject({ code: "support_delivery_unknown" });
+    expect(requests).toHaveLength(3);
   } finally {
     fetchMock.mockRestore();
     await server.stop();

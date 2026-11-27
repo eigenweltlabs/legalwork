@@ -1,0 +1,35 @@
+name: Import LegalWork issues into Kaneo
+
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions: {}
+
+concurrency:
+  group: kaneo-issue-intake
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.repository == 'eigenweltlabs/legalwork' && vars.SUPPORT_GITHUB_IMPORT_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Trigger Platform issue import
+        env:
+          IMPORT_URL: ${{ vars.SUPPORT_GITHUB_IMPORT_URL }}
+          IMPORT_TOKEN: ${{ secrets.SUPPORT_GITHUB_IMPORT_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          args=()
+          if [[ -n "$ISSUE_NUMBER" ]]; then
+            [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]
+            args+=(--url-query "issue=$ISSUE_NUMBER")
+          fi
+          [[ -n "$IMPORT_TOKEN" ]]
+          curl --proto '=https' --silent --show-error --fail --max-time 135 --output /dev/null \
+            --request POST --header "Authorization: Bearer $IMPORT_TOKEN" "${args[@]}" "$IMPORT_URL"
