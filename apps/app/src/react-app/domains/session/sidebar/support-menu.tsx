@@ -55,7 +55,7 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
       <PopoverContent side="right" align="end" sideOffset={12}
         className={cn(
           "w-80 max-w-[calc(100vw-1.5rem)] gap-3.5 data-starting-style:scale-100 data-ending-style:scale-100",
-          reserveContact ? "h-60" : "h-40",
+          reserveContact ? "h-60 has-[[data-support-phone][data-open]]:h-72" : "h-40",
         )}>
         <PopoverHeader className="min-h-0 flex-1 overflow-y-auto">
           <PopoverTitle className="text-sm">{t("support.title")}</PopoverTitle>
@@ -71,8 +71,8 @@ export function SupportMenu({ client, workspaceId, onAsk }: {
           </span>
           <ArrowRight aria-hidden className="size-3.5 opacity-80" />
         </Button>
-        {reserveContact && <div className="h-[4.5625rem] shrink-0">
-          {(identity || checkingAccount) && <SupportContactActions contact={contact.data ?? null}
+        {reserveContact && <div className="min-h-[4.5625rem] shrink-0">
+          {(identity || checkingAccount) && <SupportContactActions key={lookup} authenticated={Boolean(identity)} contact={contact.data ?? null}
             loading={checkingAccount || contact.isPending} unavailable={contact.isError} />}
         </div>}
       </PopoverContent>

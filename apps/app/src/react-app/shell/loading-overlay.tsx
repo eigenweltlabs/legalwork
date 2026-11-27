@@ -36,7 +36,7 @@ function StartupSupportHelp() {
         {t("boot.get_help")}
       </Button>
       {open && <div className="text-left text-foreground">
-        <SupportContactActions contact={contact.data?.contact ?? null} loading={contact.isPending}
+        <SupportContactActions authenticated contact={contact.data?.contact ?? null} loading={contact.isPending}
           unavailable={contact.isError || contact.data?.unavailable === true} />
       </div>}
     </div>
