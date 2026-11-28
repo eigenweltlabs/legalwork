@@ -53,6 +53,8 @@ Ask the assistant to draft an email. If exactly one email account is connected a
 
 The assistant can prepare a local email preview containing recipients, subject, body and supported attachments. Preparing that preview does not send it or save it in your mailbox. Review and edit it in LegalWork, then use the card's save action to put it into the connected mailbox. Sending is a separate action from the card. Inspect To, Cc, Bcc, subject, body and attachments before sending.
 
+Your edits in the card are kept automatically; there is no separate step to save them. Nothing goes to your mailbox until you use the save or send action. If the assistant changes the same draft while you are typing, your edits are kept and the card offers **Use assistant's version** or **Keep mine**. Event cards work the same way.
+
 **Allow write access** and provider consent are separate requirements. Turning the setting on does not expand an account's previously granted scopes; use **Reconnect** if it only has read permissions. Turning it off blocks LegalWork write actions but does not revoke provider-side permissions.
 
 If a saved draft changes in Gmail or Outlook, LegalWork can require you to review the provider's version instead of sending an outdated local copy. If delivery is marked uncertain, check the mailbox before retrying. A lost response is not proof that sending failed.

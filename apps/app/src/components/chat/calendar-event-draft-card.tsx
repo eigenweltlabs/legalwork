@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, CalendarDays, Check, ChevronDown, Clock3, Download, Loader2, MapPin, SlidersHorizontal, Users } from "lucide-react";
-import { CalendarEventDraftSchema, type CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
+import { CalendarEventDraftInputSchema, CalendarEventDraftSchema, type CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import { openDesktopPath, openDesktopUrl } from "@/app/lib/desktop";
 import { isElectronRuntime } from "@/app/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,10 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Surface } from "@/react-app/design-system/surface";
 import { useMessageList } from "./message-list-provider";
 import { calendarComposeLink, calendarDraftLocalValue, calendarDraftModeTimes } from "./calendar-event-draft-links";
-import { ConnectorDraftActions, connectorDraftTool, draftToolPayload } from "./connector-draft-actions";
+import { ConnectorDraftActions, connectorDraftTool, draftToolConflict, draftToolPayload } from "./connector-draft-actions";
+import { DraftReplacedNotice, useDraftAutosave } from "./draft-autosave";
+
+const invalidFieldLabels: Record<string, string> = { title: "title", start: "start time", end: "end time", timeZone: "time zone", organizer: "organizer", attendees: "guest emails", url: "event link", reminders: "reminder" };
 
 export function isCalendarEventDraftTool(part: ToolUIPart | DynamicToolUIPart) { return ["legalwork_calendar_event_draft", "legalwork_calendar_event_draft_update"].includes(getToolName(part)) || connectorDraftTool(part, "calendar"); }
 export function parseCalendarEventDraftCard(output: unknown) {
@@ -28,7 +31,8 @@ export function parseCalendarEventDraftCard(output: unknown) {
 export function CalendarEventDraftToolCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
   if (part.state !== "output-available" && part.state !== "output-error") return <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Preparing event draft…</p>;
   const initial = part.state === "output-available" ? parseCalendarEventDraftCard(part.output) : null;
-  return initial ? <CalendarEventDraftCard key={initial.id} initial={initial} /> : <p role="alert" className="text-sm text-destructive">Could not create the event draft.</p>;
+  if (initial) return <CalendarEventDraftCard key={initial.id} initial={initial} />;
+  return draftToolConflict(part.output) ? <p className="text-sm text-muted-foreground">The event was edited meanwhile, so this change was not applied.</p> : <p role="alert" className="text-sm text-destructive">Could not create the event draft.</p>;
 }
 
 function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
@@ -53,6 +57,13 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
   const [allDay, setAllDay] = useState(initial.start.length === 10);
   const dirty = draft !== baseline;
   const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  const autosave = useDraftAutosave(draft, baseline, {
+    enabled: available && !query.isError && !busy && !draft?.delivery,
+    save: async next => { if (!client) throw new Error("The event is unavailable."); return (await client.saveCalendarEventDraft(workspaceId, next)).draft; },
+    load: async () => { if (!client) throw new Error("The event is unavailable."); return (await client.calendarEventDraft(workspaceId, initial.id)).draft; },
+    setDraft, setError, setBaseline: saved => { setBaseline(saved); cache.setQueryData(key, { draft: saved }); },
+    invalid: next => { const field = CalendarEventDraftInputSchema.safeParse(next).error?.issues[0]?.path[0]; return field === undefined ? null : `Check the ${invalidFieldLabels[String(field)] ?? "event details"}`; },
+  });
   useEffect(() => registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, `${initial.id}:${fieldId}`), initial.title, () => dirtyRef.current), [workspaceId, sessionId, initial.id, initial.title, fieldId]);
   useEffect(() => { if (query.data && !dirty) { setDraft(query.data.draft); setBaseline(query.data.draft); setAllDay(query.data.draft.start.length === 10); } }, [query.data, dirty]);
   useEffect(() => {
@@ -65,16 +76,16 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
   const conference = current.googleCalendar?.conference;
   const actionable = available && !query.isError && !busy;
   const editable = actionable && !draft.delivery;
-  const change = (patch: Partial<CalendarEventDraft>) => { setDraft({ ...current, ...patch }); setError(null); };
+  const change = (patch: Partial<CalendarEventDraft>) => { setDraft(previous => previous && { ...previous, ...patch }); setError(null); };
   const added = !dirty && calendarQuery.data?.savedRevision === current.revision;
-  const run = async (action: "save" | "legalwork" | "system" | "download" | "google" | "outlook" | "provider-save" | "provider-open" | "provider-refresh") => {
+  const run = async (action: "legalwork" | "system" | "download" | "google" | "outlook" | "provider-save" | "provider-open" | "provider-refresh") => {
     if (!client || !actionable || busyRef.current) return;
     const popup = (action === "google" || action === "outlook" || action === "provider-open") && !isElectronRuntime() ? window.open("about:blank", "_blank") : null;
     if (popup) popup.opener = null;
     busyRef.current = true; setBusy(true); setError(null);
     try {
-      const saved = dirty ? (await client.saveCalendarEventDraft(workspaceId, current)).draft : current;
-      setDraft(saved); setBaseline(saved); cache.setQueryData(key, { draft: saved });
+      const saved = await autosave.flush();
+      if (!saved) throw new Error("The event is unavailable.");
       if (action === "provider-save") {
         const result = await client.deliverCalendarEventDraft(workspaceId, saved);
         setDraft(result.draft); setBaseline(result.draft); cache.setQueryData(key, result);
@@ -93,7 +104,7 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
         const link = calendarComposeLink(saved, action);
         if (link.length > 8000) throw new Error("This event is too long for a calendar link. Download the .ics instead.");
         if (popup) popup.location.href = link; else await openDesktopUrl(link);
-      } else if (action !== "save") {
+      } else {
         // .ics is the portable system-calendar handoff; local desktop projects
         // can open it directly, while web/remote clients download it to import.
         const workspaces = action === "system" && isElectronRuntime() ? await client.listWorkspaces() : null;
@@ -127,12 +138,12 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
       <CalendarDays className="size-3.5 text-muted-foreground" />
       <h3 className="flex-1 text-xs font-medium text-muted-foreground">{update ? "Google Calendar update" : current.connectorTarget?.connectorId === "google-calendar" ? "Google Calendar draft" : current.connectorTarget ? "Outlook Calendar draft" : "Event draft"}</h3>
       <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
-        {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />{current.delivery?.state === "saved" ? update ? "Updated in calendar" : "Added to calendar" : current.delivery ? "Check calendar" : "Saved locally"}</>}
+        {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty && (error || autosave.invalid) ? <><span className="size-1.5 rounded-full bg-amber-500" />{autosave.invalid ?? "Not saved"}</> : current.delivery ? <><Check className="size-3" />{current.delivery.state === "saved" ? update ? "Updated in calendar" : "Added to calendar" : "Check calendar"}</> : null}
       </span>
       <Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Event options" title="Guests, reminders and event details" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>
     </div>
     {update && <div className="border-b border-border/60 px-5 py-3 text-xs text-muted-foreground"><p>{update.recurringEventId ? "Update this occurrence only." : "Update this existing event."} Guests stay unchanged. Calendar notifications are disabled.</p>{!current.delivery && <p className="mt-1">Currently: {update.original.title} · {calendarDraftLocalValue(update.original.start, update.original.timeZone).replace("T", " ")} to {calendarDraftLocalValue(update.original.end, update.original.timeZone).replace("T", " ")}</p>}</div>}
-    <fieldset disabled={!editable} className={`min-w-0 px-5 pb-5 pt-5 sm:px-6 ${current.delivery ? "[&_input:disabled]:opacity-100 [&_textarea:disabled]:opacity-100 [&_button:disabled]:opacity-100" : ""}`}>
+    <fieldset disabled={!editable} onBlur={() => { if (dirty && !autosave.invalid) void autosave.flush().catch(() => undefined); }} className={`min-w-0 px-5 pb-5 pt-5 sm:px-6 ${current.delivery ? "[&_input:disabled]:opacity-100 [&_textarea:disabled]:opacity-100 [&_button:disabled]:opacity-100" : ""}`}>
       <label htmlFor={`${fieldId}-title`} className="sr-only">Title</label>
       <Textarea id={`${fieldId}-title`} value={current.title} onChange={event => change({ title: event.target.value })} placeholder="Event title" rows={1} className="mb-5 min-h-0 rounded-sm border-transparent bg-transparent p-0 text-lg font-medium leading-snug tracking-tight shadow-none hover:enabled:border-transparent focus-visible:ring-0 md:text-lg" />
       <button type="button" disabled={!editable} aria-label="Edit date and time" aria-expanded={scheduleOpen} aria-controls={`${fieldId}-schedule`} className="group flex w-full items-center gap-4 rounded-xl p-1 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-50" onClick={() => setScheduleOpen(!scheduleOpen)}>
@@ -156,9 +167,9 @@ function CalendarEventDraftCard({ initial }: { initial: CalendarEventDraft }) {
     {current.connectorTarget?.connectorId === "google-calendar" && <div className="mx-5 mb-4 rounded-xl border border-border/60 p-3 text-xs">
       {conference?.url ? <a href={conference.url} target="_blank" rel="noopener noreferrer" className="text-primary underline">{conference.type === "hangoutsMeet" ? "Open Google Meet" : "Open conference"}</a> : conference?.status === "pending" ? <div className="flex items-center justify-between gap-2"><p role="status">{current.delivery ? "Event saved. " : ""}Google Meet is being created.</p>{current.delivery?.state === "saved" && <Button size="xs" variant="outline" disabled={!actionable} onClick={() => void run("provider-refresh")}>Refresh Meet status</Button>}</div> : conference?.status === "failure" ? <p role="alert">{current.delivery ? "Event saved. " : ""}Google Meet could not be created. Open Google Calendar to add a meeting link.</p> : conference?.status === "success" ? <p>This event already has a conference. Manage it in Google Calendar.</p> : current.googleCalendar?.canAddMeet === false ? <p className="text-muted-foreground">Google Meet is unavailable for this calendar.</p> : <label className="flex items-center justify-between gap-2">Add Google Meet<Switch checked={current.googleMeet} disabled={!editable} onCheckedChange={checked => change({ googleMeet: checked })} /></label>}
     </div>}
-    {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setAllDay(result.data.draft.start.length === 10); setError(null); } })}>Discard edits and reload</Button></div>}
+    {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void query.refetch().then(result => { if (result.data) { setDraft(result.data.draft); setBaseline(result.data.draft); setAllDay(result.data.draft.start.length === 10); setError(null); autosave.keepMine(); } })}>Discard edits and reload</Button></div>}
+    {autosave.replaced && <DraftReplacedNotice onUseAssistant={autosave.takeAssistantVersion} onKeepMine={autosave.keepMine} />}
     <div className="flex flex-wrap items-center gap-2 border-t border-border/60 px-4 py-3">
-      {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
       {!update && <Button size="sm" variant="ghost" disabled={!actionable || calendarQuery.isPending || added} className="gap-2" onClick={() => void run("legalwork")}>{added ? <Check className="size-3.5" /> : <CalendarDays className="size-3.5" />}{added ? "Added to LegalWork calendar" : calendarQuery.data?.item ? "Update LegalWork calendar" : "Add to LegalWork calendar"}</Button>}
       {current.connectorTarget && !update && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .ics" title="Download .ics" onClick={() => void run("download")}><Download className="size-4" /></Button>}
       {current.connectorTarget ? <ConnectorDraftActions draft={current} disabled={!actionable} onSave={() => void run("provider-save")} onOpen={() => void run("provider-open")} /> : <div className="ml-auto flex items-center gap-0">
