@@ -69,6 +69,8 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Assistant asks which email account to use | Reply Gmail or Outlook Email. It will then prepare a preview for that account. |
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
 | Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. Previously created local drafts stay local; request a new draft using the named connection. |
+| Card says **Check the To field** (or Cc, Bcc) | An address is incomplete, for example missing `.com`. Correct it in the card and use the save or send action again. Nothing was sent to your mailbox. |
+| Card says **Gmail rejected this request** or **Outlook rejected this request** | The mailbox refused the draft and did not save or send it. Check the recipients and other details, then use the save or send action again. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
 | LegalWork cannot find the chat's project folder | Restore the folder at its original location, or open a chat in the project where you now want to save the attachment and retry the download. |

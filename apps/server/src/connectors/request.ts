@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { connectorAccessToken, connectorDefinition, listConnectorConnections, savedConnectorConnections } from "./broker.js";
@@ -21,6 +22,18 @@ export type StreamingConnectorRequest = ConnectorRequest & {
   /** Recheck access when a virtual listing needs no provider HTTP request. */
   assertRead?: () => Promise<void>;
 };
+
+const providerErrorSchema = z.object({ error: z.union([z.string(), z.object({
+  code: z.union([z.string(), z.number()]).optional(), status: z.string().optional(), errors: z.array(z.object({ reason: z.string().optional() })).optional(),
+})]).optional() });
+
+/** A provider's machine-readable error code (Google reason/status, Microsoft code). Never its message, which can echo names or addresses. */
+async function providerErrorCode(response: Response) {
+  if (!response.headers.get("content-type")?.includes("json")) { await response.body?.cancel(); return undefined; }
+  const error = providerErrorSchema.safeParse(await response.json().catch(() => null)).data?.error;
+  const code = typeof error === "string" ? error : error?.errors?.[0]?.reason ?? error?.status ?? (typeof error?.code === "string" ? error.code : undefined);
+  return code && /^[\w.-]{1,64}$/.test(code) ? code : undefined;
+}
 
 /** Only provider adapters call this. Agents cannot supply arbitrary URLs or headers. */
 export async function createConnectorRequest(config: ServerConfig, id: string, requestedConnectionId?: string): Promise<StreamingConnectorRequest> {
@@ -132,7 +145,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       response = await request();
     }
     if (!response.ok && !(options.incomplete && response.status === 308)) {
-      await response.body?.cancel();
+      const providerCode = await providerErrorCode(response);
       if (response.status === 401) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);
       if (response.status === 404) throw new ApiError(404, "connector_item_not_found", "The requested item was not found.");
@@ -140,6 +153,9 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       if (response.status === 410 && id === "onedrive-personal") throw new ApiError(410, "onedrive_cursor_expired", "OneDrive Personal’s change history expired.");
       if (response.status === 412) throw new ApiError(409, definition.kind === "mail" ? "connector_message_changed" : definition.kind === "calendar" ? "connector_calendar_changed" : "connector_file_changed", definition.kind === "mail" ? "This message changed. Preview its organization again before applying changes." : definition.kind === "calendar" ? "This event changed in Google Calendar. Prepare a new update card to review the latest version." : "This file changed since you read it. Read its details again before replacing it.");
       if (response.status === 429) throw new ApiError(429, "connector_api_rate_limited", `${definition.name} is receiving too many requests. Try again shortly.`);
+      console.warn(`[connectors] ${definition.name} ${options.method ?? "GET"} returned ${response.status}${providerCode ? ` (${providerCode})` : ""}`);
+      // The provider refused the request without acting on it, so it can be corrected and retried.
+      if (response.status === 400 || response.status === 413 || response.status === 422) throw new ApiError(400, "connector_request_rejected", `${definition.name} rejected this request. Check the details and try again.`);
       throw new ApiError(502, "connector_api_failed", `${definition.name} could not complete this request.`);
     }
     options.onResponseHeaders?.(response.headers);
