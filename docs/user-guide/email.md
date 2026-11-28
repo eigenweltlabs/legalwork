@@ -53,6 +53,8 @@ Ask the assistant to draft an email. If exactly one email account is connected a
 
 The assistant can prepare a local email preview containing recipients, subject, body and supported attachments. Preparing that preview does not send it or save it in your mailbox. Review and edit it in LegalWork, then use the card's save action to put it into the connected mailbox. Sending is a separate action from the card. Inspect To, Cc, Bcc, subject, body and attachments before sending.
 
+Your edits in the card are kept automatically; there is no separate step to save them. Nothing goes to your mailbox until you use the save or send action. If the assistant changes the same draft while you are typing, your edits are kept and the card offers **Use assistant's version** or **Keep mine**. Event cards work the same way.
+
 **Allow write access** and provider consent are separate requirements. Turning the setting on does not expand an account's previously granted scopes; use **Reconnect** if it only has read permissions. Turning it off blocks LegalWork write actions but does not revoke provider-side permissions.
 
 If a saved draft changes in Gmail or Outlook, LegalWork can require you to review the provider's version instead of sending an outdated local copy. If delivery is marked uncertain, check the mailbox before retrying. A lost response is not proof that sending failed.
@@ -67,6 +69,8 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Assistant asks which email account to use | Reply Gmail or Outlook Email. It will then prepare a preview for that account. |
 | Can read but cannot save or send | Enable **Allow write access**, reconnect if scopes are missing, and check organization policy. |
 | Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. Previously created local drafts stay local; request a new draft using the named connection. |
+| Card says **Check the To field** (or Cc, Bcc) | An address is incomplete, for example missing `.com`. Correct it in the card and use the save or send action again. Nothing was sent to your mailbox. |
+| Card says **Gmail rejected this request** or **Outlook rejected this request** | The mailbox refused the draft and did not save or send it. Check the recipients and other details, then use the save or send action again. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
 | LegalWork cannot find the chat's project folder | Restore the folder at its original location, or open a chat in the project where you now want to save the attachment and retry the download. |

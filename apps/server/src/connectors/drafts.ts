@@ -153,9 +153,11 @@ export async function deliverConnectorEmailDraft(config: ServerConfig, workspace
     if (expectedConnectorId && target.connectorId !== expectedConnectorId) throw new ApiError(400, "connector_draft_provider", "Choose this draft's email connector.");
     await connectedAccount(config, target.connectorId, target.connectionId);
     if (initial.delivery?.state === "sent") throw new ApiError(409, "connector_draft_sent", "This email has already been sent.");
+    // Check addresses before the mailbox sees them; the message names the field, never the address, because errors are logged.
+    const invalid = Object.entries({ To: initial.to, Cc: initial.cc, Bcc: initial.bcc }).find(([, value]) => emailAddressSpecs(value).some((address) => !z.email().safeParse(address).success));
+    if (invalid) throw new ApiError(400, "connector_email_recipients", `Check the ${invalid[0]} field: an address is incomplete or invalid.`);
     if (operation === "send") {
-      const recipients = [initial.to, initial.cc, initial.bcc].flatMap(emailAddressSpecs);
-      if (!recipients.length || recipients.some((value) => !z.email().safeParse(value).success)) throw new ApiError(400, "connector_email_recipients", "Enter valid recipients before sending.");
+      if (![initial.to, initial.cc, initial.bcc].flatMap(emailAddressSpecs).length) throw new ApiError(400, "connector_email_recipients", "Add a recipient before sending.");
       await requireLocalOAuthSendAccess(config, target.connectorId, target.connectionId);
     }
     const request = await createConnectorRequest(config, target.connectorId, target.connectionId);

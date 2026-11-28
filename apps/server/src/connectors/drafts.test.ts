@@ -1,6 +1,6 @@
 import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { prepareConnectorStorage } from "./store.js";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +22,7 @@ const prior = new Map(["EIGENWELT_PLATFORM_URL", "LEGALWORK_RUNTIME_DB", "LEGALW
 let root: string, config: ServerConfig;
 let requests: { url: URL; method: string; body: string; headers: Headers }[];
 let googleEvent: Record<string, unknown>, meetAllowed: boolean, calendarRole: string;
-let changed = false, failSend = false, failReload = false, editDuringReload = false, gmailMime = "", outlookMime = "";
+let changed = false, failSend = false, failReload = false, rejectDraft = false, editDuringReload = false, gmailMime = "", outlookMime = "";
 const stops: (() => Promise<unknown> | unknown)[] = [];
 const owner = JSON.stringify(["https://draft-broker.test", "firm", "user"]);
 const email = { to: ["client@example.com"], cc: ["team@example.com"], bcc: ["archive@example.com"], subject: "Review Grüße", body: "Please review.", html: "<p>Please review.</p>", attachments: [{ path: "attachment.txt", contentType: "text/plain" }] };
@@ -43,7 +43,7 @@ beforeEach(async () => {
   for (const id of ["gmail", "outlook", "google-calendar"]) await writeConnectorConnections(config, owner, id, [{ id: `${id}-account`, nangoConnectionId: `${id}-private`, createdAt: null, needsReconnect: false }]);
   for (const id of ["gmail", "outlook", "google-calendar", "outlook-calendar"]) await saveConnectorWriteSetting(config, id, { writeAccess: true });
   for (const id of ["outlook", "outlook-calendar"]) await recordConnectorActivation(config, id, "outlook-account", true);
-  requests = []; changed = false; failSend = false; failReload = false; editDuringReload = false; gmailMime = ""; outlookMime = "";
+  requests = []; changed = false; failSend = false; failReload = false; rejectDraft = false; editDuringReload = false; gmailMime = ""; outlookMime = "";
   meetAllowed = true; calendarRole = "owner";
   googleEvent = { id: "existing-event", etag: '"original-version"', summary: "Original meeting", description: "Original description", location: "Original room", start: { dateTime: "2026-10-14T16:00:00+02:00", timeZone: "Europe/Berlin" }, end: { dateTime: "2026-10-14T17:00:00+02:00", timeZone: "Europe/Berlin" }, attendees: [{ email: "guest@example.com", responseStatus: "accepted" }], organizer: { email: "fixture@example.com" }, reminders: { useDefault: true }, extendedProperties: { private: { fixture: "preserve" } }, htmlLink: "https://calendar.google.com/calendar/event?eid=fixture" };
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -67,6 +67,7 @@ beforeEach(async () => {
         if (failReload) return new Response(null, { status: 404 });
         return Response.json({ message: { id: changed ? "changed-message" : "gmail-message", raw: Buffer.from(mailboxMime(gmailMime, "base64url")).toString("base64url") } });
       }
+      if (rejectDraft) return Response.json({ error: { code: 400, message: "Invalid To header: client@example.com", status: "INVALID_ARGUMENT", errors: [{ reason: "invalidArgument", message: "Invalid To header" }] } }, { status: 400 });
       gmailMime = z.object({ message: z.object({ raw: z.string() }) }).parse(JSON.parse(body)).message.raw;
       return Response.json({ id: "gmail-draft", message: { id: "gmail-message", threadId: "gmail-thread" } });
     }
@@ -277,6 +278,35 @@ test("write settings, independent Outlook activation, and account replacement bl
   await writeConnectorConnections(config, owner, "outlook", [{ id: "replacement", nangoConnectionId: "replacement-private", createdAt: null, needsReconnect: false }]);
   await expect(deliverConnectorEmailDraft(config, workspace(), mail.draft.id, mail.draft.revision, "send")).rejects.toMatchObject({ code: "connector_connection_not_found" });
   expect(requests).toHaveLength(0);
+});
+
+test("a mailbox rejection leaves the draft editable and retryable, and logs only the provider's status and code", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const { draft } = await prepareMail();
+    rejectDraft = true;
+    await expect(deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save")).rejects.toMatchObject({ status: 400, code: "connector_request_rejected" });
+    expect(EmailDraftSchema.parse(await readDraft(root, draft.id))).toEqual(draft);
+    expect(warn.mock.calls.flat().join(" ")).toContain("Gmail POST returned 400 (invalidArgument)");
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("client@example.com");
+    rejectDraft = false;
+    const saved = await deliverConnectorEmailDraft(config, workspace(), draft.id, draft.revision, "save");
+    expect(saved.draft.delivery?.state).toBe("saved");
+  } finally { warn.mockRestore(); }
+});
+
+test("incomplete addresses are refused before the mailbox is contacted, naming the field but not the address", async () => {
+  const { draft } = await prepareMail();
+  const edited = await saveEmailDraft(root, workspace().id, EmailDraftInputSchema.parse({ ...draft, to: "Chris <chris@example>" }), { id: draft.id, revision: draft.revision });
+  const before = requests.length;
+  for (const operation of ["save", "send"] satisfies Array<"save" | "send">) {
+    const failure = deliverConnectorEmailDraft(config, workspace(), draft.id, edited.revision, operation);
+    await expect(failure).rejects.toMatchObject({ status: 400, code: "connector_email_recipients", message: "Check the To field: an address is incomplete or invalid." });
+  }
+  expect(requests.slice(before).filter(item => item.url.hostname === "gmail.googleapis.com")).toHaveLength(0);
+  const empty = await saveEmailDraft(root, workspace().id, EmailDraftInputSchema.parse({ ...edited, to: "", cc: "", bcc: "" }), { id: draft.id, revision: edited.revision });
+  await expect(deliverConnectorEmailDraft(config, workspace(), draft.id, empty.revision, "send")).rejects.toMatchObject({ code: "connector_email_recipients", message: "Add a recipient before sending." });
+  expect((await deliverConnectorEmailDraft(config, workspace(), draft.id, empty.revision, "save")).draft.delivery?.state).toBe("saved");
 });
 
 test("provider edits stop sends, and an ambiguous send failure persists across reloads without automatic retries", async () => {

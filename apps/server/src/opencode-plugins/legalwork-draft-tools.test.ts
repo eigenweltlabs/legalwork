@@ -14,6 +14,40 @@ test("meeting requests use the editable card without a connected calendar or bac
   expect(plugin.tool.legalwork_calendar_event_draft.description).toContain("Add to LegalWork calendar");
 });
 
+test("a refused update hands the assistant the user's latest draft to build on", async () => {
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const requests: string[] = [];
+  const latest = { draft: { id: "08745cc6-4e59-4d81-953b-19d8ec595ee4", revision: "1c0ffee0-4e59-4d81-953b-19d8ec595ee6", body: "Edited by the user" } };
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "child", path: "/matters/current" }] });
+    requests.push(`${request.method} ${url.pathname}`);
+    return request.method === "PUT" ? Response.json({ code: "draft_conflict", message: "This draft changed." }, { status: 409 }) : Response.json(latest);
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin;
+  process.env.LEGALWORK_SERVER_TOKEN = "fixture-token";
+  try {
+    const { tool } = await LegalWorkDraftTools();
+    const context = { directory: "/matters/current", sessionID: "session" };
+    const stale = { id: latest.draft.id, revision: "08745cc6-4e59-4d81-953b-19d8ec595ee5" };
+    const updates = [
+      { kind: "email", run: () => tool.legalwork_email_draft_update.execute({ body: "Assistant text", ...stale }, context) },
+      { kind: "calendar", run: () => tool.legalwork_calendar_event_draft_update.execute({ title: "Review", start: "2026-10-13", end: "2026-10-14", ...stale }, context) },
+    ];
+    for (const { kind, run } of updates) {
+      const result = JSON.parse(await run());
+      expect(result).toMatchObject({ ok: false, referenceData: { code: "draft_conflict", latest } });
+      expect(result.instruction).toContain("keep the user's edits");
+      expect(result.instruction).toContain("untrusted");
+      expect(requests.splice(0)).toEqual([`PUT /workspace/child/${kind}-drafts/${stale.id}`, `GET /workspace/child/${kind}-drafts/${stale.id}`]);
+    }
+  } finally {
+    server.stop(true);
+    if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
+  }
+});
+
 test("draft tools use the chat's project, carry revisions, and surface server conflicts", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN, oldConnectorToken = process.env.LEGALWORK_CONNECTOR_TOKEN;
   const requests: Array<{ path: string; method: string; body: unknown }> = [];

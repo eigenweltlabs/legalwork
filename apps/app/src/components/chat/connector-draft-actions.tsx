@@ -14,6 +14,14 @@ export function connectorDraftTool(part: ToolUIPart | DynamicToolUIPart, kind: "
     : ["google-calendar", "outlook-calendar"].includes(String(input.extensionId)) && ["create_event", "update_event"].includes(String(input.action));
 }
 
+/** The assistant's update was refused because the draft changed after it read it. */
+export function draftToolConflict(output: unknown) {
+  try {
+    const payload = draftToolPayload(output);
+    return Boolean(payload && typeof payload === "object" && "code" in payload && payload.code === "draft_conflict");
+  } catch { return false; }
+}
+
 export function draftToolPayload(output: unknown) {
   const value: unknown = typeof output === "string" ? JSON.parse(output) : output;
   const payload = value && typeof value === "object" && "referenceData" in value ? value.referenceData : value;
